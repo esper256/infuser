@@ -51,6 +51,11 @@ async fn json_ok(request: reqwest::RequestBuilder) -> Result<Value> {
 #[tokio::test]
 async fn card_art_preserves_builds_and_supports_independent_presentation_updates() -> Result<()> {
     let temp = tempfile::tempdir()?;
+    // Start with the shipped pre-description schema to exercise an actual upgrade.
+    rusqlite::Connection::open(temp.path().join("platform.sqlite"))?.execute_batch(
+        "CREATE TABLE game_metadata (app TEXT PRIMARY KEY, title TEXT,
+         card_art_revision TEXT, card_art BLOB, updated INTEGER NOT NULL DEFAULT 0);",
+    )?;
     let (auth, _auth) = serve(Router::new().route(
         "/auth",
         get(|h: HeaderMap| async move {
@@ -281,6 +286,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
 
     // Presentation edits must not republish the game or alter live sessions/saves.
     assert_eq!(caps["game_metadata"]["version"], 1);
+    assert_eq!(caps["game_metadata"]["description_max_chars"], 2000);
     let metadata_path = "/api/publisher/apps/pond/metadata";
     let art_path = "/api/publisher/apps/pond/card-art";
     let before = p.db.read()?;
@@ -382,6 +388,42 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     )
     .await?;
     assert_eq!(updated["title"], "Pond After Dark");
+    assert!(updated["description"].is_null());
+    let described = json_ok(publisher(Method::PATCH, metadata_path).json(&json!({
+        "description":"  Explore a moonlit pond and collect fireflies.  "
+    })))
+    .await?;
+    assert_eq!(described["title"], "Pond After Dark");
+    assert_eq!(
+        described["description"],
+        "Explore a moonlit pond and collect fireflies."
+    );
+    for description in [" ".to_string(), "x".repeat(2001), "bad\ntext".to_string()] {
+        assert_eq!(
+            publisher(Method::PATCH, metadata_path)
+                .json(&json!({"title":"Must not change", "description":description}))
+                .send()
+                .await?
+                .status(),
+            422
+        );
+    }
+    let unchanged = json_ok(publisher(Method::GET, metadata_path)).await?;
+    assert_eq!(unchanged["title"], described["title"]);
+    assert_eq!(unchanged["description"], described["description"]);
+    assert_eq!(
+        json_ok(member("/api/library", "kid")).await?["apps"][0]["description"],
+        described["description"]
+    );
+    let cleared_description =
+        json_ok(publisher(Method::PATCH, metadata_path).json(&json!({"description":null}))).await?;
+    assert!(cleared_description["description"].is_null());
+    assert_eq!(cleared_description["title"], described["title"]);
+    json_ok(
+        publisher(Method::PATCH, metadata_path)
+            .json(&json!({"description":described["description"]})),
+    )
+    .await?;
     assert_eq!(
         json_ok(member("/api/games/pond", "kid")).await?["title"],
         "Pond After Dark"
@@ -437,6 +479,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         Some("Pond After Dark")
     );
     assert_eq!(reopened.metadata_art("pond", &revision)?.unwrap(), bytes);
+    assert_eq!(
+        reopened.read()?.metadata["pond"].description.as_deref(),
+        Some("Explore a moonlit pond and collect fireflies.")
+    );
     let mut replacement = Vec::new();
     image_webp::WebPEncoder::new(&mut replacement).encode(
         &vec![17; 1024 * 1024 * 3],

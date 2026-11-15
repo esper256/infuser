@@ -18,7 +18,9 @@ user must complete the acceptance checklist before broad distribution.
 
 Keep its current title screen, project name and gameplay. Copy
 `examples/godot-web/addons/infuser` and register `Infuser` as the first autoload.
-Use the same declared cloud groups/checkpoint calls as the web recipe, and the
+Put the play modes, SDK requirement, and cloud groups in `infuser.game.json`
+as in the [existing-project example](../../examples/godot-existing/infuser.game.json).
+Use the same checkpoint calls as the [web recipe](godot-web.md), and the
 same reusable conflict chooser. `ready` provides the player and guest identity.
 Native calls use HTTPS and a scoped game credential, not a browser bridge.
 

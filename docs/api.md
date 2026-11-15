@@ -1,15 +1,16 @@
 # Lifecycle API
 
 The Rust daemon binds to `127.0.0.1:7777` by default. A trusted website backend
-will authenticate the player, enforce membership, and request a lease on their
+authenticates the player, enforces membership, and requests a lease on their
 behalf. Never give a browser or game the control token. These routes are versioned
-independently from the future public publishing API.
+independently from the [public publishing and game APIs](public-api.md). Game-making
+agents should use those public APIs and the SDK, not these operator routes.
 
 | Method | Route | Credential | Purpose |
 | --- | --- | --- | --- |
 | GET | `/healthz` | None | Process liveness, not Docker readiness |
 | GET | `/v1/apps` | Control token | States and reserved resources |
-| GET | `/v1/capabilities` | Control token | Explicit supported multiplayer modes and publishing availability |
+| GET | `/v1/capabilities` | Control token | Controller-managed server capabilities; use `/api/publisher/capabilities` for game integrations |
 | POST | `/v1/apps/{app_id}/leases` | Control token | Launch or join; body `{"session_id":"stable-player-session-id"}` |
 | GET | `/v1/apps/{app_id}/leases/{lease_id}` | Lease token | Poll readiness; does not renew |
 | PUT | `/v1/apps/{app_id}/leases/{lease_id}` | Lease token | Heartbeat; no body |
@@ -50,12 +51,10 @@ backoff. The daemon does not evict games with active leases to admit another gam
 
 Idle means no live player leases, not low CPU or a lack of packets. A game server
 must not renew an empty world's lease forever. Background browser timer throttling
-can expire a browser lease; the future website backend can own renewal for
-confirmed active sessions. Persistent volumes survive sleep, but the game must
+can expire a browser lease. Games must handle expiry and offer explicit rejoining. Persistent volumes survive sleep, but the game must
 checkpoint on SIGTERM before its configured shutdown deadline.
 
 Direct TCP/UDP game ports are not protected by website cookies. The game protocol
-must authenticate players before admitting them. The future public player API
-will provide game-bound admission tickets; do not treat an open port or the
-control API's launch permission as an authenticated in-game connection. Until
-that integration is installed, bind native servers to loopback/private networking.
+must authenticate players before admitting them. Validate game-bound player
+tickets through `/api/server/verify` as described in the [public API](public-api.md).
+An open port or an IP firewall exemption is not authenticated game membership.

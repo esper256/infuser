@@ -1,205 +1,137 @@
 # Put an existing game on Infuser
 
-Start with the game's engine. Do not ask the child to configure a server, Docker,
-DNS, or ports. Keep their existing game and build workflow intact.
+Keep the game's name, engine, gameplay, and build workflow. The child supplies the
+Add a game prompt; you handle integration and publishing. They should not need to
+configure hosting, manage credentials, or create a GitHub account.
 
-The game-making agent owns the build and publishing loop. “Update it on Infuser”
-means build using the project's existing tools, then invoke `infuser publish`.
-“Publish every update” is an instruction to that agent, not an Infuser watcher.
-Supply prebuilt output with `--web-dir dist` (or the project's actual export path);
-automatic build detection is only a convenience. GitHub is not required for games.
+## Connect once
 
-Three.js/Vite is the first supported journey. Godot web and native Godot are
-preview integration studies; use the tested recipes below and report unsupported
-features explicitly. Bevy remains paused while these contracts settle.
+1. Look for this game's existing Infuser connection. Reuse its credentials and app
+   ID on the target server, even if the prompt reserves a different ID. Do not
+   create a duplicate game.
+2. Otherwise, exchange the prompt's setup code **before lengthy code changes**.
+   Codes last three hours from creation and work once. Use a [prebuilt publisher](publisher-install.md)
+   on macOS or Linux, or the [HTTP recipe](publishing-http.md) with existing tools
+   on macOS, Windows, or Linux. Rust and Docker are not required.
+3. With the CLI, supply the code on stdin to
+   `infuser connect --server HTTPS_ORIGIN --app APP`. It writes
+   `.local/APP.credentials.json`. Keep `.local/` and `*.credentials.json` out of
+   Git and game exports. Never print secrets or put them in command arguments.
+   Reuse this file for updates. If the code expires, use **Refresh code** for the
+   same app; do not reserve another game.
+4. Read `GET /api/publisher/capabilities` with the connection's bearer token.
+   Integrate only features this installation advertises. Never give a game its
+   publishing credential or the operator's control token.
 
-1. Inspect this project for an existing integration with the target Infuser.
-   Reuse its game-scoped credentials and immutable app ID if present, even if the
-   new prompt offers a different reserved ID; leave that unused setup code alone.
-   Do not duplicate an already-connected game. Otherwise the copied prompt
-   contains a one-time setup code, server origin, and app ID. Supply the code on
-   stdin to `infuser connect --server HTTPS_ORIGIN --app APP`. The CLI exchanges it
-   once and stores `.local/APP.credentials.json`. Do not echo secrets into logs or
-   shell history. Ignore `.local/` and `*.credentials.json` in Git and exports.
-   The code expires in three hours; the child can use **Refresh code** for the same
-   app. An operator-supplied credentials file also works. Never create another
-   app just to refresh credentials.
-2. Inspect the project, then choose the closest recipe:
-   - **[Three.js / Vite / browser JavaScript](engines/threejs-vite.md)** — first supported journey.
-   - **[Existing PeerJS multiplayer](peerjs.md)** — preserve PeerJS messages and standalone play; add private Infuser connection setup.
-   - **[Godot web export](engines/godot-web.md)** — export and adapter path.
-   - **[Godot multiplayer](engines/godot-multiplayer.md)** — explicit transport choices; recipe in progress.
-   - **[Godot desktop](engines/godot-native.md)** — Infuser Play for Windows/Linux and single-player exports.
-   - **[Bevy](engines/bevy.md)** — browser export first; recipe in progress.
-3. Declare the [SDK/API major and required capabilities](sdk-versioning.md) for
-   new integrations; use the matching versioned runtime import. Query
-   `GET /api/publisher/capabilities` with the pass's bearer token before
-   choosing a multiplayer integration. Engine choice does **not** tell you the
-   game's topology. Solo and multiplayer may both be supported.
-4. Use a [prebuilt publishing CLI](publisher-install.md) for **macOS (Apple Silicon
-   or Intel)** or Linux (AMD64/ARM64). No Rust or Docker installation is needed.
-   The commands in this guide work with either CLI. If downloading/running a tool
-   is unavailable or needs approval, use the supported [HTTP publishing recipe](publishing-http.md)
-   with existing tools such as `curl`; do not block the child on a toolchain
-   installation. Windows agents can also use that recipe, or the Linux CLI in WSL.
-   Infuser Play is the native player application, not the publishing CLI.
-5. Integrate saves, publish, then exercise a real player journey. An upload alone
-   is not completion. Use `--preview` for admin-only dogfood/test games.
-6. If the child reports a platform problem or you hit one while integrating,
-   follow [Reporting platform problems](#reporting-platform-problems) below.
-   Handle the investigation and GitHub report; the child should not need to
-   diagnose the SDK or manage a GitHub account.
+## Choose the integration
 
-The child opens **Add a game**, copies the prompt, and pastes it into the chat
-where they built their game. There is no name form or file management. Infer the
-existing title from the project and put it in `infuser.game.json`; do not rename
-the game or start a new project. First publication assigns its readable URL.
-The dialog shows the API-provided supported engine list; do not promise an
-unvalidated adapter for an engine outside that list.
-Only adult admins can invite or disable members. A disabled member's
-publisher credentials and player sessions stop working.
+| Existing project | Instructions |
+| --- | --- |
+| Three.js, Vite, or plain HTML/JavaScript | [Browser games](engines/threejs-vite.md) |
+| Browser game using PeerJS | [PeerJS adapter](peerjs.md), including standalone play |
+| Godot web | [Web export and saves](engines/godot-web.md), then [multiplayer](engines/godot-multiplayer.md) if needed |
+| Godot native, single-player Windows/Linux | [Infuser Play preview](engines/godot-native.md) |
 
-**SDK status: pre-1.0.** Read the [compatibility review](sdk-contract.md). The current
-integration is for dogfooding; do not mistake manifest schema 1 for SDK 1.0 or
-invent APIs for achievements. Play opens the
-game's own title screen; keep its Single player/Multiplayer selection intact.
+Godot and PeerJS adapters are previews with the limitations in their recipes.
+[Bevy](engines/bevy.md) has no validated integration yet. Do not promise support
+based only on an engine's ability to export a web page.
 
-Infer a few initial tags from the actual game. Prefer the supplied catalog or
-`GET /api/publisher/tags`; put up to eight tag IDs in `infuser.game.json`, for
-example `"tags":["3d","arcade","chill"]`. Later publishes preserve author edits.
-
-For Library card artwork, follow the draft [card hero art guide](card-art-guide.md).
-Keep `infuser-art/card-hero.webp` in the project; `infuser publish` validates and
-attaches it automatically when the server advertises `card_art`. Review the art
-in the Library after publication. No artwork manifest field or game SDK call is
-needed; source masters and notes stay in the project. For a cover-only or Library
-title-only change to an existing game, use the [metadata API](game-metadata.md)
-with its existing connection file. Do not rebuild or republish the game just to
-replace its cover. Explicit artwork overrides take precedence over build art
-until cleared; keep the source copy in the project as well.
-
-## What Infuser handles
-
-- HTTPS, game hosting at `/` on an isolated hostname, MIME types, range requests,
-  health-aware server startup, and idle shutdown.
-- A small browser SDK, automatically included in the uploaded entry page by
-  `infuser publish`, maintains the session while the game is open.
-- Cloud-save namespaces bound to the signed-in player and game; guest play gets a
-  new empty namespace **and a new browser origin**. Never copy local progress
-  into guest saves or fall back to the owner's identity.
-- [Declared JSON checkpoints](cloud-save-design.md), when capabilities advertise
-  `cloud_checkpoints.version = 1`. Submit complete groups, handle preserved
-  conflicts explicitly, and reuse the same commit ID when retrying a write.
-- Immutable builds. Existing browser sessions keep their selected build. Server
-  updates are queued while the shared server is active and activate automatically
-  after it sleeps. Check `publication_state` on the build to distinguish an upload
-  from an activated update; the CLI reports this distinction.
-- One shared server per game. A second player joins it; never create a parallel
-  lobby/world merely because a connection fails.
-- [On-demand managed server sessions](runtime-sessions.md): opt in with
-  `"server_start":"on_demand"`, then acquire when a mode needs the backend and
-  release when it does not. Title screens and client-only single player use no
-  server reservation. Peer-hosted games use `peers.join()` instead.
-- [In-game presence and peer joinability](presence.md): query `presence.get()`
-  on the title screen, distinguish online/game open/multiplayer, and join the
-  observed session ID. Only the host advertises when new players may join.
-- [Join friend launch intents](launch-intents.md): opt in explicitly, consume
-  once, join the supplied friend/session, and fall back to the title screen if
-  unavailable. Ordinary Play retains the game's normal mode selection.
+For new integrations, declare [SDK/API major 1 and required capabilities](sdk-versioning.md)
+in `infuser.game.json`; import `/_infuser/sdk/v1.js`. Major 1 is still a preview,
+not a frozen SDK 1.0. Existing games keep their declared version unless deliberately
+migrated. [Achievements are not implemented](sdk-contract.md).
 
 ## Explicit play modes
 
-For an existing solo game, `--solo` is the only gameplay declaration needed.
-For dual-mode or multiplayer games, supply `infuser.game.json`, for example:
+Declare the game's actual modes in `infuser.game.json`. `play_modes` accepts
+`["solo"]`, `["multiplayer"]`, or both; `solo` is the API spelling of Single player.
+For single player, set `solo_runtime` to `client_only` or `shared_server`.
+Multiplayer also declares its topology, transport, capacity, and join policy.
+Copy the complete example from the matching multiplayer recipe.
 
-```json
-{
-  "title": "Moon Racers",
-  "play_modes": ["solo", "multiplayer"],
-  "solo_runtime": "client_only",
-  "multiplayer": {
-    "mode": "dedicated",
-    "transport": "websocket",
-    "max_players": 8,
-    "join_policy": "anytime"
-  }
-}
-```
+- **Peer-hosted:** one player hosts the shared room. WebRTC requires Infuser TURN
+  fallback, even when LAN or direct internet connections work. Use the
+  [browser peer SDK](peer-hosting.md), Godot adapter, or PeerJS adapter as appropriate.
+  Test with relay forced; LAN-only and direct-only networking are unsupported.
+- **Dedicated / persistent world:** one managed server per game. Advanced server
+  configuration is available through the [publishing API](public-api.md); automatic
+  engine-server packaging is not. Use [on-demand sessions](runtime-sessions.md)
+  when the title screen or single-player mode does not need the backend.
+- The separate `relayed` datagram/WebSocket mode is **not implemented**.
 
-A server recipe adds its managed server settings. Do not invent support for an
-unavailable runtime. `peer_hosted` always requires relay fallback, even if direct
-connection is an optional optimization. Experimental [WebRTC peer hosting](peer-hosting.md)
-is available on installations configured with TURN; check capabilities first.
-The separate datagram/WebSocket relay mode is not implemented. There is no
-LAN-only/direct-only fallback.
+Engine choice does not determine networking. Never relabel multiplayer as single
+player to get an upload accepted, or create another room after a failed join.
+Play opens the game's own title screen. [Presence](presence.md) and optional
+[Join friend](launch-intents.md) let that screen show and join existing players.
 
-A [readable game link](game-urls.md) is assigned automatically. Keep the immutable
-app ID for updates. A slug rename preserves old entry links and cloud saves.
+## Saves and presentation
 
-## Updates and cleanup
+Wire saves into real load/checkpoint operations. Use conditional writes and show
+conflicts without discarding either version. For related JSON files, use
+[declared checkpoints](cloud-save-design.md). Guest launches must start empty and
+never import or overwrite the owner's progress. Infuser supplies the isolated
+identity and storage; the game must use them.
 
-Repeat the same publish command using the same game pass. The CLI creates a new
-immutable build and promotes it. A failed upload leaves the working game alone.
-An abandoned build can be inspected/deleted through the publishing API.
+Choose up to eight initial tags from the prompt or `GET /api/publisher/tags` and
+put them in `infuser.game.json`. Later publications preserve author tag edits.
+
+Prepare a Library cover following the [card art guide](card-art-guide.md). An
+existing suitable image or HUD-free screenshot is fine; image generation is not
+required. Put the delivery image at `infuser-art/card-hero.webp`. If no suitable
+art or image tools are available, publishing can use the fallback: clearly report
+that the cover is missing, rather than silently skipping it.
+
+After first publication, use the [metadata API](game-metadata.md) to save a short,
+factual `description`: what players do, the game's setting, and any distinctive
+visuals. Read existing metadata before editing; preserve an author's description
+unless the game has changed. This gives future agents context for artwork and
+updates. Cover, description, and Library-title edits do not require a new build.
+
+## Publish and verify
+
+Use the project's existing build tools, then publish from its root with the
+built output path. For example, after building a Vite game:
 
 ```sh
-infuser publish /private/game.credentials.json /path/to/project --solo
-infuser publish /private/game.credentials.json /path/to/project --solo --preview
-infuser unpublish /private/game.credentials.json
+infuser publish .local/APP.credentials.json . --web-dir dist
 ```
 
-Unpublish removes the game from the library and expires its sessions, preserving
-builds and personal saves. Unused builds can then be deleted to reclaim disk.
+This reads `infuser.game.json` and project artwork. `--web-dir` skips building;
+it must point to an existing export. Follow the engine recipe for other formats.
+Upload only public runtime assets. The CLI injects the SDK into uploaded HTML;
+it does not implement saves or networking for you.
 
-The low-level [public API](public-api.md) is the escape hatch for custom pipelines,
-not the starting point. Never give a game the operator control token or its
-publishing credential. Keep individual game secrets out of container images.
+Verify a real launch, save/reload, guest isolation, and every declared multiplayer
+mode. Check the Library title, tags, description, and cover. Only adult admins can
+play `--preview` publications; do not hide a child's game from them by using it.
+An upload alone is not completion. A multiplayer update may be **queued** until
+its active session ends; check `publication_state` and report that accurately.
+
+“Update it on Infuser” means build and publish with the same connection and app ID.
+“Publish every update” is an instruction to the developing agent, not an Infuser
+watcher. Games do not need a GitHub repository. Failed uploads leave the active
+build intact. `infuser unpublish CREDENTIALS` hides a game and expires sessions,
+but retains builds and personal saves; use it only when requested or cleaning up
+an agreed disposable test.
 
 ## Reporting platform problems
 
-Report problems with **Infuser** (the website), **Infuser Play** (the native app),
-publishing, the SDK, saves or multiplayer infrastructure in
-[esper256/infuser issues](https://github.com/esper256/infuser/issues). This applies
-both when a child says something is broken and when the developing agent hits a
-platform error, unclear instructions or a missing capability.
+For problems with Infuser, Infuser Play, publishing, or the SDK:
 
-1. Reproduce the problem and check the current recipe/capabilities. Fix ordinary
-   game-code mistakes in the game project. If the evidence points to Infuser, or
-   documented behavior still fails and the cause is uncertain, report what you
-   observed. Describe an unsupported capability as a request, not a proven bug.
-2. Search existing open **and closed** issues for the same symptom. Add useful
-   new evidence to a matching open issue instead of filing a duplicate. If a
-   closed issue has regressed, open a new report and link it.
-3. File a concise issue using the agent's connected GitHub tool or authenticated
-   GitHub CLI. Include the affected component, reproduction steps, expected and
-   actual behavior, relevant versions, and a small sanitized error/log excerpt.
-   Note how often it happens, whether it blocks play or publishing, and any
-   workaround tried. A child's description is useful context; translate it into
-   reproducible steps without requiring the child to supply technical details.
-4. Give the child the issue link and a short explanation of what still works.
-   Continue with a safe workaround when possible. Keep their game, connection,
-   builds and saves intact; never hide a platform failure by wiping progress,
-   weakening authentication or quietly dropping multiplayer.
+1. Reproduce the failure and check the recipe and server capabilities. Fix ordinary
+   game-code mistakes locally. Report unsupported features as requests, not bugs.
+2. Search [open and closed issues](https://github.com/esper256/infuser/issues).
+   Add evidence to a matching open issue; link a closed issue if it has regressed.
+3. Use your connected GitHub tool or authenticated CLI to file a short report:
+   steps, expected/actual results, relevant versions, a sanitized error excerpt,
+   impact, and any workaround. Give the child the confirmed issue link.
 
-Reports are **public**. Do not paste the Add Game prompt, setup codes, credential
-files, cookies, authorization headers, launch URLs/tickets or TURN credentials.
-Replace private server domains/IPs, account details and local paths with examples
-such as `games.example.com` and `/path/to/project`. Share only a minimal sanitized
-reproduction, not the child's private source tree, saves or an unreviewed log
-bundle. Review screenshots too. If a suspected security vulnerability or sensitive
-report cannot be safely described publicly, bring it to the adult admin privately.
+Reports are public. Exclude the copied prompt, codes, credentials, cookies, launch
+URLs, TURN secrets, private domains/IPs, account details, and private game data.
+Use example domains and paths. Review screenshots and logs before including them.
+Bring security-sensitive findings to the adult admin privately.
 
-For the CLI, write the reviewed report to an ignored local file, then use:
-
-```sh
-gh issue list --repo esper256/infuser --state all --search "brief symptom"
-gh issue create --repo esper256/infuser --title "[SDK] Brief concrete symptom" \
-  --body-file .local/infuser-issue.md
-```
-
-Use the GitHub account already available to the agent. Infuser publishing tokens
-are **not** GitHub credentials. If GitHub access is unavailable, keep the sanitized
-report in `.local/infuser-issue.md` for an adult to submit, provide the issue-page
-link, and clearly say it has **not** been filed. Do not ask the child to create an
-account, paste a token, or do the debugging. Never claim an issue was filed without
-a confirmed issue URL.
+If GitHub access is unavailable, save the sanitized report in
+`.local/infuser-issue.md` for an adult and say it has **not** been filed. Do not ask
+the child for GitHub credentials. Continue safe workarounds without wiping saves,
+weakening authentication, or quietly dropping multiplayer.

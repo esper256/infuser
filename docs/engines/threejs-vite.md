@@ -1,8 +1,8 @@
 # Three.js / Vite: first-class browser publishing
 
-**Goal:** an agent with an existing game and a game pass should need no hosting
-configuration. This also covers ordinary Vite/React, Phaser, Babylon.js, and
-vanilla browser exports, though Three.js is the first dogfood target.
+Use this recipe for existing Three.js/Vite or plain HTML/JavaScript games. Other
+browser engines may produce compatible exports, but their adapters have not been
+validated by this recipe. Start with the [agent guide](../agents.md).
 
 ## First publish
 
@@ -53,20 +53,23 @@ save namespace to use. Keep its version value; a `409` means another device
 changed the save. Reload and resolve the game's data deliberately, rather than
 retrying with a guessed version. Include your own save schema version in `data`.
 Handle network/session errors visibly; do not say “saved” until the write succeeds.
-Outside Infuser, a development-only local save adapter is fine, but do not
-silently fall back to local saves when a production cloud write fails.
+For standalone play, use [optional platform detection](../peerjs.md#keep-one-project-working-in-both-places)
+to select the existing local save/networking path when Infuser is absent. A failed
+hosted cloud write must never silently switch to local saves.
 
 ## Verify the experience
 
-1. Publish with `--preview` during development (adult admins only).
+1. Publish normally for the owner to test. Use `--preview` only for adult-admin tests.
 2. Play from the Library, earn progress, close and reopen, and confirm it loads.
 3. Choose **Play in guest mode**: progress must start empty. Earn different progress.
 4. Reopen ordinary play: the owner's original progress must be unchanged.
 5. Publish a visible change. Existing tabs retain the previous build; a fresh Play
    receives the new one. Inspect missing assets rather than hiding them with SPA fallback.
-6. Unpublish the test game before making the final game visible if it is disposable.
+6. Remove agreed disposable test games when finished; keep the actual game published.
 
 For multiplayer, declare the real mode and transport in `infuser.game.json` and
 check capabilities first. Do not label an online game solo to get it published.
-The managed WebSocket server recipe is next; custom advanced server settings
-exist but should not be the first question the agent asks the child.
+Use [WebRTC peers](../peer-hosting.md) or the [PeerJS adapter](../peerjs.md) for
+compatible peer-hosted games. Dedicated WebSocket servers require explicit
+[managed server settings](../public-api.md); automatic engine-server packaging
+is not implemented.

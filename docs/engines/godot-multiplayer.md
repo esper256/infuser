@@ -1,4 +1,4 @@
-# Godot multiplayer: experimental web study
+# Godot multiplayer: web preview
 
 Determine whether the existing game uses WebRTC, WebSocket or ENet. Single-player
 support is independent of multiplayer topology. Preserve the game's architecture
@@ -13,7 +13,7 @@ Firefly's JSON messaging helper.
 - Normal play: `direct_connect: optional`, `peers.join(false)`. ICE prioritizes
   LAN host candidates, direct internet candidates, then relays, using connectivity
   checks. TURN remains mandatory and available. No UPnP required.
-- Forced fallback test: `?autoplay=1&multiplayer=1&relay=1`. The client explicitly
+- Lantern Lake fixture only: `?autoplay=1&multiplayer=1&relay=1`. The client explicitly
   requests relay-only ICE. Deterministic movement generates real RPC traffic
   without a model or tokens.
 - One shared session: the first arrival hosts; the other joins the same epoch.
@@ -34,7 +34,7 @@ Flatpak Chrome with both threaded and single-threaded exports. It accelerates th
 renewal deadline while using real TURN credentials; it does not claim a full-hour
 soak or physical suspend test. Native multiplayer remains a separate study.
 
-Other engine paths remain studies:
+The following paths are not validated Godot integrations:
 
 - **WebSocket + dedicated Godot server:** the controller and authenticated proxy
   exist; ARM64 headless packaging, readiness, admission and shutdown need a real

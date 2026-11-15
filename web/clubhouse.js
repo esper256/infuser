@@ -368,24 +368,23 @@ let newGameConnection, setupPending=false;
 function showSetupPrompt() {
   const engines=(newGameConnection.supported_engines||[{label:'Three.js / Vite'},{label:'plain HTML/JavaScript'}]).map(engine=>engine.label);
   $('engine-support').textContent='Supported now: '+engines.join(' and ')+'. More engines are coming.';
-  $('agent-prompt').value=`Publish the game in this existing project to Infuser. Continue this game; do not replace it or start a new project.
+  $('agent-prompt').value=`Publish this existing game to Infuser. Keep its name, engine, gameplay, and project structure.
 
-Read https://github.com/esper256/infuser/blob/main/docs/agents.md and use the recipe for the engine already in this project. Preserve the gameplay, art, and project structure. This game already exists in this project. Detect its current title and engine from the project; use that title in infuser.game.json. Do not ask me to rename it or rebuild it from scratch.
+Start here: https://github.com/esper256/infuser/blob/main/docs/agents.md
+Follow its engine recipe, publishing steps, and problem-reporting instructions.
 
-ONE-TIME SETUP CODE (expires after three hours):
+Server: ${newGameConnection.api_url}
+Reserved app ID: ${newGameConnection.app_id}
+One-use setup code (expires ${new Date(newGameConnection.expires_at*1000).toISOString()}):
 ${newGameConnection.setup_code}
 
-First inspect this project for an existing Infuser integration and working credentials for this same game on ${newGameConnection.api_url}. If present, reuse that connection and its original app ID; ignore the provided setup code and update the existing game instead of creating a duplicate.
+First look for this game's existing connection to this server. Reuse it and its original app ID, ignoring this code if already connected. Otherwise exchange the code before lengthy editing, using the guide's CLI or HTTP recipe. Save the permanent connection privately under .local/; exclude credentials from Git, exports, and logs. Reuse it for every update.
 
-Otherwise, use the reserved app ID ${newGameConnection.app_id}. Follow docs/publisher-install.md for a prebuilt publishing CLI on macOS (Apple Silicon or Intel) or Linux; no Rust or Docker is needed. If running a downloaded tool is unavailable, use docs/publishing-http.md with existing tools such as curl instead. With the CLI, feed the setup code to 'infuser connect --server ${newGameConnection.api_url} --app ${newGameConnection.app_id}' on stdin. It exchanges the code once and saves the permanent game-scoped credentials under .local/. Keep .local/ and *.credentials.json out of Git and game exports. Do not print or echo setup tokens or permanent credentials. If this project already has working credentials for this app ID, reuse them.
+Declare the actual Single player/Multiplayer modes. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Explain unsupported features rather than silently removing them.
 
-Available tag IDs in this Infuser: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting default tags from the game’s design and code; prefer these existing IDs. Put them in infuser.game.json. Query the current tag catalog after connecting if needed.
+Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Save a short factual game description through the metadata API. Include Library cover art following the art guide; existing art or a suitable screenshot is fine. If you cannot provide a cover, explicitly tell me it is missing.
 
-Inspect the engine and build scripts, declare the game's actual Single player / Multiplayer capabilities, integrate cloud saves and isolated guest play, build, publish, and verify the result. Handle routine setup yourself. Do not ask me to configure Docker, DNS, ports, or hosting. If the existing multiplayer transport is unsupported, explain the exact blocker instead of downgrading it.
-
-If I report a problem with Infuser or Infuser Play, or you hit a platform/SDK/publishing problem, investigate and follow the Reporting platform problems section in docs/agents.md. Search https://github.com/esper256/infuser/issues for duplicates, then file a useful sanitized report with your connected GitHub tool or CLI and give me the issue link. Never include this prompt, setup codes, credentials, private server details, or private game data in a public issue. If you cannot file it, prepare a report for an adult and say it has not been filed; do not ask me to manage GitHub credentials.
-
-Future updates must reuse the saved connection and the same app ID. Tell me when the game is ready to play in my library.`;
+Build with this project's tools, publish, and test a real launch, saves, guest play, and multiplayer where supported. Handle routine hosting setup yourself. Tell me what is ready, anything still queued or untested, and any reported platform issue links.`;
   $('add-game-title').textContent='Bring your game';
   $('refresh-setup').textContent='Refresh code';
   $('setup-expiry').textContent='One use · expires '+new Date(newGameConnection.expires_at*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+'.';

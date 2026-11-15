@@ -1,7 +1,8 @@
 # Fast development, automatic deployment
 
 Development does not wait for CI. Push changes normally; one small workflow runs
-the fast journey tests and builds native Linux ARM64/AMD64 binaries in parallel.
+the journey tests and builds Linux ARM64/AMD64 controllers, macOS ARM64/AMD64
+publishers, and Windows/Linux Infuser Play installers.
 Passing runs publish an immutable `build-COMMIT` GitHub release. A failed run
 publishes nothing, so the live server keeps its working version while development
 continues. New pushes cancel obsolete runs. There are no added PR approval gates,
@@ -13,14 +14,15 @@ Actions. The public repository contains only generic deployment templates.
 
 ## Release path
 
-1. Tests and native builds pass on both architectures.
-2. CI uploads both binaries and a SHA-256 manifest to a draft release.
+1. Tests and builds pass across the release matrix.
+2. CI uploads the artifacts and SHA-256 manifest to a draft release.
 3. It checks that the commit is still the main-branch head before publishing.
 4. A host timer checks the latest published manifest approximately once a minute.
 5. The updater downloads the host's binary, checks its digest and validates the
    installed configuration with the candidate executable.
 6. It atomically switches `current`, restarts the controller, and checks `/healthz`
-   for the exact new build ID. Game containers continue running.
+   for the exact new build ID. Game containers continue running; peer rooms end
+   when the controller restarts, so their players must rejoin.
 7. If activation fails, it restores the previous binary and verifies its health.
    The failed release is held until a newer build arrives or an operator clears
    the local `failed-release` file to retry it.
@@ -69,6 +71,6 @@ deployment configuration, OAuth credentials, publisher connection files and
 local state. Files named `*.credentials.json` and `*.secret` are ignored too.
 Only sanitized examples belong in `deploy/`. Do not force-add private files.
 
-This release workflow is for Infuser itself. Game builds will use the publishing
-API and preview/default branches independently; publishing a game must not wait
-for a rebuild of the Infuser daemon.
+This workflow releases Infuser itself. Game agents publish immutable builds
+independently through the publishing API. Hidden previews are a visibility
+setting, not separate branches. Game updates do not require a daemon rebuild.

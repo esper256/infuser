@@ -1,6 +1,6 @@
 # Godot web: export, upload, play
 
-This second engine study is experimental. The real Godot/WASM
+This adapter is a preview. The real Godot/WASM
 [Lantern Lake journey](../../examples/godot-web/README.md) covers cloud saves,
 guest refresh/isolation, conflicts, save retries, and forced-relay multiplayer.
 Tested: Godot 4.7.2 standard/GDScript, Compatibility renderer, both single-threaded
@@ -14,17 +14,22 @@ For an existing project with a **Web** export preset and matching Godot export
 templates installed on the game-making machine:
 
 ```sh
-infuser publish /private/game.credentials.json . --solo --title "My Game"
+infuser publish /private/game.credentials.json .
 ```
 
 The CLI detects `project.godot`, finds the Web preset, runs a headless release
 export into a temporary directory, and uploads it. Use `--godot godot4` if that
 is your executable's name. It does not need Godot on the Infuser server.
 
-For an already-exported game:
+First put the actual play modes, SDK requirement, and save declarations in
+`infuser.game.json` at the project root, following the linked example. Use
+`--solo` only for genuinely single-player games.
+
+For an already-exported game, still pass the project root so declarations and
+artwork are included:
 
 ```sh
-infuser publish /private/game.credentials.json /path/to/export --solo
+infuser publish /private/game.credentials.json /path/to/project --web-dir /path/to/export
 ```
 
 Keep `index.html`, `.pck`, `.wasm`, JS, and other exported files together.
@@ -33,8 +38,9 @@ threaded exports; set `cross_origin_isolation` explicitly in `infuser.game.json`
 if the export needs different behavior. Missing WASM/assets return 404. Large
 assets support HTTP range requests. Current limits: 64 MiB/file, 256 MiB/build.
 
-For a new integration declare SDK major 1 as in the example. Copy its experimental
-`addons/infuser` folder, add the `Infuser` autoload, and include
+Declare SDK major 1 as in the [example manifest](../../examples/godot-web/infuser.game.json).
+Copy [addons/infuser](../../examples/godot-web/addons/infuser), put the `Infuser`
+autoload before game autoloads, and include
 `addons/infuser/*.js` in the Web preset's non-resource include filter. The bridge
 is packaged in the PCK and imports `/_infuser/sdk/v1.js` on the game's origin.
 It retains callbacks and returns explicit results. Connect it at the game's
@@ -54,7 +60,8 @@ The study retained its title, scenes, assets and gameplay, adding a best-score
 checkpoint at game-over. Real gameplay, save/reload and guest isolation passed.
 
 Declare `launch_intents: ["join_friend"]` for supported peer-hosted games. Consume
-the intent once at startup and pass it to `peers.join(false, intent)`. A stale
+the intent once at startup and pass it to the Godot peer adapter as
+`peers.join(false, intent)`; this is GDScript, not the JavaScript SDK signature. A stale
 target must return to the title screen, never retry as a new host. Ordinary Play
 still opens the game's normal title screen.
 
