@@ -91,8 +91,11 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game { display: flex; flex-direction: column; gap: 24px; position: relative; isolation: isolate; container-type: inline-size; width: 100%; max-width: 100%; min-width: 0; aspect-ratio: .95; min-height: 380px; padding: 16px; border: 1px solid #ffffff26; border-radius: 22px; overflow: visible; background: #102d32; box-shadow: 0 18px 50px #0004; transition: transform .25s ease,border-color .25s ease,box-shadow .25s ease; }
 .game:before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: linear-gradient(#03101a66,transparent 30%,transparent 65%,#001b2655); pointer-events: none; }
 .game-art { position: absolute; z-index: -2; inset: 0; border-radius: inherit; background: var(--card-art) center 32% / 88% auto no-repeat, radial-gradient(ellipse at 55% 35%,#38645166,transparent 72%), #0a202b; }
-.game-meta { display: flex; flex-wrap: wrap; align-content: start; align-items: center; gap: 7px; }
-.game-tags { gap: 5px; min-height: 0; margin: 0; justify-content: flex-start; }
+.game-meta { display: grid; grid-template-columns: minmax(0,1fr); align-content: start; gap: 3px; }
+.game-tags { flex-wrap: nowrap; gap: 5px; min-height: 0; margin: 0; padding: 4px; justify-content: flex-start; overflow-x: auto; scrollbar-width: thin; }
+.game-tags > button { scroll-margin-inline: 4px; flex: none; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.game-tags > button:focus-visible { outline-offset: 1px; }
+.game-meta > .game-mode { width: fit-content; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .game-tags .tag-chip,.edit-tags { background: #061b25cf; border-color: #d6f4e238; color: #e2efe6; min-height: 28px; padding: 4px 9px; backdrop-filter: blur(8px); }
 .edit-tags { border-style: dashed; opacity: 0; pointer-events: none; }
 .game-tags:focus-within .edit-tags { opacity: 1; pointer-events: auto; }
@@ -101,6 +104,9 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game-dock { position: relative; align-self: flex-end; margin-top: auto; width: max-content; max-width: 100%; padding: 12px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px 12px; border: 1px solid #b9f5ee35; border-top-color: #d8fff45c; border-radius: 16px; background: linear-gradient(125deg,#173e4080,#071e2be8); backdrop-filter: blur(16px) saturate(.8); box-shadow: 0 8px 30px #00101855,inset 0 1px #fff1; }
 .game-heading { display: flex; justify-content: flex-end; align-items: center; gap: 7px; min-width: 0; }
 .game h2 { min-width: 0; margin: 0; text-align: right; font-size: clamp(22px,5.5cqw,27px); font-weight: 650; line-height: 1.05; letter-spacing: -.045em; }
+.game-heading h2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.play-menu-items .menu-game-title { margin: 0 0 8px; color: var(--ink); font-size: 14px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+.play-menu-items .players,.play-menu-items .chips { margin: 8px 0; }
 .actions { grid-area: auto; display: flex; flex: none; margin-left: auto; gap: 0; }
 .creator { position: relative; display: grid; place-items: center; flex: none; width: 44px; min-height: 44px; padding: 4px; border: 0; border-radius: 50%; background: transparent; }
 .creator:hover { background: #b5ead614; }

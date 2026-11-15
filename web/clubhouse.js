@@ -47,27 +47,28 @@ function renderGames() {
     card.dataset.app=game.id;
     const art=el('div',undefined,'game-art game-mark');art.setAttribute('aria-hidden','true');
     const meta=el('div',undefined,'game-meta'),dock=el('div',undefined,'game-dock'),heading=el('div',undefined,'game-heading');
-    heading.append(el('h2',game.title));card.append(art,meta,dock);
+    const title=el('h2',game.title);title.title=game.title;heading.append(title);card.append(art,meta,dock);
     const modes = game.play_modes.map(m => m === 'solo' ? 'Single player' : 'Multiplayer').join(' + ');
-    meta.append(el('p',(game.preview ? 'ADMIN PREVIEW · ' : '') + modes,'game-mode'));
-    const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}meta.append(tags);
+    const mode=el('p',(game.preview ? 'ADMIN PREVIEW · ' : '') + modes,'game-mode');mode.title=mode.textContent;meta.append(mode);
+    const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}meta.append(tags);
     const names = [...new Set(game.players.map(p => p.name + (p.guest ? '’s guest' : '')))];
-    if(names.length)meta.append(el('p',names.join(', ')+' · game open','players'));
     const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
     const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
     const items=el('div',undefined,'play-menu-items');
+    items.append(el('p',game.title,'menu-game-title'));
     const guest=el('button','Play in guest mode');guest.onclick=()=>{menu.open=false;start(game,play,card,{guest:true});};items.append(guest);
     for(const target of game.join_targets||[]){
       const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
     }
     if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
+    if(names.length)items.append(el('p',names.join(', ')+' · game open','players'));
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
     play.onclick=()=>start(game,play,card);actions.append(play,menu);
     const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
     const react=el('button',undefined,'creator react-button');react.type='button';react.setAttribute('aria-label',label);react.setAttribute('aria-haspopup','dialog');
     const avatar=profileAvatar(game.author?.name,game.author?.id||game.id,game.author?.avatar),hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
     react.append(avatar,hint);react.onclick=()=>openReaction(game);heading.append(react);dock.append(heading,actions);
-    if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}meta.append(chips);}
+    if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}items.append(chips);}
     games.append(card);
   }
 }
@@ -89,6 +90,9 @@ function renderPresence() {
   if(people.length>2){const extra=people.slice(2),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
 }
 function cancelTagHold(){if(tagHold)clearTimeout(tagHold.timer);tagHold=null;}
+$('games').addEventListener('focusin',event=>{
+  if(event.target.matches('.game-tags > button'))event.target.scrollIntoView({block:'nearest',inline:'nearest'});
+});
 document.addEventListener('pointerdown',event=>{
   cancelTagHold();
   const card=event.target.closest('.game');

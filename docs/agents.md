@@ -58,6 +58,11 @@ Infer a few initial tags from the actual game. Prefer the supplied catalog or
 `GET /api/publisher/tags`; put up to eight tag IDs in `infuser.game.json`, for
 example `"tags":["3d","arcade","chill"]`. Later publishes preserve author edits.
 
+For Library card artwork, follow the draft [card hero art guide](card-art-guide.md).
+Prepare the image and review handoff in the game project. Automatic artwork
+registration is not implemented yet; do not invent manifest fields or claim the
+image appears in Infuser merely because it exists in the game export.
+
 ## What Infuser handles
 
 - HTTPS, game hosting at `/` on an isolated hostname, MIME types, range requests,
