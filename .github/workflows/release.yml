@@ -32,11 +32,11 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Fast journeys
-        run: cargo test --locked
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Fast journeys
+        run: cargo test --locked
       - name: Fast SDK journeys
         run: node --test tests/*_sdk.mjs
       - name: Build native binary

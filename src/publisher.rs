@@ -156,6 +156,9 @@ pub async fn run(args: &[String]) -> Result<()> {
     if let Some(intents) = settings.get("launch_intents") {
         manifest["launch_intents"] = intents.clone();
     }
+    if let Some(sdk) = settings.get("sdk") {
+        manifest["sdk"] = sdk.clone();
+    }
     let parsed: crate::manifest::Manifest = serde_json::from_value(manifest.clone())?;
     parsed.validate()?;
     let capabilities = response(
@@ -165,6 +168,9 @@ pub async fn run(args: &[String]) -> Result<()> {
             .await?,
     )
     .await?;
+    if let Some(sdk) = &parsed.sdk {
+        sdk.admit(&capabilities["sdk"])?;
+    }
     if parsed.cloud_saves.is_some() {
         ensure!(
             capabilities["cloud_checkpoints"]["version"] == 1,
@@ -284,8 +290,13 @@ pub async fn run(args: &[String]) -> Result<()> {
         let mut bytes = std::fs::read(path)?;
         if name == "index.html" {
             let mut html = String::from_utf8(bytes).context("index.html must be UTF-8")?;
-            if !html.contains("/_infuser/sdk.js") {
-                let script = "<script type=\"module\" src=\"/_infuser/sdk.js\"></script>";
+            let sdk_path = crate::sdk_contract::script(&parsed);
+            ensure!(
+                !(parsed.sdk.is_some() && html.contains("/_infuser/sdk.js")),
+                "Remove the legacy SDK script from index.html when opting into a versioned SDK; use {sdk_path}"
+            );
+            if !html.contains(sdk_path) {
+                let script = format!("<script type=\"module\" src=\"{sdk_path}\"></script>");
                 if html.contains("</head>") {
                     html = html.replacen("</head>", &format!("{script}</head>"), 1);
                 } else {
@@ -339,6 +350,9 @@ pub async fn run(args: &[String]) -> Result<()> {
                 "Ready in the Library."
             }
         );
+    }
+    if let Some(url) = promotion["url"].as_str() {
+        println!("Game link: {url}");
     }
     Ok(())
 }

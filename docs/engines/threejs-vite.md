@@ -6,6 +6,11 @@ vanilla browser exports, though Three.js is the first dogfood target.
 
 ## First publish
 
+For new integrations, declare `"sdk":{"major":1,"api_major":1,
+"required_capabilities":["identity.v1","saves.v1"]}` in `infuser.game.json`.
+Read the [versioning contract](../sdk-versioning.md); this major is still preview.
+Existing integrations may retain their legacy SDK until deliberately migrated.
+
 Inspect `package.json`. Use the project's existing package manager to install
 its locked dependencies. For a normal Vite project:
 
@@ -33,7 +38,7 @@ progress means in your game. Load the SDK at runtime so Vite does not try to
 bundle the server-provided file:
 
 ```js
-const sdkUrl = new URL('/_infuser/sdk.js', location.origin).href;
+const sdkUrl = new URL('/_infuser/sdk/v1.js', location.origin).href;
 const infuser = await import(/* @vite-ignore */ sdkUrl);
 const session = await infuser.ready;
 let save = await infuser.saves.load('progress');

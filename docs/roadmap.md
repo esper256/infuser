@@ -13,8 +13,8 @@
   leaving, obsolete channels, and lease expiry. Live Firefly verified that two
   relay-only players keep the old build while an update queues, host departure
   activates the update, and old clients must reopen before multiplayer. A fresh
-  launch receives the new build. Next: SDK major/capability declarations and the
-  frozen old-client journey.
+  launch receives the new build. [SDK major/capability declarations and the frozen
+  old-client journey](sdk-versioning.md) are now implemented; major 1 stays preview.
 - Dogfood the implemented [declared save-file snapshot model](cloud-save-design.md),
   including durable conflict candidates and game-owned resolution. The legacy
   slot API retains its original behavior; new checkpoints use separate v1 routes.
@@ -26,8 +26,8 @@
   implemented behind the card dropdown; online-player data also supports future
   avatar actions. Review server-authenticated joinability separately for managed
   backends. Keep secondary actions off the future game hero art.
-- Give games a readable, unique URL slug. Preserve guest origin isolation and
-  build isolation; a friendly entry address may differ from its actual play
-  origin. Account for renames, collisions, reserved names, and old links.
+- [Readable game URLs](game-urls.md) are implemented: stable entry links, retained
+  rename aliases, collision/reserved-name handling, and named isolated play
+  origins. Guest and build isolation remain unchanged.
 - Add managed engine server packaging after the first engine's journey stabilizes.
 - Review achievements separately before implementing their durable API.

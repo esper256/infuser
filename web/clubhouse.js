@@ -2,6 +2,9 @@ const $ = id => document.getElementById(id);
 const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
+let entryGame;
+const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
+if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea']];
 function el(tag, text, cls) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(cls) node.className = cls; return node; }
 function notice(message) { $('notice').textContent = message; $('notice').classList.add('visible'); }
@@ -16,6 +19,7 @@ async function refresh() {
   if (refreshing) return; refreshing = true;
   try {
     library = await api('/api/library');
+    if(entrySlug && !entryGame){entryGame=await api('/api/games/'+encodeURIComponent(entrySlug));history.replaceState(null,'',new URL(entryGame.url).pathname);document.title=entryGame.title+' · Infuser';}
     renderPresence();
     renderFilters(); renderGames(); renderFeed();
   } catch (error) { showError(error); } finally { refreshing = false; }
@@ -30,7 +34,7 @@ function renderGames() {
     const empty = el('div',undefined,'empty'); empty.append(el('h2','No games yet'),el('p','Add a game to get started.')); games.append(empty);
   }
   const query=$('game-search').value.trim().toLowerCase();
-  const matching=library.apps.filter(g=>(!activeTag||(g.tags||[]).includes(activeTag))&&(!query||(g.title+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(!query||(g.title+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   $('game-count').textContent=matching.length+' / '+library.apps.length+' games';
   if(library.apps.length&&!matching.length){const empty=el('div',undefined,'empty');empty.append(el('h2','No matches'),el('p','Try another tag or clear your search.'));games.append(empty);}
   for(const game of matching) {
@@ -51,6 +55,7 @@ function renderGames() {
     for(const target of game.join_targets||[]){
       const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
     }
+    if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
     play.onclick=()=>start(game,play,card);actions.append(play,menu);
     const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
