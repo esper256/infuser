@@ -37,7 +37,9 @@ features explicitly. Bevy remains paused while these contracts settle.
    game's topology. Solo and multiplayer may both be supported.
 4. Use the Infuser CLI matching this server's current release. Linux AMD64/ARM64
    executables are attached to this repository's releases; verify their SHA-256
-   against `release.json`. Other development platforms can build the CLI with Rust.
+   against `release.json`. Publishing currently needs a Linux workspace: native
+   Windows/macOS agents should use WSL or a Linux cloud/development environment.
+   The desktop installers are player applications, not a Windows publishing CLI.
 5. Integrate saves, publish, then exercise a real player journey. An upload alone
    is not completion. Use `--preview` for admin-only dogfood/test games.
 
