@@ -422,3 +422,11 @@ img.avatar { object-fit: cover; }
 .group-form label{display:grid;gap:.3rem}
 body[data-inspecting] #add-game,body[data-inspecting] #chat-form{display:none}
 @media(max-width:480px){#group-inspection{align-items:flex-start;flex-direction:column;font-size:.85rem}}
+
+#feedback-dialog p { line-height: 1.5; }
+#feedback-dialog label { display: block; margin: 16px 0; }
+#feedback-dialog input:not([type=checkbox]), #feedback-dialog select, #feedback-dialog textarea { display: block; width: 100%; margin-top: 6px; }
+#feedback-dialog .feedback-check { display: flex; align-items: flex-start; gap: 10px; }
+#feedback-dialog .feedback-check input { flex: none; width: auto; margin-top: 4px; }
+#feedback-dialog [hidden] { display: none; }
+#feedback-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 35dvh; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }

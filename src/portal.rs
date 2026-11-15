@@ -35,6 +35,7 @@ mod avatars;
 mod card_art;
 mod chat;
 mod client;
+mod feedback;
 mod groups;
 mod library;
 mod metadata;
@@ -106,6 +107,7 @@ pub struct Platform {
     publishing: Arc<Mutex<()>>,
     peers: Arc<crate::peers::Rooms>,
     relay: Option<Arc<crate::peers::Relay>>,
+    feedback_lock: Arc<Mutex<()>>,
     peerjs_sockets: Arc<Mutex<std::collections::BTreeSet<String>>>,
 }
 impl Platform {
@@ -141,6 +143,7 @@ impl Platform {
             0
         };
         Ok(Self {
+            feedback_lock: Default::default(),
             peerjs_sockets: Default::default(),
             controller,
             db,
@@ -429,6 +432,7 @@ pub fn router(platform: Platform) -> Router {
         .merge(publishing)
         .merge(native::routes())
         .merge(groups::routes())
+        .merge(feedback::routes())
         .route("/assets/groups.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/groups.js")) }))
         .nest("/_infuser/api/v1", sdk_v1::routes())
         .route("/_infuser/sdk/v1.js", get(sdk_v1::core))

@@ -1,3 +1,4 @@
+import { initFeedback } from '/assets/feedback.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
 import { initClientUpdates } from '/assets/client-updates.js';
@@ -286,7 +287,9 @@ function setupAccount(){
   window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
   label.append(select);
   const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
-  panel.append(profile,label,out);menu.append(trigger,panel);renderAccount();
+  const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
+  initFeedback(feedback,()=>{menu.open=false;},api);
+  panel.append(profile,label,feedback,out);menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;

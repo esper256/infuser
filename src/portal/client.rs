@@ -12,6 +12,7 @@ pub(super) fn version() -> &'static str {
                 include_str!("../../web/clubhouse.js"),
                 include_str!("../../web/clubhouse.css"),
                 include_str!("../../web/chat.js"),
+                include_str!("../../web/feedback.js"),
                 include_str!("../../web/groups.js"),
                 include_str!("../../web/client-updates.js"),
                 include_str!("../../web/themes.js"),
