@@ -350,7 +350,11 @@ pub async fn update(
     )
     .await?;
     ensure!(
-        format!("{:x}", Sha256::digest(&bytes)) == artifact.sha256,
+        Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+            == artifact.sha256,
         "release checksum mismatch"
     );
     let candidate_dir = config.install_dir.join("releases").join(&release.commit);

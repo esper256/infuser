@@ -102,7 +102,12 @@ impl Database {
             )?;
         }
         if let Some(art) = update.art {
-            let revision = art.map(|bytes| format!("{:x}", Sha256::digest(bytes)));
+            let revision = art.map(|bytes| {
+                Sha256::digest(bytes)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+            });
             tx.execute(
                 "UPDATE game_metadata SET card_art=?2,card_art_revision=?3,updated=?4 WHERE app=?1",
                 params![app, art, revision, now()],

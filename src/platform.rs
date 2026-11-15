@@ -16,7 +16,10 @@ mod metadata;
 pub use metadata::{GameMetadata, MetadataUpdate};
 
 pub fn hash(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    Sha256::digest(value.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Member {
