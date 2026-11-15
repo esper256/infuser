@@ -1,0 +1,29 @@
+[Unit]
+Description=Infuser game controller
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=infuser
+Group=infuser
+SupplementaryGroups=docker
+StateDirectory=infuser
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/infuser serve /etc/infuser/infuser.toml
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/infuser
+MemoryMax=256M
+TasksMax=128
+LimitNOFILE=4096
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

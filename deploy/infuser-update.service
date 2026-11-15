@@ -1,0 +1,19 @@
+[Unit]
+Description=Pull a passing Infuser release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# A stable copy can recover even if the newly selected daemon cannot execute.
+ExecStart=/usr/local/libexec/infuser-updater update /etc/infuser/update.toml
+StateDirectory=infuser-updater
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/infuser /var/lib/infuser-updater
+MemoryMax=256M
+TimeoutStartSec=240

@@ -1,0 +1,128 @@
+//! App intent is explicit; engine choice never determines multiplayer topology.
+use anyhow::{Result, ensure};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Manifest {
+    pub schema_version: u32,
+    pub app_id: String,
+    pub title: String,
+    pub play_modes: Vec<PlayMode>,
+    pub solo_runtime: Option<SoloRuntime>,
+    pub multiplayer: Option<Multiplayer>,
+}
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayMode {
+    Solo,
+    Multiplayer,
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoloRuntime {
+    ClientOnly,
+    SharedServer,
+}
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    PeerHosted,
+    Relayed,
+    Dedicated,
+    PersistentWorld,
+}
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Transport {
+    Webrtc,
+    Websocket,
+    Tcp,
+    Udp,
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectConnect {
+    Optional,
+    Disabled,
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelayFallback {
+    Required,
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinPolicy {
+    Anytime,
+    BetweenRounds,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Multiplayer {
+    pub mode: Mode,
+    pub transport: Transport,
+    pub max_players: u32,
+    pub join_policy: JoinPolicy,
+    pub direct_connect: Option<DirectConnect>,
+    pub relay_fallback: Option<RelayFallback>,
+}
+
+impl Manifest {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.schema_version == 1,
+            "unsupported manifest schema_version"
+        );
+        ensure!(crate::config::slug(&self.app_id), "invalid app_id");
+        ensure!(
+            !self.title.trim().is_empty() && self.title.chars().count() <= 80,
+            "title must contain 1-80 characters"
+        );
+        ensure!(
+            !self.play_modes.is_empty()
+                && self.play_modes.len() <= 2
+                && (self.play_modes.len() == 1 || self.play_modes[0] != self.play_modes[1]),
+            "play_modes must contain solo, multiplayer, or both without duplicates"
+        );
+        let solo = self.play_modes.contains(&PlayMode::Solo);
+        let multiplayer = self.play_modes.contains(&PlayMode::Multiplayer);
+        ensure!(
+            solo == self.solo_runtime.is_some(),
+            "declare solo_runtime exactly when solo is supported"
+        );
+        ensure!(
+            multiplayer == self.multiplayer.is_some(),
+            "declare multiplayer settings exactly when multiplayer is supported"
+        );
+        if let Some(m) = &self.multiplayer {
+            ensure!(
+                (2..=4096).contains(&m.max_players),
+                "max_players must be between 2 and 4096"
+            );
+            if m.mode == Mode::PeerHosted {
+                ensure!(
+                    m.relay_fallback.is_some() && m.direct_connect.is_some(),
+                    "peer_hosted requires relay_fallback=required and an explicit direct_connect policy"
+                );
+                ensure!(
+                    matches!(m.transport, Transport::Webrtc | Transport::Websocket),
+                    "peer_hosted must use an Infuser relay-capable transport; raw TCP/UDP and LAN-only connections are unsupported"
+                );
+            } else {
+                ensure!(
+                    m.relay_fallback.is_none() && m.direct_connect.is_none(),
+                    "direct_connect and relay_fallback apply only to peer_hosted games"
+                );
+                if m.mode == Mode::Relayed {
+                    ensure!(
+                        m.transport == Transport::Websocket,
+                        "relayed games use the Infuser WebSocket relay protocol"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}

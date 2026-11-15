@@ -1,0 +1,95 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Development keeps moving; superseded runs don't build a backlog.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      INFUSER_BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Fast journeys
+        run: cargo test --locked
+      - name: Build native binary
+        run: cargo build --locked --release --bin infuser
+      - name: Package
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          cp target/release/infuser "dist/infuser-linux-$ARCH"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: infuser-linux-${{ matrix.arch }}
+          path: dist/infuser-linux-${{ matrix.arch }}
+          retention-days: 3
+
+  release:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: infuser-linux-*
+          path: dist
+          merge-multiple: true
+      - name: Publish the latest passing commit
+        run: |
+          set -euo pipefail
+          head=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo 'A newer commit exists; skipping this release.'
+            exit 0
+          fi
+          tag="build-$GITHUB_SHA"
+          if gh release view "$tag" --json isDraft --jq .isDraft > /tmp/infuser-draft 2>/dev/null; then
+            if [ "$(cat /tmp/infuser-draft)" = false ]; then
+              echo 'This immutable release is already published.'
+              exit 0
+            fi
+          else
+            printf 'Automated passing build.\n\n%s/%s/actions/runs/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > /tmp/infuser-release-notes
+            gh release create "$tag" --draft --target "$GITHUB_SHA" --title "Build ${GITHUB_SHA:0:8}" --notes-file /tmp/infuser-release-notes
+          fi
+          amd64=$(sha256sum dist/infuser-linux-amd64 | cut -d ' ' -f 1)
+          arm64=$(sha256sum dist/infuser-linux-arm64 | cut -d ' ' -f 1)
+          jq -n --arg commit "$GITHUB_SHA" --arg amd64 "$amd64" --arg arm64 "$arm64" \
+            '{commit:$commit,artifacts:{"linux-amd64":{file:"infuser-linux-amd64",sha256:$amd64},"linux-arm64":{file:"infuser-linux-arm64",sha256:$arm64}}}' > dist/release.json
+          gh release upload "$tag" dist/infuser-linux-amd64 dist/infuser-linux-arm64 dist/release.json --clobber
+          head=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo 'Superseded while uploading; leaving this draft unpublished.'
+            exit 0
+          fi
+          gh release edit "$tag" --draft=false --latest

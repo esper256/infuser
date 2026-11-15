@@ -1,0 +1,8 @@
+.git
+.local
+*.credentials.json
+target
+state
+*.secret
+*.local.toml
+.env

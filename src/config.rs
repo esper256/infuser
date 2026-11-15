@@ -1,0 +1,261 @@
+use anyhow::{Result, bail, ensure};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    net::Ipv4Addr,
+    path::{Path, PathBuf},
+};
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    pub controller: Settings,
+    #[serde(default)]
+    pub games: BTreeMap<String, Game>,
+    #[serde(default)]
+    pub sites: BTreeMap<String, Site>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Settings {
+    pub state_dir: PathBuf,
+    pub token_file: PathBuf,
+    pub public_host: String,
+    pub domain: String,
+    pub memory_budget_mb: u64,
+    pub cpu_budget_millis: u64,
+    pub disk_reserve_mb: u64,
+    pub port_start: u16,
+    pub port_end: u16,
+    pub api_port: u16,
+    pub publish_ip: Ipv4Addr,
+    pub docker_socket: PathBuf,
+    pub lease_seconds: u64,
+    pub tick_seconds: u64,
+    pub retry_seconds: u64,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            state_dir: "/var/lib/infuser".into(),
+            token_file: "/etc/infuser/control.secret".into(),
+            public_host: "games.example.com".into(),
+            domain: "games.example.com".into(),
+            memory_budget_mb: 8192,
+            cpu_budget_millis: 1500,
+            disk_reserve_mb: 4096,
+            port_start: 8000,
+            port_end: 9000,
+            api_port: 7777,
+            publish_ip: Ipv4Addr::UNSPECIFIED,
+            docker_socket: "/var/run/docker.sock".into(),
+            lease_seconds: 90,
+            tick_seconds: 2,
+            retry_seconds: 30,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Game {
+    pub image: String,
+    pub container_port: u16,
+    #[serde(default = "memory")]
+    pub memory_mb: u64,
+    #[serde(default = "cpu")]
+    pub cpu_millis: u64,
+    #[serde(default = "protocols")]
+    pub protocols: Vec<String>,
+    #[serde(default = "idle")]
+    pub idle_seconds: u64,
+    #[serde(default = "startup")]
+    pub startup_seconds: u64,
+    #[serde(default = "stop")]
+    pub stop_seconds: u64,
+    #[serde(default = "leases")]
+    pub max_leases: usize,
+    #[serde(default = "user")]
+    pub user: String,
+    #[serde(default)]
+    pub persistent: bool,
+    /// Web servers are loopback-only and reached through Caddy at ID-server.DOMAIN.
+    #[serde(default)]
+    pub web: bool,
+}
+fn memory() -> u64 {
+    256
+}
+fn cpu() -> u64 {
+    500
+}
+fn protocols() -> Vec<String> {
+    vec!["tcp".into()]
+}
+fn idle() -> u64 {
+    120
+}
+fn startup() -> u64 {
+    90
+}
+fn stop() -> u64 {
+    30
+}
+fn leases() -> usize {
+    32
+}
+fn user() -> String {
+    "1000:1000".into()
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Site {
+    pub root: PathBuf,
+    #[serde(default)]
+    pub spa: bool,
+    #[serde(default)]
+    pub cross_origin_isolation: bool,
+}
+
+pub fn slug(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 48
+        && s.as_bytes()[0].is_ascii_lowercase()
+        && s.bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+        && !s.ends_with('-')
+}
+
+pub fn hostname(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 253
+        && s.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
+impl Config {
+    pub fn load(path: &Path) -> Result<Self> {
+        let config: Self = toml::from_str(&std::fs::read_to_string(path)?)?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        let s = &self.controller;
+        ensure!(
+            hostname(&s.public_host) && hostname(&s.domain),
+            "invalid public_host or domain"
+        );
+        ensure!(
+            s.state_dir.is_absolute()
+                && s.token_file.is_absolute()
+                && s.docker_socket.is_absolute(),
+            "controller paths must be absolute"
+        );
+        ensure!(
+            s.port_start >= 1024 && s.port_end >= s.port_start,
+            "invalid port range"
+        );
+        ensure!(
+            s.api_port >= 1024 && !(s.port_start..=s.port_end).contains(&s.api_port),
+            "API port overlaps game range"
+        );
+        ensure!(
+            (16..=1048576).contains(&s.memory_budget_mb),
+            "invalid memory budget"
+        );
+        ensure!(
+            (10..=1024000).contains(&s.cpu_budget_millis),
+            "invalid CPU budget"
+        );
+        ensure!(
+            (64..=1048576).contains(&s.disk_reserve_mb),
+            "invalid disk reserve"
+        );
+        ensure!(
+            (10..=3600).contains(&s.lease_seconds)
+                && (1..=30).contains(&s.tick_seconds)
+                && (1..=3600).contains(&s.retry_seconds),
+            "invalid lease/tick/retry interval"
+        );
+        let mut hosts = std::collections::BTreeSet::from(["auth".to_string()]);
+        for (id, g) in &self.games {
+            ensure!(slug(id), "invalid game id: {id}");
+            let digest = g.image.rsplit_once("sha256:").map(|(_, d)| d).unwrap_or("");
+            ensure!(
+                digest.len() == 64
+                    && digest
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                    && (g.image.starts_with("sha256:") || g.image.contains("@sha256:"))
+                    && g.image
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"._:/@-".contains(&b)),
+                "{id}: pin image to a digest or local sha256 image ID"
+            );
+            ensure!(
+                g.container_port > 0
+                    && g.memory_mb >= 16
+                    && g.memory_mb <= s.memory_budget_mb
+                    && g.cpu_millis >= 10
+                    && g.cpu_millis <= s.cpu_budget_millis,
+                "{id}: invalid resource request"
+            );
+            ensure!(
+                !g.protocols.is_empty()
+                    && g.protocols.len() <= 2
+                    && g.protocols.iter().all(|p| p == "tcp" || p == "udp")
+                    && (g.protocols.len() == 1 || g.protocols[0] != g.protocols[1]),
+                "{id}: invalid protocols"
+            );
+            ensure!(
+                (1..=86400).contains(&g.idle_seconds)
+                    && (1..=3600).contains(&g.startup_seconds)
+                    && (1..=300).contains(&g.stop_seconds)
+                    && (1..=4096).contains(&g.max_leases),
+                "{id}: invalid lifecycle limits"
+            );
+            let ids: Vec<_> = g.user.split(':').collect();
+            ensure!(
+                ids.len() == 2 && ids.iter().all(|s| s.parse::<u32>().is_ok_and(|v| v > 0)),
+                "{id}: user must be non-root UID:GID"
+            );
+            if g.web {
+                ensure!(
+                    g.protocols == ["tcp"],
+                    "{id}: web servers must use TCP only"
+                );
+                ensure!(hosts.insert(format!("{id}-server")), "duplicate hostname");
+            }
+        }
+        for (id, site) in &self.sites {
+            ensure!(
+                slug(id) && hosts.insert(id.clone()),
+                "invalid or duplicate site hostname: {id}"
+            );
+            ensure!(
+                site.root.is_absolute()
+                    && site
+                        .root
+                        .to_string_lossy()
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"/_- .".contains(&b)),
+                "{id}: invalid absolute site path"
+            );
+        }
+        if self.games.len() > (s.port_end - s.port_start) as usize + 1 {
+            bail!("not enough ports for catalog");
+        }
+        Ok(())
+    }
+}

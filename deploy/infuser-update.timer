@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for a passing Infuser release
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=60s
+RandomizedDelaySec=10s
+Unit=infuser-update.service
+
+[Install]
+WantedBy=timers.target

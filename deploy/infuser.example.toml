@@ -1,0 +1,36 @@
+[controller]
+state_dir = "/var/lib/infuser"
+token_file = "/etc/infuser/control.secret"
+public_host = "games.example.com"
+domain = "games.example.com"
+# These are game budgets, not the machine's total resources.
+memory_budget_mb = 8192
+cpu_budget_millis = 1500
+disk_reserve_mb = 4096
+port_start = 8000
+port_end = 9000
+api_port = 7777
+lease_seconds = 90
+
+# Add an installed image by its immutable digest (or local sha256 image ID).
+# [games.moon]
+# image = "registry.example.com/moon@sha256:REPLACE_WITH_64_HEX_DIGEST"
+# container_port = 7000
+# protocols = ["tcp", "udp"]
+# memory_mb = 256
+# cpu_millis = 500
+# idle_seconds = 120
+# startup_seconds = 90
+# stop_seconds = 30
+# persistent = true
+# user = "1000:1000"
+# web = false
+
+# A web backend uses web=true and protocols=["tcp"]. It is bound to
+# loopback and served at moon-server.games.example.com through Caddy.
+
+# Pure web games need only static files, with no game container running.
+# [sites.moon]
+# root = "/srv/infuser/moon/current"
+# spa = false
+# cross_origin_isolation = false

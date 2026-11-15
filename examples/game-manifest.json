@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "app_id": "moon-racers",
+  "title": "Moon Racers",
+  "play_modes": ["solo", "multiplayer"],
+  "solo_runtime": "client_only",
+  "multiplayer": {
+    "mode": "peer_hosted",
+    "transport": "webrtc",
+    "max_players": 8,
+    "join_policy": "anytime",
+    "direct_connect": "optional",
+    "relay_fallback": "required"
+  }
+}

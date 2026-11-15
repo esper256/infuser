@@ -1,0 +1,7 @@
+# Private deployment file: keep the real values in .local/ or /etc/infuser.
+repository = "your-account/infuser"
+install_dir = "/opt/infuser"
+state_dir = "/var/lib/infuser-updater"
+controller_config = "/etc/infuser/infuser.toml"
+service = "infuser.service"
+health_url = "http://127.0.0.1:7777/healthz"

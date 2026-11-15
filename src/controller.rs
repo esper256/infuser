@@ -1,0 +1,388 @@
+use crate::{
+    config::Config,
+    docker::{Engine, Health},
+    store::{Instance, Lease, Phase, State, Store, secret},
+};
+use anyhow::{Context, Result, ensure};
+use serde_json::{Value, json};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
+use subtle::ConstantTimeEq;
+
+pub fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+#[derive(Debug)]
+pub struct Fault {
+    pub status: u16,
+    pub message: String,
+}
+impl std::fmt::Display for Fault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+impl std::error::Error for Fault {}
+fn fault(status: u16, message: &str) -> anyhow::Error {
+    Fault {
+        status,
+        message: message.into(),
+    }
+    .into()
+}
+
+pub struct Controller {
+    pub config: Config,
+    pub engine: Arc<dyn Engine>,
+    inner: Mutex<(Store, State)>,
+    reconcile_lock: tokio::sync::Mutex<()>,
+}
+
+impl Controller {
+    pub fn open(config: Config, engine: Arc<dyn Engine>) -> Result<Self> {
+        config.validate()?;
+        let (store, mut state) = Store::open(&config.controller.state_dir)?;
+        for (id, instance) in &state.games {
+            ensure!(
+                !instance.reserved() || config.games.get(id) == Some(&instance.spec),
+                "stop {id} before changing or removing its manifest"
+            );
+            ensure!(
+                !instance.reserved()
+                    || (config.controller.port_start..=config.controller.port_end)
+                        .contains(&instance.port),
+                "active game port is outside the configured range"
+            );
+        }
+        state.games.retain(|id, _| config.games.contains_key(id));
+        let mut ports: BTreeSet<u16> = state.games.values().map(|i| i.port).collect();
+        ensure!(ports.len() == state.games.len(), "duplicate ports in state");
+        for (id, game) in &config.games {
+            if let Some(i) = state.games.get_mut(id) {
+                ensure!(
+                    (config.controller.port_start..=config.controller.port_end).contains(&i.port),
+                    "remove sleeping games before changing the port range"
+                );
+                i.spec = game.clone();
+            } else {
+                let port = (config.controller.port_start..=config.controller.port_end)
+                    .find(|p| !ports.contains(p))
+                    .context("no free game ports")?;
+                ports.insert(port);
+                state.games.insert(
+                    id.clone(),
+                    Instance {
+                        spec: game.clone(),
+                        port,
+                        phase: Phase::Sleeping,
+                        attempt: String::new(),
+                        name: String::new(),
+                        started: 0,
+                        idle_since: None,
+                        retry_at: 0,
+                        error: None,
+                        leases: BTreeMap::new(),
+                    },
+                );
+            }
+        }
+        let (memory, cpu) = Self::usage(&state);
+        ensure!(
+            memory <= config.controller.memory_budget_mb
+                && cpu <= config.controller.cpu_budget_millis,
+            "active reservations exceed the new budget"
+        );
+        store.save(&state)?;
+        Ok(Self {
+            config,
+            engine,
+            inner: Mutex::new((store, state)),
+            reconcile_lock: tokio::sync::Mutex::new(()),
+        })
+    }
+
+    pub fn snapshot(&self) -> State {
+        self.inner.lock().unwrap().1.clone()
+    }
+
+    fn mutate<T>(&self, f: impl FnOnce(&mut State) -> Result<T>) -> Result<T> {
+        let mut guard = self.inner.lock().unwrap();
+        let mut next = guard.1.clone();
+        let result = f(&mut next)?;
+        if next != guard.1 {
+            guard.0.save(&next)?;
+            guard.1 = next;
+        }
+        Ok(result)
+    }
+
+    fn usage(state: &State) -> (u64, u64) {
+        state
+            .games
+            .values()
+            .filter(|i| i.reserved())
+            .fold((0, 0), |(m, c), i| {
+                (m + i.spec.memory_mb, c + i.spec.cpu_millis)
+            })
+    }
+
+    pub async fn recover(&self) -> Result<()> {
+        self.engine.preflight().await?;
+        let state = self.snapshot();
+        for (name, owner) in self.engine.inventory().await? {
+            ensure!(
+                owner == state.owner
+                    && state.games.values().any(|i| i.reserved() && i.name == name),
+                "untracked Infuser container {name}; restore its state before starting the controller"
+            );
+        }
+        self.reconcile(now()).await?;
+        Ok(())
+    }
+
+    fn view(&self, id: &str, i: &Instance, time: u64) -> Value {
+        let endpoint = if i.phase == Phase::Ready {
+            if i.spec.web {
+                json!({"url": format!("https://{id}-server.{}", self.config.controller.domain)})
+            } else {
+                json!({"host": self.config.controller.public_host, "port": i.port, "protocols": i.spec.protocols})
+            }
+        } else {
+            Value::Null
+        };
+        json!({"app_id": id, "state": i.phase, "endpoint": endpoint,
+            "active_leases": i.leases.values().filter(|l| l.expires > time).count(),
+            "error": i.error, "retry_at": i.retry_at})
+    }
+
+    pub fn list(&self, time: u64) -> Value {
+        let state = self.snapshot();
+        let (memory, cpu) = Self::usage(&state);
+        json!({"apps": state.games.iter().map(|(id, i)| self.view(id, i, time)).collect::<Vec<_>>(),
+            "reserved_memory_mb": memory, "reserved_cpu_millis": cpu})
+    }
+
+    pub fn acquire(&self, id: &str, session: &str, time: u64) -> Result<Value> {
+        ensure!(
+            !session.is_empty()
+                && session.len() <= 128
+                && session
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b)),
+            Fault {
+                status: 400,
+                message: "session_id must be 1-128 letters, digits, underscores or hyphens".into()
+            }
+        );
+        self.mutate(|state| {
+            let (memory, cpu) = Self::usage(state);
+            let i = state
+                .games
+                .get_mut(id)
+                .ok_or_else(|| fault(404, "unknown app"))?;
+            if i.phase == Phase::Stopping {
+                return Err(fault(409, "app is stopping; retry shortly"));
+            }
+            if i.phase == Phase::Failed && time < i.retry_at {
+                return Err(fault(503, "app is in failure backoff"));
+            }
+            if !i.reserved() {
+                if memory + i.spec.memory_mb > self.config.controller.memory_budget_mb
+                    || cpu + i.spec.cpu_millis > self.config.controller.cpu_budget_millis
+                {
+                    return Err(fault(
+                        503,
+                        "game capacity is full; retry after another game becomes idle",
+                    ));
+                }
+                i.attempt = secret()[..16].into();
+                i.name = format!("infuser-{}-{id}-{}", state.owner, i.attempt);
+                i.phase = Phase::Starting;
+                i.started = time;
+                i.error = None;
+                i.leases.clear();
+            }
+            i.leases.retain(|_, l| l.expires > time);
+            let existing = i
+                .leases
+                .iter()
+                .find(|(_, l)| l.session == session)
+                .map(|(key, _)| key.clone());
+            let key = if let Some(key) = existing {
+                key
+            } else {
+                if i.leases.len() >= i.spec.max_leases {
+                    return Err(fault(429, "app session limit reached"));
+                }
+                let key = secret()[..32].to_string();
+                i.leases.insert(
+                    key.clone(),
+                    Lease {
+                        session: session.into(),
+                        token: secret(),
+                        expires: 0,
+                    },
+                );
+                key
+            };
+            i.idle_since = None;
+            let lease = i.leases.get_mut(&key).unwrap();
+            lease.expires = time + self.config.controller.lease_seconds;
+            let token = lease.token.clone();
+            let expires = lease.expires;
+            let mut view = self.view(id, i, time);
+            view["lease_id"] = json!(key);
+            view["lease_token"] = json!(token);
+            view["expires_at"] = json!(expires);
+            view["heartbeat_after_seconds"] = json!(self.config.controller.lease_seconds / 3);
+            Ok(view)
+        })
+    }
+
+    pub fn lease(
+        &self,
+        id: &str,
+        lease_id: &str,
+        token: &str,
+        action: &str,
+        time: u64,
+    ) -> Result<Value> {
+        self.mutate(|state| {
+            let i = state
+                .games
+                .get_mut(id)
+                .ok_or_else(|| fault(404, "unknown app"))?;
+            let l = i
+                .leases
+                .get_mut(lease_id)
+                .ok_or_else(|| fault(404, "unknown lease"))?;
+            if !bool::from(l.token.as_bytes().ct_eq(token.as_bytes())) {
+                return Err(fault(401, "invalid lease token"));
+            }
+            if l.expires <= time {
+                return Err(fault(410, "lease expired; launch again"));
+            }
+            if action == "delete" {
+                i.leases.remove(lease_id);
+                if i.leases.values().all(|l| l.expires <= time) {
+                    i.idle_since = Some(time);
+                }
+            } else if action == "renew" {
+                if !matches!(i.phase, Phase::Starting | Phase::Ready) {
+                    return Err(fault(409, "app is no longer running"));
+                }
+                l.expires = time + self.config.controller.lease_seconds;
+                i.idle_since = None;
+            }
+            let mut view = self.view(id, i, time);
+            view["expires_at"] = json!(i.leases.get(lease_id).map(|l| l.expires));
+            Ok(view)
+        })
+    }
+
+    pub fn stop(&self, id: &str) -> Result<()> {
+        self.mutate(|state| {
+            let i = state
+                .games
+                .get_mut(id)
+                .ok_or_else(|| fault(404, "unknown app"))?;
+            if i.reserved() {
+                i.phase = Phase::Stopping;
+                i.error = None;
+            }
+            i.leases.clear();
+            Ok(())
+        })
+    }
+
+    pub async fn reconcile(&self, time: u64) -> Result<()> {
+        let _single = self.reconcile_lock.lock().await;
+        let initial = self.snapshot();
+        for id in initial.games.keys() {
+            let instance = self.mutate(|state| {
+                let i = state.games.get_mut(id).unwrap();
+                let last_expiry = i.leases.values().map(|l| l.expires).max();
+                i.leases.retain(|_, l| l.expires > time);
+                if !i.reserved() {
+                    return Ok(None);
+                }
+                if i.leases.is_empty() && i.idle_since.is_none() {
+                    i.idle_since = Some(last_expiry.unwrap_or(time));
+                }
+                if i.phase != Phase::Stopping {
+                    if i.idle_since
+                        .is_some_and(|since| time >= since.saturating_add(i.spec.idle_seconds))
+                    {
+                        i.phase = Phase::Stopping;
+                    } else if i.phase == Phase::Starting
+                        && time >= i.started.saturating_add(i.spec.startup_seconds)
+                    {
+                        i.phase = Phase::Stopping;
+                        i.error = Some("startup readiness deadline exceeded".into());
+                    }
+                }
+                Ok(Some(i.clone()))
+            })?;
+            let Some(instance) = instance else {
+                continue;
+            };
+            let result = match instance.phase {
+                Phase::Starting => self.engine.ensure(id, &instance, &initial.owner).await,
+                Phase::Ready => self.engine.health(&instance, &initial.owner, id).await,
+                Phase::Stopping => self
+                    .engine
+                    .remove(id, &instance, &initial.owner)
+                    .await
+                    .map(|_| Health::Missing),
+                _ => unreachable!(),
+            };
+            self.mutate(|state| {
+                let i = state.games.get_mut(id).unwrap();
+                // A stop request may arrive while Docker is working; it wins.
+                if i.attempt != instance.attempt || i.phase != instance.phase {
+                    return Ok(());
+                }
+                match result {
+                    Ok(_) if instance.phase == Phase::Stopping => {
+                        i.phase = if i.error.is_some() {
+                            Phase::Failed
+                        } else {
+                            Phase::Sleeping
+                        };
+                        i.retry_at = if i.error.is_some() {
+                            time + self.config.controller.retry_seconds
+                        } else {
+                            0
+                        };
+                        i.idle_since = None;
+                    }
+                    Ok(Health::Ready) => {
+                        i.phase = Phase::Ready;
+                    }
+                    Ok(Health::Starting) if instance.phase == Phase::Starting => {}
+                    Ok(_) => {
+                        i.phase = Phase::Stopping;
+                        i.error = Some("game process exited or failed its health check".into());
+                    }
+                    Err(error) => {
+                        tracing::warn!(app_id = %id, %error, "Docker operation failed");
+                        // Ambiguous mutations retain the reservation until cleanup succeeds.
+                        if instance.phase == Phase::Starting {
+                            i.phase = Phase::Stopping;
+                            i.error = Some(error.to_string());
+                        }
+                    }
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+}
