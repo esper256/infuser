@@ -211,11 +211,20 @@ pub async fn run(args: &[String]) -> Result<()> {
     if let Some(sdk) = &parsed.sdk {
         sdk.admit(&capabilities["sdk"])?;
     }
-    if parsed.cloud_saves.is_some() {
+    if let Some(saves) = &parsed.cloud_saves {
         ensure!(
             capabilities["cloud_checkpoints"]["version"] == 1,
             "this Infuser does not support declared cloud checkpoints yet"
         );
+        for file in saves.groups.iter().flat_map(|group| &group.files) {
+            ensure!(
+                capabilities["cloud_checkpoints"]["formats"]
+                    .as_array()
+                    .is_some_and(|formats| formats.iter().any(|format| format == &file.format)),
+                "this Infuser does not support cloud save format {}",
+                file.format
+            );
+        }
     }
     if parsed.server_start.is_some() {
         ensure!(

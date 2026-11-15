@@ -1,9 +1,10 @@
-//! Versioned, atomic JSON checkpoints. Games own serialization and conflict choices.
+//! Versioned, atomic JSON and binary checkpoints. Games own serialization and conflict choices.
 use crate::{
     platform::{Database, hash},
     store::secret,
 };
 use anyhow::{Result, ensure};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -34,7 +35,7 @@ pub fn fault(status: u16, code: &'static str, message: &'static str) -> anyhow::
     .into()
 }
 pub fn capabilities(budget_mb: u64) -> Value {
-    json!({"version":1,"experimental":true,"formats":["json"],"max_groups":8,"max_files_per_group":16,"max_snapshot_bytes":SNAPSHOT_BYTES,"max_group_bytes":GROUP_BYTES,"history_target":HISTORY,"max_unresolved_conflicts":CONFLICTS,"installation_budget_bytes":budget_mb*1024*1024,"guest_lifetime":"launch","offline_durability":false})
+    json!({"version":1,"experimental":true,"formats":["json","binary"],"binary_encoding":"base64","snapshot_size_basis":"serialized_files_json","max_groups":8,"max_files_per_group":16,"max_snapshot_bytes":SNAPSHOT_BYTES,"max_group_bytes":GROUP_BYTES,"history_target":HISTORY,"max_unresolved_conflicts":CONFLICTS,"installation_budget_bytes":budget_mb*1024*1024,"guest_lifetime":"launch","offline_durability":false})
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -92,8 +93,10 @@ impl Declaration {
             );
             for file in &group.files {
                 ensure!(
-                    file.format == "json" && valid_path(&file.path) && paths.insert(&file.path),
-                    "save files need unique, safe relative paths and format=json"
+                    matches!(file.format.as_str(), "json" | "binary")
+                        && valid_path(&file.path)
+                        && paths.insert(&file.path),
+                    "save files need unique, safe relative paths and format=json or binary"
                 );
             }
         }
@@ -119,6 +122,9 @@ fn required_revision<'de, D: serde::Deserializer<'de>>(
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Snapshot {
+    /// Missing entries are JSON, including snapshots written before binary support.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub formats: BTreeMap<String, String>,
     pub revision: Option<String>,
     pub files: BTreeMap<String, Value>,
     pub summary: String,
@@ -131,6 +137,7 @@ impl Snapshot {
     fn empty() -> Self {
         Self {
             revision: None,
+            formats: BTreeMap::new(),
             files: BTreeMap::new(),
             summary: String::new(),
             build_id: None,
@@ -321,6 +328,26 @@ impl Database {
                 "checkpoint exceeds the advertised size limit"
             )
         );
+        for file in &group.files {
+            if file.format == "binary"
+                && let Some(value) = request.files.get(&file.path)
+            {
+                let valid = value
+                    .as_object()
+                    .filter(|object| object.len() == 1)
+                    .and_then(|object| object.get("base64"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|encoded| STANDARD.decode(encoded).is_ok());
+                ensure!(
+                    valid,
+                    fault(
+                        400,
+                        "invalid_binary_file",
+                        "binary files must be an object containing only canonical padded base64 in the base64 field"
+                    )
+                );
+            }
+        }
         let current = head(&tx, scope)?;
         if let Some(base) = &request.expected_revision {
             let prior = snapshot(&tx, scope, base)?;
@@ -328,7 +355,13 @@ impl Database {
                 prior
                     .files
                     .keys()
-                    .all(|path| group.files.iter().any(|f| f.path == *path)),
+                    .all(|path| group.files.iter().any(|f| f.path == *path
+                        && f.format
+                            == prior
+                                .formats
+                                .get(path)
+                                .map(String::as_str)
+                                .unwrap_or("json"))),
                 fault(
                     409,
                     "unsupported_save_files",
@@ -371,6 +404,12 @@ impl Database {
         );
         let revision = secret()[..32].to_owned();
         let record = Snapshot {
+            formats: group
+                .files
+                .iter()
+                .filter(|file| file.format == "binary" && request.files.contains_key(&file.path))
+                .map(|file| (file.path.clone(), file.format.clone()))
+                .collect(),
             revision: Some(revision.clone()),
             files: request.files.clone(),
             summary: request.summary.clone(),

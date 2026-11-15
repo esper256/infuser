@@ -104,3 +104,7 @@ For disposable hidden previews, the operator helper supports:
 `infuser preview-game CONFIG APP ADMIN_EMAIL OUTPUT --join-session SESSION --join-player PLAYER`.
 It retains the existing enabled-adult/hidden-game checks and writes a private,
 single-use guest launch. No Google session is granted to the test agent.
+
+The Library avatar strip offers Join for each friend’s joinable game. Its overflow
+menu includes the remaining friends. Both use the same targeted launch intent as
+the game-card menu; an ended session shows an error rather than creating a new room.

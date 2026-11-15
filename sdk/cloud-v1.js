@@ -23,6 +23,21 @@ async function snapshot(url) {
   return value;
 }
 export const cloud = {
+  // Explicit conversion: JSON values are never guessed to be binary.
+  encodeBinary(bytes) {
+    if (!(bytes instanceof Uint8Array)) throw new CloudSaveError('Pass a Uint8Array to encodeBinary.','invalid_binary_file',400);
+    let text='';
+    for(let offset=0;offset<bytes.length;offset+=8192)text+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
+    return {base64:btoa(text)};
+  },
+  decodeBinary(file) {
+    try {
+      if(!file || Object.keys(file).length!==1 || typeof file.base64!=='string')throw Error();
+      const text=atob(file.base64);
+      if(btoa(text)!==file.base64)throw Error();
+      return Uint8Array.from(text,c=>c.charCodeAt(0));
+    } catch { throw new CloudSaveError('Invalid binary save file. Keep the existing local save.','invalid_binary_file',400); }
+  },
   load: group => snapshot(path(group)),
   read: (group,revision) => snapshot(path(group)+'/revisions/'+encodeURIComponent(revision)),
   history: group => request(path(group)+'/history'),

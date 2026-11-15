@@ -8,9 +8,10 @@ browser to connect their Google account. Later launches download missing updates
 and start the game. Guest play uses a fresh local directory and cloud identity.
 
 This preview supports **client-only single-player Godot/GDScript exports**.
-Native multiplayer, ARM desktop clients, macOS and automatic companion self-update
-are not included. Game updates are automatic. The companion can be updated by
-opening a newer installer; its account data and personal saves are retained.
+Native multiplayer, ARM desktop clients and macOS are not included. Game updates
+and [Infuser Play updates](../play-updates.md) are automatic. Installations from before
+companion updates were added need the current installer once. Account data and saves
+are retained.
 The unsigned Windows preview may show a Windows security prompt. An actual Windows
 user must complete the acceptance checklist before broad distribution.
 

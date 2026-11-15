@@ -565,3 +565,10 @@ button.feed-row:hover { border-color: var(--accent); }
   .game-dock,.detail-info,.feedback-bubble,.feedback-bubble::before { background: Canvas; color: CanvasText; }
   .profile-menu > summary::after,.presence-person::after { background: Highlight; }
 }
+
+/* Friend actions share the profile menu's compact, touch-friendly surface. */
+.friend-menu > summary { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; list-style: none; background: transparent; color: inherit; cursor: pointer; }
+.friend-menu > summary::-webkit-details-marker { display: none; }
+.presence-person:has(.friend-menu[open]) { z-index: 21; }
+.friend-name { margin: 10px 12px 2px; font-weight: 600; overflow-wrap: anywhere; }
+.friend-status { margin: 4px 12px 12px; font-size: 13px; }

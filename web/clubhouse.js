@@ -271,17 +271,58 @@ function profileAvatar(name,id,picture,size=128) {
   const tone=Array.from(id||name||'').reduce((value,ch)=>(value+ch.codePointAt(0))%6,0);
   const avatar=el('span',initials.toLocaleUpperCase(),'avatar tone-'+tone+(initials?'':' avatar-unknown'));avatar.setAttribute('aria-hidden','true');return avatar;
 }
+let presenceSignature='';
 function renderPresence() {
   const people=(library.friends||[]).filter(person=>person.id!==me.player_id),list=$('friends');
-  // The account badge stays mounted so polling cannot close its menu or lose focus.
+  // Leave menus and keyboard focus intact when a poll has no presence changes.
+  const signature=JSON.stringify([me.inspecting,people]);
+  if(signature===presenceSignature)return;
+  presenceSignature=signature;
+  const opened=list.querySelector('.friend-menu[open]')?.dataset.key;
+  const focused=document.activeElement.closest('.friend-menu')?.dataset.key;
+  const focusAction=document.activeElement.dataset.friendAction;
   for(const item of [...list.children])if(!item.classList.contains('presence-self'))item.remove();
   list.hidden=false;
-  for(const person of people.slice(0,1)){
-    const item=el('li',undefined,'presence-person');item.dataset.playerId=person.id;item.tabIndex=0;item.setAttribute('aria-label',person.name+' · online');
-    const name=el('span',person.name,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id,person.avatar),name);list.append(item);
+  function addMenu(key,persons,overflow=false){
+    const item=el('li',undefined,'presence-person'+(overflow?' presence-more':''));
+    const menu=el('details',undefined,'header-menu friend-menu');menu.dataset.key=key;
+    const trigger=el('summary'),panel=el('div',undefined,'account-menu friend-actions');
+    trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · online');
+    if(overflow)trigger.textContent='+'+persons.length;
+    else {item.dataset.playerId=key;trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
+    for(const person of persons){
+      panel.append(el('p',person.name,'friend-name'));
+      const targets=me.inspecting?[]:(person.join_targets||[]);
+      if(!targets.length)panel.append(el('p','Online','quiet friend-status'));
+      for(const target of targets){
+        const button=el('button','Join '+target.title);button.type='button';button.dataset.friendAction=target.session_id+':'+person.id;
+        button.onclick=()=>{
+          // Resolve against the latest poll. The launch API also rejects stale sessions.
+          const current=library.friends?.find(p=>p.id===person.id)?.join_targets?.find(t=>t.session_id===target.session_id&&t.app_id===target.app_id);
+          const game=library.apps.find(g=>g.id===target.app_id);
+          menu.open=false;
+          if(!current||!game){notice('That friend is no longer available to join.');return;}
+          start(game,button,item,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
+        };
+        panel.append(button);
+      }
+    }
+    function position(){
+      const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
+      panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
+      panel.style.top=(bounds.bottom+10)+'px';panel.style.maxHeight=Math.max(44,innerHeight-bounds.bottom-26)+'px';
+    }
+    trigger.addEventListener('click',position);menu.addEventListener('toggle',position);
+    menu.append(trigger,panel);item.append(menu);list.append(item);
+    if(opened===key){menu.open=true;position();}
+    if(focused===key){([...panel.querySelectorAll('button')].find(b=>b.dataset.friendAction===focusAction)||trigger).focus();}
   }
-  if(people.length>1){const extra=people.slice(1),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
+  if(people.length)addMenu(people[0].id,[people[0]]);
+  if(people.length>1)addMenu('overflow',people.slice(1),true);
+  if(focused&&!list.querySelector('.friend-menu summary:focus,.friend-menu button:focus'))$('account-trigger')?.focus();
 }
+for(const event of ['resize','scroll'])window.addEventListener(event,()=>{for(const menu of document.querySelectorAll('.friend-menu[open]'))menu.open=false;},{passive:true});
+
 function cancelTagHold(){if(tagHold)clearTimeout(tagHold.timer);tagHold=null;}
 document.addEventListener('pointerdown',event=>{
   cancelTagHold();
@@ -311,6 +352,7 @@ async function start(game,button,card,{guest=false,intent}={}) {
   const tab = window.open('about:blank','_blank');
   if(!tab){notice('Allow this site to open a game tab, then press Play again.');return;}
   tab.document.title='Opening '+game.title;tab.document.body.textContent='Getting '+game.title+' ready…';
+  const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
   try {
     const launch=await api(`/api/apps/${game.id}/launch`,{method:'POST',body:JSON.stringify({guest,intent})});
@@ -323,7 +365,7 @@ async function start(game,button,card,{guest=false,intent}={}) {
       if(state==='failed'||state==='stopping')throw Error(status.error||'The game could not start. Its creator can try an update.');
     }
     tab.opener=null;tab.location.replace(launch.url);
-  } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent='Play';}
+  } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
 }
 function desktopPlatform(){
   const platform=navigator.userAgentData?.platform||navigator.platform;
@@ -335,6 +377,7 @@ async function startDesktop(game,button,card,{guest=false}={}){
   if(me.inspecting)return;
   const platform=desktopPlatform();
   if(!game.native_platforms?.includes(platform)){notice('This desktop game needs a supported Windows or Linux computer.');return;}
+  const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
   try{
     const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest})});
@@ -348,7 +391,7 @@ async function startDesktop(game,button,card,{guest=false}={}){
     const actions=el('div',undefined,'desktop-actions');actions.append(open,install,close);dialog.append(heading,text,actions);document.body.append(dialog);dialog.showModal();
     // Keep a real link available if the browser requires a fresh user gesture.
     open.click();
-  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent='Play';}
+  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
 }
 document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open]'))if(!menu.contains(event.target))menu.open=false;});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
