@@ -186,7 +186,21 @@ revalidate, and never accept a publisher token or client-claimed identity.
 
 ## Current boundaries
 
-No peer relay/signaling, native client distribution, automatic engine server
-packaging, build queues, or multi-branch previews yet. An admin-only preview is an
-app visibility setting; it does not create a second server. Guest browser and
-cloud saves are isolated; server games must honor the returned guest identity.
+Peer-hosted WebRTC signaling and TURN are available; relay fallback is mandatory.
+The [native Godot preview](engines/godot-native.md) adds verified client delivery
+through the desktop companion. It currently accepts client-only single-player
+games on Windows/Linux x86-64; native multiplayer remains a separate study.
+
+Native pairing uses `/api/native/v1/device/start`, explicit signed-in
+`/api/native/v1/device/approve`, and verifier-protected `/api/native/v1/device/token`.
+Signed-in `POST /api/native/v1/play/APP` accepts `platform` and `guest`, returning
+a one-use `infuser://` launch link. The companion claims it at
+`POST /api/native/v1/claim` using its account-bound device credential. Devices can
+be listed/revoked under `/api/native/v1/devices`; an app can revoke its own key at
+`POST /api/native/v1/device/revoke`. Game agents should use `infuser publish` and
+the engine adapter rather than implementing this companion protocol themselves.
+
+Automatic engine-server packaging, build queues and multi-branch previews remain
+out of scope. An admin-only preview is an app visibility setting; it does not
+create a second server. Guest browser/native directories and cloud saves are
+isolated; server games must honor the returned guest identity.

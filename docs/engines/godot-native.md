@@ -84,3 +84,8 @@ certificate and acceptance autoload belong only in that disposable project.
 `desktop/examples/acceptance.rs` supplies that CA to a test client; the installed
 companion has no test-certificate override. Archive corruption/update isolation
 and device-pairing/claim/revocation are also covered by fast Rust journeys.
+The CI-built Flatpak was installed and started on Bazzite with the standard
+Freedesktop 25.08 runtime, and its `infuser://` handler was registered. The Windows
+installer compiled successfully and desktop unit journeys passed on the Windows
+CI runner. Google login plus a full installed-app play session still needs a
+human account acceptance pass; mock login tests do not certify that interaction.
