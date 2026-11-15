@@ -24,6 +24,7 @@ UninstallDisplayIcon={app}\{#Build}\InfuserPlay.exe
 
 [Files]
 Source: "..\target\release\infuser-desktop.exe"; DestDir: "{app}\{#Build}"; DestName: "InfuserPlay.exe"; Flags: ignoreversion
+Source: "..\assets\fonts\OFL.txt"; DestDir: "{app}\{#Build}\licenses"; DestName: "NotoSans-OFL.txt"; Flags: ignoreversion
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\infuser"; ValueType: string; ValueData: "URL:Infuser Play Protocol"; Flags: uninsdeletekey

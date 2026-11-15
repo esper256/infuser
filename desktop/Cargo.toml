@@ -7,6 +7,7 @@ rust-version = "1.89"
 [dependencies]
 anyhow = "1"
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 infuser-native-protocol = { path = "../native-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
