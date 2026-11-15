@@ -85,7 +85,9 @@ The [versioning foundation](sdk-versioning.md) is implemented: explicit SDK/API
 majors, capability admission, separate v1 imports/routes, and a frozen old-client
 journey. Legacy imports/routes remain available. Major 1 is still a preview, not
 a declaration that the full SDK contract is frozen. Review the durable semantics
-above before calling it stable or starting a second engine adapter.
+above before calling it stable. The [Godot web study](engines/godot-web.md) is
+explicitly experimental and exercises the same wire contract before that freeze;
+native authentication, binary checkpoints and artifact selection remain open.
 
 ## Later features: achievements as an example
 
