@@ -43,7 +43,7 @@ accessible action name. Players choose a curated portrait by clicking their name
 in the header; the account choice appears on their creator and presence portraits.
 Initials remain available. Never invent author identities. Cards use the Nightglass layout with
 a content-sized glass dock. Missing or unavailable game artwork uses a muted,
-abstract colored checker pattern, without logos, invented game imagery, or filler
+abstract composition of overlapping colored loops, without logos, invented game imagery, or filler
 copy. Keep it static and subordinate to the real game covers. Fictional art stays
 in mockups. The [card hero art guide](card-art-guide.md) defines composition,
 export, and publishing requirements. Artwork must ship with the game build;

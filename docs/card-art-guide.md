@@ -66,7 +66,7 @@ publication. No new game SDK integration is involved.
 
 Artwork activates with its immutable game build; a queued update keeps the old
 cover until activation. Publish a new build to replace art. Missing art uses the
-abstract Library checker-pattern fallback. The Library returns an optional `card_art_url`, accessible only
+abstract Library fallback. The Library returns an optional `card_art_url`, accessible only
 to members who can see that game; hidden preview art is adult-only as well.
 
 A larger About-window illustration will be a separate asset with its own future
