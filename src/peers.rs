@@ -97,6 +97,28 @@ fn member<'a>(
     Ok(room)
 }
 impl Rooms {
+    /// Authorize signaling without extending the coordinator lease.
+    pub fn authorize(
+        &self,
+        app: &str,
+        peer: &str,
+        launch: &str,
+        epoch: &str,
+        to: Option<&str>,
+        time: u64,
+    ) -> Result<()> {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let room = member(&mut rooms, app, peer, launch)?;
+        ensure!(room.epoch == epoch, fault(409, "stale shared session"));
+        if let Some(to) = to {
+            ensure!(
+                to != peer && (room.host == peer || room.host == to) && room.peers.contains_key(to),
+                fault(403, "signal only between this session's host and members")
+            );
+        }
+        Ok(())
+    }
     pub fn available(&self, time: u64) -> bool {
         time >= self.resume_after
     }

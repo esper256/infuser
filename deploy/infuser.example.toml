@@ -10,6 +10,9 @@ disk_reserve_mb = 4096
 port_start = 8000
 port_end = 9000
 api_port = 7777
+# Optional private PeerServer container, reachable only through the controller.
+# Requires [controller.turn]; see docs/peerjs.md.
+# peerjs_port = 7780
 lease_seconds = 90
 # Logical JSON checkpoint and retry-receipt storage budget. Default: 512 MiB.
 # cloud_save_budget_mb = 512

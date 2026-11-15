@@ -80,8 +80,16 @@ pub struct Multiplayer {
     pub transport: Transport,
     pub max_players: u32,
     pub join_policy: JoinPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<PeerAdapter>,
     pub direct_connect: Option<DirectConnect>,
     pub relay_fallback: Option<RelayFallback>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PeerAdapter {
+    Peerjs,
 }
 
 impl Manifest {
@@ -147,6 +155,11 @@ impl Manifest {
             "declare multiplayer settings exactly when multiplayer is supported"
         );
         if let Some(m) = &self.multiplayer {
+            ensure!(
+                m.adapter.is_none()
+                    || (m.mode == Mode::PeerHosted && m.transport == Transport::Webrtc),
+                "PeerJS adapter requires peer_hosted WebRTC"
+            );
             ensure!(
                 (2..=4096).contains(&m.max_players),
                 "max_players must be between 2 and 4096"

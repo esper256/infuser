@@ -30,6 +30,7 @@ export const saves = {
 export async function leave() { stopped = true; clearInterval(timer); await request('heartbeat', { method: 'DELETE' }); }
 // Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
 export const peers = { join: async options => (await import('/_infuser/sdk/v1/peers.js')).join(options) };
+export const peerjs = { join: async options => (await import('/_infuser/sdk/v1/peerjs.js')).join(options) };
 const checkpoint = method => async (...args) => (await import('/_infuser/sdk/v1/cloud.js')).cloud[method](...args);
 export const cloud = {load:checkpoint('load'),read:checkpoint('read'),history:checkpoint('history'),commit:checkpoint('commit'),resolve:checkpoint('resolve')};
 // Managed backends only. Peer-hosted games continue to use peers.join().
@@ -54,7 +55,7 @@ export const launchIntent = {
   // At most once: refresh and lost-response retries cannot silently replay a join.
   consume: () => request('launch-intent/v1/consume', {method:'POST',signal:AbortSignal.timeout(5000)})
 };
-export const Infuser = { version, ready, saves, leave, peers, cloud, runtime, presence, launchIntent };
+export const Infuser = { version, ready, saves, leave, peers, peerjs, cloud, runtime, presence, launchIntent };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.

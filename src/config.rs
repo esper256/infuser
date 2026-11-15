@@ -41,6 +41,8 @@ pub struct Settings {
     pub content_budget_mb: u64,
     pub cloud_save_budget_mb: u64,
     pub turn: Option<Turn>,
+    /// Optional private PeerServer listener on IPv4 loopback; never a public port.
+    pub peerjs_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -75,6 +77,7 @@ impl Default for Settings {
             content_budget_mb: 2048,
             cloud_save_budget_mb: 512,
             turn: None,
+            peerjs_port: None,
         }
     }
 }
@@ -173,6 +176,28 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
+        if let Some(port) = s.peerjs_port {
+            ensure!(s.turn.is_some(), "PeerJS requires TURN");
+            ensure!(
+                port >= 1024 && port != s.api_port && !(s.port_start..=s.port_end).contains(&port),
+                "invalid PeerServer port or overlap"
+            );
+            let turn = s.turn.as_ref().unwrap();
+            ensure!(
+                !(turn.relay_port_start..=turn.relay_port_end).contains(&port),
+                "PeerServer overlaps TURN relay range"
+            );
+            for url in &turn.urls {
+                ensure!(
+                    url.split('?')
+                        .next()
+                        .and_then(|v| v.rsplit(':').next())
+                        .and_then(|v| v.parse::<u16>().ok())
+                        != Some(port),
+                    "PeerServer overlaps TURN listener"
+                );
+            }
+        }
         ensure!(
             (64..=1048576).contains(&s.cloud_save_budget_mb),
             "invalid cloud save budget"
@@ -228,6 +253,10 @@ impl Config {
             );
         }
         let auth = reqwest::Url::parse(&s.auth_url)?;
+        ensure!(
+            s.peerjs_port.is_none() || s.peerjs_port != auth.port_or_known_default(),
+            "PeerServer overlaps login proxy"
+        );
         ensure!(
             auth.scheme() == "http"
                 && auth

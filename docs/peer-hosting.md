@@ -5,6 +5,11 @@ chooses when to join multiplayer. Single player stays local. There is one shared
 session per app, with at most eight browser peers; the first participant hosts.
 This transport is pre-1.0 and needs the same contract review as the save SDK.
 
+Existing PeerJS games can use the [PeerJS adapter](peerjs.md) instead of replacing
+their DataConnection message handling with this JSON helper. Both share the same
+session, presence, Join friend, and mandatory relay rules. Declare the adapter
+explicitly; their signaling protocols and message framing are not interchangeable.
+
 Declare both supported play modes in `infuser.game.json`:
 
 ```json

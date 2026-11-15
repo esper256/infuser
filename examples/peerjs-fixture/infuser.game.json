@@ -1,0 +1,8 @@
+{
+  "title":"PeerJS Flight Test",
+  "play_modes":["solo","multiplayer"],
+  "solo_runtime":"client_only",
+  "sdk":{"major":1,"api_major":1,"required_capabilities":["identity.v1","peers.peerjs.v1"]},
+  "launch_intents":["join_friend"],
+  "multiplayer":{"mode":"peer_hosted","transport":"webrtc","adapter":"peerjs","max_players":4,"join_policy":"anytime","direct_connect":"optional","relay_fallback":"required"}
+}

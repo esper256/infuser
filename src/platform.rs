@@ -477,7 +477,7 @@ pub fn preview(
         let selected=d.apps.get(app).context("unknown app")?;
         ensure!(!selected.listed,"operator preview only accepts hidden test games");
         let build=d.builds.get(&format!("{app}/{}",selected.build)).context("missing build")?;
-        if let Some(sdk) = &build.manifest.sdk { sdk.admit(&crate::sdk_contract::capabilities(config.controller.turn.is_some()))?; }
+        if let Some(sdk) = &build.manifest.sdk { sdk.admit(&crate::sdk_contract::with_peerjs(config.controller.turn.is_some(), config.controller.peerjs_port.is_some()))?; }
         ensure!(build.server.is_none() || build.manifest.server_start.is_some(),"operator preview requires a client-only or on-demand web game");
         if let Some(intent) = &intent { intent.validate(&build.manifest)?; }
         let id=secret()[..32].to_string();let token=secret();

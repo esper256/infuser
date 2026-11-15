@@ -26,6 +26,7 @@ features explicitly. Bevy remains paused while these contracts settle.
    app just to refresh credentials.
 2. Inspect the project, then choose the closest recipe:
    - **[Three.js / Vite / browser JavaScript](engines/threejs-vite.md)** — first supported journey.
+   - **[Existing PeerJS multiplayer](peerjs.md)** — preserve PeerJS messages and standalone play; add private Infuser connection setup.
    - **[Godot web export](engines/godot-web.md)** — export and adapter path.
    - **[Godot multiplayer](engines/godot-multiplayer.md)** — explicit transport choices; recipe in progress.
    - **[Godot desktop](engines/godot-native.md)** — Infuser Play for Windows/Linux and single-player exports.

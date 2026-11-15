@@ -37,6 +37,7 @@ mod chat;
 mod client;
 mod metadata;
 mod native;
+mod peerjs;
 mod presence;
 mod runtime;
 mod sdk_v1;
@@ -103,6 +104,7 @@ pub struct Platform {
     publishing: Arc<Mutex<()>>,
     peers: Arc<crate::peers::Rooms>,
     relay: Option<Arc<crate::peers::Relay>>,
+    peerjs_sockets: Arc<Mutex<std::collections::BTreeSet<String>>>,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -133,6 +135,7 @@ impl Platform {
             0
         };
         Ok(Self {
+            peerjs_sockets: Default::default(),
             controller,
             db,
             http: reqwest::Client::builder()
@@ -394,6 +397,8 @@ pub fn router(platform: Platform) -> Router {
         .nest("/_infuser/api/v1", sdk_v1::routes())
         .route("/_infuser/sdk/v1.js", get(sdk_v1::core))
         .route("/_infuser/sdk/v1/peers.js", get(sdk_v1::peers))
+        .route("/_infuser/sdk/v1/peerjs.js", get(sdk_v1::peerjs))
+        .route("/_infuser/peerjs/peerjs", get(peerjs::socket))
         .route("/_infuser/sdk/v1/cloud.js", get(sdk_v1::cloud))
         .route("/", get(page))
         .route("/games/{slug}", get(page))
@@ -640,8 +645,11 @@ async fn launch(
     );
     let b = &data.builds[&build_key(&app, &selected.build)];
     if let Some(sdk) = &b.manifest.sdk {
-        sdk.admit(&crate::sdk_contract::capabilities(p.relay.is_some()))
-            .map_err(|e| fault(422, &e.to_string()))?;
+        sdk.admit(&crate::sdk_contract::with_peerjs(
+            p.relay.is_some(),
+            p.config().controller.peerjs_port.is_some(),
+        ))
+        .map_err(|e| fault(422, &e.to_string()))?;
     }
     if let Some(intent) = &body.intent {
         intent.validate(&b.manifest)?;
@@ -916,7 +924,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"game_metadata":{"version":1,"title_max_chars":80,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"game_metadata":{"version":1,"title_max_chars":80,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -944,10 +952,17 @@ async fn create_build(
         .validate()
         .map_err(|e| fault(400, &e.to_string()))?;
     if let Some(sdk) = &body.manifest.sdk {
-        sdk.admit(&crate::sdk_contract::capabilities(p.relay.is_some()))
-            .map_err(|e| fault(422, &e.to_string()))?;
+        sdk.admit(&crate::sdk_contract::with_peerjs(
+            p.relay.is_some(),
+            p.config().controller.peerjs_port.is_some(),
+        ))
+        .map_err(|e| fault(422, &e.to_string()))?;
     }
     if let Some(m) = &body.manifest.multiplayer {
+        ensure!(
+            m.adapter.is_none() || p.config().controller.peerjs_port.is_some(),
+            fault(422, "PeerJS is not configured on this Infuser")
+        );
         ensure!(
             matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld)
                 || (m.mode == Mode::PeerHosted
@@ -1163,7 +1178,7 @@ impl Platform {
             let b = d.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?.clone();
             anyhow::ensure!(b.files.contains_key("index.html"), fault(422,"web build needs index.html"));
             let index = std::fs::read_to_string(self.root().join(&key).join("index.html"))?;
-            if let Some(sdk) = &b.manifest.sdk { sdk.admit(&crate::sdk_contract::capabilities(self.relay.is_some())).map_err(|e|fault(422,&e.to_string()))?; }
+            if let Some(sdk) = &b.manifest.sdk { sdk.admit(&crate::sdk_contract::with_peerjs(self.relay.is_some(), self.config().controller.peerjs_port.is_some())).map_err(|e|fault(422,&e.to_string()))?; }
             let script = crate::sdk_contract::script(&b.manifest);
             anyhow::ensure!(index.contains(script), fault(422,&format!("include <script type=module src=\"{script}\"></script> so the game maintains its session")));
             if let Some(size) = b.files.get(crate::card_art::PATH) {
@@ -1323,7 +1338,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1382,6 +1397,8 @@ struct PeerJoin {
     expected_player: Option<String>,
     #[serde(default)]
     joinable: Option<bool>,
+    #[serde(default)]
+    adapter: Option<crate::manifest::PeerAdapter>,
 }
 async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<PeerJoin>) -> Answer {
     p.game(&h)?;
@@ -1416,6 +1433,14 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
         .relay
         .as_ref()
         .ok_or_else(|| fault(503, "TURN is not configured"))?;
+    ensure!(
+        body.adapter == multiplayer.adapter,
+        fault(422, "use the published game's networking adapter")
+    );
+    ensure!(
+        body.adapter.is_none() || p.config().controller.peerjs_port.is_some(),
+        fault(503, "PeerJS is not configured")
+    );
     let who = crate::peers::Identity {
         launch: id.clone(),
         player: if launch.guest {
@@ -1444,6 +1469,9 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
         now(),
     )?;
     result["ice_servers"] = json!([relay.credentials(result["self_id"].as_str().unwrap(), now())]);
+    if body.adapter.is_some() {
+        result["peerjs"] = json!({"path":"/_infuser/peerjs/", "id":format!("i-{}-{}",result["epoch"].as_str().unwrap(),result["self_id"].as_str().unwrap()),"key":"peerjs"});
+    }
     result["ice_transport_policy"] = json!(if body.relay_only
         || matches!(
             multiplayer.direct_connect,

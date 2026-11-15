@@ -32,6 +32,12 @@ Approved product decisions:
   title screen and never creates a second shared world.
 - Stable SDK majors coexist. Additions are capability-gated; an unchanged older
   game must keep working when the daemon updates. Overall SDK 1.0 is not frozen yet.
+- Existing networking libraries can have explicit adapters. The [PeerJS preview](peerjs.md)
+  preserves PeerJS DataConnections while sharing Infuser admission and relay rules.
+  `peers.peerjs.v1` gates the new adapter; existing manifests and peer helpers retain
+  their behavior. Games can select an optional platform integration at launch and
+  keep their standalone workflow. A failed hosted session must not silently fall
+  back to public matchmaking or a different save namespace.
 - Multiplayer updates upload immediately and activate after the shared session
   ends and its server shuts down. Queued publication is implemented; a force-restart
   action is reserved for adult administration.

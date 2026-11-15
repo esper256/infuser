@@ -73,6 +73,16 @@ pub fn capabilities(relay: bool) -> Value {
     }
     json!({"status":"preview","majors":[1],"api_majors":[1],"default_major":1,"path":"/_infuser/sdk/v1.js","api_base":"/_infuser/api/v1","capabilities":available,"legacy_path":"/_infuser/sdk.js"})
 }
+pub fn with_peerjs(relay: bool, peerjs: bool) -> Value {
+    let mut value = capabilities(relay);
+    if relay && peerjs {
+        value["capabilities"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("peers.peerjs.v1"));
+    }
+    value
+}
 pub fn script(manifest: &crate::manifest::Manifest) -> &'static str {
     if manifest.sdk.is_some() {
         "/_infuser/sdk/v1.js"
