@@ -1,3 +1,4 @@
+import { initFeedback } from '/assets/feedback.js';
 import { setupPwa } from '/assets/pwa.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
@@ -348,7 +349,9 @@ function setupAccount(){
   window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
   label.append(select);
   const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
-  panel.append(profile,label,out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
+  const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
+  const reviewFeedback=initFeedback(feedback,()=>{menu.open=false;},api,me.admin&&!me.inspecting);
+  panel.append(profile,label,feedback,...(reviewFeedback?[reviewFeedback]:[]),out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;

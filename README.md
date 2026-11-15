@@ -44,6 +44,7 @@ not on the Infuser host. Godot exports likewise use the creator's Godot toolchai
 - [Reporting platform problems](docs/agents.md#reporting-platform-problems)
 - [Public publishing, player and cloud-save API](docs/public-api.md)
 - [SDK 1.0 design review](docs/sdk-contract.md) — current game contract is experimental
+- [Private feedback review setup](docs/feedback.md)
 - [Player experience](docs/design.md) and [next steps](docs/roadmap.md)
 - [Development checks](docs/development.md)
 - [Install Infuser](docs/clubhouse-operations.md)
