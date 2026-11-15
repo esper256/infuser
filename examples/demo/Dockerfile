@@ -1,6 +1,7 @@
 FROM rust:1-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock build.rs ./
+COPY native-protocol ./native-protocol
 COPY src ./src
 COPY web ./web
 COPY sdk ./sdk
