@@ -6,7 +6,7 @@ use hmac::{Hmac, Mac};
 use serde_json::{Value, json};
 use sha1::Sha1;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Mutex,
 };
 
@@ -44,6 +44,8 @@ pub struct Join<'a> {
     pub build: &'a str,
     pub connection: &'a str,
     pub max_players: u32,
+    pub expected_epoch: Option<&'a str>,
+    pub joinable: Option<bool>,
 }
 struct Peer {
     identity: Identity,
@@ -58,6 +60,9 @@ struct Room {
     host: String,
     peers: BTreeMap<String, Peer>,
     sequence: u64,
+    max_players: u32,
+    // None preserves legacy admission, but never advertises a joinable session.
+    accepting_players: Option<bool>,
 }
 #[derive(Default)]
 pub struct Rooms {
@@ -71,7 +76,7 @@ fn reap(rooms: &mut BTreeMap<String, Room>, time: u64) {
     });
 }
 fn view(r: &Room, peer: &str) -> Value {
-    json!({"epoch":r.epoch,"build_id":r.build,"host_id":r.host,"self_id":peer,"role":if r.host==peer{"host"}else{"member"},"lease_ms":25000,"peers":r.peers.iter().map(|(id,p)|json!({"id":id,"player_id":p.identity.player,"name":p.identity.name,"guest":p.identity.guest})).collect::<Vec<_>>()})
+    json!({"epoch":r.epoch,"build_id":r.build,"host_id":r.host,"self_id":peer,"role":if r.host==peer{"host"}else{"member"},"lease_ms":25000,"accepting_players":r.accepting_players,"max_players":r.max_players,"peers":r.peers.iter().map(|(id,p)|json!({"id":id,"player_id":p.identity.player,"name":p.identity.name,"guest":p.identity.guest})).collect::<Vec<_>>()})
 }
 fn member<'a>(
     rooms: &'a mut BTreeMap<String, Room>,
@@ -91,6 +96,58 @@ fn member<'a>(
     Ok(room)
 }
 impl Rooms {
+    pub fn available(&self, time: u64) -> bool {
+        time >= self.resume_after
+    }
+    /// Remove disabled/expired launches without trusting a game's self-report.
+    pub fn retain_launches(&self, app: &str, live: &BTreeSet<String>, time: u64) {
+        let mut rooms = self.rooms.lock().unwrap();
+        if let Some(room) = rooms.get_mut(app) {
+            room.peers.retain(|_, p| live.contains(&p.identity.launch));
+        }
+        reap(&mut rooms, time);
+    }
+    pub fn discovery(&self, app: &str, build: &str, time: u64) -> Value {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let Some(room) = rooms.get(app) else {
+            return Value::Null;
+        };
+        let reason = if room.build != build {
+            Some("different_build")
+        } else if room.peers.len() >= room.max_players as usize {
+            Some("full")
+        } else {
+            match room.accepting_players {
+                Some(true) => None,
+                Some(false) => Some("closed"),
+                None => Some("not_advertised"),
+            }
+        };
+        json!({"id":room.epoch,"build_id":room.build,"host_player_id":room.peers[&room.host].identity.player,
+            "player_count":room.peers.len(),"max_players":room.max_players,"joinable":reason.is_none(),"reason":reason,
+            "players":room.peers.values().map(|p|json!({"player_id":p.identity.player,"name":p.identity.name,"guest":p.identity.guest})).collect::<Vec<_>>()})
+    }
+    pub fn set_joinable(
+        &self,
+        app: &str,
+        peer: &str,
+        launch: &str,
+        epoch: &str,
+        joinable: bool,
+        time: u64,
+    ) -> Result<Value> {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let room = member(&mut rooms, app, peer, launch)?;
+        ensure!(
+            room.host == peer,
+            fault(403, "only the host may change joinability")
+        );
+        ensure!(room.epoch == epoch, fault(409, "stale shared session"));
+        room.accepting_players = Some(joinable);
+        Ok(view(room, peer))
+    }
     pub fn recovering(resume_after: u64) -> Self {
         Self {
             resume_after,
@@ -118,6 +175,12 @@ impl Rooms {
         let mut rooms = self.rooms.lock().unwrap();
         reap(&mut rooms, time);
         let peer = hash(&format!("{}/{}", who.launch, request.connection))[..32].to_owned();
+        if let Some(epoch) = request.expected_epoch {
+            ensure!(
+                rooms.get(request.app).is_some_and(|r| r.epoch == epoch),
+                fault(410, "that shared session ended; return to the title screen")
+            );
+        }
         let existing = rooms
             .get(request.app)
             .is_some_and(|r| r.peers.contains_key(&peer));
@@ -131,6 +194,8 @@ impl Rooms {
             host: peer.clone(),
             peers: BTreeMap::new(),
             sequence: 0,
+            max_players: request.max_players.min(8),
+            accepting_players: request.joinable,
         });
         ensure!(
             room.build == request.build,
@@ -140,8 +205,15 @@ impl Rooms {
             )
         );
         ensure!(
-            existing || room.peers.len() < (request.max_players.min(8) as usize),
+            existing || room.peers.len() < (room.max_players as usize),
             fault(409, "the shared session is full")
+        );
+        ensure!(
+            existing
+                || room.host == peer
+                || (room.accepting_players != Some(false)
+                    && (request.expected_epoch.is_none() || room.accepting_players == Some(true))),
+            fault(409, "the shared session is not accepting players right now")
         );
         room.peers
             .entry(peer.clone())

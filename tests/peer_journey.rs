@@ -23,6 +23,8 @@ fn join<'a>(app: &'a str, build: &'a str) -> Join<'a> {
         build,
         connection: "connection-123456",
         max_players: 2,
+        expected_epoch: None,
+        joinable: None,
     }
 }
 #[test]
@@ -44,6 +46,11 @@ fn host_expiry_fences_old_session_and_signals() -> Result<()> {
     let aid = a["self_id"].as_str().unwrap();
     let bid = b["self_id"].as_str().unwrap();
     assert_eq!(a["epoch"], b["epoch"]);
+    assert_eq!(
+        rooms.discovery("pond", "one", 100)["joinable"],
+        false,
+        "legacy rooms may accept ordinary joins without advertising Join friend"
+    );
     assert!(
         rooms
             .health("pond", aid, "b", json!({"connections":[]}), 101)
@@ -93,6 +100,12 @@ fn host_expiry_fences_old_session_and_signals() -> Result<()> {
     assert_eq!(next["role"], "host");
     assert_ne!(next["epoch"], a["epoch"]);
     assert!(rooms.signal("pond", aid, "a", &message, 131).is_err());
+    let mut stale = join("pond", "two");
+    stale.expected_epoch = a["epoch"].as_str();
+    assert!(rooms.join(identity("c"), stale, 131).is_err());
+    assert_eq!(rooms.discovery("pond", "two", 131)["player_count"], 1);
+    rooms.retain_launches("pond", &Default::default(), 131);
+    assert!(rooms.discovery("pond", "two", 131).is_null());
     Ok(())
 }
 #[tokio::test]
@@ -107,6 +120,9 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
     ))?;
     cfg.validate()?;
     platform::member(&cfg, "adult@example.com", "Adult", true, true)?;
+    platform::member(&cfg, "friend@example.com", "Friend", false, true)?;
+    platform::member(&cfg, "disabled@example.com", "Disabled", false, false)?;
+    platform::member(&cfg, "stale@example.com", "Stale", false, true)?;
     let controller = Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -114,7 +130,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
         }),
     )?);
     let platform = portal::Platform::open(controller)?;
-    let manifest = json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","multiplayer":{"mode":"peer_hosted","transport":"webrtc","max_players":4,"join_policy":"anytime","direct_connect":"disabled","relay_fallback":"required"}});
+    let manifest = json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","multiplayer":{"mode":"peer_hosted","transport":"webrtc","max_players":2,"join_policy":"between_rounds","direct_connect":"disabled","relay_fallback":"required"}});
     for build in ["one", "two"] {
         let content = dir.path().join("content/pond").join(build);
         std::fs::create_dir_all(&content)?;
@@ -146,14 +162,14 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
                 updated: now(),
             },
         );
-        for id in ["a", "b"] {
+        for id in ["a", "b", "c"] {
             d.launches.insert(
                 id.into(),
                 Launch {
                     app: "pond".into(),
                     build: "one".into(),
                     email: "adult@example.com".into(),
-                    guest: true,
+                    guest: id != "a",
                     host: format!("{id}.games.example.com"),
                     token_hash: platform::hash(id),
                     exchanged: true,
@@ -165,6 +181,10 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
                 },
             );
         }
+        for email in ["friend@example.com", "disabled@example.com"] {
+            d.presence.insert(email.into(), now());
+        }
+        d.presence.insert("stale@example.com".into(), now() - 91);
         platform::credential(d, "pond", "publish", "test")
     })?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -183,6 +203,48 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
         reqwest::Method::POST,
         reqwest::Method::DELETE,
     );
+    let presence = |id: &str| {
+        http.get(format!("{url}/_infuser/presence/v1"))
+            .header("host", format!("{id}.games.example.com"))
+            .bearer_auth(id)
+    };
+    let before: Value = presence("c")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(before["session"].is_null());
+    assert_eq!(before["can_start"], true);
+    assert_eq!(before["self_id"], "guest-c");
+    assert_eq!(before["players"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        before["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["game_open"] == true)
+            .count(),
+        3
+    );
+    assert!(
+        before["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["multiplayer"] == false)
+    );
+    assert!(!before.to_string().contains("@example.com"));
+    assert_eq!(platform.controller.list(now())["reserved_memory_mb"], 0);
+    assert_eq!(
+        presence("c")
+            .header("origin", "https://other.example")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(presence("invalid").send().await?.status(), 401);
     assert_eq!(
         http.post(format!("{url}/_infuser/peers"))
             .json(&json!({"connection_id":"connection-123456"}))
@@ -201,14 +263,61 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
         403
     );
     let a: Value = call("a", post.clone(), "")
-        .json(&json!({"connection_id":"connection-123456","relay_only":false}))
+        .json(&json!({"connection_id":"connection-123456","relay_only":false,"joinable":false}))
         .send()
         .await?
         .error_for_status()?
         .json()
         .await?;
+    let aid = a["self_id"].as_str().unwrap();
+    let closed: Value = presence("c").send().await?.json().await?;
+    assert_eq!(closed["session"]["reason"], "closed");
+    assert_eq!(closed["session"]["player_count"], 1);
+    assert_eq!(closed["can_start"], false);
+    assert_eq!(
+        closed["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["multiplayer"] == true)
+            .count(),
+        1
+    );
+    assert_eq!(
+        call("b", post.clone(), "")
+            .json(&json!({"connection_id":"connection-123456","expected_epoch":a["epoch"]}))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    let set = |id: &str, peer: &str, epoch: &Value, joinable: bool| {
+        call(id, reqwest::Method::PUT, &format!("/{peer}/joinability"))
+            .json(&json!({"epoch":epoch,"joinable":joinable}))
+    };
+    assert_eq!(set("b", aid, &a["epoch"], true).send().await?.status(), 403);
+    assert_eq!(
+        set("a", aid, &json!("old"), true).send().await?.status(),
+        409
+    );
+    assert_eq!(
+        set("a", aid, &a["epoch"], true)
+            .header("origin", "https://other.example")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    set("a", aid, &a["epoch"], true)
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(
+        presence("c").send().await?.json::<Value>().await?["session"]["joinable"],
+        true
+    );
     let b: Value = call("b", post.clone(), "")
-        .json(&json!({"connection_id":"connection-123456"}))
+        .json(&json!({"connection_id":"connection-123456","expected_epoch":a["epoch"],"joinable":false}))
         .send()
         .await?
         .error_for_status()?
@@ -220,6 +329,44 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
     assert!(!a.to_string().contains("adult@example.com"));
     let aid = a["self_id"].as_str().unwrap();
     let bid = b["self_id"].as_str().unwrap();
+    assert_eq!(
+        set("b", bid, &a["epoch"], false).send().await?.status(),
+        403
+    );
+    let full: Value = presence("c").send().await?.json().await?;
+    assert_eq!(full["session"]["reason"], "full");
+    assert_eq!(full["session"]["joinable"], false);
+    assert_eq!(
+        call("c", post.clone(), "")
+            .json(&json!({"connection_id":"connection-123456","expected_epoch":a["epoch"]}))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    call("b", delete.clone(), &format!("/{bid}"))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(
+        presence("c").send().await?.json::<Value>().await?["session"]["joinable"],
+        true
+    );
+    call("b", post.clone(), "")
+        .json(&json!({"connection_id":"connection-123456","expected_epoch":a["epoch"]}))
+        .send()
+        .await?
+        .error_for_status()?;
+    set("a", aid, &a["epoch"], false)
+        .send()
+        .await?
+        .error_for_status()?;
+    // Existing peers can retry/poll while the host closes admission between rounds.
+    call("b", post.clone(), "")
+        .json(&json!({"connection_id":"connection-123456","expected_epoch":a["epoch"]}))
+        .send()
+        .await?
+        .error_for_status()?;
     assert_eq!(
         call("b", get.clone(), &format!("/{aid}"))
             .send()
@@ -253,6 +400,18 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
         .await?
         .error_for_status()?;
     assert_eq!(
+        call("c", post.clone(), "")
+            .json(&json!({"connection_id":"connection-123456","expected_epoch":a["epoch"]}))
+            .send()
+            .await?
+            .status(),
+        410
+    );
+    assert!(
+        presence("c").send().await?.json::<Value>().await?["session"].is_null(),
+        "stale Join friend must not create a replacement world"
+    );
+    assert_eq!(
         call("b", get.clone(), &format!("/{bid}"))
             .send()
             .await?
@@ -261,6 +420,9 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
     );
     platform.activate_pending()?;
     assert_eq!(platform.db.read()?.apps["pond"].build, "two");
+    let old: Value = presence("c").send().await?.json().await?;
+    assert_eq!(old["can_start"], false);
+    assert_eq!(old["unavailable_reason"], "newer_build");
     assert_eq!(
         call("b", post.clone(), "")
             .json(&json!({"connection_id":"connection-123456"}))

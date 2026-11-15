@@ -9,9 +9,11 @@ async function request(path, body, method = 'POST') {
   if (!response.ok) throw Object.assign(new Error(result.error || 'Peer session unavailable'), {status:response.status});
   return result;
 }
-export async function join({relayOnly = true, onState = () => {}, onMessage = () => {}, onEnd = () => {}} = {}) {
+export async function join({relayOnly = true, sessionId, joinable, onState = () => {}, onMessage = () => {}, onEnd = () => {}} = {}) {
+  if (sessionId !== undefined && (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId))) throw new TypeError('sessionId must be an observed session ID');
+  if (joinable !== undefined && typeof joinable !== 'boolean') throw new TypeError('joinable must be a boolean');
   const started = performance.now();
-  const initial = await request('', {connection_id: crypto.randomUUID(), relay_only: relayOnly});
+  const initial = await request('', {connection_id: crypto.randomUUID(), relay_only: relayOnly, expected_epoch:sessionId, joinable});
   let state = initial, live = true, lastPoll = started, cursor = 0, refreshed = started, timer, healthTimer;
   let iceServers = initial.ice_servers;
   const links = new Map();
@@ -128,6 +130,14 @@ export async function join({relayOnly = true, onState = () => {}, onMessage = ()
     id:initial.self_id, hostId:initial.host_id, role:initial.role, epoch:initial.epoch,
     get active() { return ownsLease(); },
     get peers() { return state.peers; },
+    get acceptingPlayers() { return state.accepting_players; },
+    async setJoinable(joinable) {
+      if (typeof joinable !== 'boolean') throw new TypeError('joinable must be a boolean');
+      if (!ownsLease()) throw new Error('Shared session ended.');
+      const next = await request('/' + initial.self_id + '/joinability', {epoch:initial.epoch, joinable}, 'PUT');
+      if (live) { state.accepting_players = next.accepting_players; report(); }
+      return next.accepting_players;
+    },
     send(to, data) {
       if (!ownsLease()) return false;
       const dc = links.get(to)?.channel, message = JSON.stringify(data);

@@ -41,7 +41,7 @@ publisher credentials and player sessions stop working.
 
 **SDK status: pre-1.0.** Read the [compatibility review](sdk-contract.md). The current
 integration is for dogfooding; do not mistake manifest schema 1 for SDK 1.0 or
-invent APIs for achievements, in-game presence, or Join friend. Play opens the
+invent APIs for achievements or launcher Join friend intents. Play opens the
 game's own title screen; keep its Single player/Multiplayer selection intact.
 
 Infer a few initial tags from the actual game. Prefer the supplied catalog or
@@ -70,6 +70,9 @@ example `"tags":["3d","arcade","chill"]`. Later publishes preserve author edits.
   `"server_start":"on_demand"`, then acquire when a mode needs the backend and
   release when it does not. Title screens and client-only single player use no
   server reservation. Peer-hosted games use `peers.join()` instead.
+- [In-game presence and peer joinability](presence.md): query `presence.get()`
+  on the title screen, distinguish online/game open/multiplayer, and join the
+  observed session ID. Only the host advertises when new players may join.
 
 ## Explicit play modes
 

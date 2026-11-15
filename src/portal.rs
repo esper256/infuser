@@ -31,6 +31,7 @@ use std::{
 };
 use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
+mod presence;
 mod runtime;
 
 pub fn fault(status: u16, message: &str) -> anyhow::Error {
@@ -414,11 +415,13 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/session", post(exchange))
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
+        .route("/_infuser/presence/v1", get(presence::snapshot))
         .route("/_infuser/runtime/v1", get(runtime::status).post(runtime::acquire))
         .route("/_infuser/runtime/v1/{session}", delete(runtime::release))
         .route("/_infuser/peers", post(peer_join))
         .route("/_infuser/peers/{peer}", get(peer_poll).delete(peer_leave))
         .route("/_infuser/peers/{peer}/signals", post(peer_signal))
+        .route("/_infuser/peers/{peer}/joinability", put(presence::set_joinable).layer(DefaultBodyLimit::max(1024)))
         .route("/_infuser/peers/{peer}/ice", post(peer_ice))
         .route("/_infuser/peers/{peer}/health", post(peer_health).layer(DefaultBodyLimit::max(4096)))
         .route("/_infuser/peers.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../sdk/peers.js")) }))
@@ -780,7 +783,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1163,7 +1166,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"runtime_sessions":runtime::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1203,18 +1206,28 @@ struct PeerJoin {
     connection_id: String,
     #[serde(default = "yes")]
     relay_only: bool,
+    #[serde(default)]
+    expected_epoch: Option<String>,
+    #[serde(default)]
+    joinable: Option<bool>,
 }
 async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<PeerJoin>) -> Answer {
-    let (id, launch) = p.game(&h)?;
+    p.game(&h)?;
     p.origin(&h, host(&h))?;
     p.admit(&h).await;
     let _guard = p.publishing.lock().unwrap();
+    let (id, launch) = p.game(&h)?;
     let data = p.db.read()?;
     ensure!(
         data.apps
             .get(&launch.app)
             .is_some_and(|a| a.build == launch.build),
         fault(409, "a newer build is available; reopen the game")
+    );
+    p.peers.retain_launches(
+        &launch.app,
+        &presence::live_launches(&data, &launch.app, now()),
+        now(),
     );
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
     let multiplayer = build
@@ -1252,6 +1265,8 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
             build: &launch.build,
             connection: &body.connection_id,
             max_players: multiplayer.max_players,
+            expected_epoch: body.expected_epoch.as_deref(),
+            joinable: body.joinable,
         },
         now(),
     )?;

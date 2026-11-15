@@ -25,17 +25,21 @@ Declare both supported play modes in `infuser.game.json`:
 No game Docker image is needed. Publish with the normal CLI, without `--solo`.
 Publishing capabilities report whether the installation has configured TURN.
 `direct_connect: optional` permits optimization; TURN support remains mandatory.
-The current coordinator accepts joins anytime; games using `between_rounds` must
-hold new participants in their own lobby until the next round.
+Games explicitly control admission with `room.setJoinable(boolean)`. For
+`between_rounds`, close admission during the round and reopen between rounds.
+Closing admission does not remove existing players. See [presence and
+joinability](presence.md) for title-screen discovery and safe targeted joins.
 
 ```js
 import { peers } from '/_infuser/sdk.js';
 const room = await peers.join({
   relayOnly: true,
+  joinable: false, // Keep new players out until the host's game state is ready.
   onState(state) { /* state.peers, state.connected, state.role */ },
   onMessage(from, data) { /* validate game messages before applying */ },
   onEnd(reason) { /* stop simulation and offer a return to the title screen */ }
 });
+if (room.role === 'host') await room.setJoinable(true);
 // Members send inputs to the host; the host broadcasts validated snapshots.
 room.send(room.hostId, { type: 'input', x: 0, z: 1 });
 // Host only:
@@ -43,6 +47,13 @@ room.broadcast({ type: 'snapshot', tick: 1 });
 console.log(await room.stats()); // selected local/remote candidate types + bytes
 room.close();
 ```
+
+To join the session shown on a title screen, pass `sessionId: snapshot.session.id`
+to `peers.join()`. This must fail if that session ended or stopped accepting
+players; it never appoints a replacement host. A new session uses `joinable` only
+on creation. A member or a repeated join cannot change the host's admission policy.
+Existing integrations omitting `joinable` retain ordinary join behavior, but their
+rooms are not advertised as joinable until the host explicitly sets it.
 
 Messages are JSON, limited to 64 KiB, over an ordered reliable DataChannel.
 `send` returns false when disconnected or congested: games should keep their

@@ -59,7 +59,10 @@ into [on-demand runtime sessions](runtime-sessions.md): the title screen opens
 without a backend, and the game acquires/releases one when needed. Existing builds
 retain launch-time warming and explicit-mode launch requests remain accepted.
 Peer-hosted games already enter multiplayer explicitly through `peers.join()`.
-In-game presence and Join friend intents are not implemented yet.
+[In-game presence and explicit peer joinability](presence.md) are implemented
+experimentally. A targeted peer join binds to the observed session ID; it never
+creates a replacement world. Launcher Join friend intents and dedicated-server
+joinability reports are not implemented yet.
 
 ## Compatibility promise to implement before 1.0
 

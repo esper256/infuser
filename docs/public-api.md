@@ -107,6 +107,13 @@ For opt-in managed backends, [runtime sessions](runtime-sessions.md) add
 These endpoints do not select a gameplay mode, create parallel servers, or end
 the browser/cloud-save session. Peer-hosted games use the separate peer API.
 
+`presence.get()` reads `GET /_infuser/presence/v1` without acquiring anything.
+It separates online members, launches with this game open, and active peer-room
+participants. Peer hosts use `PUT /_infuser/peers/PEER/joinability` with
+`{ "epoch": "SESSION_ID", "joinable": true }`. A targeted join sends
+`expected_epoch` to `POST /_infuser/peers`; session creation may supply `joinable`.
+See the [presence contract](presence.md) for admission, expiry and compatibility.
+
 - `GET /_infuser/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.
 - `POST /_infuser/heartbeat` — renew every 25 seconds, including startup.

@@ -44,7 +44,11 @@ export const runtime = {
     return request('runtime/v1/' + sessionId, {method:'DELETE'});
   }
 };
-export const Infuser = { ready, saves, leave, peers, cloud, runtime };
+export const presence = {
+  // A snapshot only: no backend acquisition, peer lease, or presence spoofing.
+  get: () => request('presence/v1', {signal:AbortSignal.timeout(5000)})
+};
+export const Infuser = { ready, saves, leave, peers, cloud, runtime, presence };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.
