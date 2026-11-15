@@ -75,8 +75,9 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
 - `POST /api/my-games/APP/setup` — owner/admin replaces an unclaimed setup code.
 - `PUT /api/apps/APP/tags` — owner/admin sets `{"tags":["chill","puzzle"]}`.
 - `POST /api/apps/APP/launch` with `{"guest":false}` — scoped launch URL; game owns
-  mode selection. Legacy explicit `mode` is still accepted. Pre-1.0 warms a declared
-  multiplayer backend before launch; in-game on-demand startup is planned.
+  mode selection. Legacy explicit `mode` is still accepted. Managed builds with
+  `manifest.server_start:"on_demand"` start at their title screen without a server;
+  builds without that declaration retain launch-time warming.
 - `GET /api/launches/ID` — owner-only startup polling/renewal.
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
 - Adult-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
@@ -99,6 +100,12 @@ Launches open `/_infuser/play`, with fullscreen and return-to-Library controls i
 slim title bar above a same-origin game frame. The game still loads at `/` with its
 own viewport, so fixed canvases and root-relative assets work without rewriting.
 The SDK maintains the game session; it adds no controls over the game content.
+
+For opt-in managed backends, [runtime sessions](runtime-sessions.md) add
+`runtime.acquire()`, `runtime.status()`, and `runtime.release(sessionId)`:
+`GET/POST /_infuser/runtime/v1` and `DELETE /_infuser/runtime/v1/SESSION_ID`.
+These endpoints do not select a gameplay mode, create parallel servers, or end
+the browser/cloud-save session. Peer-hosted games use the separate peer API.
 
 - `GET /_infuser/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.

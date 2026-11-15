@@ -31,6 +31,7 @@ use std::{
 };
 use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
+mod runtime;
 
 pub fn fault(status: u16, message: &str) -> anyhow::Error {
     Fault {
@@ -258,14 +259,29 @@ impl Platform {
         );
         Ok((id.clone(), l.clone()))
     }
-    fn refresh(&self, id: &str, launch: &Launch) -> Result<Value> {
+    fn refresh(&self, id: &str) -> Result<Value> {
+        let _guard = self.publishing.lock().unwrap();
+        let data = self.db.read()?;
+        let launch = data
+            .launches
+            .get(id)
+            .filter(|l| l.expires > now())
+            .ok_or_else(|| fault(410, "game session expired"))?;
         let mut status = json!({"state":"ready","endpoint":null});
-        if let (Some(lease), Some(token)) = (&launch.lease_id, &launch.lease_token) {
+        let on_demand = data.builds[&build_key(&launch.app, &launch.build)]
+            .manifest
+            .server_start
+            .is_some();
+        if on_demand {
+            status["server"] = self.runtime_view(launch, true)?;
+        } else if let (Some(lease), Some(token)) = (&launch.lease_id, &launch.lease_token) {
             status = self
                 .controller
                 .lease(&launch.app, lease, token, "renew", now())?;
         }
-        if status["state"] == "ready"
+        if !on_demand
+            && launch.lease_id.is_some()
+            && status["state"] == "ready"
             && self
                 .controller
                 .snapshot()
@@ -398,6 +414,8 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/session", post(exchange))
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
+        .route("/_infuser/runtime/v1", get(runtime::status).post(runtime::acquire))
+        .route("/_infuser/runtime/v1/{session}", delete(runtime::release))
         .route("/_infuser/peers", post(peer_join))
         .route("/_infuser/peers/{peer}", get(peer_poll).delete(peer_leave))
         .route("/_infuser/peers/{peer}/signals", post(peer_signal))
@@ -565,17 +583,17 @@ async fn launch(
             < 32,
         fault(429, "Close an old game before opening more.")
     );
-    // Normal Play does not choose gameplay on the game's behalf. During the
-    // pre-1.0 period, provision its backend before opening the title screen.
-    // In-game, on-demand session requests are part of the SDK 1.0 design review.
+    // New builds opt into title-screen startup. Preserve launch-time backend
+    // acquisition for existing uploads, including their explicit mode requests.
     let managed = b
         .manifest
         .multiplayer
         .as_ref()
         .is_some_and(|m| matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld));
-    let needs_server = (body.mode.as_deref() == Some("multiplayer") && managed)
-        || (body.mode.is_none() && managed)
-        || matches!(b.manifest.solo_runtime, Some(SoloRuntime::SharedServer));
+    let needs_server = b.manifest.server_start.is_none()
+        && ((body.mode.as_deref() == Some("multiplayer") && managed)
+            || (body.mode.is_none() && managed)
+            || matches!(b.manifest.solo_runtime, Some(SoloRuntime::SharedServer)));
     let id = secret()[..32].to_string();
     let token = secret();
     let lease = if needs_server {
@@ -640,7 +658,7 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
         }
         Ok(())
     })?;
-    Ok(reply(p.refresh(&id, l)?))
+    Ok(reply(p.refresh(&id)?))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -762,7 +780,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1145,7 +1163,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id,&l)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"runtime_sessions":runtime::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1174,10 +1192,10 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     Ok(response)
 }
 async fn heartbeat(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let (id, l) = p.game(&h)?;
+    let (id, _) = p.game(&h)?;
     p.origin(&h, host(&h))?;
     p.admit(&h).await;
-    Ok(reply(p.refresh(&id, &l)?))
+    Ok(reply(p.refresh(&id)?))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1355,8 +1373,9 @@ async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .into_response())
 }
 async fn leave(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let (id, l) = p.game(&h)?;
     p.origin(&h, host(&h))?;
+    let _guard = p.publishing.lock().unwrap();
+    let (id, l) = p.game(&h)?;
     p.peers.leave_launch(&l.app, &id);
     if let (Some(lease), Some(token)) = (&l.lease_id, &l.lease_token) {
         let _ = p.controller.lease(&l.app, lease, token, "delete", now());

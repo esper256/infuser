@@ -150,6 +150,9 @@ pub async fn run(args: &[String]) -> Result<()> {
     if let Some(saves) = settings.get("cloud_saves") {
         manifest["cloud_saves"] = saves.clone();
     }
+    if let Some(start) = settings.get("server_start") {
+        manifest["server_start"] = start.clone();
+    }
     let parsed: crate::manifest::Manifest = serde_json::from_value(manifest.clone())?;
     parsed.validate()?;
     let capabilities = response(
@@ -163,6 +166,12 @@ pub async fn run(args: &[String]) -> Result<()> {
         ensure!(
             capabilities["cloud_checkpoints"]["version"] == 1,
             "this Infuser does not support declared cloud checkpoints yet"
+        );
+    }
+    if parsed.server_start.is_some() {
+        ensure!(
+            capabilities["runtime_sessions"]["version"] == 1,
+            "this Infuser does not support on-demand server sessions yet"
         );
     }
     if let Some(m) = &parsed.multiplayer {

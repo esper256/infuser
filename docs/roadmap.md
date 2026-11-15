@@ -12,8 +12,10 @@
 - Dogfood the implemented [declared save-file snapshot model](cloud-save-design.md),
   including durable conflict candidates and game-owned resolution. The legacy
   slot API retains its original behavior; new checkpoints use separate v1 routes.
-- Move server acquisition into the game so title screens need no running backend;
-  expose presence and joinability; add opt-in Join friend launch intents.
+- On-demand managed server acquisition/release is implemented as an opt-in build
+  contract; see [runtime sessions](runtime-sessions.md). Legacy builds still warm
+  on launch. Next: expose in-game presence and explicit joinability, then add
+  opt-in Join friend launch intents.
 - Give games a readable, unique URL slug. Preserve guest origin isolation and
   build isolation; a friendly entry address may differ from its actual play
   origin. Account for renames, collisions, reserved names, and old links.

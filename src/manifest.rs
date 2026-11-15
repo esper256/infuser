@@ -14,7 +14,14 @@ pub struct Manifest {
     pub solo_runtime: Option<SoloRuntime>,
     pub multiplayer: Option<Multiplayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_start: Option<ServerStart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_saves: Option<crate::cloud::Declaration>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerStart {
+    OnDemand,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -75,6 +82,15 @@ pub struct Multiplayer {
 
 impl Manifest {
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.server_start.is_none()
+                || matches!(self.solo_runtime, Some(SoloRuntime::SharedServer))
+                || self
+                    .multiplayer
+                    .as_ref()
+                    .is_some_and(|m| matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld)),
+            "server_start applies only to games with a managed backend"
+        );
         if let Some(saves) = &self.cloud_saves {
             saves.validate()?;
         }

@@ -54,10 +54,12 @@ that need without ending an unrelated single-player run. Join friend is a reques
 to join the existing shared session, never permission to create another world.
 Exact method names and payloads remain proposals until reviewed.
 
-Today, Play has no mode picker; the game owns that choice. The pre-1.0 launcher
-still warms a declared multiplayer backend before opening the game. On-demand
-acquisition from inside a title screen, in-game presence, and Join friend intents
-are not implemented yet. Existing explicit-mode launch requests remain accepted.
+Today, Play has no mode picker; the game owns that choice. Managed games can opt
+into [on-demand runtime sessions](runtime-sessions.md): the title screen opens
+without a backend, and the game acquires/releases one when needed. Existing builds
+retain launch-time warming and explicit-mode launch requests remain accepted.
+Peer-hosted games already enter multiplayer explicitly through `peers.join()`.
+In-game presence and Join friend intents are not implemented yet.
 
 ## Compatibility promise to implement before 1.0
 

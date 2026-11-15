@@ -184,42 +184,6 @@ pub fn initialize(c: &Connection) -> Result<()> {
     c.execute_batch("CREATE TABLE IF NOT EXISTS cloud_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
     Ok(())
 }
-// Keep the legacy catalog JSON readable by older daemons. Cloud declarations
-// live separately so an old binary rewriting that catalog cannot erase them.
-pub fn decode_catalog(c: &Connection, raw: &str) -> Result<crate::platform::Data> {
-    let mut data: crate::platform::Data = serde_json::from_str(raw)?;
-    let mut statement = c.prepare("SELECT build_key,declaration FROM cloud_manifests")?;
-    for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
-        let (key, declaration) = row?;
-        if let Some(build) = data.builds.get_mut(&key) {
-            build.manifest.cloud_saves = Some(serde_json::from_str(&declaration)?);
-        }
-    }
-    Ok(data)
-}
-pub fn encode_catalog(tx: &Transaction<'_>, data: &crate::platform::Data) -> Result<String> {
-    let mut value = serde_json::to_value(data)?;
-    for (key, build) in &data.builds {
-        if let Some(declaration) = &build.manifest.cloud_saves {
-            tx.execute("INSERT INTO cloud_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(declaration)?])?;
-        }
-        value["builds"][key]["manifest"]
-            .as_object_mut()
-            .unwrap()
-            .remove("cloud_saves");
-    }
-    let keys = {
-        let mut stmt = tx.prepare("SELECT build_key FROM cloud_manifests")?;
-        stmt.query_map([], |r| r.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-    };
-    for key in keys {
-        if !data.builds.contains_key(&key) {
-            tx.execute("DELETE FROM cloud_manifests WHERE build_key=?1", [key])?;
-        }
-    }
-    Ok(serde_json::to_string(&value)?)
-}
 fn head(c: &Connection, scope: Scope<'_>) -> Result<Option<String>> {
     Ok(c.query_row(
         "SELECT revision FROM cloud_heads WHERE owner=?1 AND app=?2 AND group_id=?3",

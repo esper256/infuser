@@ -31,7 +31,20 @@ export async function leave() { stopped = true; clearInterval(timer); await requ
 export const peers = { join: async options => (await import('/_infuser/peers.js')).join(options) };
 const checkpoint = method => async (...args) => (await import('/_infuser/cloud-v1.js')).cloud[method](...args);
 export const cloud = {load:checkpoint('load'),read:checkpoint('read'),history:checkpoint('history'),commit:checkpoint('commit'),resolve:checkpoint('resolve')};
-export const Infuser = { ready, saves, leave, peers, cloud };
+// Managed backends only. Peer-hosted games continue to use peers.join().
+// acquire() returns starting/ready; poll status() before connecting. Keep the
+// returned session_id for release so an old retry cannot end a newer session.
+export const runtime = {
+  acquire: () => request('runtime/v1', {method:'POST'}),
+  status: () => request('runtime/v1'),
+  release: sessionId => {
+    if (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId)) {
+      return Promise.reject(new TypeError('release requires the acquired session_id'));
+    }
+    return request('runtime/v1/' + sessionId, {method:'DELETE'});
+  }
+};
+export const Infuser = { ready, saves, leave, peers, cloud, runtime };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.

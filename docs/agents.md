@@ -66,6 +66,10 @@ example `"tags":["3d","arcade","chill"]`. Later publishes preserve author edits.
   from an activated update; the CLI reports this distinction.
 - One shared server per game. A second player joins it; never create a parallel
   lobby/world merely because a connection fails.
+- [On-demand managed server sessions](runtime-sessions.md): opt in with
+  `"server_start":"on_demand"`, then acquire when a mode needs the backend and
+  release when it does not. Title screens and client-only single player use no
+  server reservation. Peer-hosted games use `peers.join()` instead.
 
 ## Explicit play modes
 
