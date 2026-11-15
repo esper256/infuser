@@ -75,7 +75,8 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .await?;
     assert!(before["avatar"].is_null());
     let catalog = before["avatars"].as_array().unwrap();
-    assert_eq!(catalog.len(), 5);
+    assert_eq!(catalog.len(), 15);
+    let last_avatar = catalog.last().unwrap()["id"].as_str().unwrap();
     for avatar in catalog {
         let id = avatar["id"].as_str().unwrap();
         for size in [128, 256] {
@@ -161,7 +162,7 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .await?
         .json()
         .await?;
-    assert_eq!(saved["avatar"], "deepwave");
+    assert_eq!(saved["avatar"], last_avatar);
     let other: Value = request(Method::GET, "/api/me", "member=two")
         .send()
         .await?
@@ -179,14 +180,14 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .iter()
         .find(|p| p["id"] == saved["player_id"])
         .unwrap();
-    assert_eq!(presence["avatar"], "deepwave");
+    assert_eq!(presence["avatar"], last_avatar);
     assert!(presence.get("email").is_none());
     // A fresh DB connection sees the choice; invitation edits preserve it.
     assert_eq!(
         platform::Database::open(dir.path())?.read()?.members["one@example.com"]
             .avatar
             .as_deref(),
-        Some("deepwave")
+        Some(last_avatar)
     );
     let changed = request(Method::POST, "/api/admin/members", "member=two")
         .json(&json!({"email":"one@example.com","name":"Renamed","admin":false,"enabled":false}))
@@ -205,7 +206,7 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         platform::Database::open(dir.path())?.read()?.members["one@example.com"]
             .avatar
             .as_deref(),
-        Some("deepwave")
+        Some(last_avatar)
     );
     platform::member(&cfg, "one@example.com", "Renamed", false, true)?;
     let reset: Value = request(Method::PUT, "/api/profile", "member=one")

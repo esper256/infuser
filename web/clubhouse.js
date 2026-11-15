@@ -152,7 +152,7 @@ function openProfile(){
   $('profile-error').textContent='';
   const picker=$('profile-options');picker.replaceChildren();
   const selected=(me.avatars||[]).some(a=>a.id===me.avatar)?me.avatar:'';
-  for(const option of [...(me.avatars||[]),{id:'',name:'Initials'}]){
+  for(const option of [{id:'',name:'Initials'},...(me.avatars||[])]){
     const label=el('label',undefined,'profile-option'),radio=el('input'),tile=el('span',undefined,'profile-tile');
     radio.type='radio';radio.name='avatar';radio.value=option.id;radio.checked=option.id===selected;radio.required=true;
     tile.append(profileAvatar(me.name,me.player_id,option.id,256),el('span',option.name,'profile-caption'));
