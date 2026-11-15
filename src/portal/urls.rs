@@ -18,7 +18,11 @@ pub(super) async fn resolve(
         .filter(|a| a.listed || d.members[&email].admin)
         .ok_or_else(|| fault(404, "Game unavailable."))?;
     let mut value = view(&d, app, p.domain());
-    value["title"] = json!(d.builds[&build_key(app, &selected.build)].manifest.title);
+    value["title"] = json!(metadata::title(
+        &d,
+        app,
+        &d.builds[&build_key(app, &selected.build)].manifest.title
+    ));
     Ok(reply(value))
 }
 #[derive(Deserialize)]
