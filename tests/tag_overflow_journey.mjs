@@ -67,6 +67,14 @@ try{
  await page.keyboard.press('Escape');
  assert.equal(await page.locator('#tag-filters .tag-overflow-panel').isVisible(),false);
  assert.equal(await page.evaluate(()=>document.activeElement.classList.contains('tag-more')),true);
+ await page.setViewportSize({width:1200,height:850});
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ // Switching from a keyboard-focused list to another row must not reopen the old list.
+ await page.locator('#tag-filters > .tag-more').click();
+ await page.locator('#tag-filters .tag-overflow-panel button').first().focus();
+ await page.locator('.game-tags > .tag-more').hover();
+ assert.equal(await page.locator('#tag-filters .tag-overflow-panel').isVisible(),false);
+ assert.equal(await page.locator('.game-tags .tag-overflow-panel').isVisible(),true);
  // The card editor remains reachable through overflow.
  await page.locator('.game-tags > .tag-more').click();
  await page.evaluate(()=>refreshLibrary());assert.equal(await page.locator('.game-tags .tag-overflow-panel').isVisible(),true);
