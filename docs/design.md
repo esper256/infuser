@@ -35,6 +35,13 @@ player flows: pressed controls, subtle card movement, clear launch progress,
 and a brief acknowledgement when an action succeeds. Respect reduced motion.
 The games get the spotlight. Keep adult tools straightforward.
 
+When creator portraits are available, use the game author’s portrait as the
+reaction entry point, without a separate reaction control. Hover and keyboard
+focus show a thought bubble: “React to {author}’s game.” Click, Enter, or a phone
+tap opens the picker directly; never require hover. Give the portrait the same
+accessible action name. This is the agreed direction, pending author/profile
+data support; do not invent author identities in the current Library.
+
 Reactions begin with large positive emoji in a speech bubble. Selecting one
 reveals a short optional comment and Enter-to-send. Emoji-only is complete.
 Do not force a review after playing or imply a numerical rating.
