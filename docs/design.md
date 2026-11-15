@@ -36,15 +36,15 @@ player flows: pressed controls, subtle card movement, clear launch progress,
 and a brief acknowledgement when an action succeeds. Respect reduced motion.
 The games get the spotlight. Keep adult tools straightforward.
 Do not label cards Single player or Multiplayer; tags and launch options convey
-those choices. Keep the admin-only Invisible indicator for unlisted games.
+those choices. Keep unlisted games in the collapsed adult-only Hidden shelf.
 
 When creator portraits are available, use the game author’s portrait as the
 reaction entry point, without a separate reaction control. Hover and keyboard
 focus show a thought bubble: “React to {author}’s game.” Click, Enter, or a phone
 tap opens the picker directly; never require hover. Give the portrait the same
 accessible action name. Players open the account menu from their own portrait
-in the online-player list. A small gap, subtle halo, and inset chevron distinguish
-this badge; the menu includes the portrait picker, theme choice, and sign out.
+in the online-player list. A small gap, subtle halo, and online marker with a round top and pointed
+bottom distinguish this badge; the menu includes the portrait picker, theme choice, and sign out.
 Keep it mounted during presence refreshes. The chosen portrait appears on their
 creator and presence badges.
 Initials remain available. Never invent author identities. Cards use the Nightglass layout with
@@ -56,12 +56,18 @@ export, and publishing requirements. Publish artwork with a build or through the
 [metadata API](game-metadata.md); committing an image alone does not publish it.
 Game art may use polished cover illustration while preserving the game's real
 identity. Allow flexible compositions within the crop-safe area. Protect the art
-by capping titles at two lines and tags at one row. Reduce tag spacing first,
-allowing adjacent padding to overlap without covering text. If tags still do not
-fit, an ellipsis chip reveals the rest on hover, keyboard focus, or tap. Use the
-same behavior for the Library tag filters; do not show horizontal scrollbars. The
+by capping titles at two lines and tags at one row. Keep legible spacing and
+limit visible card tags to three; an ellipsis reveals the rest on hover, keyboard
+focus, or tap. Library filters use a compact More dropdown for overflow. Do not
+show horizontal scrollbars or overlap tag text. The
 existing dropdown exposes the full title, player names, and reaction counts;
 metadata must not grow indefinitely over the image.
+
+Clicking card artwork or a title opens the larger game view; Play launches directly.
+Show real artwork, the author, description, tags, update date, and feedback with
+player portraits. Recently entries open the referenced game and reaction. Keep
+feedback positive and qualitative. The shared dialog stacks on phones, retains
+scroll and focus during refresh, and uses the active theme's materials.
 
 Online players appear as overlapping avatars beside the logo. Filters and search
 share a row, with the game count after the final filter. Tag editing appears on

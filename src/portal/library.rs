@@ -52,7 +52,9 @@ impl View<'_> {
             })
             .map(|(email, reaction)| {
                 json!({
+                    "id":hash(email),
                     "name":data.members[email].name,
+                    "avatar":data.members[email].avatar,
                     "mine":email == self.email,
                     "emoji":reaction.emoji,
                     "text":reaction.text,
