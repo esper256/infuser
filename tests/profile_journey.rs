@@ -93,7 +93,7 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .await?;
     assert!(before["avatar"].is_null());
     let catalog = before["avatars"].as_array().unwrap();
-    assert_eq!(catalog.len(), 15);
+    assert_eq!(catalog.len(), 31);
     let last_avatar = catalog.last().unwrap()["id"].as_str().unwrap();
     for avatar in catalog {
         let id = avatar["id"].as_str().unwrap();
