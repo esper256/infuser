@@ -78,9 +78,20 @@ against Infuser's own invitation list. Unsafe browser requests require the exact
 HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection IP.
 
 - `GET /api/me`, `GET /api/library` — identity, games, friends, reactions.
-  Library games include `author: {id, name}` from the existing owner/member records,
+  Library games include `author: {id, name, avatar}` from the existing owner/member records,
   or `null` for an unrecorded owner. `id` is the same opaque player ID used for
-  presence; no email or profile-image URL is exposed.
+  presence; no email is exposed. `avatar` is a curated picture ID or `null` for
+  initials. Friends and `/api/me` include the same optional `avatar` field.
+  `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog.
+- `PUT /api/profile` with `{"avatar":"circuit-fox"}` — saves the signed-in member's
+  picture; `{"avatar":""}` restores initials. Returns `{"avatar":ID_OR_NULL}`.
+  Unknown IDs return 400; missing/null values and extra fields are rejected.
+  Authentication, active membership, and the exact HTTPS Origin are required.
+  There is no target-user field, file upload, or remote image URL.
+  `GET /assets/avatars/ID/128.webp` and `256.webp` serve embedded public artwork.
+  Member updates preserve the selection; old records default to initials. The
+  optional persisted member field requires no migration. Rolling back to an older
+  binary can discard this cosmetic preference when it rewrites member records.
 - `POST /api/my-games` with `{}` — reserves a publishing connection for an existing
   project without asking the child for a name. Returns `app_id`, `api_url`,
   `setup_code`, `expires_at` (Unix seconds), `supported_engines`, and `tag_catalog`;
