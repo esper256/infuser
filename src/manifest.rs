@@ -13,6 +13,8 @@ pub struct Manifest {
     pub play_modes: Vec<PlayMode>,
     pub solo_runtime: Option<SoloRuntime>,
     pub multiplayer: Option<Multiplayer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_saves: Option<crate::cloud::Declaration>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -73,6 +75,9 @@ pub struct Multiplayer {
 
 impl Manifest {
     pub fn validate(&self) -> Result<()> {
+        if let Some(saves) = &self.cloud_saves {
+            saves.validate()?;
+        }
         ensure!(
             self.schema_version == 1,
             "unsupported manifest schema_version"

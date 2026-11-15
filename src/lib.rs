@@ -1,5 +1,6 @@
 pub mod api;
 pub mod caddy;
+pub mod cloud;
 pub mod config;
 pub mod controller;
 pub mod docker;

@@ -167,11 +167,16 @@ async fn main() -> Result<()> {
     let runner = controller.clone();
     let publications = platform.clone();
     let background = tokio::spawn(async move {
+        let mut last_cleanup = 0;
         loop {
             tokio::time::sleep(Duration::from_secs(config.controller.tick_seconds)).await;
             // Persistence failure is fatal: continuing would lose resource accounting.
             runner.reconcile(now()).await?;
             publications.activate_pending()?;
+            if now().saturating_sub(last_cleanup) >= 60 {
+                publications.db.cleanup()?;
+                last_cleanup = now();
+            }
         }
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())

@@ -112,6 +112,7 @@ impl Database {
         c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
           CREATE TABLE IF NOT EXISTS platform (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS saves (owner TEXT, app TEXT, slot TEXT, version INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,app,slot));")?;
+        crate::cloud::initialize(&c)?;
         c.execute(
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
             [serde_json::to_string(&Data::default())?],
@@ -121,22 +122,22 @@ impl Database {
         })
     }
     pub fn read(&self) -> Result<Data> {
-        let raw: String = self.connection.lock().unwrap().query_row(
-            "SELECT data FROM platform WHERE id=1",
-            [],
-            |r| r.get(0),
-        )?;
-        Ok(serde_json::from_str(&raw)?)
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
+        let data = crate::cloud::decode_catalog(&tx, &raw)?;
+        tx.commit()?;
+        Ok(data)
     }
     pub fn edit<T>(&self, f: impl FnOnce(&mut Data) -> Result<T>) -> Result<T> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
-        let mut data: Data = serde_json::from_str(&raw)?;
+        let mut data = crate::cloud::decode_catalog(&tx, &raw)?;
         let result = f(&mut data)?;
         tx.execute(
             "UPDATE platform SET data=?1 WHERE id=1",
-            [serde_json::to_string(&data)?],
+            [crate::cloud::encode_catalog(&tx, &data)?],
         )?;
         tx.commit()?;
         Ok(result)
@@ -203,21 +204,35 @@ impl Database {
         Ok(version + 1)
     }
     pub fn cleanup(&self) -> Result<()> {
-        let expired_guests = self.edit(|data| {
-            let expired: Vec<_> = data
-                .launches
-                .iter()
-                .filter(|(_, l)| l.guest && l.expires < now())
-                .map(|(id, _)| format!("guest-{id}"))
-                .collect();
-            data.launches.retain(|_, l| l.expires > now());
-            data.presence.retain(|_, t| *t + 300 > now());
-            Ok(expired)
-        })?;
-        let c = self.connection.lock().unwrap();
-        for owner in expired_guests {
-            c.execute("DELETE FROM saves WHERE owner=?1", [owner])?;
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
+        let mut data = crate::cloud::decode_catalog(&tx, &raw)?;
+        let time = now();
+        data.launches.retain(|_, l| l.expires > time);
+        data.presence.retain(|_, t| *t + 300 > time);
+        let active: std::collections::BTreeSet<_> = data
+            .launches
+            .iter()
+            .filter(|(_, l)| l.guest)
+            .map(|(id, _)| format!("guest-{id}"))
+            .collect();
+        // Also catch guest rows orphaned by an older binary or interrupted cleanup.
+        let owners = {
+            let mut statement = tx.prepare("SELECT owner FROM saves WHERE owner LIKE 'guest-%' UNION SELECT owner FROM cloud_revisions WHERE owner LIKE 'guest-%' UNION SELECT owner FROM cloud_receipts WHERE owner LIKE 'guest-%'")?;
+            statement
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for owner in owners.into_iter().filter(|owner| !active.contains(owner)) {
+            tx.execute("DELETE FROM saves WHERE owner=?1", [&owner])?;
+            crate::cloud::delete_owner(&tx, &owner)?;
         }
+        tx.execute(
+            "UPDATE platform SET data=?1 WHERE id=1",
+            [crate::cloud::encode_catalog(&tx, &data)?],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 }

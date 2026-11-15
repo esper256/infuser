@@ -1,9 +1,9 @@
 # Declared cloud saves: SDK 1.0 design
 
-**Design, not an available API.** The current `saves.load/save` slot API remains
-available during dogfooding. It rejects stale writes with 409 but does not retain
-the losing write. The contract below is the implementation target before SDK 1.0;
-agents must not call these example methods until capabilities advertise them.
+**Implemented for dogfooding; overall SDK 1.0 remains experimental.** Query
+`capabilities.cloud_checkpoints.version` before adopting this API. The existing
+`saves.load/save` slot API remains available with its original behavior; the new
+checkpoint API is separate and does not silently migrate old slot data.
 
 ## Files the game understands, snapshots Infuser can protect
 
@@ -12,7 +12,7 @@ For Three.js, these are serialized game data, not operating-system paths or
 permission to scan a laptop's filesystem. Infuser supplies their contents at load
 time and accepts a coherent replacement snapshot when the game checkpoints.
 
-Proposed manifest declaration:
+Manifest declaration in `infuser.game.json`:
 
 ```json
 {
@@ -48,7 +48,7 @@ revision and no files. A game must deliberately construct a complete checkpoint,
 rather than uploading only changed files and accidentally deleting the others.
 Settings can be saved independently because they are a separate group.
 
-## Proposed browser workflow
+## Browser workflow
 
 ```js
 const checkpoint = await infuser.cloud.load('campaign');
@@ -65,7 +65,8 @@ const result = await infuser.cloud.commit('campaign', {
 });
 ```
 
-The SDK deals with scoped identity, authentication, transfer, and typed failures.
+Import `cloud` from `/_infuser/sdk.js`, or use `window.Infuser.cloud` after the SDK
+loads. The SDK deals with scoped identity, authentication, transfer, and typed failures.
 The game controls when its state is coherent and what "saved" means. It may only
 show success after server acknowledgement. It supplies a bounded, optional human
 summary for a conflict chooser; the platform treats that summary as plain text.
@@ -128,3 +129,60 @@ and a repeated request does not create another revision. Include a two-file atom
 checkpoint, a fresh guest, a rejected undeclared path, a storage-limit failure,
 and an older build encountering a newer schema. Firefly can exercise this before
 any additional engine work begins.
+
+## Wire format and outcomes
+
+The experimental browser adapter is `/_infuser/cloud-v1.js`. Its wire routes are:
+
+- `GET /_infuser/cloud/v1/groups/{group}`: current snapshot and unresolved conflicts.
+- `POST /_infuser/cloud/v1/groups/{group}`: complete checkpoint or explicit resolution.
+- `GET /_infuser/cloud/v1/groups/{group}/revisions/{revision}`: retained snapshot.
+- `GET /_infuser/cloud/v1/groups/{group}/history`: retained revision metadata, newest first.
+
+The SDK uses camelCase arguments; the wire uses `commit_id`, `expected_revision`,
+`files`, `summary`, and optional `resolve_candidate`. Explicitly provide
+`expected_revision: null` for an empty group. A snapshot contains `revision`,
+`files`, `summary`, `build_id`, `created_at`, `parents`, and `resolves`.
+
+A successful commit returns HTTP 200 with `{status:"saved", revision}`. A stored
+conflict returns HTTP 409 with `{status:"conflict", current_revision,
+candidate_revision}`. The SDK returns both as ordinary results. Other failures
+throw `CloudSaveError` with `code` and `status`. A quota failure does not store a
+candidate or receipt and must not be shown as saved.
+
+Use `cloud.read(group, revision)` to inspect either version, then choose complete
+files explicitly:
+
+```js
+const result = await cloud.resolve('campaign', {
+  candidateRevision: conflict.candidate_revision,
+  expectedRevision: latest.revision,
+  commitId: crypto.randomUUID(),
+  files: chosen.files,
+  summary: chosen.summary
+});
+// Another change may have won during the choice. Handle result.status again.
+```
+
+Limits are advertised: up to eight groups, sixteen JSON files per group, 1 MiB
+of JSON file contents per checkpoint, sixteen recent revisions as a retention
+target, and eight unresolved conflicts per group. Pending candidates, their
+comparison heads/bases, and the current head are protected. Older unprotected
+history may be trimmed to fit the 16 MiB group limit or installation budget.
+Missing retained revisions return `revision_unavailable`; list history before
+offering rollback choices. No generic schema migration runs on the server.
+
+The installation defaults to a 512 MiB logical checkpoint/receipt budget,
+configurable as `controller.cloud_save_budget_mb`. Logical bytes include bounded
+metadata allowances; this is not a cap on SQLite's physical file or WAL size.
+Disk-reserve checks and transactional write failures protect against running
+out of disk. Retry receipts remain for the namespace's lifetime and count toward
+the installation budget, even after their snapshots are retired. An old receipt
+replays the original outcome; it does not assert that its revision is still the
+head or retained. The SDK retries transient failures with the same serialized
+payload; caller retries must reuse both the commit ID and content.
+
+Guest rows and receipts are removed transactionally when their launch expires.
+New tables preserve checkpoint history and declarations across a rollback to an
+older daemon; that daemon can still operate its legacy APIs but cannot serve the
+new checkpoint endpoints. Restoring the newer daemon restores their availability.

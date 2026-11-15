@@ -57,6 +57,14 @@ impl From<rustix::io::Errno> for Error {
 }
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
+        if let Some(f) = self.0.downcast_ref::<crate::cloud::Fault>() {
+            return (
+                StatusCode::from_u16(f.status).unwrap(),
+                [("Cache-Control", "no-store")],
+                Json(json!({"error":{"code":f.code,"message":f.message}})),
+            )
+                .into_response();
+        }
         let (status, message) = match self.0.downcast_ref::<Fault>() {
             Some(f) => (f.status, f.message.clone()),
             None => {
@@ -402,6 +410,10 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/proxy-auth", get(proxy_auth))
         .route("/_infuser/heartbeat", post(heartbeat).delete(leave))
         .route("/_infuser/saves/{slot}", get(save_get).put(save_put))
+        .route("/_infuser/cloud/v1/groups/{group}", get(cloud_load).post(cloud_commit))
+        .route("/_infuser/cloud/v1/groups/{group}/revisions/{revision}", get(cloud_revision))
+        .route("/_infuser/cloud/v1/groups/{group}/history", get(cloud_history))
+        .route("/_infuser/cloud-v1.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../sdk/cloud-v1.js")) }))
         .route(
             "/_infuser/sdk.js",
             get(|| async {
@@ -750,7 +762,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1133,7 +1145,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"runtime":p.refresh(&id,&l)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id,&l)?}),
     ))
 }
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1702,4 +1714,106 @@ async fn publisher_set_tags(
         Ok(())
     })?;
     Ok(reply(json!({"tags":tags})))
+}
+
+impl Platform {
+    fn cloud_group(
+        &self,
+        h: &HeaderMap,
+        group: &str,
+    ) -> Result<(String, Launch, crate::cloud::Group)> {
+        let (id, launch) = self.game(h)?;
+        let data = self.db.read()?;
+        let declaration = data
+            .builds
+            .get(&build_key(&launch.app, &launch.build))
+            .and_then(|b| b.manifest.cloud_saves.as_ref())
+            .and_then(|d| d.groups.iter().find(|g| g.id == group))
+            .cloned()
+            .ok_or_else(|| {
+                crate::cloud::fault(
+                    422,
+                    "undeclared_group",
+                    "this build does not declare that cloud save group",
+                )
+            })?;
+        let owner = if launch.guest {
+            format!("guest-{id}")
+        } else {
+            hash(&launch.email)
+        };
+        Ok((owner, launch, declaration))
+    }
+}
+async fn cloud_load(State(p): State<Platform>, Path(group): Path<String>, h: HeaderMap) -> Answer {
+    let (owner, launch, _) = p.cloud_group(&h, &group)?;
+    Ok(reply(p.db.cloud_load(
+        crate::cloud::Scope {
+            owner: &owner,
+            app: &launch.app,
+            group: &group,
+        },
+        None,
+    )?))
+}
+async fn cloud_revision(
+    State(p): State<Platform>,
+    Path((group, revision)): Path<(String, String)>,
+    h: HeaderMap,
+) -> Answer {
+    let (owner, launch, _) = p.cloud_group(&h, &group)?;
+    Ok(reply(p.db.cloud_load(
+        crate::cloud::Scope {
+            owner: &owner,
+            app: &launch.app,
+            group: &group,
+        },
+        Some(&revision),
+    )?))
+}
+async fn cloud_history(
+    State(p): State<Platform>,
+    Path(group): Path<String>,
+    h: HeaderMap,
+) -> Answer {
+    let (owner, launch, _) = p.cloud_group(&h, &group)?;
+    Ok(reply(p.db.cloud_history(crate::cloud::Scope {
+        owner: &owner,
+        app: &launch.app,
+        group: &group,
+    })?))
+}
+async fn cloud_commit(
+    State(p): State<Platform>,
+    Path(group): Path<String>,
+    h: HeaderMap,
+    body: std::result::Result<Json<crate::cloud::Commit>, axum::extract::rejection::JsonRejection>,
+) -> Answer {
+    let (owner, launch, declaration) = p.cloud_group(&h, &group)?;
+    p.origin(&h, host(&h))?;
+    let Json(body) = body.map_err(|e| {
+        crate::cloud::fault(
+            e.status().as_u16(),
+            "invalid_checkpoint",
+            "provide a complete JSON checkpoint with an explicit expected_revision and commit_id",
+        )
+    })?;
+    let result = p.db.cloud_commit(
+        crate::cloud::Scope {
+            owner: &owner,
+            app: &launch.app,
+            group: &group,
+        },
+        &declaration,
+        &body,
+        crate::cloud::WriteOptions {
+            build: &launch.build,
+            budget_bytes: p.config().controller.cloud_save_budget_mb * 1024 * 1024,
+            disk_reserve_bytes: p.config().controller.disk_reserve_mb * 1024 * 1024,
+            time: now(),
+        },
+    )?;
+    let mut response = reply(serde_json::to_value(&result).map_err(anyhow::Error::from)?);
+    *response.status_mut() = StatusCode::from_u16(result.status()).unwrap();
+    Ok(response)
 }

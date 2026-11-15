@@ -3,6 +3,12 @@
 Start with the game's engine. Do not ask the child to configure a server, Docker,
 DNS, or ports. Keep their existing game and build workflow intact.
 
+The game-making agent owns the build and publishing loop. “Update it on Infuser”
+means build using the project's existing tools, then invoke `infuser publish`.
+“Publish every update” is an instruction to that agent, not an Infuser watcher.
+Supply prebuilt output with `--web-dir dist` (or the project's actual export path);
+automatic build detection is only a convenience. GitHub is not required for games.
+
 Current development is focused on stabilizing Three.js/Vite. Existing Godot/Bevy
 notes are preliminary; do not expand those adapters while the first engine's
 publishing, saves, sessions, and SDK contract are still changing.
@@ -51,6 +57,9 @@ example `"tags":["3d","arcade","chill"]`. Later publishes preserve author edits.
 - Cloud-save namespaces bound to the signed-in player and game; guest play gets a
   new empty namespace **and a new browser origin**. Never copy local progress
   into guest saves or fall back to the owner's identity.
+- [Declared JSON checkpoints](cloud-save-design.md), when capabilities advertise
+  `cloud_checkpoints.version = 1`. Submit complete groups, handle preserved
+  conflicts explicitly, and reuse the same commit ID when retrying a write.
 - Immutable builds. Existing browser sessions keep their selected build. Server
   updates are queued while the shared server is active and activate automatically
   after it sleeps. Check `publication_state` on the build to distinguish an upload

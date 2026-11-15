@@ -11,6 +11,8 @@ port_start = 8000
 port_end = 9000
 api_port = 7777
 lease_seconds = 90
+# Logical JSON checkpoint and retry-receipt storage budget. Default: 512 MiB.
+# cloud_save_budget_mb = 512
 
 # Add an installed image by its immutable digest (or local sha256 image ID).
 # [games.moon]

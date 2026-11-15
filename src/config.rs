@@ -39,6 +39,7 @@ pub struct Settings {
     /// Optional Unix socket for the privileged, narrowly scoped firewall helper.
     pub firewall_socket: Option<PathBuf>,
     pub content_budget_mb: u64,
+    pub cloud_save_budget_mb: u64,
     pub turn: Option<Turn>,
 }
 
@@ -72,6 +73,7 @@ impl Default for Settings {
             auth_url: "http://127.0.0.1:4180/oauth2/auth".into(),
             firewall_socket: None,
             content_budget_mb: 2048,
+            cloud_save_budget_mb: 512,
             turn: None,
         }
     }
@@ -171,6 +173,10 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
+        ensure!(
+            (64..=1048576).contains(&s.cloud_save_budget_mb),
+            "invalid cloud save budget"
+        );
         if let Some(turn) = &s.turn {
             ensure!(
                 turn.secret_file.is_absolute(),

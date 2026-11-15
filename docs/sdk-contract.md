@@ -14,10 +14,24 @@ interfaces, not an approval process for ordinary UI changes.
 
 Approved product decisions:
 
+- The game-making agent owns building and deciding when to publish. Infuser
+  provides an agent-invoked CLI/API accepting runnable artifacts, validation,
+  immutable releases, and safe activation. Build detection is an optional shortcut;
+  game publishing never requires GitHub or an Infuser-owned development watcher.
 - Save conflicts preserve both candidates and let the game offer a choice; no
   silent overwrite or generic merge. Games declare their save files so Infuser
   can load and commit coherent cloud snapshots. See the concrete
-  [cloud-save design](cloud-save-design.md); those new endpoints are not shipped yet.
+  [cloud-save contract](cloud-save-design.md). A reusable chooser is desirable;
+  descriptions and any merge remain game-owned.
+- Guest progress lasts for the current launch, including refreshes. A new guest
+  launch starts empty, has a distinct identity, and may join the shared multiplayer
+  session. Guest progress never merges into the signed-in owner's saves.
+- Peer host departure ends the session in the first version. Explicit rejoining
+  is supported; seamless host migration is a later declared capability.
+- Join friend is an intent handled by the game. Failure returns visibly to its
+  title screen and never creates a second shared world.
+- Stable SDK majors coexist. Additions are capability-gated; an unchanged older
+  game must keep working when the daemon updates. Overall SDK 1.0 is not frozen yet.
 - Multiplayer updates upload immediately and activate after the shared session
   ends and its server shuts down. Queued publication is implemented; a force-restart
   action is reserved for adult administration.

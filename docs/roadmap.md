@@ -9,9 +9,9 @@
 - Dogfood experimental [peer-hosted WebRTC](peer-hosting.md) in Firefly first:
   forced TURN, two autoplay clients, host departure/rejoin, connection recovery,
   and queued updates. Keep multiplayer protocol changes experimental until review.
-- Then implement the reviewed [declared save-file snapshot model](cloud-save-design.md),
-  including durable conflict candidates and game-owned resolution. The current
-  slot API still rejects stale writes without storing the losing candidate.
+- Dogfood the implemented [declared save-file snapshot model](cloud-save-design.md),
+  including durable conflict candidates and game-owned resolution. The legacy
+  slot API retains its original behavior; new checkpoints use separate v1 routes.
 - Move server acquisition into the game so title screens need no running backend;
   expose presence and joinability; add opt-in Join friend launch intents.
 - Give games a readable, unique URL slug. Preserve guest origin isolation and
