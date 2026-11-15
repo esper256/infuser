@@ -52,7 +52,10 @@ export, and publishing requirements. Artwork must ship with the game build;
 committing an image to design explorations does not publish it.
 Game art may use polished cover illustration while preserving the game's real
 identity. Allow flexible compositions within the crop-safe area. Protect the art
-by capping titles at two lines and tags at one horizontally scrollable row. The
+by capping titles at two lines and tags at one row. Reduce tag spacing first,
+allowing adjacent padding to overlap without covering text. If tags still do not
+fit, an ellipsis chip reveals the rest on hover, keyboard focus, or tap. Use the
+same behavior for the Library tag filters; do not show horizontal scrollbars. The
 existing dropdown exposes the full title, player names, and reaction counts;
 metadata must not grow indefinitely over the image.
 
