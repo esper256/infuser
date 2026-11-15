@@ -1,0 +1,28 @@
+/* Standalone review mockup. No production card or API changes. */
+.mock-note { font-size: 11px; color: var(--quiet); padding-block: 20px 32px; }
+.games { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 22px; }
+.game { display: flex; flex-direction: column; gap: 24px; position: relative; isolation: isolate; container-type: inline-size; width: 100%; max-width: 100%; aspect-ratio: .95; min-height: 380px; padding: 16px; border: 1px solid #ffffff26; border-radius: 22px; overflow: visible; background: #102d32; box-shadow: 0 18px 50px #0004; transition: transform .25s ease,border-color .25s ease,box-shadow .25s ease; }
+.game:before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: linear-gradient(#03101a66,transparent 30%,transparent 65%,#001b2655); pointer-events: none; }
+.game-art { position: absolute; z-index: -2; inset: 0; border-radius: inherit; background-image: url('art-atlas.webp'); background-size: 300% 300%; background-position: var(--art-x) var(--art-y); }
+.game:first-child .game-art.firefly { background: url('../nightglass/hero.webp') 32% 50% / cover; }
+.game-meta { display: flex; flex-wrap: wrap; align-content: start; align-items: center; gap: 7px; }
+.game-tags { gap: 5px; min-height: 0; margin: 0; justify-content: flex-start; }
+.game-tags .tag-chip,.edit-tags { background: #061b25cf; border-color: #d6f4e238; color: #e2efe6; min-height: 28px; padding: 4px 9px; backdrop-filter: blur(8px); }
+.edit-tags { border-style: dashed; }
+.game-meta .quiet { font-size: 10px; padding: 4px 8px; margin: 0; color: #e0eee7; background: #061b25cf; border-radius: 20px; }
+.game-dock { position: relative; align-self: flex-end; margin-top: auto; width: max-content; max-width: 100%; padding: 12px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px 12px; border: 1px solid #b9f5ee35; border-top-color: #d8fff45c; border-radius: 16px; background: linear-gradient(125deg,#173e4080,#071e2be8); backdrop-filter: blur(16px) saturate(.8); box-shadow: 0 8px 30px #00101855,inset 0 1px #fff1; }
+.game-heading { display: flex; justify-content: flex-end; align-items: center; gap: 7px; min-width: 0; }
+.game h2 { min-width: 0; margin: 0; text-align: right; font-size: clamp(22px,5.5cqw,27px); font-weight: 650; line-height: 1.05; letter-spacing: -.045em; }
+.actions { grid-area: auto; display: flex; flex: none; margin-left: auto; gap: 0; }
+.creator { position: relative; display: grid; place-items: center; flex: none; width: 44px; min-height: 44px; padding: 4px; border: 0; border-radius: 50%; background: transparent; }
+.creator:hover { background: #b5ead614; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; border: 1px solid #b1d6c4; background-image: url('art-atlas.webp'); background-size: 300% 300%; background-position: var(--avatar-x) var(--avatar-y); box-shadow: 0 2px 8px #0006; }
+.creator:hover .avatar,.creator:focus-visible .avatar { border-color: #e8d5a4; box-shadow: 0 0 14px #b5ead644; }
+.reaction-hint { position: absolute; z-index: 4; right: 0; bottom: calc(100% + 8px); visibility: hidden; opacity: 0; width: max-content; max-width: 225px; padding: 9px 12px; border: 1px solid #66897a; border-radius: 14px 14px 4px 14px; background: #10252d; color: #e7f4ee; box-shadow: 0 6px 18px #0005; font-size: 12px; font-weight: 500; line-height: 1.4; pointer-events: none; text-align: left; }
+.reaction-hint:after { content: ''; position: absolute; right: 13px; bottom: -7px; width: 7px; height: 7px; border: 1px solid #66897a; border-radius: 50%; background: #10252d; }
+.creator:hover .reaction-hint,.creator:focus-visible .reaction-hint { visibility: visible; opacity: 1; }
+.game:focus-within,.game:hover { z-index: 1; }
+@container (max-width:390px) { .game-dock { display: grid; grid-template-columns: minmax(0,max-content); justify-items: end; } }
+@media (max-width:1000px) { .games { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width:650px) { .games { grid-template-columns: 1fr; }.game { min-height: 380px; }.game h2 { font-size: 25px; } }
+@media (prefers-reduced-motion:reduce) { .game:hover { transform: none; } }

@@ -1,6 +1,8 @@
 # UI pass review
 
-Open `index.html` for the combined screenshot review. All captures use local mock
+Open `index.html` for the combined screenshot review. The Library grid now links
+to [the complete Nightglass mockup](../nightglass-library/index.html), with nine
+fictional games, generated full-bleed artwork and author-portrait reactions. All captures use local mock
 API responses, not production accounts, games, events, or credentials.
 
 ## Changed
