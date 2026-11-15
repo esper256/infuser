@@ -79,8 +79,10 @@ For dual-mode or multiplayer games, supply `infuser.game.json`, for example:
 
 A server recipe adds its managed server settings. Do not invent support for an
 unavailable runtime. `peer_hosted` always requires relay fallback, even if direct
-connection is an optional optimization. Peer-hosted and Infuser datagram/relay
-services are **not installed yet**. There is no LAN-only/direct-only fallback.
+connection is an optional optimization. Experimental [WebRTC peer hosting](peer-hosting.md)
+is available on installations configured with TURN; check capabilities first.
+The separate datagram/WebSocket relay mode is not implemented. There is no
+LAN-only/direct-only fallback.
 
 ## Updates and cleanup
 

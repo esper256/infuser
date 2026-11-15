@@ -20,8 +20,9 @@ helper grants authenticated player IPs temporary access to native game ports.
 **Current engine focus:** make the full Three.js/Vite journey solid before expanding
 compatibility. Godot and Bevy work is paused while the SDK is changing. The happy
 path starts with a game project, not a Dockerfile. Server
-engine packaging, native client distribution, and peer relay/signaling are still
-in progress. Custom server images currently need operator staging. Peer-hosted
+engine packaging and native client distribution are still in progress.
+Experimental [WebRTC peer hosting](docs/peer-hosting.md) uses a shared coturn relay.
+Custom server images currently need operator staging. Peer-hosted
 multiplayer must have relay fallback; direct-only networking is unsupported.
 
 ```sh

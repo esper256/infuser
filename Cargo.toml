@@ -8,6 +8,9 @@ description = "A small private game hosting controller"
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
+base64 = "0.22"
+hmac = "0.12"
+sha1 = "0.10"
 axum = "0.8"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

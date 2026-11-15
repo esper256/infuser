@@ -22,5 +22,5 @@ try{
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
   game.addEventListener('load',()=>game.contentWindow.focus(),{once:true});
-  game.src='/';game.hidden=false;
+  game.src='/'+location.search;game.hidden=false;
 }catch(error){title.textContent='Game unavailable';message(error.message);}
