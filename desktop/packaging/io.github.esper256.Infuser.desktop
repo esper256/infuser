@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Infuser
+Name=Infuser Play
 Comment=Play games from your private Infuser library
 Exec=infuser-desktop %u
 Icon=io.github.esper256.Infuser

@@ -61,7 +61,7 @@ function renderGames() {
     const items=el('div',undefined,'play-menu-items');
     items.append(el('p',game.title,'menu-game-title'));
     const guest=el('button','Play in guest mode');guest.onclick=()=>{menu.open=false;start(game,play,card,{guest:true});};items.append(guest);
-    if(!game.native_only && game.native_platforms?.length){const desktop=el('button','Play on computer');desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card);};items.append(desktop);}
+    if(!game.native_only && game.native_platforms?.length){const desktop=el('button','Open in Infuser Play');desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card);};items.append(desktop);}
     for(const target of game.join_targets||[]){
       const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
     }
@@ -154,10 +154,10 @@ async function startDesktop(game,button,card,{guest=false}={}){
     const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest})});
     document.querySelector('#desktop-launch')?.remove();
     const dialog=el('dialog');dialog.id='desktop-launch';dialog.setAttribute('aria-label','Open '+game.title);
-    const heading=el('h2','Let’s play'),text=el('p','Open Infuser when your browser asks. First time? Install it, then press Play again.');
-    const open=el('a','Open Infuser','button');open.href=launch.url;
-    const install=el('a','Install Infuser','button secondary');
-    install.href='https://github.com/esper256/infuser/releases/latest/download/'+(platform==='windows-x86_64'?'Infuser-Setup.exe':'Infuser.flatpak');
+    const heading=el('h2','Let’s play'),text=el('p','Open Infuser Play when your browser asks. First time? Install it, then press Play again.');
+    const open=el('a','Open Infuser Play','button');open.href=launch.url;
+    const install=el('a','Install Infuser Play','button secondary');
+    install.href='https://github.com/esper256/infuser/releases/latest/download/'+(platform==='windows-x86_64'?'Infuser-Play-Setup.exe':'Infuser-Play.flatpak');
     const close=el('button','Done','secondary');close.onclick=()=>dialog.close();
     const actions=el('div',undefined,'desktop-actions');actions.append(open,install,close);dialog.append(heading,text,actions);document.body.append(dialog);dialog.showModal();
     // Keep a real link available if the browser requires a fresh user gesture.

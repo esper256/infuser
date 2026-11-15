@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>io.github.esper256.Infuser</id>
-  <name>Infuser</name>
+  <name>Infuser Play</name>
   <summary>Play games from your private library</summary>
   <metadata_license>CC0-1.0</metadata_license>
-  <description><p>Infuser opens games from your private library, handles downloads and updates, and keeps guest progress separate.</p></description>
+  <description><p>Infuser Play opens games from your private library, handles downloads and updates, and keeps guest progress separate.</p></description>
   <launchable type="desktop-id">io.github.esper256.Infuser.desktop</launchable>
   <url type="homepage">https://github.com/esper256/infuser</url>
   <content_rating type="oars-1.1" />

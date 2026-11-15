@@ -40,7 +40,8 @@ impl eframe::App for App {
                     client::Event::Status(message) => self.status = message,
                     client::Event::Playing => {
                         self.playing = true;
-                        self.status = "Have fun! Infuser is keeping your game connected.".into();
+                        self.status =
+                            "Have fun! Infuser Play is keeping your game connected.".into();
                         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                     }
                     client::Event::Done => {
@@ -64,7 +65,7 @@ impl eframe::App for App {
         }
         egui::CentralPanel::default().show(ctx,|ui|{
             ui.add_space(14.0);
-            ui.heading(egui::RichText::new("Infuser").size(32.0).color(egui::Color32::from_rgb(159,224,201)));
+            ui.heading(egui::RichText::new("Infuser Play").size(32.0).color(egui::Color32::from_rgb(159,224,201)));
             ui.add_space(18.0);
             ui.label(egui::RichText::new(&self.status).size(17.0));
             ui.add_space(16.0);
@@ -101,7 +102,7 @@ fn main() -> eframe::Result {
         Err(error) => (None, error.to_string(), true),
     };
     if argument.is_none() {
-        status = "Infuser is ready. Open your Library in the browser and press Play.".into();
+        status = "Infuser Play is ready. Open Infuser in your browser and press Play.".into();
     }
     if let Some(error) = storage_error {
         request = None;
@@ -113,13 +114,13 @@ fn main() -> eframe::Result {
         .is_some_and(|r| client::connected(&root, r));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Infuser")
+            .with_title("Infuser Play")
             .with_inner_size([440.0, 280.0])
             .with_resizable(false),
         ..Default::default()
     };
     eframe::run_native(
-        "Infuser",
+        "Infuser Play",
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());

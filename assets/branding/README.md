@@ -1,5 +1,21 @@
 # Infuser identity
 
+## Product names
+
+- **Infuser** is the website: browse the Library, find friends and publish games.
+- **Infuser Play** is the native Windows/Linux app: download, update and run games.
+
+Use **Open Infuser Play**, **Install Infuser Play** and **Connect Infuser Play**
+for app actions. Use **Open Infuser** or **Back to Library** for website actions.
+Keep the main game-card action **Play**. Do not label the app “Infuser Desktop”
+or simply “Infuser.” Both products use the existing icon; no separate logo has
+been approved for Infuser Play.
+
+Internal IDs, the `infuser://` protocol and existing save/credential directories
+stay stable across this naming change so installed copies upgrade in place.
+
+## Visual identity
+
 The approved identity is the **glass infuser** in [`infuser/`](infuser/): a rigid
 rounded-square glass chamber in a graphite cradle, ghostly mint vapor emerging
 broadly from a recessed illuminated slit, a small champagne LED, and an ivory

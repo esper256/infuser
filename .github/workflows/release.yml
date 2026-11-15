@@ -85,7 +85,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y flatpak
           mkdir -p dist
-          sh desktop/packaging/build-flatpak.sh desktop/target/release/infuser-desktop "$PWD/dist/Infuser.flatpak"
+          sh desktop/packaging/build-flatpak.sh desktop/target/release/infuser-desktop "$PWD/dist/Infuser-Play.flatpak"
       - uses: actions/upload-artifact@v4
         with:
           name: infuser-desktop-${{ runner.os }}
@@ -130,8 +130,11 @@ jobs:
           arm64=$(sha256sum dist/infuser-linux-arm64 | cut -d ' ' -f 1)
           jq -n --arg commit "$GITHUB_SHA" --arg amd64 "$amd64" --arg arm64 "$arm64" \
             '{commit:$commit,artifacts:{"linux-amd64":{file:"infuser-linux-amd64",sha256:$amd64},"linux-arm64":{file:"infuser-linux-arm64",sha256:$arm64}}}' > dist/release.json
-          (cd dist && sha256sum infuser-linux-* Infuser-Setup.exe Infuser.flatpak > SHA256SUMS)
-          gh release upload "$tag" dist/infuser-linux-amd64 dist/infuser-linux-arm64 dist/Infuser-Setup.exe dist/Infuser.flatpak dist/SHA256SUMS dist/release.json --clobber
+          # Retain aliases for existing bookmarks and cached website install links.
+          cp dist/Infuser-Play-Setup.exe dist/Infuser-Setup.exe
+          cp dist/Infuser-Play.flatpak dist/Infuser.flatpak
+          (cd dist && sha256sum infuser-linux-* Infuser-Play-Setup.exe Infuser-Play.flatpak Infuser-Setup.exe Infuser.flatpak > SHA256SUMS)
+          gh release upload "$tag" dist/infuser-linux-amd64 dist/infuser-linux-arm64 dist/Infuser-Play-Setup.exe dist/Infuser-Play.flatpak dist/Infuser-Setup.exe dist/Infuser.flatpak dist/SHA256SUMS dist/release.json --clobber
           head=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
           if [ "$head" != "$GITHUB_SHA" ]; then
             echo 'Superseded while uploading; leaving this draft unpublished.'

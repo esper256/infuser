@@ -28,7 +28,7 @@ features explicitly. Bevy remains paused while these contracts settle.
    - **[Three.js / Vite / browser JavaScript](engines/threejs-vite.md)** — first supported journey.
    - **[Godot web export](engines/godot-web.md)** — export and adapter path.
    - **[Godot multiplayer](engines/godot-multiplayer.md)** — explicit transport choices; recipe in progress.
-   - **[Godot desktop](engines/godot-native.md)** — preview Windows/Linux companion and single-player exports.
+   - **[Godot desktop](engines/godot-native.md)** — Infuser Play for Windows/Linux and single-player exports.
    - **[Bevy](engines/bevy.md)** — browser export first; recipe in progress.
 3. Declare the [SDK/API major and required capabilities](sdk-versioning.md) for
    new integrations; use the matching versioned runtime import. Query
@@ -39,7 +39,7 @@ features explicitly. Bevy remains paused while these contracts settle.
    executables are attached to this repository's releases; verify their SHA-256
    against `release.json`. Publishing currently needs a Linux workspace: native
    Windows/macOS agents should use WSL or a Linux cloud/development environment.
-   The desktop installers are player applications, not a Windows publishing CLI.
+   Infuser Play installers are player applications, not a Windows publishing CLI.
 5. Integrate saves, publish, then exercise a real player journey. An upload alone
    is not completion. Use `--preview` for admin-only dogfood/test games.
 

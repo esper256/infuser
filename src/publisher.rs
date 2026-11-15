@@ -273,7 +273,7 @@ pub async fn run(args: &[String]) -> Result<()> {
     let export = if native_only {
         std::fs::write(
             native_web.path().join("index.html"),
-            "<!doctype html><title>Infuser desktop game</title><p>Open this game with Infuser Desktop from your Library.</p>",
+            "<!doctype html><title>Infuser Play game</title><p>Open this game in Infuser Play from your Infuser Library.</p>",
         )?;
         native_web.path().to_path_buf()
     } else if let Some(dir) = override_dir {

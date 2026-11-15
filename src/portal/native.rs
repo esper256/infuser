@@ -91,7 +91,7 @@ async fn approve(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Appro
         let pair = n
             .pairs
             .get_mut(&body.request_id)
-            .ok_or_else(|| fault(410, "device connection expired; reopen Infuser"))?;
+            .ok_or_else(|| fault(410, "device connection expired; reopen Infuser Play"))?;
         ensure!(
             pair.email.is_none(),
             fault(409, "device connection already approved")

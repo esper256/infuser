@@ -21,8 +21,8 @@ try{
  await page.goto('https://games.localhost/library');
  await page.getByRole('button',{name:'Play',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'Open Dodge the Creeps'});
- await dialog.waitFor();assert.match(await dialog.getByRole('link',{name:'Open Infuser'}).getAttribute('href'),/^infuser:\/\/play\?/);
- assert.match(await dialog.getByRole('link',{name:'Install Infuser'}).getAttribute('href'),/Infuser.flatpak$/);
+ await dialog.waitFor();assert.match(await dialog.getByRole('link',{name:'Open Infuser Play'}).getAttribute('href'),/^infuser:\/\/play\?/);
+ assert.match(await dialog.getByRole('link',{name:'Install Infuser Play'}).getAttribute('href'),/Infuser-Play\.flatpak$/);
  await fs.mkdir('.local/artifacts',{recursive:true});await page.screenshot({path:'.local/artifacts/native-play.png'});
  await dialog.getByRole('button',{name:'Done'}).click();
  await page.locator('.play-menu summary').click();
@@ -30,8 +30,8 @@ try{
  await page.getByRole('button',{name:'Play in guest mode'}).click();assert.equal((await launch).postDataJSON().guest,true);
  const pair=JSON.parse((await api('/api/native/v1/device/start','POST',JSON.stringify({challenge:'a'.repeat(64)}))).body);
  await page.goto('https://games.localhost/desktop?pair='+pair.request_id);
- await page.getByRole('button',{name:'Connect Infuser',exact:true}).click();
- await page.getByText('Connected! Infuser will open your game.',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'Connect Infuser Play',exact:true}).click();
+ await page.getByText('Connected! Infuser Play will open your game.',{exact:true}).waitFor();
  await page.screenshot({path:'.local/artifacts/native-connect.png'});
  assert.deepEqual(errors,[]);
  console.log('Native website: Play handoff, Flatpak install link, guest request and explicit browser account approval passed.');

@@ -1,7 +1,7 @@
 # Native Godot preview
 
-Windows x86-64 and Linux x86-64 (including Bazzite) use the Rust Infuser companion.
-The child installs **Infuser-Setup.exe** or opens **Infuser.flatpak** in their
+Windows x86-64 and Linux x86-64 (including Bazzite) use **Infuser Play**, the native app for the Infuser website.
+The child installs **Infuser-Play-Setup.exe** or opens **Infuser-Play.flatpak** in their
 software center, then presses Play in the website. No manual unzip, copying game
 files, terminal commands or per-game installation. The first launch opens the
 browser to connect their Google account. Later launches download missing updates
@@ -22,7 +22,7 @@ Use the same declared cloud groups/checkpoint calls as the web recipe, and the
 same reusable conflict chooser. `ready` provides the player and guest identity.
 Native calls use HTTPS and a scoped game credential, not a browser bridge.
 
-Keep Godot project-setting overrides enabled. Infuser writes `override.cfg`
+Keep Godot project-setting overrides enabled. Infuser Play writes `override.cfg`
 beside the launched executable **before any autoload or user:// access**, selecting
 a per-server/player/game directory. Guest launches get unique directories, removed
 after the game exits. The adapter refuses API access if the actual user directory
@@ -41,7 +41,7 @@ infuser publish .local/GAME.credentials.json . --native-only \
 ```
 
 Omit `--native-only` to upload Web and native formats in the same immutable build.
-Web remains the main Play action; **Play on computer** appears in its dropdown.
+Web remains the main Play action; **Open in Infuser Play** appears in its dropdown.
 Native-only builds use the main Play action directly. Each native ZIP is limited
 to 64 MiB compressed / 512 MiB expanded; up to 512 portable file paths. The CLI
 creates the archives, inventory and SHA-256 hashes. Agents do not author Docker
@@ -66,12 +66,12 @@ update never silently substitutes a different version or player identity.
 ## Windows handoff checklist
 
 1. Open the normal installer under a non-admin Windows account. No unzip step.
-2. Press Play on a native preview in the Library; allow the Infuser link handler.
+2. Press Play on a native preview in the Library; allow the Infuser Play link handler.
 3. Approve the browser login handoff; confirm the game opens under the right player.
 4. Save, close and reopen. Then use guest mode: blank progress, owner preserved.
 5. Publish an update. Next Play downloads it; saves remain. A running older game
    stays intact. Try a disconnected launch and confirm the error is understandable.
-6. Close the game and confirm Infuser exits. Uninstall/reinstall the companion and
+6. Close the game and confirm Infuser Play exits. Uninstall/reinstall the companion and
    confirm personal saves remain. Check a laptop with scaling enabled too.
 
 Actual Windows testing is pending; Linux results do not substitute for it.

@@ -20,7 +20,7 @@ helper grants authenticated player IPs temporary access to native game ports.
 **Current engine focus:** Three.js/Vite, plus experimental Godot web and
 [native Godot delivery](docs/engines/godot-native.md). Bevy remains paused while
 the SDK is changing. The happy path starts with a game project, not a Dockerfile.
-The Rust desktop companion handles native downloads, updates and guest saves;
+**Infuser** is the website; **Infuser Play** is the native app. Infuser Play handles native downloads, updates and guest saves;
 native multiplayer and managed Godot server packaging remain studies.
 Experimental [WebRTC peer hosting](docs/peer-hosting.md) uses a shared coturn relay.
 Custom server images currently need operator staging. Peer-hosted
