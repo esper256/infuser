@@ -16,6 +16,18 @@ profile`, and `set_xauthrequest=true`. Configure the Google redirect URI as
 Google cookie across game subdomains. Keep client ID/secret and cookie key in a
 root-readable private environment file, never in GitHub.
 
+Set `prompt="select_account"` explicitly. Otherwise OAuth2 Proxy's legacy default
+can send `approval_prompt=force`, asking Google to repeat consent during login.
+Account selection is useful on shared laptops; it does not force another consent
+grant. Verify the actual `/oauth2/start` redirect contains `prompt=select_account`
+and no `approval_prompt=force` or `prompt=consent`. First-time authorization and
+Google's own account/security prompts may still appear.
+
+Google's testing-mode seven-day refresh-token expiry excludes apps requesting
+only `openid email profile`; do not add extra scopes or publish the OAuth app
+just to address forced consent. See [Google's token rules](https://developers.google.com/identity/protocols/oauth2/)
+and [prompt behavior](https://developers.google.com/identity/openid-connect/openid-connect).
+
 Infuser owns the invitation list. Configure OAuth2 Proxy with `email_domains=["*"]`
 so it validates Google identities, then Infuser checks each request against its
 own enabled members. An uninvited Google account may authenticate with Google
