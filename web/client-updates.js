@@ -6,7 +6,8 @@ export function initClientUpdates({api, document:doc=document, window:win=window
   let busy=false, reloading=false, lastInteraction=now();
   for(const event of ['pointerdown','keydown','input'])doc.addEventListener(event,()=>{lastInteraction=now();},{passive:true});
   function editing() {
-    return doc.querySelector('dialog[open], details[open], [data-launching], #library-chat[data-sending]') ||
+    // The Hidden shelf is a browsing disclosure, not an unfinished interaction.
+    return doc.querySelector('dialog[open], details[open]:not(#hidden-games), [data-launching], #library-chat[data-sending]') ||
       doc.activeElement?.matches('input, textarea, select, [contenteditable="true"]') ||
       Boolean(doc.querySelector('#chat-text')?.value.trim());
   }
