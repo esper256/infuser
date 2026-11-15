@@ -16,10 +16,19 @@ struct TestService {
     bad: String,
     restarts: Mutex<usize>,
 }
+
+const CANDIDATE: &[u8] = b"#!/bin/sh\nexit 0\n";
 #[async_trait]
 impl Service for TestService {
     async fn check(&self, binary: &Path) -> Result<()> {
-        ensure!(fs::read(binary)? == b"candidate", "wrong download");
+        ensure!(fs::read(binary)? == CANDIDATE, "wrong download");
+        ensure!(
+            tokio::process::Command::new(binary)
+                .status()
+                .await?
+                .success(),
+            "downloaded candidate could not execute"
+        );
         Ok(())
     }
     async fn restart(&self) -> Result<()> {
@@ -51,7 +60,7 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
             "linux-amd64".into(),
             Artifact {
                 file: "infuser-linux-amd64".into(),
-                sha256: format!("{:x}", Sha256::digest(b"candidate")),
+                sha256: format!("{:x}", Sha256::digest(CANDIDATE)),
             },
         )]),
     }));
@@ -62,7 +71,7 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
                 axum::Json(manifest.lock().unwrap().clone())
             }),
         )
-        .fallback(|| async { b"candidate".as_slice().into_response() })
+        .fallback(|| async { CANDIDATE.into_response() })
         .with_state(manifest.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let source = format!("http://{}", listener.local_addr()?);

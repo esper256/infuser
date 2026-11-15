@@ -374,6 +374,8 @@ pub async fn update(
     file.write_all(&bytes)?;
     file.set_permissions(fs::Permissions::from_mode(0o755))?;
     file.sync_all()?;
+    // Linux rejects exec while any writable descriptor still refers to this inode.
+    drop(file);
     fs::rename(staging, &binary)?;
     File::open(&candidate_dir)?.sync_all()?;
     if let Err(error) = service.check(&binary).await {
