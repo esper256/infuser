@@ -85,18 +85,35 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .tag-filter:hover, .tag-chip:hover { border-color: #7aab98; background: #213c3c; }
 .tag-filter.selected, .tag-chip.selected { background: #244b40; border-color: #7cba9f; color: #d6f4e2; box-shadow: inset 0 1px #d4f2df0d; }
 
-/* Nightglass: abstract tiles for missing art; never imply a game-specific scene. */
+/* Nightglass: sculptural color loops for missing art, without game-specific imagery. */
 .games { display: grid; align-items: stretch; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 22px; }
 .game { display: flex; flex-direction: column; gap: 24px; position: relative; isolation: isolate; container-type: inline-size; width: 100%; max-width: 100%; min-width: 0; aspect-ratio: .95; min-height: 380px; padding: 16px; border: 1px solid #ffffff26; border-radius: 22px; overflow: visible; background: #102d32; box-shadow: 0 18px 50px #0004; transition: transform .25s ease,border-color .25s ease,box-shadow .25s ease; }
 .game:before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: linear-gradient(#03101a66,transparent 30%,transparent 65%,#001b2655); pointer-events: none; }
 .game-art {
-  position: absolute; z-index: -2; inset: 0; border-radius: inherit;
+  position: absolute; z-index: -2; inset: 0; border-radius: inherit; overflow: hidden;
   background:
-    linear-gradient(180deg,#08182055,transparent 35%,#081820bb),
-    radial-gradient(ellipse at 12% 28%,#83dfba55,transparent 65%),
-    radial-gradient(ellipse at 88% 48%,#a88bd852,transparent 65%),
-    radial-gradient(ellipse at 30% 95%,#d1ad7230,transparent 60%),
-    repeating-conic-gradient(#29414b 0% 25%,#142b36 0% 50%) center / 92px 92px;
+    radial-gradient(ellipse at 74% 18%,#31596199,transparent 62%),
+    radial-gradient(ellipse at 8% 80%,#72528570,transparent 60%),
+    linear-gradient(145deg,#102a36,#101b30 60%,#091e29);
+}
+.game-art:not(.has-game-art)::before,
+.game-art:not(.has-game-art)::after {
+  content: ''; position: absolute; box-sizing: border-box; border-radius: 999px;
+  pointer-events: none;
+}
+.game-art:not(.has-game-art)::before {
+  width: 55%; height: 98%; left: 33%; top: -22%; transform: rotate(35deg);
+  border: clamp(30px,10cqw,48px) solid #9ce7ca;
+  border-right-color: #50b6b4; border-bottom-color: #3b8c9d;
+  box-shadow: inset 3px 2px 0 #e3ffe9aa, inset -7px -5px 18px #0d435d66,
+    3px 2px 0 #c7ffe680, 18px 24px 30px #020f2688;
+}
+.game-art:not(.has-game-art)::after {
+  width: 93%; height: 43%; left: -27%; top: 43%; transform: rotate(-32deg);
+  border: clamp(22px,7cqw,34px) solid #a291d6;
+  border-top-color: #c3a6df; border-right-color: #e0af99; border-bottom-color: #6c6fae;
+  box-shadow: inset 2px 3px 0 #f7dcff88, inset -5px -4px 12px #34255288,
+    2px 2px 0 #edc5d770, 12px 20px 24px #06132699;
 }
 .game-art.has-game-art { background: none; }
 .game-art img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; border-radius: inherit; }
