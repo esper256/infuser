@@ -39,8 +39,9 @@ When creator portraits are available, use the game author’s portrait as the
 reaction entry point, without a separate reaction control. Hover and keyboard
 focus show a thought bubble: “React to {author}’s game.” Click, Enter, or a phone
 tap opens the picker directly; never require hover. Give the portrait the same
-accessible action name. The Library uses recorded author names and initials while profile images are
-unavailable. Never invent author identities. Cards use the Nightglass layout with
+accessible action name. Players choose a curated portrait by clicking their name
+in the header; the account choice appears on their creator and presence portraits.
+Initials remain available. Never invent author identities. Cards use the Nightglass layout with
 a content-sized glass dock and the approved Infuser artwork as a fallback until
 game-provided hero art has an agreed contract. Fictional art stays in mockups.
 

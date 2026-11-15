@@ -47,6 +47,11 @@ header { display: flex; align-items: center; gap: 22px; position: relative; padd
 #account { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 16px; margin-left: auto; font-size: 13px; color: #c2d0ce; overflow-wrap: anywhere; }
 #account a { padding: 10px 0; color: var(--quiet); font-size: 12px; text-decoration: none; }
 #account a:hover { color: var(--accent); }
+.profile-button { display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 230px; min-height: 44px; padding: 4px 8px 4px 4px; background: transparent; color: var(--ink); font-size: 13px; font-weight: 500; }
+.profile-button:hover { background: #b5ead610; }
+.profile-button:active:not(:disabled) { background: #b5ead620; }
+.profile-button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-button .avatar { flex: none; }
 footer:empty { display: none; }
 
 /* Signed-out domain landing. Keep the official Google artwork untouched. */
@@ -142,6 +147,24 @@ body:has(#notice.visible) #games > .loading { display: none; }
 dialog { width: min(550px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow: auto; scrollbar-gutter: stable; padding: 28px; border: 1px solid #5c8178; border-top-color: #95c2a9; border-radius: 20px; background: var(--glass); color: var(--ink); box-shadow: 0 30px 90px #0009, inset 0 1px #e0f7e00a; }
 dialog::backdrop { background: #030b10c9; backdrop-filter: blur(8px); }
 dialog h2 { margin: 4px 42px 24px 0; font-size: 25px; line-height: 1.2; font-weight: 600; letter-spacing: -.035em; }
+img.avatar { object-fit: cover; }
+#profile-dialog { width: min(460px, calc(100% - 32px)); }
+#profile-choices { border: 0; padding: 0; margin: 0; min-width: 0; }
+.profile-options { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.profile-option { position: relative; margin: 0; cursor: pointer; }
+.profile-option input { position: absolute; width: 1px; height: 1px; padding: 0; margin: 0; opacity: 0; }
+.profile-tile { display: flex; flex-direction: column; align-items: center; gap: 9px; height: 100%; padding: 10px 4px; border: 2px solid transparent; border-radius: 14px; background: #07131b70; }
+.profile-tile .avatar { width: 88px; height: 88px; max-width: 100%; aspect-ratio: 1; font-size: 26px; border-color: #68867d; }
+.profile-caption { font-size: 11px; text-align: center; color: var(--quiet); }
+.profile-option:hover .profile-tile { background: #b5ead610; }
+.profile-option input:checked + .profile-tile { border-color: var(--accent); background: #b5ead614; }
+.profile-option input:checked + .profile-tile .profile-caption { color: var(--ink); }
+.profile-option input:focus-visible + .profile-tile { outline: 2px solid var(--focus); outline-offset: 3px; }
+#profile-choices:disabled .profile-option { opacity: .65; cursor: wait; }
+#profile-error { color: #ffb7aa; font-size: 13px; line-height: 1.5; }
+#profile-error:empty { display: none; }
+.profile-actions { display: flex; justify-content: flex-end; margin-top: 22px; }
+@media (max-width:400px) { .profile-options { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 .close { float: right; display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; padding: 0; margin: -7px -8px 0 0; border-radius: 50%; color: #b2c9c4; background: transparent; font-size: 25px; font-weight: 400; line-height: 1; }
 .close:hover { background: #39534d; color: #edfaf1; }
 #reaction-dialog { width: min(560px, calc(100% - 32px)); border-radius: 25px 25px 25px 7px; box-shadow: 4px 5px 0 #29473c, 0 30px 90px #0009; }

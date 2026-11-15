@@ -318,6 +318,19 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .await?;
     assert_eq!(list["apps"][0]["title"], "Moon");
     assert_eq!(list["apps"][0]["author"]["name"], "Grown-up");
+    assert!(list["apps"][0]["author"]["avatar"].is_null());
+    adult(reqwest::Method::PUT, "/api/profile")
+        .json(&json!({"avatar":"circuit-fox"}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let updated: Value = kid(reqwest::Method::GET, "/api/library")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(updated["apps"][0]["author"]["avatar"], "circuit-fox");
     assert_eq!(
         list["apps"][0]["author"]["id"],
         platform::hash("adult@example.com")

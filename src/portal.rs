@@ -31,6 +31,7 @@ use std::{
 };
 use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
+mod avatars;
 mod presence;
 mod runtime;
 
@@ -397,6 +398,8 @@ pub fn router(platform: Platform) -> Router {
             }),
         )
         .route("/api/me", get(me))
+        .route("/assets/avatars/{id}/{size}", get(avatars::image))
+        .route("/api/profile", put(avatars::update).layer(DefaultBodyLimit::max(1024)))
         .route("/api/library", get(library))
         .route("/api/apps/{app}/tags",put(set_tags))
         .route("/api/my-games", post(new_game))
@@ -516,7 +519,7 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let data = p.db.read()?;
     let member = &data.members[&email];
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin,"player_id":hash(&email),"game_ports_admitted":admitted}),
+        json!({"name":member.name,"admin":member.admin,"player_id":hash(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
     ))
 }
 async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -537,7 +540,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
             room["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(&email))
                 .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
         } else { vec![] };
-        let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name})));
+        let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name,"avatar":member.avatar})));
         json!({"author":author,"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
@@ -550,7 +553,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
             let targets: Vec<_> = apps.iter().flat_map(|app| app["join_targets"].as_array().unwrap().iter()
                 .filter(|target| target["player_id"] == hash(email))
                 .map(|target| json!({"app_id":app["id"],"title":app["title"],"session_id":target["session_id"],"player_id":target["player_id"]})).collect::<Vec<_>>()).collect();
-            json!({"id":hash(email),"name":data.members[email].name,"join_targets":targets})
+            json!({"id":hash(email),"name":data.members[email].name,"avatar":data.members[email].avatar,"join_targets":targets})
         })
         .collect();
     Ok(reply(

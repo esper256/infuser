@@ -55,13 +55,16 @@ function renderGames() {
     play.onclick=()=>start(game,play,card);actions.append(play,menu);
     const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
     const react=el('button',undefined,'creator react-button');react.type='button';react.setAttribute('aria-label',label);react.setAttribute('aria-haspopup','dialog');
-    const avatar=profileAvatar(game.author?.name,game.author?.id||game.id),hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
+    const avatar=profileAvatar(game.author?.name,game.author?.id||game.id,game.author?.avatar),hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
     react.append(avatar,hint);react.onclick=()=>openReaction(game);heading.append(react);dock.append(heading,actions);
     if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}meta.append(chips);}
     games.append(card);
   }
 }
-function profileAvatar(name,id) {
+function profileAvatar(name,id,picture,size=128) {
+  if((me?.avatars||[]).some(a=>a.id===picture)){
+    const avatar=el('img',undefined,'avatar');avatar.src='/assets/avatars/'+encodeURIComponent(picture)+'/'+size+'.webp';avatar.alt='';avatar.width=size;avatar.height=size;return avatar;
+  }
   const words=(name||'').trim().split(/\s+/).filter(Boolean);
   const initials=words.length>1?Array.from(words[0])[0]+Array.from(words.at(-1))[0]:Array.from(words[0]||'').slice(0,2).join('');
   const tone=Array.from(id||name||'').reduce((value,ch)=>(value+ch.codePointAt(0))%6,0);
@@ -71,7 +74,7 @@ function renderPresence() {
   const people=(library.friends||[]).filter(person=>person.id!==me.player_id),list=$('friends');list.replaceChildren();list.hidden=!people.length;
   for(const person of people.slice(0,2)){
     const item=el('li',undefined,'presence-person');item.tabIndex=0;item.setAttribute('aria-label',person.name+' · online');
-    const name=el('span',person.name,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id),name);list.append(item);
+    const name=el('span',person.name,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id,person.avatar),name);list.append(item);
   }
   if(people.length>2){const extra=people.slice(2),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
 }
@@ -132,14 +135,44 @@ $('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
 async function adminRefresh(){
   const [members,credentials]=await Promise.all([api('/api/admin/members'),api('/api/admin/credentials')]);
-  $('members').replaceChildren();for(const[email,m]of Object.entries(members.members)){const row=el('div');row.append(el('span',`${m.name} · ${email}${m.admin?' · admin':''}${m.enabled?'':' · disabled'}`));if(!m.admin){const toggle=el('button',m.enabled?'Disable':'Enable','secondary');toggle.onclick=async()=>{try{await api('/api/admin/members',{method:'POST',body:JSON.stringify({email,...m,enabled:!m.enabled})});await adminRefresh();}catch(error){showError(error);}};row.append(toggle);}$('members').append(row);}
+  $('members').replaceChildren();for(const[email,m]of Object.entries(members.members)){const row=el('div');row.append(el('span',`${m.name} · ${email}${m.admin?' · admin':''}${m.enabled?'':' · disabled'}`));if(!m.admin){const toggle=el('button',m.enabled?'Disable':'Enable','secondary');toggle.onclick=async()=>{try{await api('/api/admin/members',{method:'POST',body:JSON.stringify({email,name:m.name,admin:m.admin,enabled:!m.enabled})});await adminRefresh();}catch(error){showError(error);}};row.append(toggle);}$('members').append(row);}
   $('credentials').replaceChildren();for(const c of credentials.credentials){const row=el('div'),button=el('button','Revoke','secondary');row.append(el('span',c.label+' · '+c.app),button);button.onclick=async()=>{try{await api('/api/admin/credentials/'+c.id,{method:'DELETE'});await adminRefresh();}catch(error){showError(error);}};$('credentials').append(row);}
 }
 $('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with that Google account.');await adminRefresh();}catch(error){showError(error);}};
 $('credential-form').onsubmit=async event=>{event.preventDefault();try{const data=Object.fromEntries(new FormData(event.target)),connection=await api('/api/admin/credentials',{method:'POST',body:JSON.stringify(data)});const blob=new Blob([JSON.stringify(connection,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=connection.app_id+'.credentials.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Connection file downloaded. Attach it in your game’s existing agent chat.');await adminRefresh();}catch(error){showError(error);}};
+function renderAccount(){
+  $('open-profile').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),el('span',me.name));
+}
+function openProfile(){
+  $('profile-error').textContent='';
+  const picker=$('profile-options');picker.replaceChildren();
+  const selected=(me.avatars||[]).some(a=>a.id===me.avatar)?me.avatar:'';
+  for(const option of [...(me.avatars||[]),{id:'',name:'Initials'}]){
+    const label=el('label',undefined,'profile-option'),radio=el('input'),tile=el('span',undefined,'profile-tile');
+    radio.type='radio';radio.name='avatar';radio.value=option.id;radio.checked=option.id===selected;radio.required=true;
+    tile.append(profileAvatar(me.name,me.player_id,option.id,256),el('span',option.name,'profile-caption'));
+    label.append(radio,tile);picker.append(label);
+  }
+  $('profile-dialog').showModal();picker.querySelector('input:checked').focus();
+}
+$('close-profile').onclick=()=>$('profile-dialog').close();
+$('profile-dialog').addEventListener('cancel',event=>{if($('save-profile').disabled)event.preventDefault();});
+$('profile-form').onsubmit=async event=>{
+  event.preventDefault();if($('save-profile').disabled)return;
+  const avatar=new FormData(event.target).get('avatar');
+  $('profile-error').textContent='';$('save-profile').disabled=true;$('save-profile').textContent='Saving…';$('close-profile').disabled=true;$('profile-choices').disabled=true;
+  try{
+    const saved=await api('/api/profile',{method:'PUT',body:JSON.stringify({avatar})});
+    me.avatar=saved.avatar;renderAccount();
+    if(library){for(const game of library.apps)if(game.author?.id===me.player_id)game.author.avatar=me.avatar;for(const person of library.friends||[])if(person.id===me.player_id)person.avatar=me.avatar;renderGames();renderPresence();}
+    $('profile-dialog').close();notice('Profile picture saved.');
+  }catch(error){$('profile-error').textContent=error.message;}
+  finally{$('save-profile').disabled=false;$('save-profile').textContent='Save';$('close-profile').disabled=false;$('profile-choices').disabled=false;}
+};
+
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
-  $('greeting').textContent='Signed in as '+me.name+'.';$('account').append(el('span',me.name));const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';$('account').append(out);
+  $('greeting').textContent='Signed in as '+me.name+'.';const profile=el('button',undefined,'profile-button');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');profile.setAttribute('aria-label',me.name+' · Change profile picture');profile.onclick=openProfile;$('account').append(profile);renderAccount();const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';$('account').append(out);
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
   if(me.admin){$('admin').hidden=false;await adminRefresh();}
 } catch(error) {if(error.status!==401)$('login-message').textContent=error.message;}

@@ -19,6 +19,8 @@ pub struct Member {
     pub name: String,
     pub admin: bool,
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Credential {
@@ -335,12 +337,14 @@ pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bo
         "name must contain 1–40 characters"
     );
     Database::open(&config.controller.state_dir)?.edit(|d| {
+        let avatar = d.members.get(&email).and_then(|m| m.avatar.clone());
         d.members.insert(
             email,
             Member {
                 name: name.into(),
                 admin,
                 enabled,
+                avatar,
             },
         );
         Ok(())
