@@ -42,7 +42,7 @@
 [data-theme="cartridge-club"] .game-dock { border-radius: 13px; border-color: #9bbfd266; border-top-color: #b5d8e699; box-shadow: 0 3px 0 #070f2055,0 8px 20px #02091244; }
 [data-theme="cartridge-club"] .actions > button { font-weight: 800; }
 [data-theme="cartridge-club"] .game-tags .tag-chip,
-[data-theme="cartridge-club"] .game-mode { background: #101e32e8; border-color: #8ca9bd55; }
+[data-theme="cartridge-club"] .game-visibility { background: #101e32e8; border-color: #8ca9bd55; }
 [data-theme="cartridge-club"] .header-menu > summary { border-color: #6b6885; background: #29283e; color: #efe6fa; }
 [data-theme="cartridge-club"] .presence-self .profile-menu > summary { background: var(--field); border-color: var(--accent); box-shadow: 0 0 0 3px #cbb6e418,0 0 12px #cbb6e42a; }
 [data-theme="cartridge-club"] .account-menu,

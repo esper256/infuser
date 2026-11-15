@@ -35,6 +35,8 @@ Use a dark, game-like visual style and small, responsive feedback throughout
 player flows: pressed controls, subtle card movement, clear launch progress,
 and a brief acknowledgement when an action succeeds. Respect reduced motion.
 The games get the spotlight. Keep adult tools straightforward.
+Do not label cards Single player or Multiplayer; tags and launch options convey
+those choices. Keep the admin-only Invisible indicator for unlisted games.
 
 When creator portraits are available, use the game author’s portrait as the
 reaction entry point, without a separate reaction control. Hover and keyboard
@@ -54,7 +56,10 @@ export, and publishing requirements. Publish artwork with a build or through the
 [metadata API](game-metadata.md); committing an image alone does not publish it.
 Game art may use polished cover illustration while preserving the game's real
 identity. Allow flexible compositions within the crop-safe area. Protect the art
-by capping titles at two lines and tags at one horizontally scrollable row. The
+by capping titles at two lines and tags at one row. Reduce tag spacing first,
+allowing adjacent padding to overlap without covering text. If tags still do not
+fit, an ellipsis chip reveals the rest on hover, keyboard focus, or tap. Use the
+same behavior for the Library tag filters; do not show horizontal scrollbars. The
 existing dropdown exposes the full title, player names, and reaction counts;
 metadata must not grow indefinitely over the image.
 
