@@ -273,7 +273,22 @@ async fn two_devices_conflict_restart_resolve_and_guest_cleanup() -> Result<()> 
             .await?;
         assert!(value["revision"].is_null());
     }
-    let first = checkpoint(1, None, 2);
+    // Exercise binary bytes through the real API, restart, conflicts and guest scope.
+    server.db.edit(|data| {
+        for build in data.builds.values_mut() {
+            build.manifest.cloud_saves.as_mut().unwrap().groups[0]
+                .files
+                .push(infuser::cloud::File {
+                    path: "world.bin".into(),
+                    format: "binary".into(),
+                });
+        }
+        Ok(())
+    })?;
+    let mut first = checkpoint(1, None, 2);
+    first
+        .files
+        .insert("world.bin".into(), json!({"base64":"AP8BgA=="}));
     let result: Value = commit(&server.url, "a")
         .json(&first)
         .send()
@@ -282,7 +297,10 @@ async fn two_devices_conflict_restart_resolve_and_guest_cleanup() -> Result<()> 
         .json()
         .await?;
     let revision = result["revision"].as_str().unwrap().to_owned();
-    let incoming = checkpoint(2, None, 3);
+    let mut incoming = checkpoint(2, None, 3);
+    incoming
+        .files
+        .insert("world.bin".into(), json!({"base64":"AQID"}));
     let response = commit(&server.url, "b").json(&incoming).send().await?;
     assert_eq!(response.status(), 409);
     let conflict: Value = response.json().await?;
@@ -345,7 +363,12 @@ async fn two_devices_conflict_restart_resolve_and_guest_cleanup() -> Result<()> 
     .json()
     .await?;
     assert_eq!(preserved["files"]["progress.json"]["level"], 3);
+    assert_eq!(preserved["files"]["world.bin"], json!({"base64":"AQID"}));
+    assert_eq!(preserved["formats"]["world.bin"], "binary");
     let mut resolution = checkpoint(3, Some(&revision), 3);
+    resolution
+        .files
+        .insert("world.bin".into(), preserved["files"]["world.bin"].clone());
     resolution.resolve_candidate = Some(candidate.clone());
     let result: Value = commit(&server.url, "b")
         .json(&resolution)
@@ -480,6 +503,66 @@ async fn two_devices_conflict_restart_resolve_and_guest_cleanup() -> Result<()> 
     assert_eq!(
         load(&server.url, "a").send().await?.json::<Value>().await?["revision"],
         old_reader["revision"]
+    );
+    Ok(())
+}
+
+#[test]
+fn binary_validation_size_and_old_build_protection() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db = Database::open(dir.path())?;
+    let mut declaration = declaration();
+    declaration.groups[0].files.push(infuser::cloud::File {
+        path: "world.bin".into(),
+        format: "binary".into(),
+    });
+    declaration.validate()?;
+    let group = &declaration.groups[0];
+    let scope = Scope {
+        owner: "player",
+        app: "game",
+        group: "campaign",
+    };
+    let mut request = checkpoint(1, None, 1);
+    for value in [
+        json!("AP8="),
+        json!({"base64":"AA"}),
+        json!({"base64":"AB=="}),
+        json!({"base64":"@@=="}),
+        json!({"base64":"AA==","extra":true}),
+    ] {
+        request.files.insert("world.bin".into(), value);
+        assert!(write(&db, scope, group, &request).is_err());
+        assert!(db.cloud_load(scope, None)?["revision"].is_null());
+    }
+    request
+        .files
+        .insert("world.bin".into(), json!({"base64":"AP8BgA=="}));
+    // A binary-shaped JSON object stays ordinary JSON.
+    request
+        .files
+        .insert("progress.json".into(), json!({"base64":"not base64"}));
+    let revision = saved(write(&db, scope, group, &request)?);
+    let snapshot = db.cloud_load(scope, None)?;
+    assert_eq!(snapshot["files"], serde_json::to_value(&request.files)?);
+    assert_eq!(snapshot["formats"], json!({"world.bin":"binary"}));
+    let mut older = group.clone();
+    older.files.last_mut().unwrap().format = "json".into();
+    request.commit_id = "old-build-write-0001".into();
+    request.expected_revision = Some(revision.clone());
+    assert!(write(&db, scope, &older, &request).is_err());
+    assert_eq!(db.cloud_load(scope, None)?["revision"], revision);
+    request
+        .files
+        .insert("world.bin".into(), json!({"base64":"AAAA".repeat(262144)}));
+    assert!(write(&db, scope, group, &request).is_err());
+    request
+        .files
+        .insert("world.bin".into(), json!({"base64":""}));
+    saved(write(&db, scope, group, &request)?);
+    assert_eq!(
+        db.cloud_load(scope, None)?["files"]["world.bin"],
+        json!({"base64":""})
     );
     Ok(())
 }

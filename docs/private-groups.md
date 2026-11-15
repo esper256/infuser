@@ -29,8 +29,10 @@ Append `--revoke` to remove the role. This local command is the only way to gran
 operator access. Being a family admin does not grant it. The role does not change
 the account’s home group or its ordinary player behavior.
 
-The operator gets a **Groups** button beside the account menu. **Add a group**
-creates an empty group and invites its first adult by Google email. That adult
+Operators open **Admin tools → Groups**. This entry is hidden from other players,
+including family admins without the operator role. During read-only inspection,
+the dropdown contains only Groups; family-management controls stay hidden.
+**Add a group** creates an empty group and invites its first adult by Google email. That adult
 signs in normally and invites their family through Admin tools. Infuser does not
 send invitation emails. If Google OAuth is still in testing mode, add their
 accounts to its test-user list too.

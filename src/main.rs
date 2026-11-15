@@ -265,6 +265,9 @@ async fn main() -> Result<()> {
             publications.activate_pending()?;
             if now().saturating_sub(last_cleanup) >= 60 {
                 publications.db.cleanup()?;
+                if publications.cleanup_feedback().is_err() {
+                    tracing::warn!("feedback retention cleanup failed");
+                }
                 last_cleanup = now();
             }
         }

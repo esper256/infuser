@@ -3,6 +3,10 @@
   color-scheme: dark;
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
+  --game-ratio: 1.2;
+  --presence-online: #72d6ac;
+  --detail-panel: #101d23;
+  --feedback-bubble: #20322f;
   --page: #080f15;
   --field: #09171d;
   --button-ink: #102c28;
@@ -21,3 +25,14 @@
   --glass: linear-gradient(135deg, #1b3537e8, #101e28f5);
   --focus: #e8d5a4;
 }
+
+[data-theme="nightglass"] .tag-filter { border-color: transparent; background: none; color: var(--ink); padding-inline: 10px; }
+[data-theme="nightglass"] .tag-filter.selected { background: var(--accent); color: var(--button-ink); border-color: transparent; }
+[data-theme="nightglass"] .tag-filter:hover { background: var(--surface); }
+[data-theme="nightglass"] .tag-filter.selected:hover { background: var(--accent-hover); }
+[data-theme="nightglass"] #recent-toggle { background: none; border-color: transparent; }
+[data-theme="nightglass"] #recent-toggle:hover { background: var(--surface); }
+[data-theme="nightglass"] .game-tags { width: fit-content; max-width: 100%; border-radius: 18px; padding: 2px 7px; background: #081a20cf; backdrop-filter: blur(10px); }
+[data-theme="nightglass"] .game-tags .tag-chip { background: none; border-color: transparent; padding-inline: 3px; backdrop-filter: none; }
+[data-theme="nightglass"] .game-tags .tag-strip > .tag-chip + .tag-chip::before { content: '·'; margin-right: 7px; color: var(--quiet); }
+[data-theme="nightglass"] .game-tags .tag-more { background: none; border-color: transparent; padding-inline: 5px; }

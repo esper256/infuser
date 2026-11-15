@@ -67,7 +67,7 @@ Play opens the game's own title screen. [Presence](presence.md) and optional
 ## Saves and presentation
 
 Wire saves into real load/checkpoint operations. Use conditional writes and show
-conflicts without discarding either version. For related JSON files, use
+conflicts without discarding either version. For related JSON or binary files, use
 [declared checkpoints](cloud-save-design.md). Guest launches must start empty and
 never import or overwrite the owner's progress. Infuser supplies the isolated
 identity and storage; the game must use them.

@@ -41,6 +41,18 @@ and mobile layout against the real Rust API. Browser setup is a one-time step.
 Docker and Caddy journeys are opt-in; see [operations](operations.md#verification).
 Engine/hardware acceptance is tracked in the [roadmap](roadmap.md).
 
+The avatar-strip browser journey uses mocked API responses and real browser
+navigation (including popup, stale-session, mobile, and keyboard checks):
+
+```sh
+INFUSER_PLAYWRIGHT="$PWD/services/peerjs/node_modules/playwright/index.mjs" \
+  node tests/friends_journey.mjs
+godot --headless --path examples/godot-web --script "$PWD/tests/godot_binary.gd"
+```
+
+Desktop tests exercise update integrity, atomic replacement, readiness, failed
+startup and timeout handling. Physical Windows acceptance is still required.
+
 ## Dependency checks
 
 Run these when changing dependencies or doing a maintenance pass, without adding

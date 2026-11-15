@@ -7,13 +7,22 @@ try {
   else sessionStorage.removeItem(KEY);
 } catch { /* Home remains usable when session storage is unavailable. */ }
 function home(){sessionStorage.removeItem(KEY);location.assign('/library');}
+// Inspection starts at /library. Change the query too so this reloads the home
+// membership instead of only changing the current tab's fragment.
+export function openHomeChat(){sessionStorage.removeItem(KEY);location.assign('/library?chat#chat');}
 function inspect(group){sessionStorage.setItem(KEY,JSON.stringify({group,expires:Date.now()+15*60*1000}));location.assign('/library');}
 export function inspectionHeaders(){return inspection?{'X-Infuser-Inspect-Group':inspection.group}:{};}
 export function initGroups({me,api}) {
   if(!me.operator)return;
   const el=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
   const button=el('button','Groups');button.id='operator-groups';button.title='Operator: private groups';button.type='button';
-  document.getElementById('friends').after(button);
+  const admin=document.getElementById('admin'),menu=admin.querySelector('details'),panel=admin.querySelector('.admin-panel');
+  // Operators can inspect other groups without being admins in that view.
+  // Keep Groups reachable there without exposing membership-management controls.
+  if(!me.admin)for(const child of panel.children)child.hidden=true;
+  panel.classList.toggle('operator-only',!me.admin);
+  panel.prepend(button);admin.hidden=false;
+  button.setAttribute('aria-haspopup','dialog');
   const dialog=el('dialog');dialog.id='groups-dialog';dialog.setAttribute('aria-labelledby','groups-title');
   const heading=el('div');heading.className='panel-heading';const title=el('h2','Private groups');title.id='groups-title';
   const close=el('button','×');close.className='close';close.setAttribute('aria-label','Close groups');close.onclick=()=>dialog.close();heading.append(title,close);
@@ -35,8 +44,8 @@ export function initGroups({me,api}) {
       try{await api('/api/operator/groups',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form)))});form.reset();details.open=false;await load();error.textContent='Created. Their adult can sign in with that Google account. No email is sent.';}
       catch(problem){error.textContent=problem.message;}finally{create.disabled=false;}};
   }
-  document.body.append(dialog);button.onclick=async()=>{dialog.showModal();error.textContent='';try{await load();}catch(problem){error.textContent=problem.message;}};
-  dialog.addEventListener('close',()=>button.focus());
+  document.body.append(dialog);button.onclick=async()=>{menu.open=false;dialog.showModal();error.textContent='';try{await load();}catch(problem){error.textContent=problem.message;}};
+  dialog.addEventListener('close',()=>menu.querySelector('summary').focus());
   if(me.inspecting){
     document.body.dataset.inspecting='true';
     const banner=el('aside');banner.id='group-inspection';banner.setAttribute('aria-label','Operator inspection');

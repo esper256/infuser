@@ -39,8 +39,10 @@ Manifest declaration in `infuser.game.json`:
 Group IDs and relative file paths are stable across builds. Reject absolute paths,
 traversal, undeclared files, duplicate paths, and reserved platform names. Adding
 an optional file is compatible; renaming a file requires an explicit game migration.
-The browser and Godot web/native adapters store JSON. Arbitrary binary saves
-and automatic filesystem synchronization are not implemented.
+Declare each file as `json` or `binary`. Browser and Godot web/native adapters
+support both; they do not scan or automatically synchronize the filesystem.
+Keep a path's format stable. To migrate JSON to binary, add a new path and ship a
+reader that understands both before retiring the old file.
 
 Each group is atomic. A snapshot is the complete set of present files in that
 group; omitted files are absent in that snapshot. An empty new group has no head
@@ -74,6 +76,44 @@ show success after server acknowledgement. It supplies a bounded, optional human
 summary for a conflict chooser; the platform treats that summary as plain text.
 File contents include the game's own schema version; the server does not execute
 migration scripts or guess how two inventories should be combined.
+
+## Binary files
+
+First check that `capabilities.cloud_checkpoints.formats` includes `binary`.
+Declare, for example, `{"path":"world.bin","format":"binary"}`. Its wire value is
+`{"base64":"AP8BgA=="}`: standard padded base64, with no other fields. Empty files
+use an empty string. JSON files keep their original values, even if they happen
+to contain a `base64` property.
+
+```js
+const context = await ready;
+if (!context.capabilities.cloud_checkpoints.formats.includes('binary')) {
+  throw Error('This Infuser needs an update before it can save this game.');
+}
+const loaded = await cloud.load('campaign');
+const bytes = loaded.files['world.bin'] === undefined
+  ? null : cloud.decodeBinary(loaded.files['world.bin']); // Uint8Array
+// Restore bytes using your game's reader, then later:
+const files = {...loaded.files, 'world.bin': cloud.encodeBinary(worldBytes)};
+// Pass files to cloud.commit with loaded.revision and a fresh commitId.
+```
+
+Godot uses `Infuser.encode_binary(bytes: PackedByteArray)` and
+`Infuser.decode_binary(value)`. Decoding returns `{ok:true,value:PackedByteArray}`
+or `{ok:false,error}`. Read an existing `user://` file with FileAccess, encode it,
+and include it in the complete checkpoint. On load, validate/decode every file
+before replacing local progress. Keep local files on any error; the adapter does
+not write them for you. The conflict chooser accepts mixed JSON/binary snapshots.
+
+Snapshots add `formats`, mapping binary paths to `"binary"`; missing entries mean
+JSON. Old JSON snapshots and commit bodies are unchanged. Writes based on a
+snapshot whose file formats the build no longer declares are rejected.
+
+The 1 MiB checkpoint limit measures the serialized `files` JSON, including paths,
+JSON syntax and base64 overhead. A binary-only checkpoint therefore holds slightly
+less than 768 KiB of raw bytes. History and installation quotas also count stored
+encoded bytes. Binary files share the existing retries, conflicts, retention,
+permissions and guest cleanup; they are not a separate storage system.
 
 ## Revisions, conflicts, and retries
 

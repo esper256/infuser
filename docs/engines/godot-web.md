@@ -67,8 +67,9 @@ still opens the game's normal title screen.
 
 Guest mode's separate host isolates Godot's browser filesystem; cloud saves have
 a separate guest namespace. Local `user://` persistence alone is not cloud saving.
-This adapter stores JSON through the cloud API; it does not automatically sync
-arbitrary binary save files or scan `user://`.
+This adapter supports declared JSON and binary checkpoints. Use `Infuser.encode_binary`
+and `Infuser.decode_binary` for bytes; see [binary saves](../cloud-save-design.md#binary-files).
+It does not scan or automatically sync `user://`.
 
 If the game requires unsupported web features, report the limitation explicitly.
 Native delivery has a separate [desktop preview recipe](godot-native.md).

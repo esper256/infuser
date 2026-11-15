@@ -2,10 +2,17 @@
 mod client;
 mod install;
 mod ui;
+mod update;
 use eframe::egui;
-use std::sync::mpsc;
+use std::{
+    process::Child,
+    sync::{Arc, Mutex, mpsc},
+};
 
 struct App {
+    startup: Option<mpsc::Receiver<Option<Child>>>,
+    handoff: Arc<Mutex<Option<Child>>>,
+    auto_launch: bool,
     presentation: ui::Presentation,
     root: std::path::PathBuf,
     request: Option<client::Request>,
@@ -38,6 +45,28 @@ impl App {
 }
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(receiver) = &self.startup {
+            match receiver.try_recv() {
+                Ok(handed_off) => {
+                    self.startup = None;
+                    self.running = false;
+                    if let Some(child) = handed_off {
+                        *self.handoff.lock().unwrap() = Some(child);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        return;
+                    }
+                    self.status.clear();
+                    if self.auto_launch {
+                        self.launch(ctx);
+                    }
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.startup = None;
+                    self.running = false;
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
         if let Some(receiver) = &self.receiver {
             while let Ok(event) = receiver.try_recv() {
                 match event {
@@ -112,7 +141,14 @@ fn main() -> eframe::Result {
     let storage = client::root();
     let storage_error = storage.as_ref().err().map(ToString::to_string);
     let root = storage.unwrap_or_default();
-    let argument = std::env::args().nth(1);
+    let mut arguments: Vec<_> = std::env::args().skip(1).collect();
+    let managed = arguments
+        .first()
+        .is_some_and(|arg| arg == "--infuser-managed");
+    if managed {
+        arguments.remove(0);
+    }
+    let argument = arguments.first().cloned();
     let parsed = argument.as_deref().map(client::parse).transpose();
     let (mut request, mut status, mut failed) = match parsed {
         Ok(request) => (request, String::new(), false),
@@ -130,24 +166,52 @@ fn main() -> eframe::Result {
         viewport: ui::viewport(),
         ..Default::default()
     };
-    eframe::run_native(
+    let handoff = Arc::new(Mutex::new(None::<Child>));
+    let app_handoff = handoff.clone();
+    let result = eframe::run_native(
         "Infuser Play",
         options,
         Box::new(move |cc| {
+            let startup = if !managed && !failed {
+                let (sender, receiver) = mpsc::channel();
+                let storage = root.clone();
+                let repaint = cc.egui_ctx.clone();
+                std::thread::spawn(move || {
+                    let _ = sender.send(update::run(&storage, &arguments));
+                    repaint.request_repaint();
+                });
+                status = "Checking Infuser Play updates…".into();
+                Some(receiver)
+            } else {
+                None
+            };
+            let updating = startup.is_some();
             let mut app = App {
+                startup,
+                handoff: app_handoff,
+                auto_launch: auto,
                 presentation: ui::Presentation::new(&cc.egui_ctx),
                 root,
                 request,
                 status,
-                running: false,
+                running: updating,
                 playing: false,
                 failed,
                 receiver: None,
             };
-            if auto {
+            if managed {
+                update::acknowledge();
+            }
+            if auto && !updating {
                 app.launch(&cc.egui_ctx);
             }
             Ok(Box::new(app))
         }),
-    )
+    );
+    // Closing the launcher's window must not end Flatpak's process namespace.
+    // Drop all GUI resources, then quietly keep the sandbox alive for the worker.
+    if let Some(mut child) = handoff.lock().unwrap().take() {
+        let _ = child.wait();
+    }
+    result
 }

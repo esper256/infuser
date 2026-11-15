@@ -5,6 +5,11 @@ import { cloud as legacyCloud } from '../sdk/cloud-v1.js';
 import { cloud as versionedCloud } from '../sdk/v1/cloud.js';
 for(const [variant,cloud] of [['legacy',legacyCloud],['v1',versionedCloud]]) {
 const test=(name,fn)=>baseTest(variant+': '+name,fn);
+test('binary helpers preserve every byte, including empty files, without guessing JSON',()=>{
+  for(const bytes of [new Uint8Array(),Uint8Array.from({length:65537},(_,i)=>i%256)])assert.deepEqual(cloud.decodeBinary(cloud.encodeBinary(bytes)),bytes);
+  for(const value of [{base64:'AA'},{base64:'AB=='},{base64:'AA==',extra:1},null,{base64:'@@=='},{base64:' A A =='}])assert.throws(()=>cloud.decodeBinary(value),error=>error.code==='invalid_binary_file');
+  assert.throws(()=>cloud.encodeBinary([1,2,3]),error=>error.code==='invalid_binary_file');
+});
 
 test('lost acknowledgement retries the identical checkpoint; conflicts and quota failures stay explicit', async()=>{
   const original=globalThis.fetch;

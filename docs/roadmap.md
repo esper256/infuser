@@ -20,7 +20,8 @@
   dedicated-server joinability and native multiplayer separately. Bevy is paused.
 - Review achievements before introducing persistent achievement IDs and behavior.
 
-Implemented foundations include conditional JSON slots and retained checkpoints,
+Implemented foundations include conditional JSON slots and retained JSON/binary checkpoints,
 isolated guest play, on-demand managed servers, peer presence/joinability,
-Join friend, readable game URLs, metadata/art updates, and agent issue reporting.
+Join friend on cards and avatars, Infuser Play self-updates, readable game URLs,
+metadata/art updates, and agent issue reporting.
 Use their linked contracts rather than treating old design notes as future work.

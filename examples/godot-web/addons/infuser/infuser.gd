@@ -115,3 +115,22 @@ func _native_api(operation: String, args: Dictionary) -> Dictionary:
 		return {"ok": true, "status": status, "value": value}
 	var failure: Variant = value.get("error", "Infuser could not complete the request.")
 	return {"ok": false, "status": status, "code": failure.get("code", "") if failure is Dictionary else "", "error": failure.get("message", "Request failed") if failure is Dictionary else str(failure)}
+
+## Declare this path as format=binary. These helpers do not read or overwrite files.
+func encode_binary(bytes: PackedByteArray) -> Dictionary:
+	return {"base64": "" if bytes.is_empty() else Marshalls.raw_to_base64(bytes)}
+
+func decode_binary(file: Variant) -> Dictionary:
+	if not file is Dictionary or file.size() != 1 or not file.get("base64") is String:
+		return {"ok": false, "error": "Invalid binary save. Keep the existing local file."}
+	var encoded: String = file.base64
+	if encoded.is_empty():
+		return {"ok": true, "value": PackedByteArray()}
+	var pattern := RegEx.new()
+	pattern.compile("^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
+	if pattern.search(encoded) == null:
+		return {"ok": false, "error": "Invalid binary save. Keep the existing local file."}
+	var bytes := Marshalls.base64_to_raw(encoded)
+	if Marshalls.raw_to_base64(bytes) != encoded:
+		return {"ok": false, "error": "Invalid binary save. Keep the existing local file."}
+	return {"ok": true, "value": bytes}

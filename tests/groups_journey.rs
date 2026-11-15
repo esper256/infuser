@@ -215,6 +215,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         .member("child", Method::POST, "/api/chat")
         .json(&json!({"client_id":"away-message-00001","text":"Other family only"})))
     .await?;
+    ok(c.member("child", Method::PUT, "/api/profile")
+        .json(&json!({"avatar":"circuit-fox"})))
+    .await?;
+    let child_identity = ok(c.member("child", Method::GET, "/api/me")).await?;
     ok(
         c.member("child", Method::PUT, &format!("/api/apps/{away}/reaction"))
             .json(&json!({"emoji":"🚀","text":"Our game"})),
@@ -227,6 +231,15 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         let library = ok(c.member(who, Method::GET, "/api/library")).await?;
         assert_eq!(library["apps"].as_array().unwrap().len(), 1);
         assert_eq!(library["apps"][0]["id"], *own);
+        let reactions = library["apps"][0]["reactions"].as_array().unwrap();
+        if who == "child" {
+            assert_eq!(reactions.len(), 1);
+            assert_eq!(reactions[0]["id"], child_identity["player_id"]);
+            assert_eq!(reactions[0]["avatar"], "circuit-fox");
+            assert!(reactions[0].get("email").is_none());
+        } else {
+            assert!(reactions.is_empty(), "Other groups' reactions stay private");
+        }
         let serialized = library.to_string();
         assert!(serialized.contains(own_tag));
         assert!(!serialized.contains(foreign_tag));
