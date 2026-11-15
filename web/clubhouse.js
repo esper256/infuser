@@ -1,3 +1,4 @@
+import { setupPwa } from '/assets/pwa.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
 import { initClientUpdates } from '/assets/client-updates.js';
@@ -347,7 +348,7 @@ function setupAccount(){
   window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
   label.append(select);
   const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
-  panel.append(profile,label,out);menu.append(trigger,panel);renderAccount();
+  panel.append(profile,label,out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;

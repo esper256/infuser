@@ -247,6 +247,15 @@ async fn main() -> Result<()> {
     let platform = infuser::portal::Platform::open(controller.clone())?;
     let runner = controller.clone();
     let publications = platform.clone();
+    let notifications = platform.clone();
+    let push_worker = tokio::spawn(async move {
+        loop {
+            if let Err(error) = notifications.dispatch_push().await {
+                tracing::warn!(%error, "chat notification delivery failed");
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
     let background = tokio::spawn(async move {
         let mut last_cleanup = 0;
         loop {
@@ -271,6 +280,7 @@ async fn main() -> Result<()> {
         tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
     });
     tokio::select! {
+        result = push_worker => { result?; anyhow::bail!("notification worker stopped"); },
         result = server => { result?; },
         result = background => { result??; bail!("controller loop stopped"); }
     }

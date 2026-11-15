@@ -135,6 +135,7 @@ impl Database {
             params![email, client_id, text, time,group],
         )?;
         let id = tx.last_insert_rowid();
+        crate::notifications::enqueue(&tx, &data, email, group, id, time)?;
         tx.execute("DELETE FROM library_chat WHERE private_group=?1 AND id NOT IN (SELECT id FROM library_chat WHERE private_group=?1 ORDER BY id DESC LIMIT 100)", [group])?;
         tx.commit()?;
         Ok(json!({"id":id}))

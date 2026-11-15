@@ -434,3 +434,6 @@ img.avatar { object-fit: cover; }
 .group-form label{display:grid;gap:.3rem}
 body[data-inspecting] #add-game,body[data-inspecting] #chat-form{display:none}
 @media(max-width:480px){#group-inspection{align-items:flex-start;flex-direction:column;font-size:.85rem}}
+
+.notification-hint { display: block; max-width: 230px; white-space: normal; color: var(--quiet); font-size: 12px; line-height: 1.4; }
+.notification-hint:empty { display: none; }
