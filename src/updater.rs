@@ -308,7 +308,13 @@ pub async fn update(
     }
     let manifest = download(
         http,
-        &format!("{source}/latest/download/release.json"),
+        // GitHub's mutable latest redirect can stay cached after a release is
+        // published. Refresh only this lookup; binaries still use immutable tags
+        // and must match the manifest's SHA-256 before activation.
+        &format!(
+            "{source}/latest/download/release.json?infuser_check={}",
+            crate::controller::now()
+        ),
         16384,
     )
     .await?;
