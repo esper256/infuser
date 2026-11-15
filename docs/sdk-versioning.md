@@ -52,7 +52,8 @@ Existing projects with no `sdk` declaration keep the legacy injected script.
 }
 ```
 
-`peers.webrtc.v1` is also present when TURN is configured. The same SDK
+`peers.webrtc.v1` is also present when TURN is configured. `peers.peerjs.v1`
+requires TURN plus the private PeerServer service. The same SDK
 advertisement appears in `session.capabilities.sdk`. Capabilities describe API
 availability; the game's existing topology, save-group and launch-intent
 manifest declarations still determine which features it can use.

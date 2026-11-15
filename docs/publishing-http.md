@@ -147,11 +147,14 @@ curl --silent --show-error --fail --proto '=https' \
   --output .local/publish-response.json "$BUILD_URL/publish"
 ```
 
-Inspect the response: `state:"queued"` means a shared server is still active and
-the update waits for it to sleep; do not claim the new version is live yet.
+Inspect the response: `state:"queued"` means a managed server or peer session is
+still active. The update waits for shutdown/session end; do not call it live yet.
 GET `$BUILD_URL` for `publication_state` and check the returned canonical game
 URL in Infuser. Exercise Play, saves/guest mode, and relevant multiplayer behavior.
-An upload alone is not acceptance. Use the same credentials/app ID and a fresh
+After first publication, save a factual description via the [metadata API](game-metadata.md)
+and either upload a spec-compliant cover or store an `art_prompt` for later
+fulfillment by an Infuser art agent. An upload alone is not
+acceptance. Use the same credentials/app ID and a fresh
 build ID for each future “update it on Infuser.”
 
 Report platform trouble following [the agent issue instructions](agents.md#reporting-platform-problems).

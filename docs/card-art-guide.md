@@ -1,8 +1,16 @@
 # Infuser card hero art
 
-**Draft 0.4 — artwork preparation, publishing, and review.** This guide specifies
-the image for a Library card. `infuser publish` automatically includes the
+This guide specifies the image for a Library card. `infuser publish` automatically includes the
 delivery image described below. No artwork field in `infuser.game.json` is needed.
+
+Read the game description from the [metadata API](game-metadata.md), then inspect
+available project assets or screenshots. If neither gives enough context, use the
+creator's brief; do not guess gameplay from the title. Image generation is optional:
+a suitable existing image or HUD-free screenshot also works. **Either upload an
+image meeting this spec or save a detailed `art_prompt` using the [metadata API](game-metadata.md).**
+If your tools cannot produce high-quality art, use the prompt handoff. Describe
+the real game, subjects, style, mood, and exclusions for an Infuser art agent.
+The game publishes immediately with a fallback while the request waits.
 
 ## What to make
 
@@ -30,7 +38,7 @@ a neon city. Bright, warm, or daylight scenes can work too.
 The audience includes young game makers. Be aspirational without being childish:
 no nursery-like mascot treatment, patronizing depictions of children, corporate
 stock illustration, motivational slogans, or sentimental decorative copy. Keep
-the image appropriate for roughly ages 10–16; no sexual imagery or graphic gore.
+the image appropriate for young players; no sexual imagery or graphic gore.
 
 ## Canvas and delivery
 
@@ -73,9 +81,8 @@ future builds until cleared with DELETE; then the active build cover is used aga
 Missing art uses the abstract Library fallback. The Library returns an optional `card_art_url`, accessible only
 to members who can see that game; hidden preview art is adult-only as well.
 
-A larger About-window illustration will be a separate asset with its own future
-layout. Do not submit one yet, and do not assume this square image can simply be
-stretched into a wide banner.
+Only this square cover is supported. Do not submit a separate About-window
+banner or stretch the cover into one.
 
 ## Compose for the real card
 
@@ -156,13 +163,3 @@ derived from the project. Game screenshots may be supplied as identity reference
 when available. Request **one square artwork image**, not a presentation sheet,
 diagram, card mockup, collection, or image containing this document's instructions.
 The agent handles WebP conversion and file verification after generation.
-
-For a **guide-only concept test**, supply this document and the game title only,
-without reference art or additional style instructions. If no gameplay facts are
-provided, infer one visual interpretation of the title and record the result as
-**unverified concept art**, not a production-ready depiction of that game. Keep
-the exact prompt with the review so another agent can reproduce the experiment.
-
-If the first render fails the crop or overlay checks, record the specific failure
-and improve this guide before rerunning a guide-only test. Do not silently add
-private corrective art direction that the next game-making agent will not see.

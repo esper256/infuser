@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
 mod chat;
 mod metadata;
-pub use metadata::GameMetadata;
+pub use metadata::{GameMetadata, MetadataUpdate};
 
 pub fn hash(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))
@@ -445,7 +445,7 @@ pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bo
 pub fn credential(data: &mut Data, app: &str, role: &str, label: &str) -> Result<(String, String)> {
     ensure!(crate::config::slug(app), "invalid app id");
     ensure!(
-        role == "publish" || role == "server",
+        role == "publish" || role == "server" || (role == "metadata" && app == "all-games"),
         "invalid credential role"
     );
     let id = secret()[..16].to_string();

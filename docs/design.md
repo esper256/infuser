@@ -17,12 +17,13 @@ Keep the Library usable on narrow phones: avoid horizontal overflow, keep Play
 prominent with secondary options behind its adjacent dropdown, and preserve
 comfortable touch targets and reduced-motion support.
 
-Add a game needs a name, then a copyable
-prompt for the existing game-making agent. No credential file chores for kids.
+Add a game supplies a copyable prompt for the existing game-making agent. The
+agent detects the existing title; do not ask the child to name their game again.
+No credential file chores for kids.
 
 Play opens the game's title screen. The game chooses gameplay modes; Infuser
-keeps the guest option for device sharing. Future Join friend shortcuts require
-explicit game support, with the contract reviewed before SDK 1.0.
+keeps the guest option for device sharing. Join friend shortcuts require
+explicit peer-hosted game support; the contract remains a preview before SDK 1.0.
 
 The fullscreen control belongs in the slim title bar **above** the game. Reserve
 that space outside the game's viewport; never float controls over its canvas.
@@ -49,8 +50,8 @@ a content-sized glass dock. Missing or unavailable game artwork uses a muted,
 abstract composition of overlapping colored loops, without logos, invented game imagery, or filler
 copy. Keep it static and subordinate to the real game covers. Fictional art stays
 in mockups. The [card hero art guide](card-art-guide.md) defines composition,
-export, and publishing requirements. Artwork must ship with the game build;
-committing an image to design explorations does not publish it.
+export, and publishing requirements. Publish artwork with a build or through the
+[metadata API](game-metadata.md); committing an image alone does not publish it.
 Game art may use polished cover illustration while preserving the game's real
 identity. Allow flexible compositions within the crop-safe area. Protect the art
 by capping titles at two lines and tags at one horizontally scrollable row. The

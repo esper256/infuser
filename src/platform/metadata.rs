@@ -5,6 +5,9 @@ use super::*;
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct GameMetadata {
     pub title: Option<String>,
+    pub description: Option<String>,
+    pub art_prompt: Option<String>,
+    pub art_prompt_completed_revision: Option<String>,
     pub card_art_revision: Option<String>,
     pub card_art_bytes: u64,
     pub updated: u64,
@@ -17,16 +20,31 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
         updated INTEGER NOT NULL DEFAULT 0
     );",
     )?;
+    let columns = c
+        .prepare("PRAGMA table_info(game_metadata)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for name in ["description", "art_prompt", "art_prompt_completed_revision"] {
+        if !columns.iter().any(|column| column == name) {
+            c.execute(
+                &format!("ALTER TABLE game_metadata ADD COLUMN {name} TEXT"),
+                [],
+            )?;
+        }
+    }
     Ok(())
 }
 
 pub(super) fn read(c: &Connection) -> Result<BTreeMap<String, GameMetadata>> {
-    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated FROM game_metadata")?;
+    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated,description,art_prompt,art_prompt_completed_revision FROM game_metadata")?;
     let rows = statement.query_map([], |r| {
         Ok((
             r.get(0)?,
             GameMetadata {
                 title: r.get(1)?,
+                description: r.get(5)?,
+                art_prompt: r.get(6)?,
+                art_prompt_completed_revision: r.get(7)?,
                 card_art_revision: r.get(2)?,
                 card_art_bytes: r.get(3)?,
                 updated: r.get(4)?,
@@ -36,13 +54,18 @@ pub(super) fn read(c: &Connection) -> Result<BTreeMap<String, GameMetadata>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+#[derive(Default)]
+pub struct MetadataUpdate<'a> {
+    pub title: Option<Option<&'a str>>,
+    pub description: Option<Option<&'a str>>,
+    pub art_prompt: Option<Option<&'a str>>,
+    pub art: Option<Option<&'a [u8]>>,
+    /// Completing artwork must not overwrite a newer brief or a completed request.
+    pub complete_prompt: Option<&'a str>,
+}
+
 impl Database {
-    pub fn metadata_update(
-        &self,
-        app: &str,
-        title: Option<Option<&str>>,
-        art: Option<Option<&[u8]>>,
-    ) -> Result<()> {
+    pub fn metadata_update(&self, app: &str, update: MetadataUpdate<'_>) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
@@ -52,17 +75,49 @@ impl Database {
             crate::portal::fault(404, "unknown game")
         );
         tx.execute("INSERT OR IGNORE INTO game_metadata(app) VALUES(?1)", [app])?;
-        if let Some(title) = title {
+        if let Some(expected) = update.complete_prompt {
+            let (prompt, completed): (Option<String>, Option<String>) = tx.query_row(
+                "SELECT art_prompt,art_prompt_completed_revision FROM game_metadata WHERE app=?1",
+                [app],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            ensure!(
+                prompt.as_deref().map(hash).as_deref() == Some(expected)
+                    && completed.as_deref() != Some(expected),
+                crate::portal::fault(409, "art prompt changed or was already completed")
+            );
+            ensure!(
+                update.art.is_some_and(|art| art.is_some()),
+                "completion requires artwork"
+            );
+            tx.execute(
+                "UPDATE game_metadata SET art_prompt_completed_revision=?2 WHERE app=?1",
+                params![app, expected],
+            )?;
+        }
+        if let Some(title) = update.title {
             tx.execute(
                 "UPDATE game_metadata SET title=?2,updated=?3 WHERE app=?1",
                 params![app, title, now()],
             )?;
         }
-        if let Some(art) = art {
+        if let Some(art) = update.art {
             let revision = art.map(|bytes| format!("{:x}", Sha256::digest(bytes)));
             tx.execute(
                 "UPDATE game_metadata SET card_art=?2,card_art_revision=?3,updated=?4 WHERE app=?1",
                 params![app, art, revision, now()],
+            )?;
+        }
+        if let Some(description) = update.description {
+            tx.execute(
+                "UPDATE game_metadata SET description=?2,updated=?3 WHERE app=?1",
+                params![app, description, now()],
+            )?;
+        }
+        if let Some(prompt) = update.art_prompt {
+            tx.execute(
+                "UPDATE game_metadata SET art_prompt=?2,art_prompt_completed_revision=NULL,updated=?3 WHERE app=?1",
+                params![app, prompt, now()],
             )?;
         }
         tx.commit()?;

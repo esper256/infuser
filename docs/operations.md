@@ -43,55 +43,20 @@ Game removal never deletes its persistent volume.
 
 ## Web hosting and Google login
 
-Set a DNS record for the main domain and a wildcard under it. Porkbun supports
-wildcard A/CNAME records. For a deployment at `games.example.com`, the `example.com`
-zone would use Host fields `games` and `*.games`, pointing to the server. This only
-applies if that provider hosts the authoritative DNS zone.
+Follow [Infuser installation](clubhouse-operations.md) for the current Caddy,
+Google OAuth, membership, and firewall setup. Use DNS for the main domain and a
+wildcard beneath it. Published games run at the root of isolated game/build/guest
+hostnames; no path rewriting or per-game DNS changes are needed. The production
+Caddy template routes these hosts to the platform, which checks scoped launch
+sessions. Website Google cookies must not be shared with game subdomains.
 
-Use Caddy 2.10+ on the host. Each static client gets `APP_ID.DOMAIN`; each web
-backend gets `APP_ID-server.DOMAIN`. No asset-path rewriting is needed. TLS and
-WebSocket upgrades are handled by Caddy. Server HTTP ports bind only to loopback.
+Keep certificate state persistent and DNS/OAuth secrets outside the checkout.
+The platform pins each browser launch to its build. Missing assets return 404;
+SPA fallback applies only to appropriate navigation requests.
 
-```sh
-sudo -u infuser infuser render-caddy /etc/infuser/infuser.toml > /tmp/Infuser.Caddyfile
-caddy validate --config /tmp/Infuser.Caddyfile --adapter caddyfile
-sudo install -m 0644 /tmp/Infuser.Caddyfile /etc/caddy/Caddyfile
-sudo systemctl reload caddy
-```
-
-By default, Caddy obtains individual certificates, requiring ports 80/443 to reach
-the server. Wildcard DNS does **not** require a wildcard certificate. For wildcard
-certificates, render with `--wildcard` and use a Caddy build containing
-`github.com/caddy-dns/porkbun`. Set `PORKBUN_API_KEY` and
-`PORKBUN_API_SECRET_KEY` privately in Caddy's environment so DNS-01 renewal works.
-The API key needs the `read` and `dns` permissions and API access enabled for the
-domain. Restrict the key to the deployment's DNS zone; source-IP restrictions
-must include the server's outbound public IP. Store secrets outside the checkout
-on the server, for example in a root-owned `/etc/infuser/porkbun.env` with mode
-`0600`, loaded by a systemd `EnvironmentFile` in the Caddy service. Keep Caddy's
-data directory persistent so certificate state survives application updates.
-The main domain still needs its own certificate. Unknown game hostnames return
-404; the wildcard is not an arbitrary-container router.
-
-Run OAuth2 Proxy separately at `127.0.0.1:4180`, starting with
-[`oauth2-proxy.example.cfg`](../deploy/oauth2-proxy.example.cfg). Configure a Google
-OAuth web client with `https://DOMAIN/oauth2/callback`, a private list of invited
-email addresses (one per line), and the OAuth client/cookie secrets. Generate the
-cookie secret with `openssl rand -base64 32` (it is not an Infuser control token). Set the cookie
-domain and redirect allowlist to this installation. Verify supervised Google
-accounts during setup. This is deployment configuration, not a completed website.
-
-Visit `https://DOMAIN/oauth2/start` to log in. The initial Caddy configuration
-returns 401 for an unauthenticated game request; the future launcher will provide
-the Sign in with Google button. Auth-service failures deny access. Static files
-and web backends are both gated. Do not set an unrestricted email allowlist.
-
-Caddy must be able to read static release directories. Keep releases immutable and
-switch the `current` symlink atomically; current responses use `no-cache` to reduce
-stale entry points after updates. This does not yet pin assets for existing browser
-sessions. Future build-specific URLs will provide that and immutable caching.
-SPA fallback applies only to extensionless HTML
-navigation, leaving missing WASM/JS/assets as 404.
+The older `infuser render-caddy` command renders manually configured static sites
+and server routes. It is not the installation path for the Library and publishing
+platform; do not replace the platform Caddy template with its output.
 
 ## Network and storage
 

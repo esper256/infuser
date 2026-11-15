@@ -10,7 +10,7 @@ needs separate review before that topology advertises Join friend.
 ## What a game learns
 
 ```js
-import { ready, presence, peers } from '/_infuser/sdk.js';
+import { ready, presence, peers } from '/_infuser/sdk/v1.js';
 const me = await ready;
 if (me.capabilities.presence?.version === 1) {
   const snapshot = await presence.get();
@@ -19,7 +19,7 @@ if (me.capabilities.presence?.version === 1) {
 }
 ```
 
-`GET /_infuser/presence/v1` returns:
+`GET /_infuser/api/v1/presence/v1` returns:
 
 ```json
 {
@@ -74,10 +74,14 @@ Session `reason` is null when joinable, otherwise `different_build`, `full`,
 capacity. Multiple connections for one account can consume multiple slots even
 though the presence player list deduplicates that account.
 
+The examples below use the browser peer helper. For PeerJS or Godot, use the
+matching [adapter](agents.md#choose-the-integration) with the same presence
+snapshot and session target. Do not replace an existing adapter just for presence.
+
 ## What a host reports
 
 ```js
-const room = await peers.join({joinable:false, relayOnly:true});
+const room = await peers.join({joinable:false});
 // Initialize the host simulation, then:
 if (room.role === 'host') await room.setJoinable(true);
 // During a round that cannot accept newcomers:
@@ -93,7 +97,7 @@ connection can retry its join without being rejected. Full rooms stay unjoinable
 even if the host's `acceptingPlayers` preference is true. A departing member frees
 a slot; host departure ends the session as before.
 
-The HTTP control is `PUT /_infuser/peers/PEER/joinability` with
+The HTTP control is `PUT /_infuser/api/v1/peers/PEER/joinability` with
 `{"epoch":"CURRENT_SESSION_ID","joinable":true}`. It requires the same exact
 Origin and launch authentication as other peer mutations. It returns the peer
 view, including `accepting_players` and `max_players`. Admission updates do not
@@ -107,7 +111,7 @@ For a displayed session, capture its ID when the player chooses Join:
 const observed = snapshot.session;
 if (observed?.joinable) {
   try {
-    const room = await peers.join({sessionId:observed.id, relayOnly:true});
+    const room = await peers.join({sessionId:observed.id});
     // Start this game's multiplayer flow using the returned room.
   } catch (error) {
     // Stay on/return to the title screen, show why joining failed, refresh presence.
@@ -115,7 +119,7 @@ if (observed?.joinable) {
 }
 ```
 
-The wire field is `expected_epoch` on `POST /_infuser/peers`. If the room ended or
+The wire field is `expected_epoch` on `POST /_infuser/api/v1/peers`. If the room ended or
 was replaced, return 410 without creating a room or appointing a host. Closed/full
 rooms return 409. A stale build also returns 409 and must reopen from the Library.
 Do not silently retry without the session ID: that would change the player's

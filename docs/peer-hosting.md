@@ -1,6 +1,7 @@
 # Peer-hosted web games (experimental)
 
-Three.js/Vite is the current dogfood target. The game owns its title screen and
+This browser JSON-message adapter is tested with Three.js/Vite. The game owns
+its title screen and
 chooses when to join multiplayer. Single player stays local. There is one shared
 session per app, with at most eight browser peers; the first participant hosts.
 This transport is pre-1.0 and needs the same contract review as the save SDK.
@@ -50,11 +51,11 @@ const room = await peers.join({
   onEnd(reason) { /* stop simulation and offer a return to the title screen */ }
 });
 if (room.role === 'host') await room.setJoinable(true);
-// Members send inputs to the host; the host broadcasts validated snapshots.
-room.send(room.hostId, { type: 'input', x: 0, z: 1 });
-// Host only:
-room.broadcast({ type: 'snapshot', tick: 1 });
-console.log(await room.stats()); // selected local/remote candidate types + bytes
+// Inside the game loop, after validating messages:
+if (room.role === 'host') room.broadcast({ type: 'snapshot', tick: 1 });
+else room.send(room.hostId, { type: 'input', x: 0, z: 1 });
+
+// When the player leaves multiplayer:
 room.close();
 ```
 

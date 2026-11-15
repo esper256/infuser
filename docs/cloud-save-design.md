@@ -1,6 +1,6 @@
-# Declared cloud saves: SDK 1.0 design
+# Declared cloud checkpoints
 
-**Implemented for dogfooding; overall SDK 1.0 remains experimental.** Query
+**Implemented preview; the overall SDK 1.0 contract is not frozen.** Query
 `capabilities.cloud_checkpoints.version` before adopting this API. The existing
 `saves.load/save` slot API remains available with its original behavior; the new
 checkpoint API is separate and does not silently migrate old slot data.
@@ -39,8 +39,8 @@ Manifest declaration in `infuser.game.json`:
 Group IDs and relative file paths are stable across builds. Reject absolute paths,
 traversal, undeclared files, duplicate paths, and reserved platform names. Adding
 an optional file is compatible; renaming a file requires an explicit game migration.
-The first browser adapter supports JSON; binary files and native filesystem
-adapters are later capabilities, not reasons to build more engines now.
+The browser and Godot web/native adapters store JSON. Arbitrary binary saves
+and automatic filesystem synchronization are not implemented.
 
 Each group is atomic. A snapshot is the complete set of present files in that
 group; omitted files are absent in that snapshot. An empty new group has no head
@@ -51,10 +51,12 @@ Settings can be saved independently because they are a separate group.
 ## Browser workflow
 
 ```js
-const checkpoint = await infuser.cloud.load('campaign');
+import {ready, cloud} from '/_infuser/sdk/v1.js';
+await ready;
+const checkpoint = await cloud.load('campaign');
 restoreGame(checkpoint.files); // The game owns defaults and schema migration.
 
-const result = await infuser.cloud.commit('campaign', {
+const result = await cloud.commit('campaign', {
   expectedRevision: checkpoint.revision,
   commitId: crypto.randomUUID(),
   files: {
@@ -65,7 +67,7 @@ const result = await infuser.cloud.commit('campaign', {
 });
 ```
 
-Import `cloud` from `/_infuser/sdk.js`, or use `window.Infuser.cloud` after the SDK
+Import `cloud` from `/_infuser/sdk/v1.js`, or use `window.Infuser.cloud` after the SDK
 loads. The SDK deals with scoped identity, authentication, transfer, and typed failures.
 The game controls when its state is coherent and what "saved" means. It may only
 show success after server acknowledgement. It supplies a bounded, optional human
@@ -111,33 +113,17 @@ create duplicate branches or move the head twice.
 - Upgrading or rolling back a game does not rewrite cloud history. An older build
   must recognize unsupported save schemas and offer a compatible retained
   revision, or stop with a clear message. Never silently reset an unreadable save.
-- Pre-1.0 Firefly slot data can be explicitly migrated or reset. Real games require
-  compatible readers and tested migrations; a daemon binary rollback cannot undo
-  a save-schema migration.
-
-## Design review outcome and first implementation slice
-
-Implement explicit JSON checkpoint groups before file watchers, background
-filesystem mirroring, automatic merging, or binary/native adapters. This gives
-Infuser enough information to preserve coherent saves while leaving game-specific
-meaning with the game. Freeze the versioned wire format and error payloads alongside
-the browser adapter, then keep an old-client journey against subsequent releases.
-
-The first meaningful journey uses two clients: both load a checkpoint, A commits,
-B conflicts, the daemon restarts, both candidates remain, B resolves explicitly,
-and a repeated request does not create another revision. Include a two-file atomic
-checkpoint, a fresh guest, a rejected undeclared path, a storage-limit failure,
-and an older build encountering a newer schema. Firefly can exercise this before
-any additional engine work begins.
+- Published games require compatible readers and tested migrations. A daemon
+  binary rollback cannot undo a save-schema migration.
 
 ## Wire format and outcomes
 
-The experimental browser adapter is `/_infuser/cloud-v1.js`. Its wire routes are:
+The experimental browser adapter is `/_infuser/sdk/v1/cloud.js`. Its wire routes are:
 
-- `GET /_infuser/cloud/v1/groups/{group}`: current snapshot and unresolved conflicts.
-- `POST /_infuser/cloud/v1/groups/{group}`: complete checkpoint or explicit resolution.
-- `GET /_infuser/cloud/v1/groups/{group}/revisions/{revision}`: retained snapshot.
-- `GET /_infuser/cloud/v1/groups/{group}/history`: retained revision metadata, newest first.
+- `GET /_infuser/api/v1/cloud/v1/groups/{group}`: current snapshot and unresolved conflicts.
+- `POST /_infuser/api/v1/cloud/v1/groups/{group}`: complete checkpoint or explicit resolution.
+- `GET /_infuser/api/v1/cloud/v1/groups/{group}/revisions/{revision}`: retained snapshot.
+- `GET /_infuser/api/v1/cloud/v1/groups/{group}/history`: retained revision metadata, newest first.
 
 The SDK uses camelCase arguments; the wire uses `commit_id`, `expected_revision`,
 `files`, `summary`, and optional `resolve_candidate`. Explicitly provide

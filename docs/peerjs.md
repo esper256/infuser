@@ -7,7 +7,7 @@ JSON and binary serialization are supported. Audio/video calls, mesh topologies,
 multiple rooms per game, and seamless host migration are outside this adapter.
 
 PeerJS is a library, not a new multiplayer modality. Declare `peer_hosted` and
-`webrtc`, with the optional `adapter:"peerjs"` selector. Query publisher
+`webrtc`, and set `adapter:"peerjs"` to select this adapter. Query publisher
 capabilities for `sdk.capabilities` containing `peers.peerjs.v1` before editing or
 publishing an integration. A host without the private PeerServer service rejects
 the declaration; do not relabel the game as single-player to publish it.
@@ -142,7 +142,9 @@ with a sanitized repro and PeerJS version.
 
 ## Operator setup
 
-The shared private PeerServer handles signaling only. The Rust gateway verifies
+One shared private PeerServer stays running for the installation; it does not
+start per game. Games declare the adapter, and rooms form when they enter
+multiplayer. PeerServer handles signaling only. The Rust gateway verifies
 the game launch, origin, session epoch, host/member edge, and current membership
 on signaling messages, and checks idle sockets regularly. TURN carries relayed
 game traffic. Neither Google cookies nor player tickets are forwarded upstream.

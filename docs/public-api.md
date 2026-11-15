@@ -4,8 +4,8 @@ The engine recipes are the preferred entry point. These are **pre-1.0** low-leve
 building blocks for custom agents; see the [SDK compatibility review](sdk-contract.md).
 All bodies/responses are JSON unless noted.
 New integrations should use [versioned SDK/API routes](sdk-versioning.md).
-The legacy game routes below remain supported; major 1 uses the same feature
-paths under `/_infuser/api/v1`.
+Game routes below use major 1 under `/_infuser/api/v1`; older unversioned routes
+remain available for existing builds.
 Public traffic goes through HTTPS/Caddy; `/v1/*` is still private to the host.
 Member-only [Library chat and client update detection](library-chat.md) are
 separate from the game SDK and publisher credentials.
@@ -31,7 +31,7 @@ or control the host. Admin revocation and member disabling take effect immediate
 | GET | `/api/publisher/tags` | Current tag catalog |
 | PUT | `/api/publisher/apps/APP/slug` | Rename the durable URL; preserve old aliases |
 | PUT | `/api/publisher/apps/APP/tags` | Set this game's tags |
-| GET / PATCH | `/api/publisher/apps/APP/metadata` | Inspect presentation or set/reset its display title |
+| GET / PATCH | `/api/publisher/apps/APP/metadata` | Read/edit title, description, and art prompt |
 | PUT / DELETE | `/api/publisher/apps/APP/card-art` | Upload/clear a cover override without a build |
 | PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
 | GET | same | Inspect metadata and uploaded file inventory |
@@ -39,6 +39,9 @@ or control the host. Admin revocation and member disabling take effect immediate
 | POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for adult-only preview |
 | DELETE | `/api/publisher/apps/APP/builds/BUILD` | Remove an unused build |
 | DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |
+
+The capabilities `architecture` field describes the **server**, not the agent
+machine. Choose a CLI download using the machine running the publishing tool.
 
 Create body: `{"manifest":MANIFEST,"server":null,"spa":false,"cross_origin_isolation":false}`.
 Claim is the exception to bearer authentication: send `{"token":"HEX_SECRET","app_id":"APP"}`,
@@ -67,21 +70,32 @@ Optional card art uses the ordinary file upload at `infuser-art/card-hero.webp`.
 `capabilities.card_art` advertises `path`, `width`, `height`, `max_bytes`, and
 `format`. See the [card art guide](card-art-guide.md) for the image constraints;
 invalid images return 422. Bundled art belongs to the immutable build and activates
-with it. For artwork-only or title-only changes, use the [metadata API](game-metadata.md),
+with it. For artwork, title, or description changes, use the [metadata API](game-metadata.md),
 advertised by `capabilities.game_metadata.version = 1`. A raw WebP PUT to the
 app-level `card-art` endpoint applies immediately without touching builds or
 sessions. DELETE clears that override. Metadata PATCH accepts `{"title":"Name"}`
-or `{"title":null}` to restore the build title. Independent overrides survive later
-publications. There is no artwork manifest field.
+or `{"title":null}` to restore the build title. It also accepts `description`
+(1–2000 plain-text characters) or `description:null` when capabilities include
+`game_metadata.description_max_chars`. Read existing metadata before editing.
+`art_prompt` (up to 4000 characters, or null to cancel) stores a private pending
+art request when `game_metadata.art_prompt_max_chars` is advertised. Prompts are
+not included in player responses. Descriptions, prompts, and overrides survive
+later publications; none requires a manifest field.
+
+An operator can provision an [all-games metadata key](art-agent.md). It can list
+`GET /api/metadata/apps`, read/PATCH `/api/metadata/apps/APP`, and PUT/DELETE
+`/api/metadata/apps/APP/card-art` across games. It cannot publish builds, access
+saves, or administer members. Ordinary game keys cannot enumerate other games.
 
 An optional advanced `server` object uses the validated game settings documented
 in `deploy/infuser.example.toml`. Images must already be staged on the host and
 pinned to a digest; image upload/build/pull automation is not yet provided.
 For `web:true`, the player endpoint is its game origin plus `/_infuser/server`;
-Caddy authenticates and strips this prefix before proxying HTTP/WebSockets. Native
+The platform authenticates and strips this prefix before proxying HTTP/WebSockets. Native
 TCP/UDP endpoints use expiring IP admission plus game-validated launch tickets.
-Changing a server build returns 202 with `state:"queued"` while its shared server
-is active. The immutable upload activates automatically after confirmed shutdown;
+Publishing returns 202 with `state:"queued"` while the game has an active managed
+server or peer room. The upload activates after that server shuts down or the
+peer session ends;
 the current client/server pair remains available until then. Build inspection
 returns `publication_state` (`uploading`, `queued`, `published`, or `retained`).
 A newer publication request replaces the pending one. Pending builds cannot be
@@ -101,10 +115,11 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
   presence; no email is exposed. `avatar` is a curated picture ID or `null` for
   initials. Friends and `/api/me` include the same optional `avatar` field.
   `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog.
-  Library games include `card_art_url` (or `null` for the fallback). This relative
-  URL serves the active build's image at `/api/apps/APP/card-art/BUILD` with member
-  authentication and private revalidation caching. Hidden images require admin
-  membership; inactive-build images return 404.
+  Library games include `description` (nullable plain text) and `card_art_url`
+  (null for the fallback). Use the returned cover URL as-is: its revision can be
+  a build ID or override content hash. Images require membership and use private
+  revalidation caching. Hidden images require admin membership; inactive or
+  replaced image URLs return 404.
 - `PUT /api/profile` with `{"avatar":"circuit-fox"}` — saves the signed-in member's
   picture; `{"avatar":""}` restores initials. Returns `{"avatar":ID_OR_NULL}`.
   Unknown IDs return 400; missing/null values and extra fields are rejected.
@@ -153,7 +168,8 @@ gets a fresh host. A new build gets a different origin so it cannot replace the
 cookie or assets in an already-open old build. Cloud saves persist across builds;
 browser-local storage is not a cross-version save mechanism.
 
-The browser SDK is `/_infuser/sdk.js`.
+For new integrations the browser SDK is `/_infuser/sdk/v1.js`; legacy builds
+retain `/_infuser/sdk.js`.
 It exports `ready`, `saves.load(slot)`, `saves.save(slot,data,version)`, and `leave()`;
 it also exposes `window.Infuser`. See the Three.js recipe for usage.
 Launches open `/_infuser/play`, with fullscreen and return-to-Library controls in a
@@ -163,28 +179,28 @@ The SDK maintains the game session; it adds no controls over the game content.
 
 For opt-in managed backends, [runtime sessions](runtime-sessions.md) add
 `runtime.acquire()`, `runtime.status()`, and `runtime.release(sessionId)`:
-`GET/POST /_infuser/runtime/v1` and `DELETE /_infuser/runtime/v1/SESSION_ID`.
+`GET/POST /_infuser/api/v1/runtime/v1` and `DELETE /_infuser/api/v1/runtime/v1/SESSION_ID`.
 These endpoints do not select a gameplay mode, create parallel servers, or end
 the browser/cloud-save session. Peer-hosted games use the separate peer API.
 
-`presence.get()` reads `GET /_infuser/presence/v1` without acquiring anything.
+`presence.get()` reads `GET /_infuser/api/v1/presence/v1` without acquiring anything.
 It separates online members, launches with this game open, and active peer-room
-participants. Peer hosts use `PUT /_infuser/peers/PEER/joinability` with
+participants. Peer hosts use `PUT /_infuser/api/v1/peers/PEER/joinability` with
 `{ "epoch": "SESSION_ID", "joinable": true }`. A targeted join sends
-`expected_epoch` to `POST /_infuser/peers`; session creation may supply `joinable`.
+`expected_epoch` to `POST /_infuser/api/v1/peers`; session creation may supply `joinable`.
 See the [presence contract](presence.md) for admission, expiry and compatibility.
 
-`launchIntent.consume()` uses `POST /_infuser/launch-intent/v1/consume`. It returns
+`launchIntent.consume()` uses `POST /_infuser/api/v1/launch-intent/v1/consume`. It returns
 the launch's intent at most once; ordinary launches and repeated reads return
 `{"intent":null}`. The game handles it after loading and retains a title-screen
 fallback. Targeted peer joins can supply both `expected_epoch` and `expected_player`.
 
-- `GET /_infuser/context` — player identity, guest flag, app/build, scoped game
+- `GET /_infuser/api/v1/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.
-- `POST /_infuser/heartbeat` — renew every 25 seconds, including startup.
-- `DELETE /_infuser/heartbeat` — explicit leave. Closing a tab is handled by expiry.
-- `GET /_infuser/saves/SLOT` — `{version:0,data:null}` for an empty slot.
-- `PUT /_infuser/saves/SLOT` — `{version:EXPECTED,data:JSON}`; returns new version.
+- `POST /_infuser/api/v1/heartbeat` — renew every 25 seconds, including startup.
+- `DELETE /_infuser/api/v1/heartbeat` — explicit leave. Closing a tab is handled by expiry.
+- `GET /_infuser/api/v1/saves/SLOT` — `{version:0,data:null}` for an empty slot.
+- `PUT /_infuser/api/v1/saves/SLOT` — `{version:EXPECTED,data:JSON}`; returns new version.
   A stale version is 409. Limit 1 MiB/slot, 16 slots/player/game. Add your game's
   schema version inside data. Guest saves expire with the session; personal saves
   survive releases and daemon restarts. Publisher credentials cannot access them.
@@ -197,7 +213,9 @@ revalidate, and never accept a publisher token or client-claimed identity.
 
 ## Current boundaries
 
-Peer-hosted WebRTC signaling and TURN are available; relay fallback is mandatory.
+Peer-hosted WebRTC signaling and TURN are available when configured; relay
+fallback is mandatory. The [PeerJS adapter](peerjs.md) additionally requires the
+`peers.peerjs.v1` capability and shared PeerServer service.
 The [native Godot preview](engines/godot-native.md) adds verified client delivery
 through the desktop companion. It currently accepts client-only single-player
 games on Windows/Linux x86-64; native multiplayer remains a separate study.

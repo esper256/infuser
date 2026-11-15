@@ -51,6 +51,11 @@ async fn json_ok(request: reqwest::RequestBuilder) -> Result<Value> {
 #[tokio::test]
 async fn card_art_preserves_builds_and_supports_independent_presentation_updates() -> Result<()> {
     let temp = tempfile::tempdir()?;
+    // Start with the shipped pre-description schema to exercise an actual upgrade.
+    rusqlite::Connection::open(temp.path().join("platform.sqlite"))?.execute_batch(
+        "CREATE TABLE game_metadata (app TEXT PRIMARY KEY, title TEXT,
+         card_art_revision TEXT, card_art BLOB, updated INTEGER NOT NULL DEFAULT 0);",
+    )?;
     let (auth, _auth) = serve(Router::new().route(
         "/auth",
         get(|h: HeaderMap| async move {
@@ -281,6 +286,8 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
 
     // Presentation edits must not republish the game or alter live sessions/saves.
     assert_eq!(caps["game_metadata"]["version"], 1);
+    assert_eq!(caps["game_metadata"]["description_max_chars"], 2000);
+    assert_eq!(caps["game_metadata"]["art_prompt_max_chars"], 4000);
     let metadata_path = "/api/publisher/apps/pond/metadata";
     let art_path = "/api/publisher/apps/pond/card-art";
     let before = p.db.read()?;
@@ -382,6 +389,42 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     )
     .await?;
     assert_eq!(updated["title"], "Pond After Dark");
+    assert!(updated["description"].is_null());
+    let described = json_ok(publisher(Method::PATCH, metadata_path).json(&json!({
+        "description":"  Explore a moonlit pond and collect fireflies.  "
+    })))
+    .await?;
+    assert_eq!(described["title"], "Pond After Dark");
+    assert_eq!(
+        described["description"],
+        "Explore a moonlit pond and collect fireflies."
+    );
+    for description in [" ".to_string(), "x".repeat(2001), "bad\ntext".to_string()] {
+        assert_eq!(
+            publisher(Method::PATCH, metadata_path)
+                .json(&json!({"title":"Must not change", "description":description}))
+                .send()
+                .await?
+                .status(),
+            422
+        );
+    }
+    let unchanged = json_ok(publisher(Method::GET, metadata_path)).await?;
+    assert_eq!(unchanged["title"], described["title"]);
+    assert_eq!(unchanged["description"], described["description"]);
+    assert_eq!(
+        json_ok(member("/api/library", "kid")).await?["apps"][0]["description"],
+        described["description"]
+    );
+    let cleared_description =
+        json_ok(publisher(Method::PATCH, metadata_path).json(&json!({"description":null}))).await?;
+    assert!(cleared_description["description"].is_null());
+    assert_eq!(cleared_description["title"], described["title"]);
+    json_ok(
+        publisher(Method::PATCH, metadata_path)
+            .json(&json!({"description":described["description"]})),
+    )
+    .await?;
     assert_eq!(
         json_ok(member("/api/games/pond", "kid")).await?["title"],
         "Pond After Dark"
@@ -437,6 +480,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         Some("Pond After Dark")
     );
     assert_eq!(reopened.metadata_art("pond", &revision)?.unwrap(), bytes);
+    assert_eq!(
+        reopened.read()?.metadata["pond"].description.as_deref(),
+        Some("Explore a moonlit pond and collect fireflies.")
+    );
     let mut replacement = Vec::new();
     image_webp::WebPEncoder::new(&mut replacement).encode(
         &vec![17; 1024 * 1024 * 3],
@@ -516,6 +563,215 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     })?;
     assert_eq!(
         publisher(Method::DELETE, art_path).send().await?.status(),
+        401
+    );
+
+    // A separate service credential can fulfill art requests across games, but
+    // cannot publish builds, impersonate players, read saves, or administer users.
+    let (service_id, service_token) = p.db.edit(|d| {
+        let app = d.apps["pond"].clone();
+        let mut build = d.builds[&format!("pond/{}", app.build)].clone();
+        build.manifest.app_id = "second".into();
+        d.builds.insert(format!("second/{}", app.build), build);
+        d.apps.insert("second".into(), app);
+        platform::credential(d, "all-games", "metadata", "Infuser art agent")
+    })?;
+    let game_token =
+        p.db.edit(|d| Ok(platform::credential(d, "pond", "publish", "Pond")?.1))?;
+    let request = |token: &str, method, path: &str| {
+        http.request(method, format!("{url}{path}"))
+            .header("host", "games.example.com")
+            .bearer_auth(token)
+    };
+    for token in ["", game_token.as_str(), other_token.as_str()] {
+        assert_eq!(
+            request(token, Method::GET, "/api/metadata/apps")
+                .send()
+                .await?
+                .status(),
+            401
+        );
+    }
+    assert_eq!(
+        request(&game_token, Method::PATCH, "/api/metadata/apps/second")
+            .json(&json!({"art_prompt":"Not my game"}))
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    for invalid in [" ".to_string(), "x".repeat(4001), "bad\u{0}prompt".into()] {
+        assert_eq!(
+            request(&game_token, Method::PATCH, metadata_path)
+                .json(&json!({"art_prompt":invalid}))
+                .send()
+                .await?
+                .status(),
+            422
+        );
+    }
+    let brief = "Scrappy low-poly arena.\nA giant rubber duck crashes through it; no text.";
+    let queued = json_ok(
+        request(&game_token, Method::PATCH, metadata_path).json(&json!({"art_prompt":brief})),
+    )
+    .await?;
+    assert_eq!(queued["art_prompt"], brief);
+    assert_eq!(queued["art_prompt_pending"], true);
+    let revision = queued["art_prompt_revision"].as_str().unwrap();
+    assert_eq!(
+        platform::Database::open(temp.path())?.read()?.metadata["pond"]
+            .art_prompt
+            .as_deref(),
+        Some(brief)
+    );
+    let all = json_ok(request(&service_token, Method::GET, "/api/metadata/apps")).await?;
+    assert_eq!(all["apps"].as_array().unwrap().len(), 2);
+    assert_eq!(all["apps"][0]["art_prompt"], brief);
+    let library = json_ok(member("/api/library", "adult")).await?;
+    for app in library["apps"].as_array().unwrap() {
+        assert!(app.get("art_prompt").is_none());
+        assert!(app.get("art_prompt_revision").is_none());
+        assert!(app.get("art_prompt_pending").is_none());
+    }
+    json_ok(
+        request(&service_token, Method::PATCH, "/api/metadata/apps/second")
+            .json(&json!({"description":"Second game", "art_prompt":"Another brief"})),
+    )
+    .await?;
+    // A newer request wins over an image generated from an obsolete prompt.
+    json_ok(
+        request(&game_token, Method::PATCH, metadata_path)
+            .json(&json!({"art_prompt":"Changed brief"})),
+    )
+    .await?;
+    assert_eq!(
+        request(
+            &service_token,
+            Method::PUT,
+            "/api/metadata/apps/pond/card-art"
+        )
+        .header("X-Infuser-Art-Prompt-Revision", revision)
+        .body(bytes.clone())
+        .send()
+        .await?
+        .status(),
+        409
+    );
+    let latest = json_ok(request(
+        &service_token,
+        Method::GET,
+        "/api/metadata/apps/pond",
+    ))
+    .await?;
+    assert_eq!(latest["card_art_url"], cleared["card_art_url"]);
+    let revision = latest["art_prompt_revision"].as_str().unwrap();
+    let completed = json_ok(
+        request(
+            &service_token,
+            Method::PUT,
+            "/api/metadata/apps/pond/card-art",
+        )
+        .header("X-Infuser-Art-Prompt-Revision", revision)
+        .body(bytes.clone()),
+    )
+    .await?;
+    assert_eq!(completed["art_prompt"], "Changed brief");
+    assert_eq!(completed["art_prompt_revision"], revision);
+    assert_eq!(completed["art_prompt_pending"], false);
+    let retained = platform::Database::open(temp.path())?.read()?.metadata["pond"].clone();
+    assert_eq!(retained.art_prompt.as_deref(), Some("Changed brief"));
+    assert_eq!(
+        retained.art_prompt_completed_revision.as_deref(),
+        Some(revision)
+    );
+    assert_eq!(completed["build"], latest["build"]);
+    assert_eq!(completed["description"], latest["description"]);
+    assert_eq!(
+        request(
+            &service_token,
+            Method::PUT,
+            "/api/metadata/apps/pond/card-art"
+        )
+        .header("X-Infuser-Art-Prompt-Revision", revision)
+        .body(bytes.clone())
+        .send()
+        .await?
+        .status(),
+        409
+    );
+    let second = json_ok(request(
+        &service_token,
+        Method::GET,
+        "/api/metadata/apps/second",
+    ))
+    .await?;
+    json_ok(
+        request(
+            &service_token,
+            Method::PUT,
+            "/api/metadata/apps/second/card-art",
+        )
+        .header(
+            "X-Infuser-Art-Prompt-Revision",
+            second["art_prompt_revision"].as_str().unwrap(),
+        )
+        .body(bytes.clone()),
+    )
+    .await?;
+    for (method, path) in [
+        (Method::GET, "/api/publisher/apps/pond/builds/with-art"),
+        (Method::PUT, "/api/publisher/apps/pond/builds/forbidden"),
+        (
+            Method::POST,
+            "/api/publisher/apps/pond/builds/with-art/publish",
+        ),
+        (Method::DELETE, "/api/publisher/apps/pond"),
+        (Method::GET, "/api/admin/members"),
+        (Method::GET, "/_infuser/api/v1/saves/progress"),
+    ] {
+        let body = if method == Method::PUT {
+            json!({"manifest":manifest,"server":null})
+        } else {
+            json!({})
+        };
+        let status = request(&service_token, method, path)
+            .json(&body)
+            .send()
+            .await?
+            .status();
+        assert!(
+            status == 401 || status == 403 || status == 404,
+            "{path}: {status}"
+        );
+    }
+    let credentials = json_ok(member("/api/admin/credentials", "adult")).await?;
+    assert!(
+        credentials["credentials"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["id"] == service_id && c["role"] == "metadata")
+    );
+    json_ok(
+        http.delete(format!("{url}/api/admin/credentials/{service_id}"))
+            .header("host", "games.example.com")
+            .header("cookie", "member=adult")
+            .header("origin", "https://games.example.com"),
+    )
+    .await?;
+    assert_eq!(
+        request(&service_token, Method::GET, "/api/metadata/apps")
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    assert_eq!(
+        request(&service_token, Method::PATCH, "/api/metadata/apps/second")
+            .json(&json!({"title":"Revoked"}))
+            .send()
+            .await?
+            .status(),
         401
     );
     Ok(())
