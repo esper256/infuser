@@ -143,6 +143,11 @@ fn retention_retries_quotas_and_concurrent_writers() -> Result<()> {
     assert_eq!(outcomes[0], outcomes[1]);
     let last = saved(outcomes.remove(0));
     assert_eq!(
+        db.cloud_load(scope, Some(&candidate))?["files"]["progress.json"]["level"],
+        9,
+        "an older conflict alternative remains readable after resolution and the next save"
+    );
+    assert_eq!(
         db.cloud_load(scope, Some(&last))?["files"]
             .as_object()
             .unwrap()

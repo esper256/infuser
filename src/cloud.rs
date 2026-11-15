@@ -463,6 +463,15 @@ impl Database {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
         };
+        // Resolving a long-lived conflict must not immediately discard the
+        // alternatives. Keep them while that resolution is in recent history.
+        for (id, _) in records.iter().take(HISTORY) {
+            let recent = snapshot(&tx, scope, id)?;
+            if !recent.resolves.is_empty() {
+                protected.extend(recent.parents);
+                protected.extend(recent.resolves);
+            }
+        }
         let mut group_bytes: u64 = records.iter().map(|(_, bytes)| *bytes).sum();
         for (index, (id, size)) in records.iter().enumerate().rev() {
             if !protected.contains(id)

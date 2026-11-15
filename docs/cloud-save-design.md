@@ -167,7 +167,7 @@ const result = await cloud.resolve('campaign', {
 Limits are advertised: up to eight groups, sixteen JSON files per group, 1 MiB
 of JSON file contents per checkpoint, sixteen recent revisions as a retention
 target, and eight unresolved conflicts per group. Pending candidates, their
-comparison heads/bases, and the current head are protected. Older unprotected
+comparison heads/bases, recent resolution alternatives, and the current head are protected. Older unprotected
 history may be trimmed to fit the 16 MiB group limit or installation budget.
 Missing retained revisions return `revision_unavailable`; list history before
 offering rollback choices. No generic schema migration runs on the server.
