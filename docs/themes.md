@@ -4,8 +4,9 @@ Themes change presentation, not the application's features or identity. The
 profile dropdown contains **Change profile picture**, **Theme**, and **Sign out**.
 Theme choices apply immediately, persist in this browser, and sync across its open
 tabs. The presence stack includes the current player beside their friends; the
-account menu uses a rectangular handle button rather than a duplicate portrait.
-They are not account settings and do not change a player's handle or avatar.
+current player’s portrait opens the account menu. Its online marker has a round
+top and pointed bottom to suggest the dropdown; other players keep round dots.
+Theme preferences are not account settings and do not change a player's handle or avatar.
 
 ## Architecture
 
@@ -33,9 +34,29 @@ of the old application. The card fallback and official branding assets are share
 
 Theme rules may change colors, typography, materials, spacing, grid placement,
 and decorative treatments. They must not remove functional controls or permission
-checks. Cartridge Club visually hides the large Library heading while retaining
+checks. The shared layout visually hides the large Library heading while retaining
 it for assistive technology. Do not hide application features with theme CSS.
 Keep DOM and keyboard order coherent when changing layout.
+
+## Cards and game details
+
+Card artwork and titles open the shared game-detail dialog. Play launches directly;
+the author portrait opens the reaction picker. Both views use the same launch
+controls, including guest mode, Join, native launch, sharing, and adult visibility.
+Recently entries open the referenced game, focusing the relevant reaction when
+present. Feedback portraits use the same opaque player IDs and approved avatar
+catalog as presence; email addresses are never sent for this presentation.
+
+Hidden games live in a collapsed adult-only shelf, using the existing visibility
+permissions. The detail dialog uses actual descriptions, update times, tags, and
+reactions. Missing artwork uses the shared abstract fallback. No presentation
+fixture becomes production game data.
+
+The shared responsive layout stacks detail artwork above information on phones.
+Themes supply `--detail-panel`, `--feedback-bubble`, `--presence-online`, and
+`--game-ratio` alongside the existing color/material tokens. Dialog focus, scroll,
+permissions, and launch behavior stay in shared code. Nightglass's quieter tag
+chrome is scoped to that theme; Cartridge Club retains its own materials.
 
 ## Lifecycle
 
@@ -76,3 +97,7 @@ hop is disabled by reduced-motion preferences.
 Run `node --test tests/themes.mjs` for registry/preference checks. Browser checks
 must exercise the shared UI in both themes; screenshots alone do not demonstrate
 functional parity. Keep temporary fixtures and comparison screenshots in `.local/`.
+
+Run `node tests/library_detail_journey.mjs` for the isolated mock-API browser
+journey. Set `INFUSER_PLAYWRIGHT` and `INFUSER_CHROMIUM` for an existing browser
+installation, and `INFUSER_TOUCH=1` to include coarse-pointer and long-press checks.

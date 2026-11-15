@@ -81,7 +81,7 @@ try{
  await page.getByRole('button',{name:'＋ Tags',exact:true}).click();
  await page.getByRole('dialog',{name:'Tags: Firefly Drift'}).waitFor();
  await page.locator('#close-tags').click();
- // A wide row with a small catalogue has no ellipsis; resizing uses tighter spacing first.
+ // A wide row with a small catalogue has no overflow; a narrow row preserves spacing.
  tagCatalog=tagCatalog.slice(0,2);game.tags=tagCatalog.map(t=>t.id);
  await page.setViewportSize({width:1200,height:850});await page.evaluate(()=>refreshLibrary());
  assert.equal(await page.locator('#tag-filters > .tag-more').isVisible(),false);
@@ -92,8 +92,8 @@ try{
   row.style.width=(widths+count+6)+'px';
  });
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
- assert.equal(await page.locator('#tag-filters > .tag-more').isVisible(),false,'padding should compress before hiding tags');
- assert.ok(parseFloat(await page.locator('#tag-filters > .tag-strip').evaluate(el=>el.style.getPropertyValue('--tag-spacing')))<0);
+ assert.equal(await page.locator('#tag-filters > .tag-more').isVisible(),true,'overflow should preserve legible spacing');
+ assert.ok(parseFloat(await page.locator('#tag-filters > .tag-strip').evaluate(el=>el.style.getPropertyValue('--tag-spacing')))>=0);
  await verifyRows();assert.deepEqual(errors,[]);
- console.log('PASS: no row scrollbars or covered text, progressive spacing, overflow filtering/editing, keyboard focus/Escape, refresh preservation, long labels, both themes and 320–1200px widths.');
+ console.log('PASS: no row scrollbars or covered text, legible spacing, overflow filtering/editing, keyboard focus/Escape, refresh preservation, long labels, both themes and 320–1200px widths.');
 }finally{await browser.close();}
