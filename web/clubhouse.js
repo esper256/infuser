@@ -321,7 +321,7 @@ First look for this game's existing connection to this server. Reuse it and its 
 
 Declare the actual Single player/Multiplayer modes. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Explain unsupported features rather than silently removing them.
 
-Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Save a short factual game description through the metadata API. Include Library cover art following the art guide; existing art or a suitable screenshot is fine. If you cannot provide a cover, explicitly tell me it is missing.
+Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Save a short factual game description through the metadata API. Either upload a cover meeting the art spec, or save a detailed art_prompt in the game metadata for an Infuser art agent to fulfill later. Do not substitute low-quality art.
 
 Build with this project's tools, publish, and test a real launch, saves, guest play, and multiplayer where supported. Handle routine hosting setup yourself. Tell me what is ready, anything still queued or untested, and any reported platform issue links.`;
   $('add-game-title').textContent='Bring your game';

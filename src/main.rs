@@ -57,14 +57,22 @@ async fn main() -> Result<()> {
     {
         return infuser::publisher::run(&args).await;
     }
-    if args.first().is_some_and(|s| s == "publisher-pass") {
+    if args
+        .first()
+        .is_some_and(|s| s == "publisher-pass" || s == "metadata-pass")
+    {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};
+        let metadata = args[0] == "metadata-pass";
         let config = Config::load(Path::new(
             args.get(1).context("configuration path required")?,
         ))?;
-        let app = args.get(2).context("app ID required")?;
+        let app = if metadata {
+            "all-games"
+        } else {
+            args.get(2).context("app ID required")?
+        };
         let output = args
-            .get(3)
+            .get(if metadata { 2 } else { 3 })
             .context("output .credentials.json path required")?;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -73,12 +81,26 @@ async fn main() -> Result<()> {
             .open(output)?;
         let db = infuser::platform::Database::open(&config.controller.state_dir)?;
         let (id, token) = db.edit(|d| {
-            infuser::platform::credential(d, app, "publish", "operator-issued game pass")
+            infuser::platform::credential(
+                d,
+                app,
+                if metadata { "metadata" } else { "publish" },
+                if metadata {
+                    "Infuser art agent (all games)"
+                } else {
+                    "operator-issued game pass"
+                },
+            )
         })?;
-        let connection = serde_json::json!({"id":id,"app_id":app,"api_url":format!("https://{}",config.controller.domain),"token":token});
+        let mut connection = serde_json::json!({"id":id,"api_url":format!("https://{}",config.controller.domain),"token":token});
+        if metadata {
+            connection["scope"] = "all_games_metadata".into();
+        } else {
+            connection["app_id"] = app.into();
+        }
         file.write_all(serde_json::to_string_pretty(&connection)?.as_bytes())?;
         file.sync_all()?;
-        println!("Private game pass written. Keep it out of source control.");
+        println!("Private connection file written. Keep it out of source control.");
         return Ok(());
     }
     if args.first().is_some_and(|s| s == "firewall-serve") {
@@ -128,7 +150,7 @@ async fn main() -> Result<()> {
     let command = args.first().map(String::as_str).unwrap_or("help");
     if !["serve", "init", "check", "render-caddy"].contains(&command) {
         bail!(
-            "usage: infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|render-caddy> CONFIG [--wildcard]"
+            "usage: infuser metadata-pass CONFIG OUTPUT | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|render-caddy> CONFIG [--wildcard]"
         );
     }
     let path = args.get(1).context("configuration path required")?;

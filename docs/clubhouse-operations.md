@@ -100,6 +100,10 @@ The CLI creates a mode-0600 file, never prints its token, and refuses to overwri
 an existing file. Transfer it privately to the game-making agent; revoke it in
 the admin UI when finished. Normal kids use Add a game instead.
 
+For an Infuser-side art agent, create a separate [all-games metadata key](art-agent.md).
+It can read private art prompts and edit presentation across games, without
+publishing builds or accessing player saves.
+
 For automated dogfooding without sharing a Google session, a local operator can
 run `infuser preview-game CONFIG APP EXISTING_ADMIN_EMAIL PRIVATE_OUTPUT_FILE`.
 This only accepts a hidden, client-only preview and creates a single-use,

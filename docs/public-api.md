@@ -31,7 +31,7 @@ or control the host. Admin revocation and member disabling take effect immediate
 | GET | `/api/publisher/tags` | Current tag catalog |
 | PUT | `/api/publisher/apps/APP/slug` | Rename the durable URL; preserve old aliases |
 | PUT | `/api/publisher/apps/APP/tags` | Set this game's tags |
-| GET / PATCH | `/api/publisher/apps/APP/metadata` | Read/edit title and description |
+| GET / PATCH | `/api/publisher/apps/APP/metadata` | Read/edit title, description, and art prompt |
 | PUT / DELETE | `/api/publisher/apps/APP/card-art` | Upload/clear a cover override without a build |
 | PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
 | GET | same | Inspect metadata and uploaded file inventory |
@@ -77,8 +77,15 @@ sessions. DELETE clears that override. Metadata PATCH accepts `{"title":"Name"}`
 or `{"title":null}` to restore the build title. It also accepts `description`
 (1–2000 plain-text characters) or `description:null` when capabilities include
 `game_metadata.description_max_chars`. Read existing metadata before editing.
-Descriptions and overrides survive later publications. Neither description nor
-artwork requires a manifest field.
+`art_prompt` (up to 4000 characters, or null to cancel) stores a private pending
+art request when `game_metadata.art_prompt_max_chars` is advertised. Prompts are
+not included in player responses. Descriptions, prompts, and overrides survive
+later publications; none requires a manifest field.
+
+An operator can provision an [all-games metadata key](art-agent.md). It can list
+`GET /api/metadata/apps`, read/PATCH `/api/metadata/apps/APP`, and PUT/DELETE
+`/api/metadata/apps/APP/card-art` across games. It cannot publish builds, access
+saves, or administer members. Ordinary game keys cannot enumerate other games.
 
 An optional advanced `server` object uses the validated game settings documented
 in `deploy/infuser.example.toml`. Images must already be staged on the host and
