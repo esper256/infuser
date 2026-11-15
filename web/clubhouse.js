@@ -1,13 +1,18 @@
 const $ = id => document.getElementById(id);
 const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
+let noticeTimer;
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
 let entryGame;
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea']];
 function el(tag, text, cls) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(cls) node.className = cls; return node; }
-function notice(message) { $('notice').textContent = message; $('notice').classList.add('visible'); }
+function notice(message) {
+  clearTimeout(noticeTimer);
+  const toast=$('notice');toast.textContent=message;toast.classList.add('visible');
+  noticeTimer=setTimeout(()=>{toast.classList.remove('visible');toast.textContent='';},5000);
+}
 async function api(path, options = {}) {
   const r = await fetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers } });
   const result = await r.json();
