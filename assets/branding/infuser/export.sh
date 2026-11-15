@@ -27,6 +27,7 @@ magick icon-180.png -background '#071019' -alpha remove -alpha off apple-touch-i
 magick \( lockup-light-512.png -background '#0c1017' -alpha remove \) \
        \( lockup-dark-512.png -background '#f5f1e8' -alpha remove \) +append preview-backgrounds.png
 
+# Center this crop on the visible wordmark (master x=630), not the vapor bounds.
 # Landing artwork is embedded in index.html because the portal serves a fixed asset list.
-magick lockup-light-master.png -crop 760x1100+280+10 +repage -resize 760x1100 -quality 90 landing-logo.webp
+magick lockup-light-master.png -crop 760x1100+250+10 +repage -resize 760x1100 -quality 90 landing-logo.webp
 magick header-light-640.png -quality 90 header-light.webp
