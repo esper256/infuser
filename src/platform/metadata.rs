@@ -5,6 +5,7 @@ use super::*;
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct GameMetadata {
     pub title: Option<String>,
+    pub description: Option<String>,
     pub card_art_revision: Option<String>,
     pub card_art_bytes: u64,
     pub updated: u64,
@@ -17,16 +18,26 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
         updated INTEGER NOT NULL DEFAULT 0
     );",
     )?;
+    let has_description = c
+        .prepare("PRAGMA table_info(game_metadata)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .iter()
+        .any(|name| name == "description");
+    if !has_description {
+        c.execute("ALTER TABLE game_metadata ADD COLUMN description TEXT", [])?;
+    }
     Ok(())
 }
 
 pub(super) fn read(c: &Connection) -> Result<BTreeMap<String, GameMetadata>> {
-    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated FROM game_metadata")?;
+    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated,description FROM game_metadata")?;
     let rows = statement.query_map([], |r| {
         Ok((
             r.get(0)?,
             GameMetadata {
                 title: r.get(1)?,
+                description: r.get(5)?,
                 card_art_revision: r.get(2)?,
                 card_art_bytes: r.get(3)?,
                 updated: r.get(4)?,
@@ -41,6 +52,7 @@ impl Database {
         &self,
         app: &str,
         title: Option<Option<&str>>,
+        description: Option<Option<&str>>,
         art: Option<Option<&[u8]>>,
     ) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
@@ -63,6 +75,12 @@ impl Database {
             tx.execute(
                 "UPDATE game_metadata SET card_art=?2,card_art_revision=?3,updated=?4 WHERE app=?1",
                 params![app, art, revision, now()],
+            )?;
+        }
+        if let Some(description) = description {
+            tx.execute(
+                "UPDATE game_metadata SET description=?2,updated=?3 WHERE app=?1",
+                params![app, description, now()],
             )?;
         }
         tx.commit()?;

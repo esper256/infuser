@@ -1,14 +1,14 @@
 # Network admission
 
 Published native game ports are closed by default. After an invited player logs
-in, the platform will grant their observed source IP temporary access, renewed
+in, the platform grants their observed source IP temporary access, renewed
 while their authenticated session is active. This is an extra scanner barrier,
 not player identity: everyone behind the same public IP shares access. Games
 still need short-lived launch tickets and their own player authorization.
 
 The platform grants and refreshes these addresses through the optional Unix-socket
 firewall helper after Google session and Infuser membership checks pass. See
-[clubhouse installation](clubhouse-operations.md) for setup. Web games use HTTPS
+[Infuser installation](clubhouse-operations.md) for setup. Web games use HTTPS
 and scoped host-only game sessions.
 
 The nftables table in `deploy/game-ingress.nft` filters incoming TCP and UDP

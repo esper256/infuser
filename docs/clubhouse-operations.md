@@ -1,6 +1,6 @@
 # Install the player platform
 
-The `infuser` daemon serves the clubhouse, public publishing API, static games,
+The `infuser` daemon serves the Library, public publishing API, static games,
 and player services on its existing loopback port. Front it with Caddy using
 [`deploy/Caddyfile.example`](../deploy/Caddyfile.example). Do not expose the daemon
 port or route `/v1/*` publicly. Configure an apex and wildcard DNS record and
@@ -44,7 +44,7 @@ sudo -u infuser /usr/local/bin/infuser member /etc/infuser/infuser.toml adult@ex
 ```
 
 The same command can add members or apply `--disable`. Adults can subsequently
-invite/disable members in the clubhouse. Use a person's intended display name;
+invite/disable members in the Library's adult tools. Use a person's intended display name;
 it is what friends see online and alongside reactions.
 
 ## Firewall helper
@@ -68,8 +68,8 @@ still validate game tickets. A logout does not revoke another family's shared
 IP; grants expire in the kernel when they stop being refreshed.
 
 Use `MemoryMax=512M` for the main daemon with publishing enabled (uploads are
-serialized and capped at 64 MiB/file). The existing 8 GiB game budget leaves host
-headroom on a 12 GiB example installation; choose budgets for your own hardware.
+serialized and capped at 64 MiB/file). Choose the game budget to leave
+headroom for the daemon, shared services, and operating system.
 The helper only needs 64 MiB. Publishing content has an aggregate disk budget,
 independent of the game's world volumes and Docker images.
 

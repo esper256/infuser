@@ -2,8 +2,8 @@
 
 **Status: pre-1.0, experimental.** The current browser SDK and game-facing HTTP
 API are a dogfood contract, not a stable SDK release. Manifest `schema_version: 1`
-describes a document format; it does not mean SDK 1.0. Firefly is disposable and
-may be reset or republished while we settle this design.
+describes a document format; it does not mean SDK 1.0. Preserve published games
+and saves while these contracts settle. Use separate disposable fixtures for tests.
 
 The launcher can evolve quickly. Contracts embedded in uploaded games need a
 short design review before release: concrete request/response examples, failure
@@ -58,7 +58,7 @@ screen can show friends and joinability without creating a server. The game
 requests its backend when the player chooses a mode; leaving multiplayer releases
 that need without ending an unrelated single-player run. Join friend is a request
 to join the existing shared session, never permission to create another world.
-Exact method names and payloads remain proposals until reviewed.
+The linked contract pages describe implemented preview methods and payloads.
 
 Today, Play has no mode picker; the game owns that choice. Managed games can opt
 into [on-demand runtime sessions](runtime-sessions.md): the title screen opens
@@ -93,7 +93,8 @@ journey. Legacy imports/routes remain available. Major 1 is still a preview, not
 a declaration that the full SDK contract is frozen. Review the durable semantics
 above before calling it stable. The [Godot web study](engines/godot-web.md) is
 explicitly experimental and exercises the same wire contract before that freeze;
-native authentication, binary checkpoints and artifact selection remain open.
+native authentication and artifact delivery are implemented for single-player
+Godot on Windows/Linux. Binary checkpoints and native multiplayer remain open.
 
 ## Later features: achievements as an example
 

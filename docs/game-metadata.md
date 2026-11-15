@@ -1,112 +1,100 @@
-# Update a game's presentation without a build
+# Edit a game's description, title, or cover
 
-An agent with the game's existing publisher connection can update its Library
-title and cover independently of the game files. No game source, export, rebuild,
-SDK change, or session restart is needed. This is the path for adding Firefly
-Drift's cover to an already-published game.
-
-Check `GET /api/publisher/capabilities` for `game_metadata.version: 1` first.
-Use the existing connection's `api_url`, `app_id`, and bearer `token`. Never
-create a replacement game/app ID just to change its artwork. Keep the connection
-file in ignored `.local/`, and never print the token or commit it.
+Use the game's existing publisher connection. These edits do not rebuild the
+game, restart sessions, or change saves. Check `GET /api/publisher/capabilities`
+for `game_metadata.version: 1`; descriptions additionally require
+`game_metadata.description_max_chars`.
 
 ## Endpoints
 
-| Method | Path | Body and effect |
+Authenticate with the connection's bearer token, scoped to its `app_id`.
+
+| Method | Path | Effect |
 | --- | --- | --- |
-| GET | `/api/publisher/apps/APP/metadata` | Inspect effective title, cover URL, overrides, tags, slug, active build, and listed status |
-| PATCH | `/api/publisher/apps/APP/metadata` | `{"title":"Firefly Drift"}` sets the Library title; `{"title":null}` restores the build's title |
-| PUT | `/api/publisher/apps/APP/card-art` | Raw `image/webp` bytes replace the independent cover override |
-| DELETE | `/api/publisher/apps/APP/card-art` | Clear the override and use the active build's cover, or the Library's abstract fallback |
-| PUT | `/api/publisher/apps/APP/tags` | Existing `{"tags":["chill","arcade"]}` endpoint; no build required |
-| PUT | `/api/publisher/apps/APP/slug` | Existing readable-URL rename endpoint; old aliases remain valid |
+| GET | `/api/publisher/apps/APP/metadata` | Read title, description, cover, tags, slug, active build, and visibility |
+| PATCH | `/api/publisher/apps/APP/metadata` | Set `title`, `description`, or both |
+| PUT | `/api/publisher/apps/APP/card-art` | Replace the independent cover with raw `image/webp` bytes |
+| DELETE | `/api/publisher/apps/APP/card-art` | Remove the override; use build art or the fallback |
+| PUT | `/api/publisher/apps/APP/tags` | Set `{"tags":["chill","arcade"]}` |
+| PUT | `/api/publisher/apps/APP/slug` | Rename the readable URL; old aliases remain valid |
 
-Title edits trim surrounding whitespace and accept 1–80 Unicode characters,
-without control characters. Omitted/unknown patch fields are rejected. These
-endpoints do not change the game's own title screen or runtime manifest, player
-handles, author identity, listing, gameplay modes, SDK declarations, or builds.
+The game must have a published build, which may be hidden. Read metadata before
+editing it. `title` accepts 1–80 characters, `description` 1–2000; both trim outer
+whitespace and reject control characters. Use a single plain-text paragraph.
+An omitted field is unchanged. `title:null` restores the build title;
+`description:null` clears the description. Empty patches and unknown fields fail.
+An invalid field rejects the entire patch.
 
-Covers follow the [card art guide](card-art-guide.md): exactly 1024×1024, static,
-opaque RGB WebP, sRGB with the embedded profile removed, at most 250 KiB. Invalid
-images return 422; oversized request bodies return 413. Invalid replacements
-leave the current cover intact. Existing installation storage limits apply.
+Write a short factual description after first publication: what players do,
+setting, and distinctive visual features. Derive it from the project or creator's
+brief, not the title alone. Keep it useful to another agent preparing artwork;
+do not invent features. Later agents should read and preserve it unless the game
+has changed. The description is returned to signed-in members in the Library API,
+and to authorized publishers here; it is not public anonymous metadata.
 
-Every metadata mutation returns the same view as GET, including:
+Example patch:
+
+```json
+{"description":"Race tiny hovercraft through moonlit canals, alone or with friends. Low-poly boats and glowing buoys define the scene."}
+```
+
+Every mutation returns the same shape as GET:
 
 ```json
 {
-  "app_id": "firefly-drift",
-  "build": "existing-build",
+  "app_id": "moon-racers",
+  "build": "build-123",
   "listed": true,
-  "title": "Firefly Drift",
+  "title": "Moon Racers",
   "title_override": null,
-  "card_art_url": "/api/apps/firefly-drift/card-art/CONTENT_SHA256",
+  "description": "Race tiny hovercraft through moonlit canals.",
+  "card_art_url": "/api/apps/moon-racers/card-art/CONTENT_SHA256",
   "card_art_override": "CONTENT_SHA256",
   "updated": 1234567890,
-  "tags": ["chill"],
-  "slug": "firefly-drift"
+  "tags": ["racing"],
+  "slug": "moon-racers"
 }
 ```
 
-The example IDs are illustrative; use the ID in the real connection file.
-`updated` is the presentation metadata timestamp, not a game-build update.
-`card_art_override` is null when using build art or the generic fallback. Image
-URLs remain member-authenticated; hidden games' covers remain adult-only. A
-publisher token authorizes upload and inspection, not a player browser session.
+## Artwork
 
-## Precedence, persistence, and rollback
+Follow the [card art guide](card-art-guide.md): static opaque 1024×1024 RGB WebP,
+sRGB with the profile stripped, at most 250 KiB. Invalid images return 422;
+oversized requests return 413. The old image remains if validation fails.
 
-An explicit title/cover override wins over the active build and survives later
-game publications, queued server updates, restarts, and unpublishing. Unpublished
-games and their art remain inaccessible to players. Clear the override to follow
-build metadata again. Uploads replace one bounded stored image per game; they do
-not accumulate immutable build copies or historical covers. Keep your source art
-in the game project so you can upload a prior image again.
-
-Artwork bytes and their content revision commit together in SQLite. A changed
-image produces a changed Library URL, and a superseded override URL returns 404.
-The normal Library refresh picks up the new image; refresh the page to see it
-immediately. No session is expired, no server is restarted, and saves are untouched.
-The metadata table is separate from the legacy build catalog so older CLI catalog
-writes do not erase overrides.
-
-## Agent upload example
-
-Run from the game project with a private connection file and a validated cover.
-This uses only Python's standard library, keeps the token out of command-line
-arguments/output, checks capability support, and refuses redirects:
+Using the private curl auth file prepared by the [HTTP publishing recipe](publishing-http.md#connect-once),
+set `API` to the connection's HTTPS origin and `APP` to its app ID:
 
 ```sh
-python3 - .local/GAME.credentials.json infuser-art/card-hero.webp <<'PY'
-import hashlib, json, pathlib, sys, urllib.parse, urllib.request
-
-connection = json.loads(pathlib.Path(sys.argv[1]).read_text())
-origin = connection['api_url'].rstrip('/')
-assert urllib.parse.urlsplit(origin).scheme == 'https', 'HTTPS required'
-app = urllib.parse.quote(connection['app_id'], safe='')
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-opener = urllib.request.build_opener(NoRedirect())
-def request(path, method='GET', data=None):
-    headers = {'Authorization': 'Bearer ' + connection['token']}
-    if data is not None:
-        headers['Content-Type'] = 'image/webp'
-    req = urllib.request.Request(origin + path, data=data, headers=headers, method=method)
-    with opener.open(req, timeout=30) as response:
-        return json.load(response)
-
-caps = request('/api/publisher/capabilities')
-assert caps.get('game_metadata', {}).get('version') == 1, 'Update the Infuser server first'
-cover = pathlib.Path(sys.argv[2]).read_bytes()
-assert len(cover) <= 250 * 1024, 'Cover exceeds 250 KiB'
-result = request('/api/publisher/apps/' + app + '/card-art', 'PUT', cover)
-assert result['card_art_override'] == hashlib.sha256(cover).hexdigest()
-print('Cover updated. Active build:', result['build'])
-PY
+curl --silent --show-error --fail --proto '=https' \
+  --config .local/publisher.curl --request PUT \
+  --header 'Content-Type: image/webp' \
+  --data-binary @infuser-art/card-hero.webp \
+  "$API/api/publisher/apps/$APP/card-art"
 ```
 
-Verify the image in the signed-in Library after uploading. Do not claim a
-production update merely because an art file was committed to a repository.
+For a description, write the patch JSON to `.local/metadata.json`, then:
+
+```sh
+curl --silent --show-error --fail --proto '=https' \
+  --config .local/publisher.curl --request PATCH \
+  --header 'Content-Type: application/json' \
+  --data-binary @.local/metadata.json \
+  "$API/api/publisher/apps/$APP/metadata"
+```
+
+Verify the returned metadata and the cover in the signed-in Library. Committing
+an image to a repository does not upload it to Infuser. Cover URLs require player
+membership; a publisher token is not a browser login.
+
+## Persistence
+
+Descriptions and title/cover overrides survive publications, restarts, and
+unpublishing. An explicit cover overrides build art until DELETE clears it.
+Only one override image is retained; keep source art in the game project if you
+want to restore an earlier image. Replacements produce a new cover URL; obsolete
+override URLs return 404. Library refresh picks up the change.
+
+These edits do not change the game's title screen, manifest, ownership, gameplay
+modes, build selection, or visibility. Metadata is stored separately from the
+build catalog so older catalog writers do not erase it.

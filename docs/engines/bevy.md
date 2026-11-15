@@ -1,15 +1,10 @@
-# Bevy: browser export first
+# Bevy: not yet validated
 
-This is the fourth engine study, after Three.js, Godot web, and Godot multiplayer.
-The first route is an existing WASM/web export served as a normal static build.
-Use the project's existing toolchain (for example, Trunk), then publish its output:
+Infuser does not yet provide a tested Bevy adapter or an end-to-end Bevy publishing
+recipe. A WASM export alone does not verify identity, cloud saves, guest isolation,
+or multiplayer integration. Native Bevy delivery is also unsupported.
 
-```sh
-infuser publish /private/game.credentials.json /path/to/web-output --solo
-```
-
-Do not switch the game's renderer or networking stack just to fit an example.
-Check the actual browser requirements and wire the game's Rust/WASM checkpoint
-system to the browser SDK. The same isolated guest origin and cloud-save contract
-apply. A reusable wasm-bindgen save adapter and a complete Bevy dogfood journey
-are still pending. Native server packaging comes after the browser study.
+Keep an existing game's renderer and networking intact. Report this integration
+gap using the [agent guide](../agents.md#reporting-platform-problems), rather than
+presenting an untested export as supported. Bevy work is paused while the current
+browser and Godot contracts settle.

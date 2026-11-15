@@ -1,40 +1,26 @@
-# Next steps
+# Remaining work
 
-- Before freezing SDK 1.0, exercise [Godot web](engines/godot-web.md) with the
-  hidden Lantern Lake test game: real GDScript saves, guest isolation, and Godot
-  RPCs over forced TURN. Bazzite Flatpak Chrome now passes single/threaded recovery
-  and Join Friend journeys. Existing upstream Dodge the Creeps passes adapted
-  gameplay, saves and guest isolation. Finish actual Windows browser acceptance,
-  physical laptop sleep and a full-duration TURN soak before calling these complete.
-- Exercise the [Rust desktop preview](engines/godot-native.md): browser account
-  handoff, verified immutable downloads, native cloud saves and isolated guest
-  directories. Native multiplayer remains paused; Windows hardware acceptance
-  follows the installer handoff. Keep native delivery separate from SDK 1.0.
-- Review the [game SDK 1.0 contract](sdk-contract.md) after these engine studies
-  expose browser-specific assumptions. Major 1 remains preview. Firefly is now
-  listed by the operator's request; preserve its active build.
-- Dogfood experimental [peer-hosted WebRTC](peer-hosting.md) in Firefly first:
-  forced TURN, two autoplay clients, host departure/rejoin, connection recovery,
-  and queued updates. Keep multiplayer protocol changes experimental until review.
-  Fast SDK lifecycle journeys now cover recovery, delayed negotiation after
-  leaving, obsolete channels, and lease expiry. Live Firefly verified that two
-  relay-only players keep the old build while an update queues, host departure
-  activates the update, and old clients must reopen before multiplayer. A fresh
-  launch receives the new build. [SDK major/capability declarations and the frozen
-  old-client journey](sdk-versioning.md) are now implemented; major 1 stays preview.
-- Dogfood the implemented [declared save-file snapshot model](cloud-save-design.md),
-  including durable conflict candidates and game-owned resolution. The legacy
-  slot API retains its original behavior; new checkpoints use separate v1 routes.
-- On-demand managed server acquisition/release is implemented as an opt-in build
-  contract; see [runtime sessions](runtime-sessions.md). Legacy builds still warm
-  on launch. [In-game presence and explicit peer joinability](presence.md) are
-  implemented; dogfood title-screen discovery, host admission controls and stale
-  targeted joins in Firefly. [Join friend launch intents](launch-intents.md) are
-  implemented behind the card dropdown; online-player data also supports future
-  avatar actions. Review server-authenticated joinability separately for managed
-  backends. Keep secondary actions off the future game hero art.
-- [Readable game URLs](game-urls.md) are implemented: stable entry links, retained
-  rename aliases, collision/reserved-name handling, and named isolated play
-  origins. Guest and build isolation remain unchanged.
-- Add managed engine server packaging after the first engine's journey stabilizes.
-- Review achievements separately before implementing their durable API.
+- Finish [Godot web](engines/godot-web.md) acceptance on actual Windows browsers,
+  physical laptop sleep, and full-duration TURN credential renewal. Bazzite
+  Flatpak Chrome has passed threaded/single-threaded exports, forced relay,
+  background/recovery checks, saves, conflicts, and Join friend. The adapted
+  upstream Dodge the Creeps project has passed gameplay, saves, and guest isolation.
+- Finish [Infuser Play](engines/godot-native.md) acceptance on physical Windows
+  hardware and the installed browser-login handoff. Keep the native preview
+  limited to single-player Godot on Windows/Linux, including Bazzite.
+- Validate the [PeerJS adapter](peerjs.md) against an existing user's game when
+  its source is available. The independent fixture has passed real PeerJS
+  DataConnections, standalone play, forced TURN, renewal, and recovery. This
+  does not prove an unavailable project's exact integration.
+- Review the [SDK 1.0 contract](sdk-contract.md) using these results. SDK major 1
+  and capability admission exist, but the overall contract remains a preview.
+  Preserve published games and saves; Firefly Drift is listed and its active
+  build must not be replaced merely to rerun a fixture.
+- Add managed engine-server packaging after these integrations settle. Review
+  dedicated-server joinability and native multiplayer separately. Bevy is paused.
+- Review achievements before introducing persistent achievement IDs and behavior.
+
+Implemented foundations include conditional JSON slots and retained checkpoints,
+isolated guest play, on-demand managed servers, peer presence/joinability,
+Join friend, readable game URLs, metadata/art updates, and agent issue reporting.
+Use their linked contracts rather than treating old design notes as future work.

@@ -2,10 +2,11 @@
 
 **Experimental v1; not an SDK 1.0 guarantee.** This contract covers dedicated and
 persistent-world backends, plus single-player modes that use a shared server.
-WebRTC peer hosting continues to use `peers.join()` / the peer session's `leave()`.
+WebRTC peer hosting uses its adapter's join method and `room.close()`; see
+[browser peers](peer-hosting.md), [PeerJS](peerjs.md), or [Godot](engines/godot-multiplayer.md).
 
-The game owns mode selection. Opening its title screen must not consume a server
-reservation. Choosing a mode that needs a backend acquires one player lease on
+The game owns mode selection. With `server_start: "on_demand"`, opening its
+title screen does not consume a server reservation. Choosing a mode that needs a backend acquires one player lease on
 the game's single shared server. Returning to a client-only mode releases that
 lease, preserving identity, guest progress and cloud saves. When all leases end,
 the existing idle timeout shuts the server down and releases its resource budget.
@@ -41,7 +42,7 @@ not provide missing SDK methods. Upgrading again restores the declaration.
 ## Game integration
 
 ```js
-import { ready, runtime } from '/_infuser/sdk.js';
+import { ready, runtime } from '/_infuser/sdk/v1.js';
 const context = await ready;
 if (context.capabilities.runtime_sessions?.version !== 1) {
   throw new Error('This game needs a newer Infuser.');
@@ -80,9 +81,9 @@ from the launch, never supplied in a body. No controller token is exposed.
 
 | Request | Result |
 | --- | --- |
-| `GET /_infuser/runtime/v1` | Read this launch's server state; does not acquire or renew |
-| `POST /_infuser/runtime/v1` | Acquire/reuse this launch's lease; 202 starting, 200 ready |
-| `DELETE /_infuser/runtime/v1/SESSION_ID` | Release only this launch's matching lease; 200 with current state |
+| `GET /_infuser/api/v1/runtime/v1` | Read this launch's server state; does not acquire or renew |
+| `POST /_infuser/api/v1/runtime/v1` | Acquire/reuse this launch's lease; 202 starting, 200 ready |
+| `DELETE /_infuser/api/v1/runtime/v1/SESSION_ID` | Release only this launch's matching lease; 200 with current state |
 
 Example ready result:
 

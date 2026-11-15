@@ -15,6 +15,7 @@ fn view(p: &Platform, app: &str) -> Result<Value> {
     Ok(
         json!({"app_id":app,"build":active.build,"listed":active.listed,
         "title":title(&d,app,&build.manifest.title),"title_override":metadata.title,
+        "description":metadata.description,
         "card_art_url":card_art::url(app,&active.build,build,d.metadata.get(app)),
         "card_art_override":metadata.card_art_revision,"updated":metadata.updated,
         "tags":d.tags.get(app).cloned().unwrap_or_default(),
@@ -34,10 +35,12 @@ pub(super) async fn get_metadata(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Patch {
-    #[serde(default, deserialize_with = "present_title")]
+    #[serde(default, deserialize_with = "present_text")]
     title: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_text")]
+    description: Option<Option<String>>,
 }
-fn present_title<'de, D: serde::Deserializer<'de>>(
+fn present_text<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<Option<String>>, D::Error> {
     Ok(Some(Option::<String>::deserialize(d)?))
@@ -49,11 +52,16 @@ pub(super) async fn patch_metadata(
     Json(body): Json<Patch>,
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
-    let title = body
-        .title
-        .ok_or_else(|| fault(400, "provide title, or null to restore the build title"))?;
-    let title = title.as_deref().map(str::trim);
-    if let Some(title) = title {
+    ensure!(
+        body.title.is_some() || body.description.is_some(),
+        fault(400, "provide title or description; null clears that field")
+    );
+    let title = body.title.as_ref().map(|v| v.as_deref().map(str::trim));
+    let description = body
+        .description
+        .as_ref()
+        .map(|v| v.as_deref().map(str::trim));
+    if let Some(Some(title)) = title {
         ensure!(
             !title.is_empty()
                 && title.chars().count() <= 80
@@ -64,7 +72,18 @@ pub(super) async fn patch_metadata(
             )
         );
     }
-    p.db.metadata_update(&app, Some(title), None)?;
+    if let Some(Some(description)) = description {
+        ensure!(
+            !description.is_empty()
+                && description.chars().count() <= 2000
+                && !description.chars().any(char::is_control),
+            fault(
+                422,
+                "description must be 1–2000 characters without control characters"
+            )
+        );
+    }
+    p.db.metadata_update(&app, title, description, None)?;
     Ok(reply(view(&p, &app)?))
 }
 
@@ -97,7 +116,7 @@ pub(super) async fn put_art(
             >= p.config().controller.disk_reserve_mb * 1024 * 1024 + size * 2,
         fault(507, "host disk reserve would be exhausted")
     );
-    p.db.metadata_update(&app, None, Some(Some(&body)))?;
+    p.db.metadata_update(&app, None, None, Some(Some(&body)))?;
     Ok(reply(view(&p, &app)?))
 }
 
@@ -107,6 +126,6 @@ pub(super) async fn delete_art(
     h: HeaderMap,
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
-    p.db.metadata_update(&app, None, Some(None))?;
+    p.db.metadata_update(&app, None, None, Some(None))?;
     Ok(reply(view(&p, &app)?))
 }

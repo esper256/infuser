@@ -6,7 +6,7 @@ in a specific existing session. It never means creating a replacement world.
 
 ## Entry points
 
-Keep the primary Play button and future hero artwork clear. Join actions belong
+Keep the primary Play button and hero artwork clear. Join actions belong
 in the game card's arrow dropdown alongside guest play. The same action can be
 used beside online-player avatars near the logo; the avatar strip's visual design
 is separate from this API. Do not add permanent Join buttons over game art.
@@ -15,7 +15,7 @@ is separate from this API. Do not add permanent Join buttons over game art.
 explicitly joinable room. Each target has `session_id`, `player_id`, `name`, and
 `guest`. The viewer's own account is excluded. Full/closed rooms have no targets.
 `friends[].join_targets` carries `app_id`, `title`, `session_id`, and `player_id`
-for the future avatar entry point. Hidden previews are filtered before building
+for avatar entry points. Hidden previews are filtered before building
 either list. Presence elsewhere never makes a hidden game discoverable.
 
 When a target is selected, send:
@@ -46,7 +46,7 @@ with 422 rather than pretending it can handle it. Old builds need no changes.
 After loading its state, the game consumes the optional intent once:
 
 ```js
-import { ready, launchIntent, peers } from '/_infuser/sdk.js';
+import { ready, launchIntent, peers } from '/_infuser/sdk/v1.js';
 const context = await ready;
 if (context.capabilities.launch_intents?.version === 1) {
   try {
@@ -55,7 +55,7 @@ if (context.capabilities.launch_intents?.version === 1) {
       const room = await peers.join({
         sessionId: intent.session_id,
         playerId: intent.player_id,
-        relayOnly: true
+        relayOnly: false
       });
       // Enter this game's multiplayer flow using room.
     }
@@ -65,7 +65,7 @@ if (context.capabilities.launch_intents?.version === 1) {
 }
 ```
 
-The wire operation is `POST /_infuser/launch-intent/v1/consume`, returning
+The wire operation is `POST /_infuser/api/v1/launch-intent/v1/consume`, returning
 `{"intent":null}` for ordinary Play or a previously consumed intent. It requires
 the exact game Origin and scoped launch cookie/ticket. Consumption is atomic and
 durable: simultaneous calls deliver to at most one caller. `GET context` never
