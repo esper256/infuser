@@ -21,7 +21,7 @@ they are event-driven, not constrained by the weekly version-update schedule or
 its PR limit. These rules take effect on the default branch. There is no auto-merge.
 
 The standalone **Dependency audit (advisory)** workflow runs weekly and manually,
-using cargo-audit 0.21.2 and the current RustSec database. Findings and operational
+using cargo-audit 0.23.0 and the current RustSec database. Findings and operational
 errors appear in the Actions job summary and warning annotations. It neither opens
 individual issues nor blocks releases. This checks Cargo.lock, not container OS
 packages or the code of Actions.
