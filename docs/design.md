@@ -46,6 +46,11 @@ a content-sized glass dock and the approved Infuser artwork as a fallback until
 game-provided hero art has an agreed contract. Fictional art stays in mockups.
 The draft [card hero art guide](card-art-guide.md) defines composition and export
 requirements for review; it does not introduce an artwork API or manifest field.
+Game art may use polished cover illustration while preserving the game's real
+identity. Allow flexible compositions within the crop-safe area. Protect the art
+by capping titles at two lines and tags at one horizontally scrollable row. The
+existing dropdown exposes the full title, player names, and reaction counts;
+metadata must not grow indefinitely over the image.
 
 Online players appear as overlapping avatars beside the logo. Filters and search
 share a row, with the game count after the final filter. Tag editing appears on

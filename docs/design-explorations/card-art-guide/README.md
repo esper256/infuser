@@ -1,6 +1,6 @@
 # Card hero guide: Firefly Drift trial
 
-This is the first test of [the draft guide](../../card-art-guide.md). It is a
+This is the first test of version 0.1 of [the draft guide](../../card-art-guide.md). It is a
 review fixture, not the artwork of a published game.
 
 ## Input and result
@@ -13,7 +13,11 @@ direction was supplied. [prompt.txt](prompt.txt) records that exact input.
 The generator interpreted the title as a golden firefly moving through a forest
 stream at dusk. This is **AI-generated, unverified concept art**; it is not a
 gameplay screenshot and does not establish what Firefly Drift actually contains.
-The first render was used without a corrective generation pass.
+The first render was used without a corrective generation pass. The guide is now
+at 0.2 following the selected policy: faithful cover illustration, flexible subject
+placement, and bounded overlays. The original 0.1 prompt is preserved unchanged;
+the screenshots and preview use the updated overlay limits. This is not a new
+generation claimed to test the revised guide's game-fidelity requirements.
 
 The square generated source was 1254 × 1254. It was resized once to 1024 × 1024,
 converted to opaque sRGB, stripped of metadata, and encoded as quality-84 WebP.
@@ -33,8 +37,8 @@ Serve the repository root with a static file server and open
 - Verified exact 284 × 380, 368 × 388, and 600 × 632 card crops in Chromium.
 - The main firefly remains identifiable and unobscured in all three crops.
 - The lower-right scene continues behind the dock; no blank panel or baked UI.
-- A long title and five tags also leave the identifying subject visible. The
-  available art area becomes noticeably smaller, as expected.
+- A long title is capped at two lines, and five tags occupy one horizontally
+  scrollable row. Metadata no longer expands over the art as its content grows.
 - The 96px thumbnail retains the luminous insect silhouette; fine background
   leaves and flowers are secondary and need not remain individually legible.
 - Preview page fits 320px and 390px viewports; docks remain within their cards.

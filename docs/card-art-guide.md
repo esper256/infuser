@@ -1,6 +1,6 @@
 # Infuser card hero art
 
-**Draft 0.1 — artwork preparation and review.** This guide specifies the image
+**Draft 0.2 — artwork preparation and review.** This guide specifies the image
 for a Library card. Automatic registration of game artwork is not implemented
 yet: preparing these files does not install them in the live Library. Do not add
 invented artwork fields to `infuser.game.json` or call an undocumented API.
@@ -17,9 +17,14 @@ Keep its defining shapes and palette. An environment, vehicle, object, or abstra
 pattern can lead the image; a character is not required. Do not invent a mascot,
 mode, location, or feature to make the game appear more elaborate than it is.
 
-Aim for confident, polished game key art with a strong silhouette, clear depth,
-and a few well-chosen highlights. Preserve the game's own visual language: pixel
-art, low-poly, illustrated, graphic, and other deliberate styles are welcome.
+Make a **faithful cover illustration**: lighting, framing, and finish may be more
+polished than a gameplay frame, but recognizable characters, objects, environments,
+and the game's core identity must match the actual project. Do not substitute a
+generic attractive scene for the game's distinctive features. A different rendering
+technique is acceptable when those features remain recognizable; an exact screenshot
+look is not required. Use a strong silhouette, clear depth, and a few well-chosen
+highlights. Pixel art, low-poly, illustrated, graphic, and other deliberate styles
+are welcome.
 Infuser's dark interface is the frame, not a requirement to turn every game into
 a neon city. Bright, warm, or daylight scenes can work too.
 
@@ -57,15 +62,24 @@ current cards are about 0.95:1 width-to-height; a narrow phone can reach about
 0.75:1 because of the card's minimum height. A square source can therefore lose
 roughly 13% from **each side**. Corners are rounded by the interface.
 
-Coordinates below are percentages of the **source image**, measured from the
-top-left. They are composition guides, not visible marks to paint into the art.
+**Choose the subject's position freely within the crop-safe area.** There is no
+required focal coordinate, pose, direction, or repeated composition. Wide vistas,
+asymmetric subjects, and object-led images should not all look like the same
+centered portrait. Keep the identifying feature visible through both cropping
+and the actual overlays described below.
 
 | Region | How to use it |
 | --- | --- |
-| Outer 15% on left and right | Expendable scenery and atmosphere. No essential face, object, or defining feature here. |
-| Main subject: x 25–70%, y 25–62% | Keep the identifying silhouette or key feature here. A useful focal point is around x 42%, y 43%. Avoid a tiny subject lost in scenery. |
-| Top 22% | Quieter background for mode/category chips. No crucial face or high-detail action behind them. |
-| Lower-right: x 35–100%, y 65–100% | Low-detail supporting scenery. The title, author portrait, and Play dock can cover this area. Longer titles and narrow screens make the dock larger. |
+| Outer 15% on left and right of the source | Expendable scenery and atmosphere. No essential face, object, or defining feature here. |
+| Top of the rendered card | Quieter supporting scenery behind one mode line and one horizontally scrollable tag row. At the smallest card, allow roughly the top quarter for metadata and inset. |
+| Lower right of the rendered card | Supporting scenery behind the compact title/author/Play dock. The title is capped at two lines. On the smallest card, allow roughly the bottom 40% including the inset; the dock may span nearly its full width. |
+| Remaining visible artwork | Place the identifying feature wherever it reads best. Avoid a tiny subject lost in scenery. Judge the actual overlay preview rather than aiming at a fixed percentage coordinate. |
+
+Infuser limits the overlays rather than asking the artist to reserve ever more
+space: tags stay in one scrollable row, titles show at most two lines, and player
+names/reaction counts live in the existing dropdown. The dropdown also exposes
+the full title on touch devices; the full heading remains available to assistive
+technology. Expanded menus are temporary interactions, not permanent art masks.
 
 Use the rest of the canvas to establish the world. One strong subject, one clear
 direction of movement or depth, and restrained secondary detail usually work
@@ -102,8 +116,10 @@ Do not describe an invented illustration as a gameplay capture.
 3. Preview centered-cover crops at **368 × 388 px** and **284 × 380 px**, plus a
    larger **600 × 632 px** card. Important content must survive all three.
 4. Place the actual Library overlay over each crop: top metadata and the
-   bottom-right title/author/Play dock. Check a long wrapped title and several
-   tags too. A nominal safe region cannot guarantee every possible text length.
+   bottom-right title/author/Play dock. Check a long title and many tags too:
+   the title must remain capped at two lines and tags at one scrollable row.
+   If metadata grows over the subject, fix the UI bounds instead of adding a
+   larger permanent blank area to the image.
 5. Check the finished WebP, not only the source. Look for muddy edges, banding,
    compression ringing, accidental text, malformed objects, or baked-in patterns.
 
