@@ -39,8 +39,15 @@ When creator portraits are available, use the game author’s portrait as the
 reaction entry point, without a separate reaction control. Hover and keyboard
 focus show a thought bubble: “React to {author}’s game.” Click, Enter, or a phone
 tap opens the picker directly; never require hover. Give the portrait the same
-accessible action name. This is the agreed direction, pending author/profile
-data support; do not invent author identities in the current Library.
+accessible action name. The Library uses recorded author names and initials while profile images are
+unavailable. Never invent author identities. Cards use the Nightglass layout with
+a content-sized glass dock and the approved Infuser artwork as a fallback until
+game-provided hero art has an agreed contract. Fictional art stays in mockups.
+
+Online players appear as overlapping avatars beside the logo. Filters and search
+share a row, with the game count after the final filter. Tag editing appears on
+tag-area hover or keyboard focus; a touch hold on an editable card opens the same
+picker. Scrolling and multi-touch cancel the hold.
 
 Reactions begin with large positive emoji in a speech bubble. Selecting one
 reveals a short optional comment and Enter-to-send. Emoji-only is complete.

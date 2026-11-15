@@ -1,4 +1,4 @@
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -39,6 +39,17 @@ pub struct Settings {
     /// Optional Unix socket for the privileged, narrowly scoped firewall helper.
     pub firewall_socket: Option<PathBuf>,
     pub content_budget_mb: u64,
+    pub cloud_save_budget_mb: u64,
+    pub turn: Option<Turn>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Turn {
+    pub urls: Vec<String>,
+    pub secret_file: PathBuf,
+    pub relay_port_start: u16,
+    pub relay_port_end: u16,
 }
 
 impl Default for Settings {
@@ -62,6 +73,8 @@ impl Default for Settings {
             auth_url: "http://127.0.0.1:4180/oauth2/auth".into(),
             firewall_socket: None,
             content_budget_mb: 2048,
+            cloud_save_budget_mb: 512,
+            turn: None,
         }
     }
 }
@@ -160,6 +173,60 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
+        ensure!(
+            (64..=1048576).contains(&s.cloud_save_budget_mb),
+            "invalid cloud save budget"
+        );
+        if let Some(turn) = &s.turn {
+            ensure!(
+                turn.secret_file.is_absolute(),
+                "TURN secret file must be absolute"
+            );
+            ensure!(
+                !turn.urls.is_empty() && turn.urls.len() <= 4,
+                "provide 1–4 TURN URLs"
+            );
+            ensure!(
+                turn.relay_port_start >= 1024 && turn.relay_port_end >= turn.relay_port_start,
+                "invalid TURN relay range"
+            );
+            ensure!(
+                turn.relay_port_end < s.port_start || turn.relay_port_start > s.port_end,
+                "TURN relay ports overlap game ports"
+            );
+            for raw in &turn.urls {
+                let endpoint = raw
+                    .strip_prefix("turn:")
+                    .or_else(|| raw.strip_prefix("turns:"))
+                    .context("TURN URLs must use turn: or turns:")?;
+                let (address, transport) = endpoint
+                    .split_once('?')
+                    .unwrap_or((endpoint, "transport=udp"));
+                ensure!(
+                    matches!(transport, "transport=udp" | "transport=tcp"),
+                    "invalid TURN transport"
+                );
+                let (host, port) = address
+                    .rsplit_once(':')
+                    .context("TURN URL needs a hostname and explicit port")?;
+                let port: u16 = port.parse()?;
+                ensure!(
+                    hostname(host)
+                        && port >= 1024
+                        && port != s.api_port
+                        && !(s.port_start..=s.port_end).contains(&port),
+                    "invalid TURN listener or overlap with game ports"
+                );
+                ensure!(
+                    !(turn.relay_port_start..=turn.relay_port_end).contains(&port),
+                    "TURN listener overlaps relay range"
+                );
+            }
+            ensure!(
+                !(turn.relay_port_start..=turn.relay_port_end).contains(&s.api_port),
+                "TURN relay range overlaps API port"
+            );
+        }
         let auth = reqwest::Url::parse(&s.auth_url)?;
         ensure!(
             auth.scheme() == "http"

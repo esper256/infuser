@@ -14,10 +14,24 @@ interfaces, not an approval process for ordinary UI changes.
 
 Approved product decisions:
 
+- The game-making agent owns building and deciding when to publish. Infuser
+  provides an agent-invoked CLI/API accepting runnable artifacts, validation,
+  immutable releases, and safe activation. Build detection is an optional shortcut;
+  game publishing never requires GitHub or an Infuser-owned development watcher.
 - Save conflicts preserve both candidates and let the game offer a choice; no
   silent overwrite or generic merge. Games declare their save files so Infuser
   can load and commit coherent cloud snapshots. See the concrete
-  [cloud-save design](cloud-save-design.md); those new endpoints are not shipped yet.
+  [cloud-save contract](cloud-save-design.md). A reusable chooser is desirable;
+  descriptions and any merge remain game-owned.
+- Guest progress lasts for the current launch, including refreshes. A new guest
+  launch starts empty, has a distinct identity, and may join the shared multiplayer
+  session. Guest progress never merges into the signed-in owner's saves.
+- Peer host departure ends the session in the first version. Explicit rejoining
+  is supported; seamless host migration is a later declared capability.
+- Join friend is an intent handled by the game. Failure returns visibly to its
+  title screen and never creates a second shared world.
+- Stable SDK majors coexist. Additions are capability-gated; an unchanged older
+  game must keep working when the daemon updates. Overall SDK 1.0 is not frozen yet.
 - Multiplayer updates upload immediately and activate after the shared session
   ends and its server shuts down. Queued publication is implemented; a force-restart
   action is reserved for adult administration.
@@ -40,10 +54,16 @@ that need without ending an unrelated single-player run. Join friend is a reques
 to join the existing shared session, never permission to create another world.
 Exact method names and payloads remain proposals until reviewed.
 
-Today, Play has no mode picker; the game owns that choice. The pre-1.0 launcher
-still warms a declared multiplayer backend before opening the game. On-demand
-acquisition from inside a title screen, in-game presence, and Join friend intents
-are not implemented yet. Existing explicit-mode launch requests remain accepted.
+Today, Play has no mode picker; the game owns that choice. Managed games can opt
+into [on-demand runtime sessions](runtime-sessions.md): the title screen opens
+without a backend, and the game acquires/releases one when needed. Existing builds
+retain launch-time warming and explicit-mode launch requests remain accepted.
+Peer-hosted games already enter multiplayer explicitly through `peers.join()`.
+[In-game presence and explicit peer joinability](presence.md) are implemented
+experimentally. A targeted peer join binds to the observed session ID; it never
+creates a replacement world. [Join friend launch intents](launch-intents.md) are
+opt-in and consumed once by the game, with guarded friend/session admission.
+Dedicated-server joinability reports are not implemented yet.
 
 ## Compatibility promise to implement before 1.0
 

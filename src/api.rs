@@ -16,9 +16,17 @@ use subtle::ConstantTimeEq;
 struct App {
     controller: Arc<Controller>,
     token_hash: [u8; 32],
+    peers: Option<Arc<crate::peers::Rooms>>,
 }
 
 pub fn router(controller: Arc<Controller>, token: &str) -> Router {
+    router_with_peers(controller, token, None)
+}
+pub fn router_with_peers(
+    controller: Arc<Controller>,
+    token: &str,
+    peers: Option<Arc<crate::peers::Rooms>>,
+) -> Router {
     Router::new()
         .route(
             "/healthz",
@@ -26,6 +34,7 @@ pub fn router(controller: Arc<Controller>, token: &str) -> Router {
         )
         .route("/v1/apps", get(list))
         .route("/v1/capabilities", get(capabilities))
+        .route("/v1/peer-health", get(peer_health))
         .route("/v1/apps/{id}/leases", post(acquire))
         .route(
             "/v1/apps/{id}/leases/{lease}",
@@ -36,6 +45,7 @@ pub fn router(controller: Arc<Controller>, token: &str) -> Router {
         .with_state(App {
             controller,
             token_hash: Sha256::digest(token.as_bytes()).into(),
+            peers,
         })
 }
 
@@ -112,7 +122,7 @@ async fn capabilities(State(app): State<App>, headers: HeaderMap) -> Result<Resp
         "play_modes":["solo","multiplayer"],
         "session_policy":"one_per_app",
         "multiplayer_modes":{
-            "peer_hosted":{"available":false,"reason":"Infuser signaling and relay integration is not installed yet."},
+            "peer_hosted":{"available":app.controller.config.controller.turn.is_some(),"transport":"webrtc","max_players":8,"experimental":true},
             "relayed":{"available":false,"reason":"Infuser WebSocket relay is not installed yet."},
             "dedicated":{"available":true},
             "persistent_world":{"available":true}
@@ -121,6 +131,15 @@ async fn capabilities(State(app): State<App>, headers: HeaderMap) -> Result<Resp
         "deployment":"web_publishing_api_and_operator_staged_server_images",
         "architecture":std::env::consts::ARCH
     })))
+}
+async fn peer_health(State(app): State<App>, headers: HeaderMap) -> Result<Response, ApiError> {
+    admin(&app, &headers)?;
+    Ok(reply(
+        app.peers
+            .as_ref()
+            .map(|p| p.diagnostics(now()))
+            .unwrap_or(json!({"sessions":[]})),
+    ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -6,14 +6,22 @@
   while these contracts are still changing.
 - Review and stabilize the [game SDK 1.0 contract](sdk-contract.md) before real
   games depend on it. Then consider Godot and Bevy; their implementation is paused.
-- Implement the reviewed [declared save-file snapshot model](cloud-save-design.md),
-  including durable conflict candidates and game-owned resolution. The current
-  slot API still rejects stale writes without storing the losing candidate.
-- Move server acquisition into the game so title screens need no running backend;
-  expose presence and joinability; add opt-in Join friend launch intents.
+- Dogfood experimental [peer-hosted WebRTC](peer-hosting.md) in Firefly first:
+  forced TURN, two autoplay clients, host departure/rejoin, connection recovery,
+  and queued updates. Keep multiplayer protocol changes experimental until review.
+- Dogfood the implemented [declared save-file snapshot model](cloud-save-design.md),
+  including durable conflict candidates and game-owned resolution. The legacy
+  slot API retains its original behavior; new checkpoints use separate v1 routes.
+- On-demand managed server acquisition/release is implemented as an opt-in build
+  contract; see [runtime sessions](runtime-sessions.md). Legacy builds still warm
+  on launch. [In-game presence and explicit peer joinability](presence.md) are
+  implemented; dogfood title-screen discovery, host admission controls and stale
+  targeted joins in Firefly. [Join friend launch intents](launch-intents.md) are
+  implemented behind the card dropdown; online-player data also supports future
+  avatar actions. Review server-authenticated joinability separately for managed
+  backends. Keep secondary actions off the future game hero art.
 - Give games a readable, unique URL slug. Preserve guest origin isolation and
   build isolation; a friendly entry address may differ from its actual play
   origin. Account for renames, collisions, reserved names, and old links.
-- Add managed engine server packaging, then relay/signaling with mandatory
-  fallback tests before advertising peer-hosted support.
+- Add managed engine server packaging after the first engine's journey stabilizes.
 - Review achievements separately before implementing their durable API.

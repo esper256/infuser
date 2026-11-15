@@ -6,7 +6,7 @@ use crate::{
     store::secret,
 };
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
@@ -64,6 +64,8 @@ fn listed() -> bool {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Launch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<crate::launch_intent::Intent>,
     pub app: String,
     pub build: String,
     pub email: String,
@@ -101,6 +103,90 @@ pub struct Data {
     pub presence: BTreeMap<String, u64>,
     pub reactions: BTreeMap<String, BTreeMap<String, Reaction>>,
 }
+// Keep the legacy catalog JSON readable by older daemons. New declarations
+// live separately so an old binary rewriting that catalog cannot erase them.
+fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
+    let mut data: Data = serde_json::from_str(raw)?;
+    let mut statement = c.prepare("SELECT build_key,declaration FROM cloud_manifests")?;
+    for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (key, declaration) = row?;
+        if let Some(build) = data.builds.get_mut(&key) {
+            build.manifest.cloud_saves = Some(serde_json::from_str(&declaration)?);
+        }
+    }
+    let mut statement = c.prepare("SELECT build_key,server_start FROM runtime_manifests")?;
+    for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (key, declaration) = row?;
+        if let Some(build) = data.builds.get_mut(&key) {
+            build.manifest.server_start = Some(serde_json::from_str(&declaration)?);
+        }
+    }
+    let mut statement = c.prepare("SELECT build_key,declaration FROM intent_manifests")?;
+    for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (key, declaration) = row?;
+        if let Some(build) = data.builds.get_mut(&key) {
+            build.manifest.launch_intents = serde_json::from_str(&declaration)?;
+        }
+    }
+    Ok(data)
+}
+fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
+    let mut value = serde_json::to_value(data)?;
+    for (key, build) in &data.builds {
+        if !build.manifest.launch_intents.is_empty() {
+            tx.execute("INSERT INTO intent_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(&build.manifest.launch_intents)?])?;
+        }
+        value["builds"][key]["manifest"]
+            .as_object_mut()
+            .unwrap()
+            .remove("launch_intents");
+        if let Some(declaration) = &build.manifest.server_start {
+            tx.execute("INSERT INTO runtime_manifests(build_key,server_start) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET server_start=excluded.server_start WHERE server_start!=excluded.server_start",params![key,serde_json::to_string(declaration)?])?;
+        }
+        value["builds"][key]["manifest"]
+            .as_object_mut()
+            .unwrap()
+            .remove("server_start");
+        if let Some(declaration) = &build.manifest.cloud_saves {
+            tx.execute("INSERT INTO cloud_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(declaration)?])?;
+        }
+        value["builds"][key]["manifest"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cloud_saves");
+    }
+    let keys = {
+        let mut stmt = tx.prepare("SELECT build_key FROM runtime_manifests")?;
+        stmt.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for key in keys {
+        if !data.builds.contains_key(&key) {
+            tx.execute("DELETE FROM runtime_manifests WHERE build_key=?1", [key])?;
+        }
+    }
+    let keys = {
+        let mut stmt = tx.prepare("SELECT build_key FROM cloud_manifests")?;
+        stmt.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for key in keys {
+        if !data.builds.contains_key(&key) {
+            tx.execute("DELETE FROM cloud_manifests WHERE build_key=?1", [key])?;
+        }
+    }
+    let keys = {
+        let mut stmt = tx.prepare("SELECT build_key FROM intent_manifests")?;
+        stmt.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for key in keys {
+        if !data.builds.contains_key(&key) {
+            tx.execute("DELETE FROM intent_manifests WHERE build_key=?1", [key])?;
+        }
+    }
+    Ok(serde_json::to_string(&value)?)
+}
 pub struct Database {
     pub connection: Mutex<Connection>,
 }
@@ -112,6 +198,9 @@ impl Database {
         c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
           CREATE TABLE IF NOT EXISTS platform (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS saves (owner TEXT, app TEXT, slot TEXT, version INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,app,slot));")?;
+        crate::cloud::initialize(&c)?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS runtime_manifests(build_key TEXT PRIMARY KEY, server_start TEXT NOT NULL);")?;
         c.execute(
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
             [serde_json::to_string(&Data::default())?],
@@ -121,22 +210,22 @@ impl Database {
         })
     }
     pub fn read(&self) -> Result<Data> {
-        let raw: String = self.connection.lock().unwrap().query_row(
-            "SELECT data FROM platform WHERE id=1",
-            [],
-            |r| r.get(0),
-        )?;
-        Ok(serde_json::from_str(&raw)?)
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
+        let data = decode_catalog(&tx, &raw)?;
+        tx.commit()?;
+        Ok(data)
     }
     pub fn edit<T>(&self, f: impl FnOnce(&mut Data) -> Result<T>) -> Result<T> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
-        let mut data: Data = serde_json::from_str(&raw)?;
+        let mut data = decode_catalog(&tx, &raw)?;
         let result = f(&mut data)?;
         tx.execute(
             "UPDATE platform SET data=?1 WHERE id=1",
-            [serde_json::to_string(&data)?],
+            [encode_catalog(&tx, &data)?],
         )?;
         tx.commit()?;
         Ok(result)
@@ -203,21 +292,35 @@ impl Database {
         Ok(version + 1)
     }
     pub fn cleanup(&self) -> Result<()> {
-        let expired_guests = self.edit(|data| {
-            let expired: Vec<_> = data
-                .launches
-                .iter()
-                .filter(|(_, l)| l.guest && l.expires < now())
-                .map(|(id, _)| format!("guest-{id}"))
-                .collect();
-            data.launches.retain(|_, l| l.expires > now());
-            data.presence.retain(|_, t| *t + 300 > now());
-            Ok(expired)
-        })?;
-        let c = self.connection.lock().unwrap();
-        for owner in expired_guests {
-            c.execute("DELETE FROM saves WHERE owner=?1", [owner])?;
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
+        let mut data = decode_catalog(&tx, &raw)?;
+        let time = now();
+        data.launches.retain(|_, l| l.expires > time);
+        data.presence.retain(|_, t| *t + 300 > time);
+        let active: std::collections::BTreeSet<_> = data
+            .launches
+            .iter()
+            .filter(|(_, l)| l.guest)
+            .map(|(id, _)| format!("guest-{id}"))
+            .collect();
+        // Also catch guest rows orphaned by an older binary or interrupted cleanup.
+        let owners = {
+            let mut statement = tx.prepare("SELECT owner FROM saves WHERE owner LIKE 'guest-%' UNION SELECT owner FROM cloud_revisions WHERE owner LIKE 'guest-%' UNION SELECT owner FROM cloud_receipts WHERE owner LIKE 'guest-%'")?;
+            statement
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for owner in owners.into_iter().filter(|owner| !active.contains(owner)) {
+            tx.execute("DELETE FROM saves WHERE owner=?1", [&owner])?;
+            crate::cloud::delete_owner(&tx, &owner)?;
         }
+        tx.execute(
+            "UPDATE platform SET data=?1 WHERE id=1",
+            [encode_catalog(&tx, &data)?],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 }
@@ -266,17 +369,23 @@ pub fn credential(data: &mut Data, app: &str, role: &str, label: &str) -> Result
 
 /// Local operator-only dogfood entry point. Produces a single-use guest launch,
 /// scoped to one hidden preview, without handing automation a Google session.
-pub fn preview(config: &Config, app: &str, email: &str) -> Result<serde_json::Value> {
+pub fn preview(
+    config: &Config,
+    app: &str,
+    email: &str,
+    intent: Option<crate::launch_intent::Intent>,
+) -> Result<serde_json::Value> {
     let email = email.to_lowercase();
     Database::open(&config.controller.state_dir)?.edit(|d| {
         ensure!(d.members.get(&email).is_some_and(|m|m.enabled&&m.admin),"preview requires an existing enabled adult admin");
         let selected=d.apps.get(app).context("unknown app")?;
         ensure!(!selected.listed,"operator preview only accepts hidden test games");
         let build=d.builds.get(&format!("{app}/{}",selected.build)).context("missing build")?;
-        ensure!(build.server.is_none(),"operator preview currently supports client-only web games");
+        ensure!(build.server.is_none() || build.manifest.server_start.is_some(),"operator preview requires a client-only or on-demand web game");
+        if let Some(intent) = &intent { intent.validate(&build.manifest)?; }
         let id=secret()[..32].to_string();let token=secret();
         let host=format!("g-{id}.{}",config.controller.domain);
-        d.launches.insert(id.clone(),Launch {app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
+        d.launches.insert(id.clone(),Launch {intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
         Ok(serde_json::json!({"launch_id":id,"url":format!("https://{host}/_infuser/launch#infuser={token}")}))
     })
 }

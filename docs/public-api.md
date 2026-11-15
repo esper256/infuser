@@ -70,13 +70,18 @@ against Infuser's own invitation list. Unsafe browser requests require the exact
 HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection IP.
 
 - `GET /api/me`, `GET /api/library` — identity, games, friends, reactions.
+  Library games include `author: {id, name}` from the existing owner/member records,
+  or `null` for an unrecorded owner. `id` is the same opaque player ID used for
+  presence; no email or profile-image URL is exposed.
 - `POST /api/my-games` with `{"title":"My Game"}` — returns `app_id`, `api_url`,
   `setup_code`, `expires_at` (Unix seconds), and `tag_catalog`; no permanent credential.
 - `POST /api/my-games/APP/setup` — owner/admin replaces an unclaimed setup code.
 - `PUT /api/apps/APP/tags` — owner/admin sets `{"tags":["chill","puzzle"]}`.
 - `POST /api/apps/APP/launch` with `{"guest":false}` — scoped launch URL; game owns
-  mode selection. Legacy explicit `mode` is still accepted. Pre-1.0 warms a declared
-  multiplayer backend before launch; in-game on-demand startup is planned.
+  mode selection. Legacy explicit `mode` is still accepted. Managed builds with
+  `manifest.server_start:"on_demand"` start at their title screen without a server;
+  builds without that declaration retain launch-time warming.
+  Opted-in peer games also accept an optional [Join friend intent](launch-intents.md).
 - `GET /api/launches/ID` — owner-only startup polling/renewal.
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
 - Adult-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
@@ -99,6 +104,24 @@ Launches open `/_infuser/play`, with fullscreen and return-to-Library controls i
 slim title bar above a same-origin game frame. The game still loads at `/` with its
 own viewport, so fixed canvases and root-relative assets work without rewriting.
 The SDK maintains the game session; it adds no controls over the game content.
+
+For opt-in managed backends, [runtime sessions](runtime-sessions.md) add
+`runtime.acquire()`, `runtime.status()`, and `runtime.release(sessionId)`:
+`GET/POST /_infuser/runtime/v1` and `DELETE /_infuser/runtime/v1/SESSION_ID`.
+These endpoints do not select a gameplay mode, create parallel servers, or end
+the browser/cloud-save session. Peer-hosted games use the separate peer API.
+
+`presence.get()` reads `GET /_infuser/presence/v1` without acquiring anything.
+It separates online members, launches with this game open, and active peer-room
+participants. Peer hosts use `PUT /_infuser/peers/PEER/joinability` with
+`{ "epoch": "SESSION_ID", "joinable": true }`. A targeted join sends
+`expected_epoch` to `POST /_infuser/peers`; session creation may supply `joinable`.
+See the [presence contract](presence.md) for admission, expiry and compatibility.
+
+`launchIntent.consume()` uses `POST /_infuser/launch-intent/v1/consume`. It returns
+the launch's intent at most once; ordinary launches and repeated reads return
+`{"intent":null}`. The game handles it after loading and retains a title-screen
+fallback. Targeted peer joins can supply both `expected_epoch` and `expected_player`.
 
 - `GET /_infuser/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.

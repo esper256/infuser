@@ -117,6 +117,20 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .status(),
         403
     );
+    assert_eq!(
+        kid(reqwest::Method::GET, "/api/admin/peer-health")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        adult(reqwest::Method::GET, "/api/admin/peer-health")
+            .send()
+            .await?
+            .status(),
+        200
+    );
     let owned: Value = kid(reqwest::Method::POST, "/api/my-games")
         .json(&json!({"title":"My star adventure"}))
         .send()
@@ -303,6 +317,12 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .json()
         .await?;
     assert_eq!(list["apps"][0]["title"], "Moon");
+    assert_eq!(list["apps"][0]["author"]["name"], "Grown-up");
+    assert_eq!(
+        list["apps"][0]["author"]["id"],
+        platform::hash("adult@example.com")
+    );
+    assert!(list["apps"][0]["author"].get("email").is_none());
     assert_eq!(list["apps"][0]["tags"], json!(["puzzle", "3d"]));
     assert_eq!(
         kid(reqwest::Method::PUT, "/api/apps/moon/tags")

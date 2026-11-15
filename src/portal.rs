@@ -16,7 +16,7 @@ macro_rules! ensure {
 use axum::{
     Json, Router,
     body::{Body, Bytes},
-    extract::{DefaultBodyLimit, Path, Request, State},
+    extract::{DefaultBodyLimit, Path, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -31,6 +31,8 @@ use std::{
 };
 use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
+mod presence;
+mod runtime;
 
 pub fn fault(status: u16, message: &str) -> anyhow::Error {
     Fault {
@@ -57,6 +59,14 @@ impl From<rustix::io::Errno> for Error {
 }
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
+        if let Some(f) = self.0.downcast_ref::<crate::cloud::Fault>() {
+            return (
+                StatusCode::from_u16(f.status).unwrap(),
+                [("Cache-Control", "no-store")],
+                Json(json!({"error":{"code":f.code,"message":f.message}})),
+            )
+                .into_response();
+        }
         let (status, message) = match self.0.downcast_ref::<Fault>() {
             Some(f) => (f.status, f.message.clone()),
             None => {
@@ -83,10 +93,37 @@ pub struct Platform {
     http: reqwest::Client,
     grants: Arc<Mutex<BTreeMap<IpAddr, u64>>>,
     publishing: Arc<Mutex<()>>,
+    peers: Arc<crate::peers::Rooms>,
+    relay: Option<Arc<crate::peers::Relay>>,
 }
 impl Platform {
+    pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
+        self.peers.clone()
+    }
     pub fn open(controller: Arc<Controller>) -> Result<Self> {
         let db = Arc::new(Database::open(&controller.config.controller.state_dir)?);
+        let relay = controller
+            .config
+            .controller
+            .turn
+            .as_ref()
+            .map(crate::peers::Relay::open)
+            .transpose()?
+            .map(Arc::new);
+        // After a restart, old browser hosts must lose their short lease before
+        // this coordinator can create another session. The marker contains no secrets.
+        let marker = controller
+            .config
+            .controller
+            .state_dir
+            .join("peer-coordinator.started");
+        let resume_after = if relay.is_some() {
+            let recovering = marker.exists();
+            std::fs::File::create(&marker)?.sync_all()?;
+            if recovering { now() + 30 } else { 0 }
+        } else {
+            0
+        };
         Ok(Self {
             controller,
             db,
@@ -96,6 +133,8 @@ impl Platform {
                 .build()?,
             grants: Arc::new(Mutex::new(BTreeMap::new())),
             publishing: Arc::new(Mutex::new(())),
+            peers: Arc::new(crate::peers::Rooms::recovering(resume_after)),
+            relay,
         })
     }
     fn config(&self) -> &Config {
@@ -221,14 +260,29 @@ impl Platform {
         );
         Ok((id.clone(), l.clone()))
     }
-    fn refresh(&self, id: &str, launch: &Launch) -> Result<Value> {
+    fn refresh(&self, id: &str) -> Result<Value> {
+        let _guard = self.publishing.lock().unwrap();
+        let data = self.db.read()?;
+        let launch = data
+            .launches
+            .get(id)
+            .filter(|l| l.expires > now())
+            .ok_or_else(|| fault(410, "game session expired"))?;
         let mut status = json!({"state":"ready","endpoint":null});
-        if let (Some(lease), Some(token)) = (&launch.lease_id, &launch.lease_token) {
+        let on_demand = data.builds[&build_key(&launch.app, &launch.build)]
+            .manifest
+            .server_start
+            .is_some();
+        if on_demand {
+            status["server"] = self.runtime_view(launch, true)?;
+        } else if let (Some(lease), Some(token)) = (&launch.lease_id, &launch.lease_token) {
             status = self
                 .controller
                 .lease(&launch.app, lease, token, "renew", now())?;
         }
-        if status["state"] == "ready"
+        if !on_demand
+            && launch.lease_id.is_some()
+            && status["state"] == "ready"
             && self
                 .controller
                 .snapshot()
@@ -351,6 +405,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/members", get(members).post(invite))
+        .route("/api/admin/peer-health", get(peer_health_admin))
         .route(
             "/api/admin/credentials",
             get(credentials).post(create_credential),
@@ -360,12 +415,27 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/session", post(exchange))
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
+        .route("/_infuser/presence/v1", get(presence::snapshot))
+        .route("/_infuser/launch-intent/v1/consume", post(consume_intent))
+        .route("/_infuser/runtime/v1", get(runtime::status).post(runtime::acquire))
+        .route("/_infuser/runtime/v1/{session}", delete(runtime::release))
+        .route("/_infuser/peers", post(peer_join))
+        .route("/_infuser/peers/{peer}", get(peer_poll).delete(peer_leave))
+        .route("/_infuser/peers/{peer}/signals", post(peer_signal))
+        .route("/_infuser/peers/{peer}/joinability", put(presence::set_joinable).layer(DefaultBodyLimit::max(1024)))
+        .route("/_infuser/peers/{peer}/ice", post(peer_ice))
+        .route("/_infuser/peers/{peer}/health", post(peer_health).layer(DefaultBodyLimit::max(4096)))
+        .route("/_infuser/peers.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../sdk/peers.js")) }))
         .route("/_infuser/play", get(player))
         .route("/_infuser/player.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../web/game-player.js")) }))
         .route("/_infuser/player.css", get(|| async { ([(header::CONTENT_TYPE,"text/css")],include_str!("../web/game-player.css")) }))
         .route("/_infuser/proxy-auth", get(proxy_auth))
         .route("/_infuser/heartbeat", post(heartbeat).delete(leave))
         .route("/_infuser/saves/{slot}", get(save_get).put(save_put))
+        .route("/_infuser/cloud/v1/groups/{group}", get(cloud_load).post(cloud_commit))
+        .route("/_infuser/cloud/v1/groups/{group}/revisions/{revision}", get(cloud_revision))
+        .route("/_infuser/cloud/v1/groups/{group}/history", get(cloud_history))
+        .route("/_infuser/cloud-v1.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../sdk/cloud-v1.js")) }))
         .route(
             "/_infuser/sdk.js",
             get(|| async {
@@ -461,7 +531,14 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
         let b=&data.builds[&build_key(id,&a.build)];
         let players:Vec<_>=data.launches.values().filter(|l|l.app==*id&&l.seen+90>now()).map(|l|json!({"id":hash(&l.email),"name":data.members.get(&l.email).map(|m|m.name.as_str()).unwrap_or("Friend"),"guest":l.guest})).collect();
         let reactions:Vec<_>=data.reactions.get(id).into_iter().flat_map(|r|r.iter()).map(|(who,r)|json!({"name":data.members.get(who).map(|m|m.name.as_str()).unwrap_or("Friend"),"mine":*who==email,"emoji":r.emoji,"text":r.text,"updated":r.updated})).collect();
-        json!({"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        p.peers.retain_launches(id, &presence::live_launches(&data,id,now()),now());
+        let room = p.peers.discovery(id, &a.build, now());
+        let targets: Vec<_> = if b.manifest.launch_intents.contains(&crate::launch_intent::Kind::JoinFriend) && room["joinable"] == true {
+            room["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(&email))
+                .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
+        } else { vec![] };
+        let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name})));
+        json!({"author":author,"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence
@@ -469,7 +546,12 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .filter(|(email, t)| {
             **t + 90 > now() && data.members.get(*email).is_some_and(|m| m.enabled)
         })
-        .map(|(email, _)| json!({"id":hash(email),"name":data.members[email].name}))
+        .map(|(email, _)| {
+            let targets: Vec<_> = apps.iter().flat_map(|app| app["join_targets"].as_array().unwrap().iter()
+                .filter(|target| target["player_id"] == hash(email))
+                .map(|target| json!({"app_id":app["id"],"title":app["title"],"session_id":target["session_id"],"player_id":target["player_id"]})).collect::<Vec<_>>()).collect();
+            json!({"id":hash(email),"name":data.members[email].name,"join_targets":targets})
+        })
         .collect();
     Ok(reply(
         json!({"apps":apps,"friends":friends,"server":p.controller.list(now()),"tags":crate::tags::catalog(&data,data.members[&email].admin)}),
@@ -482,6 +564,8 @@ struct LaunchRequest {
     guest: bool,
     #[serde(default)]
     mode: Option<String>,
+    #[serde(default)]
+    intent: Option<crate::launch_intent::Intent>,
 }
 async fn launch(
     State(p): State<Platform>,
@@ -502,6 +586,13 @@ async fn launch(
         fault(404, "unknown game")
     );
     let b = &data.builds[&build_key(&app, &selected.build)];
+    if let Some(intent) = &body.intent {
+        intent.validate(&b.manifest)?;
+        ensure!(
+            body.mode.is_none(),
+            fault(400, "use a launch intent or a legacy mode, not both")
+        );
+    }
     let mode = serde_json::to_value(&b.manifest.play_modes).unwrap();
     if let Some(requested) = &body.mode {
         ensure!(
@@ -517,12 +608,17 @@ async fn launch(
             < 32,
         fault(429, "Close an old game before opening more.")
     );
-    // Normal Play does not choose gameplay on the game's behalf. During the
-    // pre-1.0 period, provision its backend before opening the title screen.
-    // In-game, on-demand session requests are part of the SDK 1.0 design review.
-    let needs_server = body.mode.as_deref() == Some("multiplayer")
-        || (body.mode.is_none() && b.manifest.multiplayer.is_some())
-        || matches!(b.manifest.solo_runtime, Some(SoloRuntime::SharedServer));
+    // New builds opt into title-screen startup. Preserve launch-time backend
+    // acquisition for existing uploads, including their explicit mode requests.
+    let managed = b
+        .manifest
+        .multiplayer
+        .as_ref()
+        .is_some_and(|m| matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld));
+    let needs_server = b.manifest.server_start.is_none()
+        && ((body.mode.as_deref() == Some("multiplayer") && managed)
+            || (body.mode.is_none() && managed)
+            || matches!(b.manifest.solo_runtime, Some(SoloRuntime::SharedServer)));
     let id = secret()[..32].to_string();
     let token = secret();
     let lease = if needs_server {
@@ -530,7 +626,7 @@ async fn launch(
     } else {
         None
     };
-    let host_id = if body.guest {
+    let host_id = if body.guest || body.intent.is_some() {
         id.clone()
     } else {
         // A new build must not replace cookies/assets in an already-open old tab.
@@ -539,6 +635,7 @@ async fn launch(
     };
     let gamehost = format!("g-{host_id}.{}", p.domain());
     let l = Launch {
+        intent: body.intent,
         app,
         build: selected.build.clone(),
         email,
@@ -587,7 +684,7 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
         }
         Ok(())
     })?;
-    Ok(reply(p.refresh(&id, l)?))
+    Ok(reply(p.refresh(&id)?))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -709,7 +806,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":false,"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -738,14 +835,22 @@ async fn create_build(
         .map_err(|e| fault(400, &e.to_string()))?;
     if let Some(m) = &body.manifest.multiplayer {
         ensure!(
-            matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld),
+            matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld)
+                || (m.mode == Mode::PeerHosted
+                    && m.transport == crate::manifest::Transport::Webrtc
+                    && m.max_players <= 8
+                    && p.relay.is_some()),
             fault(
                 422,
-                "peer-hosted and relay runtimes are not installed; do not substitute direct-only networking"
+                "runtime unavailable: peer hosting needs configured WebRTC/TURN and at most 8 players; direct-only networking is unsupported"
             )
         );
     }
-    let needs_server = body.manifest.multiplayer.is_some()
+    let needs_server = body
+        .manifest
+        .multiplayer
+        .as_ref()
+        .is_some_and(|m| matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld))
         || matches!(body.manifest.solo_runtime, Some(SoloRuntime::SharedServer));
     ensure!(
         needs_server == body.server.is_some(),
@@ -937,7 +1042,7 @@ impl Platform {
             anyhow::ensure!(index.contains("/_infuser/sdk.js"), fault(422,"include <script type=module src=\"/_infuser/sdk.js\"></script> so the game maintains its session"));
             let changes_server = b.server.is_some() || d.apps.get(app).is_some_and(|a| d.builds[&build_key(app,&a.build)].server.is_some());
             let running = self.controller.snapshot().games.get(app).is_some_and(|i|i.reserved());
-            if changes_server && running && !d.apps.get(app).is_some_and(|a|a.build==build) {
+            if ((changes_server && running) || self.peers.active(app, now())) && !d.apps.get(app).is_some_and(|a|a.build==build) {
                 d.builds.get_mut(&key).unwrap().ready = true;
                 d.pending_promotions.insert(app.into(),platform::PendingPromotion { build:build.into(),listed,queued_at:now() });
                 return Ok("queued");
@@ -993,6 +1098,7 @@ impl Platform {
 async fn unpublish(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMap) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
     let _guard = p.publishing.lock().unwrap();
+    p.peers.end(&app);
     if p.controller.snapshot().games.contains_key(&app) {
         p.controller.stop(&app)?;
     }
@@ -1083,8 +1189,21 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"runtime":p.refresh(&id,&l)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
+}
+async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (id, _) = p.game(&h)?;
+    let intent = p.db.edit(|d| {
+        let launch = d
+            .launches
+            .get_mut(&id)
+            .filter(|l| l.expires > now())
+            .ok_or_else(|| fault(410, "game session expired"))?;
+        Ok(launch.intent.take())
+    })?;
+    Ok(reply(json!({"intent":intent})))
 }
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (_, launch) = p.game(&h)?;
@@ -1112,10 +1231,166 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     Ok(response)
 }
 async fn heartbeat(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let (id, l) = p.game(&h)?;
+    let (id, _) = p.game(&h)?;
     p.origin(&h, host(&h))?;
     p.admit(&h).await;
-    Ok(reply(p.refresh(&id, &l)?))
+    Ok(reply(p.refresh(&id)?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PeerJoin {
+    connection_id: String,
+    #[serde(default = "yes")]
+    relay_only: bool,
+    #[serde(default)]
+    expected_epoch: Option<String>,
+    #[serde(default)]
+    expected_player: Option<String>,
+    #[serde(default)]
+    joinable: Option<bool>,
+}
+async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<PeerJoin>) -> Answer {
+    p.game(&h)?;
+    p.origin(&h, host(&h))?;
+    p.admit(&h).await;
+    let _guard = p.publishing.lock().unwrap();
+    let (id, launch) = p.game(&h)?;
+    let data = p.db.read()?;
+    ensure!(
+        data.apps
+            .get(&launch.app)
+            .is_some_and(|a| a.build == launch.build),
+        fault(409, "a newer build is available; reopen the game")
+    );
+    p.peers.retain_launches(
+        &launch.app,
+        &presence::live_launches(&data, &launch.app, now()),
+        now(),
+    );
+    let build = &data.builds[&build_key(&launch.app, &launch.build)];
+    let multiplayer = build
+        .manifest
+        .multiplayer
+        .as_ref()
+        .ok_or_else(|| fault(422, "this game has no multiplayer mode"))?;
+    ensure!(
+        multiplayer.mode == Mode::PeerHosted
+            && multiplayer.transport == crate::manifest::Transport::Webrtc,
+        fault(422, "this game does not use WebRTC peer hosting")
+    );
+    let relay = p
+        .relay
+        .as_ref()
+        .ok_or_else(|| fault(503, "TURN is not configured"))?;
+    let who = crate::peers::Identity {
+        launch: id.clone(),
+        player: if launch.guest {
+            format!("guest-{id}")
+        } else {
+            hash(&launch.email)
+        },
+        name: if launch.guest {
+            "Guest".into()
+        } else {
+            data.members[&launch.email].name.clone()
+        },
+        guest: launch.guest,
+    };
+    let mut result = p.peers.join(
+        who,
+        crate::peers::Join {
+            app: &launch.app,
+            build: &launch.build,
+            connection: &body.connection_id,
+            max_players: multiplayer.max_players,
+            expected_epoch: body.expected_epoch.as_deref(),
+            expected_player: body.expected_player.as_deref(),
+            joinable: body.joinable,
+        },
+        now(),
+    )?;
+    result["ice_servers"] = json!([relay.credentials(result["self_id"].as_str().unwrap(), now())]);
+    result["ice_transport_policy"] = json!(if body.relay_only
+        || matches!(
+            multiplayer.direct_connect,
+            Some(crate::manifest::DirectConnect::Disabled)
+        ) {
+        "relay"
+    } else {
+        "all"
+    });
+    Ok(reply(result))
+}
+#[derive(Deserialize, Default)]
+struct PeerCursor {
+    #[serde(default)]
+    after: u64,
+}
+async fn peer_poll(
+    State(p): State<Platform>,
+    Path(peer): Path<String>,
+    Query(cursor): Query<PeerCursor>,
+    h: HeaderMap,
+) -> Answer {
+    let (id, launch) = p.game(&h)?;
+    if h.contains_key("origin") {
+        p.origin(&h, host(&h))?;
+    }
+    ensure!(
+        h.get("sec-fetch-site").is_none_or(|v| v == "same-origin"),
+        fault(403, "poll from the game origin")
+    );
+    Ok(reply(p.peers.poll(
+        &launch.app,
+        &peer,
+        &id,
+        cursor.after,
+        now(),
+    )?))
+}
+async fn peer_signal(
+    State(p): State<Platform>,
+    Path(peer): Path<String>,
+    h: HeaderMap,
+    Json(body): Json<Value>,
+) -> Answer {
+    let (id, launch) = p.game(&h)?;
+    p.origin(&h, host(&h))?;
+    p.peers.signal(&launch.app, &peer, &id, &body, now())?;
+    Ok(reply(json!({"ok":true})))
+}
+async fn peer_leave(State(p): State<Platform>, Path(peer): Path<String>, h: HeaderMap) -> Answer {
+    let (id, launch) = p.game(&h)?;
+    p.origin(&h, host(&h))?;
+    p.peers.leave(&launch.app, &peer, &id, now())?;
+    Ok(reply(json!({"ok":true})))
+}
+async fn peer_ice(State(p): State<Platform>, Path(peer): Path<String>, h: HeaderMap) -> Answer {
+    let (id, launch) = p.game(&h)?;
+    p.origin(&h, host(&h))?;
+    p.peers.poll(&launch.app, &peer, &id, 0, now())?;
+    let relay = p
+        .relay
+        .as_ref()
+        .ok_or_else(|| fault(503, "TURN is not configured"))?;
+    Ok(reply(
+        json!({"ice_servers":[relay.credentials(&peer, now())]}),
+    ))
+}
+async fn peer_health(
+    State(p): State<Platform>,
+    Path(peer): Path<String>,
+    h: HeaderMap,
+    Json(body): Json<Value>,
+) -> Answer {
+    let (id, launch) = p.game(&h)?;
+    p.origin(&h, host(&h))?;
+    p.peers.health(&launch.app, &peer, &id, body, now())?;
+    Ok(reply(json!({"ok":true})))
+}
+async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.admin(&h, false).await?;
+    Ok(reply(p.peers.diagnostics(now())))
 }
 async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (_, l) = p.game(&h)?;
@@ -1152,8 +1427,10 @@ async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .into_response())
 }
 async fn leave(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let (id, l) = p.game(&h)?;
     p.origin(&h, host(&h))?;
+    let _guard = p.publishing.lock().unwrap();
+    let (id, l) = p.game(&h)?;
+    p.peers.leave_launch(&l.app, &id);
     if let (Some(lease), Some(token)) = (&l.lease_id, &l.lease_token) {
         let _ = p.controller.lease(&l.app, lease, token, "delete", now());
     }
@@ -1510,4 +1787,106 @@ async fn publisher_set_tags(
         Ok(())
     })?;
     Ok(reply(json!({"tags":tags})))
+}
+
+impl Platform {
+    fn cloud_group(
+        &self,
+        h: &HeaderMap,
+        group: &str,
+    ) -> Result<(String, Launch, crate::cloud::Group)> {
+        let (id, launch) = self.game(h)?;
+        let data = self.db.read()?;
+        let declaration = data
+            .builds
+            .get(&build_key(&launch.app, &launch.build))
+            .and_then(|b| b.manifest.cloud_saves.as_ref())
+            .and_then(|d| d.groups.iter().find(|g| g.id == group))
+            .cloned()
+            .ok_or_else(|| {
+                crate::cloud::fault(
+                    422,
+                    "undeclared_group",
+                    "this build does not declare that cloud save group",
+                )
+            })?;
+        let owner = if launch.guest {
+            format!("guest-{id}")
+        } else {
+            hash(&launch.email)
+        };
+        Ok((owner, launch, declaration))
+    }
+}
+async fn cloud_load(State(p): State<Platform>, Path(group): Path<String>, h: HeaderMap) -> Answer {
+    let (owner, launch, _) = p.cloud_group(&h, &group)?;
+    Ok(reply(p.db.cloud_load(
+        crate::cloud::Scope {
+            owner: &owner,
+            app: &launch.app,
+            group: &group,
+        },
+        None,
+    )?))
+}
+async fn cloud_revision(
+    State(p): State<Platform>,
+    Path((group, revision)): Path<(String, String)>,
+    h: HeaderMap,
+) -> Answer {
+    let (owner, launch, _) = p.cloud_group(&h, &group)?;
+    Ok(reply(p.db.cloud_load(
+        crate::cloud::Scope {
+            owner: &owner,
+            app: &launch.app,
+            group: &group,
+        },
+        Some(&revision),
+    )?))
+}
+async fn cloud_history(
+    State(p): State<Platform>,
+    Path(group): Path<String>,
+    h: HeaderMap,
+) -> Answer {
+    let (owner, launch, _) = p.cloud_group(&h, &group)?;
+    Ok(reply(p.db.cloud_history(crate::cloud::Scope {
+        owner: &owner,
+        app: &launch.app,
+        group: &group,
+    })?))
+}
+async fn cloud_commit(
+    State(p): State<Platform>,
+    Path(group): Path<String>,
+    h: HeaderMap,
+    body: std::result::Result<Json<crate::cloud::Commit>, axum::extract::rejection::JsonRejection>,
+) -> Answer {
+    let (owner, launch, declaration) = p.cloud_group(&h, &group)?;
+    p.origin(&h, host(&h))?;
+    let Json(body) = body.map_err(|e| {
+        crate::cloud::fault(
+            e.status().as_u16(),
+            "invalid_checkpoint",
+            "provide a complete JSON checkpoint with an explicit expected_revision and commit_id",
+        )
+    })?;
+    let result = p.db.cloud_commit(
+        crate::cloud::Scope {
+            owner: &owner,
+            app: &launch.app,
+            group: &group,
+        },
+        &declaration,
+        &body,
+        crate::cloud::WriteOptions {
+            build: &launch.build,
+            budget_bytes: p.config().controller.cloud_save_budget_mb * 1024 * 1024,
+            disk_reserve_bytes: p.config().controller.disk_reserve_mb * 1024 * 1024,
+            time: now(),
+        },
+    )?;
+    let mut response = reply(serde_json::to_value(&result).map_err(anyhow::Error::from)?);
+    *response.status_mut() = StatusCode::from_u16(result.status()).unwrap();
+    Ok(response)
 }

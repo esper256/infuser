@@ -146,7 +146,16 @@ pub async fn run(args: &[String]) -> Result<()> {
         settings.get("play_modes").cloned().context("Declare --solo, or put play_modes and multiplayer settings in infuser.game.json. Infuser never guesses multiplayer topology.")?
     };
     let solo = modes.as_array().is_some_and(|a| a.contains(&json!("solo")));
-    let manifest = json!({"schema_version":1,"app_id":connection.app_id,"title":title,"tags":settings.get("tags").cloned().unwrap_or(json!([])),"play_modes":modes,"solo_runtime":if solo{settings.get("solo_runtime").cloned().unwrap_or(json!("client_only"))}else{Value::Null},"multiplayer":settings.get("multiplayer").cloned().unwrap_or(Value::Null)});
+    let mut manifest = json!({"schema_version":1,"app_id":connection.app_id,"title":title,"tags":settings.get("tags").cloned().unwrap_or(json!([])),"play_modes":modes,"solo_runtime":if solo{settings.get("solo_runtime").cloned().unwrap_or(json!("client_only"))}else{Value::Null},"multiplayer":settings.get("multiplayer").cloned().unwrap_or(Value::Null)});
+    if let Some(saves) = settings.get("cloud_saves") {
+        manifest["cloud_saves"] = saves.clone();
+    }
+    if let Some(start) = settings.get("server_start") {
+        manifest["server_start"] = start.clone();
+    }
+    if let Some(intents) = settings.get("launch_intents") {
+        manifest["launch_intents"] = intents.clone();
+    }
     let parsed: crate::manifest::Manifest = serde_json::from_value(manifest.clone())?;
     parsed.validate()?;
     let capabilities = response(
@@ -156,7 +165,25 @@ pub async fn run(args: &[String]) -> Result<()> {
             .await?,
     )
     .await?;
+    if parsed.cloud_saves.is_some() {
+        ensure!(
+            capabilities["cloud_checkpoints"]["version"] == 1,
+            "this Infuser does not support declared cloud checkpoints yet"
+        );
+    }
+    if parsed.server_start.is_some() {
+        ensure!(
+            capabilities["runtime_sessions"]["version"] == 1,
+            "this Infuser does not support on-demand server sessions yet"
+        );
+    }
     if let Some(m) = &parsed.multiplayer {
+        if !parsed.launch_intents.is_empty() {
+            ensure!(
+                capabilities["launch_intents"]["version"] == 1,
+                "this Infuser does not support Join friend launch intents yet"
+            );
+        }
         let mode = serde_json::to_value(&m.mode)?;
         ensure!(
             capabilities["multiplayer"][mode.as_str().unwrap()] == true,

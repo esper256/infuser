@@ -1,8 +1,10 @@
 pub mod api;
 pub mod caddy;
+pub mod cloud;
 pub mod config;
 pub mod controller;
 pub mod docker;
+pub mod launch_intent;
 pub mod manifest;
 pub mod store;
 pub mod tags;
@@ -13,6 +15,7 @@ pub const BUILD_SHA: &str = match option_env!("INFUSER_BUILD_SHA") {
     None => "development",
 };
 pub mod firewall;
+pub mod peers;
 pub mod platform;
 pub mod portal;
 pub mod publisher;

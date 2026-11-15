@@ -1,4 +1,6 @@
 const $ = id => document.getElementById(id);
+const gameCount = $("game-count");
+let tagHold, heldCard, suppressContextUntil=0;
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
 const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea']];
 function el(tag, text, cls) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(cls) node.className = cls; return node; }
@@ -14,49 +16,95 @@ async function refresh() {
   if (refreshing) return; refreshing = true;
   try {
     library = await api('/api/library');
-    $('friends').textContent = library.friends.map(f => f.name).join(' · ') || 'No one else is online yet.';
+    renderPresence();
     renderFilters(); renderGames(); renderFeed();
   } catch (error) { showError(error); } finally { refreshing = false; }
 }
 function renderGames() {
   const games = $('games');
   // Preserve ongoing launch controls and selections during presence polling.
-  if (games.querySelector('[data-launching]')) return;
-  const choices = new Map([...games.querySelectorAll('select')].map(s => [s.dataset.app,s.value]));
+  if (games.querySelector('[data-launching], .play-menu[open]')) return;
+  cancelTagHold();
   games.replaceChildren();
   if(!library.apps.length) {
-    const empty = el('div',undefined,'empty'); empty.append(el('h2','Your library starts here.'),el('p',me.admin ? 'Hit Add a game, then give your existing game-making agent the setup prompt. Your published game will appear here.' : 'Already making a game? Hit Add a game and bring it over.')); games.append(empty);
+    const empty = el('div',undefined,'empty'); empty.append(el('h2','No games yet'),el('p','Add a game to get started.')); games.append(empty);
   }
   const query=$('game-search').value.trim().toLowerCase();
   const matching=library.apps.filter(g=>(!activeTag||(g.tags||[]).includes(activeTag))&&(!query||(g.title+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   $('game-count').textContent=matching.length+' / '+library.apps.length+' games';
-  if(library.apps.length&&!matching.length){const empty=el('div',undefined,'empty');empty.append(el('h2','No matches yet.'),el('p','Try another tag or clear your search.'));games.append(empty);}
+  if(library.apps.length&&!matching.length){const empty=el('div',undefined,'empty');empty.append(el('h2','No matches'),el('p','Try another tag or clear your search.'));games.append(empty);}
   for(const game of matching) {
     const card = el('article',undefined,'game');
-    card.append(el('div',game.play_modes.includes('multiplayer')?'✦':'◈','game-mark'),el('h2',game.title));
+    card.dataset.app=game.id;
+    const art=el('div',undefined,'game-art game-mark');art.setAttribute('aria-hidden','true');
+    const meta=el('div',undefined,'game-meta'),dock=el('div',undefined,'game-dock'),heading=el('div',undefined,'game-heading');
+    heading.append(el('h2',game.title));card.append(art,meta,dock);
     const modes = game.play_modes.map(m => m === 'solo' ? 'Single player' : 'Multiplayer').join(' + ');
-    card.append(el('p',(game.preview ? 'ADMIN PREVIEW · ' : '') + modes,'quiet'));
-    const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}card.append(tags);
+    meta.append(el('p',(game.preview ? 'ADMIN PREVIEW · ' : '') + modes,'game-mode'));
+    const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}meta.append(tags);
     const names = [...new Set(game.players.map(p => p.name + (p.guest ? '’s guest' : '')))];
-    card.append(el('p',names.length ? names.join(', ') + ' · game open' : 'Ready to launch','players'));
-    const actions=el('div',undefined,'actions'), play=el('button','Play'), select=el('select'); select.dataset.app=game.id;select.setAttribute('aria-label','Play options for '+game.title);
-    for(const guest of [false,true]) {const option=el('option',guest ? 'Play in guest mode' : 'My progress');option.value=guest?'guest':'player';select.append(option);}
-    if(choices.has(game.id))select.value=choices.get(game.id);
-    play.onclick=()=>start(game,play,select,card);actions.append(play,select);card.append(actions);
-    const react=el('button','React to this game','react-button');react.onclick=()=>openReaction(game);card.append(react);
-    if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}card.append(chips);}
+    if(names.length)meta.append(el('p',names.join(', ')+' · game open','players'));
+    const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
+    const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
+    const items=el('div',undefined,'play-menu-items');
+    const guest=el('button','Play in guest mode');guest.onclick=()=>{menu.open=false;start(game,play,card,{guest:true});};items.append(guest);
+    for(const target of game.join_targets||[]){
+      const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
+    }
+    menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
+    play.onclick=()=>start(game,play,card);actions.append(play,menu);
+    const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
+    const react=el('button',undefined,'creator react-button');react.type='button';react.setAttribute('aria-label',label);react.setAttribute('aria-haspopup','dialog');
+    const avatar=profileAvatar(game.author?.name,game.author?.id||game.id),hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
+    react.append(avatar,hint);react.onclick=()=>openReaction(game);heading.append(react);dock.append(heading,actions);
+    if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}meta.append(chips);}
     games.append(card);
   }
 }
-async function start(game,button,select,card) {
-  const guest=select.value==='guest';
+function profileAvatar(name,id) {
+  const words=(name||'').trim().split(/\s+/).filter(Boolean);
+  const initials=words.length>1?Array.from(words[0])[0]+Array.from(words.at(-1))[0]:Array.from(words[0]||'').slice(0,2).join('');
+  const tone=Array.from(id||name||'').reduce((value,ch)=>(value+ch.codePointAt(0))%6,0);
+  const avatar=el('span',initials.toLocaleUpperCase()||'···','avatar tone-'+tone);avatar.setAttribute('aria-hidden','true');return avatar;
+}
+function renderPresence() {
+  const people=(library.friends||[]).filter(person=>person.id!==me.player_id),list=$('friends');list.replaceChildren();list.hidden=!people.length;
+  for(const person of people.slice(0,2)){
+    const item=el('li',undefined,'presence-person');item.tabIndex=0;item.setAttribute('aria-label',person.name+' · online');
+    const name=el('span',person.name,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id),name);list.append(item);
+  }
+  if(people.length>2){const extra=people.slice(2),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
+}
+function cancelTagHold(){if(tagHold)clearTimeout(tagHold.timer);tagHold=null;}
+document.addEventListener('pointerdown',event=>{
+  cancelTagHold();
+  const card=event.target.closest('.game');
+  if(event.pointerType!=='touch'||!event.isPrimary||!card||!$('games').contains(card)||event.target.closest('button,select,input,textarea,a,summary,details'))return;
+  const game=library?.apps.find(g=>g.id===card.dataset.app);if(!game?.can_edit_tags)return;
+  tagHold={pointer:event.pointerId,x:event.clientX,y:event.clientY,card,timer:setTimeout(()=>{
+    if(!card.isConnected){cancelTagHold();return;}
+    heldCard=card;suppressContextUntil=Date.now()+1200;
+    cancelTagHold();openTags(game);
+  },600)};
+},{passive:true});
+document.addEventListener('pointermove',event=>{
+  if(tagHold&&event.pointerId===tagHold.pointer&&Math.hypot(event.clientX-tagHold.x,event.clientY-tagHold.y)>10)cancelTagHold();
+},{passive:true});
+for(const type of ['pointerup','pointercancel'])document.addEventListener(type,cancelTagHold,{passive:true});
+window.addEventListener('scroll',cancelTagHold,{capture:true,passive:true});
+window.addEventListener('blur',cancelTagHold);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelTagHold();});
+$('games').addEventListener('contextmenu',event=>{
+  if(tagHold||Date.now()<suppressContextUntil&&heldCard?.contains(event.target))event.preventDefault();
+});
+async function start(game,button,card,{guest=false,intent}={}) {
   // Open synchronously in the click event so browser popup blockers allow Play.
   const tab = window.open('about:blank','_blank');
   if(!tab){notice('Allow this site to open a game tab, then press Play again.');return;}
   tab.document.title='Opening '+game.title;tab.document.body.textContent='Getting '+game.title+' ready…';
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
   try {
-    const launch=await api(`/api/apps/${game.id}/launch`,{method:'POST',body:JSON.stringify({guest})});
+    const launch=await api(`/api/apps/${game.id}/launch`,{method:'POST',body:JSON.stringify({guest,intent})});
     const deadline=Date.now()+120000;let state=launch.state;
     while(state!=='ready') {
       if(tab.closed)throw Error('Game launch cancelled.');
@@ -68,6 +116,8 @@ async function start(game,button,select,card) {
     tab.opener=null;tab.location.replace(launch.url);
   } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent='Play';}
 }
+document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open]'))if(!menu.contains(event.target))menu.open=false;});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open]')){menu.open=false;menu.querySelector('summary').focus();}});
 function renderFeed() {
   const feed=$('feed');feed.replaceChildren();const entries=[];
   for(const game of library.apps){entries.push({at:game.updated,emoji:'↗',title:game.title+' updated',text:'A new build is ready to play.'});for(const r of game.reactions)entries.push({at:r.updated,emoji:r.emoji,title:r.name+' reacted to '+game.title,text:r.text});}
@@ -119,9 +169,9 @@ $('close-add-game').onclick=()=>$('add-game-dialog').close();
 $('add-game-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;try{newGameTitle=new FormData(event.target).get('title');newGameConnection=await api('/api/my-games',{method:'POST',body:JSON.stringify({title:newGameTitle})});showSetupPrompt();}catch(error){showError(error);}finally{button.disabled=false;}};
 $('copy-prompt').onclick=async()=>{try{if(Date.now()>=newGameConnection.expires_at*1000){newGameConnection=await api('/api/my-games/'+newGameConnection.app_id+'/setup',{method:'POST'});showSetupPrompt();}await navigator.clipboard.writeText($('agent-prompt').value);$('copy-prompt').textContent='Copied — paste it into your game’s chat';}catch{ $('agent-prompt').focus();$('agent-prompt').select();$('copy-prompt').textContent='Select and copy the prompt above';}};
 $('refresh-setup').onclick=async()=>{try{newGameConnection=await api('/api/my-games/'+newGameConnection.app_id+'/setup',{method:'POST'});showSetupPrompt();}catch(error){showError(error);}};
-$('another-game').onclick=()=>{newGameConnection=null;$('add-game-title').textContent='Add your game';$('agent-kit').hidden=true;$('add-game-form').hidden=false;$('add-game-form').reset();$('add-game-form').elements.title.focus();};
+$('another-game').onclick=()=>{newGameConnection=null;$('add-game-title').textContent='Add a game';$('agent-kit').hidden=true;$('add-game-form').hidden=false;$('add-game-form').reset();$('add-game-form').elements.title.focus();};
 function tagLabel(id){return library?.tags?.find(t=>t.id===id)?.label||id.split('-').map(w=>w[0]?.toUpperCase()+w.slice(1)).join(' ');}
-function renderFilters(){const nav=$('tag-filters');nav.replaceChildren();const all=el('button','All games','tag-filter'+(!activeTag?' selected':''));all.setAttribute('aria-pressed',String(!activeTag));all.onclick=()=>{activeTag='';renderFilters();renderGames();};nav.append(all);for(const tag of library.tags||[]){if(!tag.count&&activeTag!==tag.id)continue;const button=el('button',tag.label+' '+tag.count,'tag-filter'+(activeTag===tag.id?' selected':''));button.setAttribute('aria-pressed',String(activeTag===tag.id));button.onclick=()=>{activeTag=activeTag===tag.id?'':tag.id;renderFilters();renderGames();};nav.append(button);}}
+function renderFilters(){const nav=$('tag-filters');nav.replaceChildren();const all=el('button','All games','tag-filter'+(!activeTag?' selected':''));all.setAttribute('aria-pressed',String(!activeTag));all.onclick=()=>{activeTag='';renderFilters();renderGames();};nav.append(all);for(const tag of library.tags||[]){if(!tag.count&&activeTag!==tag.id)continue;const button=el('button',tag.label+' '+tag.count,'tag-filter'+(activeTag===tag.id?' selected':''));button.setAttribute('aria-pressed',String(activeTag===tag.id));button.onclick=()=>{activeTag=activeTag===tag.id?'':tag.id;renderFilters();renderGames();};nav.append(button);}nav.append(gameCount);}
 $('game-search').oninput=()=>{if(library)renderGames();};
 function openTags(game){editingTags=game;selectedTags=new Set(game.tags||[]);$('tags-title').textContent='Tags: '+game.title;renderTagPicker();$('tags-dialog').showModal();}
 function renderTagPicker(){const picker=$('tag-picker');picker.replaceChildren();const ids=new Set([...(library.tags||[]).map(t=>t.id),...selectedTags]);for(const id of [...ids].sort()){const button=el('button',tagLabel(id),'tag-chip'+(selectedTags.has(id)?' selected':''));button.type='button';button.setAttribute('aria-pressed',String(selectedTags.has(id)));button.onclick=()=>{if(selectedTags.has(id))selectedTags.delete(id);else if(selectedTags.size<8)selectedTags.add(id);renderTagPicker();};picker.append(button);}$('tag-selection-count').textContent=selectedTags.size+' / 8 selected';}
@@ -132,3 +182,24 @@ $('save-tags').onclick=async()=>{try{await api('/api/apps/'+editingTags.id+'/tag
 $('emoji').addEventListener('change',()=>{$('reaction-comment').hidden=false;$('reaction-text').focus();const selected=$('emoji').querySelector('input:checked+span');if(selected&&!matchMedia('(prefers-reduced-motion: reduce)').matches)selected.animate([{transform:'scale(.85) rotate(-8deg)'},{transform:'scale(1.17) rotate(5deg)'},{transform:'scale(1) rotate(0)'}],{duration:260,easing:'ease-out'});});
 $('reaction-text').addEventListener('input',()=>{const selected=$('emoji').querySelector('input:checked+span');if(selected&&!matchMedia('(prefers-reduced-motion: reduce)').matches)selected.animate([{transform:'translateY(0)'},{transform:'translateY(-3px)'},{transform:'translateY(0)'}],{duration:130});});
 function celebrate(target,emoji='✦'){if(!target||matchMedia('(prefers-reduced-motion: reduce)').matches)return;const bounds=target.getBoundingClientRect();const burst=el('span',emoji,'mini-celebration');burst.style.left=Math.min(innerWidth-50,Math.max(24,bounds.left+bounds.width/2))+'px';burst.style.top=Math.min(innerHeight-80,Math.max(80,bounds.top+50))+'px';document.body.append(burst);burst.addEventListener('animationend',()=>burst.remove(),{once:true});}
+async function refreshNetworkHealth(){
+  if(!me?.admin||!$('admin').querySelector('details')?.open)return;
+  let box=$('network-health');if(!box){box=el('section');box.id='network-health';$('admin').querySelector('.admin-panel').append(box);}
+  try{
+    const data=await api('/api/admin/peer-health');box.replaceChildren(el('h3','Network diagnostics'));
+    if(!data.sessions.length){box.append(el('p','No active peer sessions.','quiet'));return;}
+    const milliseconds=value=>typeof value==='number'&&Number.isFinite(value)?Math.round(value)+' ms':'measuring';
+    for(const session of data.sessions){
+      box.append(el('h4',session.app_id));
+      for(const peer of session.peers){
+        const connections=peer.health?.connections||[];const age=Date.now()/1000-peer.reported_at;
+        const prefix=peer.name+(peer.host?' · host':' · player');
+        if(!connections.length)box.append(el('p',prefix+' · waiting for a connection','quiet'));
+        for(const link of connections)box.append(el('p',prefix+' · '+(link.local||'?')+' ↔ '+(link.remote||'?')+' · round trip '+milliseconds(link.round_trip_ms)+(age>15?' · stale report':'')+' · '+Math.round((Number(link.bytesSent)||0)/1024)+' KiB sent / '+Math.round((Number(link.bytesReceived)||0)/1024)+' KiB received'));
+      }
+    }
+    box.append(el('p','Browser-reported network round trips. Rendering and game simulation can add delay.','quiet'));
+  }catch{box.replaceChildren(el('h3','Network diagnostics'),el('p','Diagnostics unavailable. Games can keep running.','quiet'));}
+}
+$('admin').querySelector('details').addEventListener('toggle',refreshNetworkHealth);
+setInterval(refreshNetworkHealth,5000);

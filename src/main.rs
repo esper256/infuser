@@ -33,7 +33,19 @@ async fn main() -> Result<()> {
             .create_new(true)
             .mode(0o600)
             .open(output)?;
-        let launch = infuser::platform::preview(&config, app, email)?;
+        let intent = if args.len() == 5 {
+            None
+        } else {
+            ensure!(
+                args.len() == 9 && args[5] == "--join-session" && args[7] == "--join-player",
+                "optional preview intent: --join-session SESSION --join-player PLAYER"
+            );
+            Some(infuser::launch_intent::Intent::JoinFriend {
+                session_id: args[6].clone(),
+                player_id: args[8].clone(),
+            })
+        };
+        let launch = infuser::platform::preview(&config, app, email, intent)?;
         file.write_all(serde_json::to_string_pretty(&launch)?.as_bytes())?;
         file.sync_all()?;
         println!("Single-use guest preview written; open within two minutes.");
@@ -167,16 +179,22 @@ async fn main() -> Result<()> {
     let runner = controller.clone();
     let publications = platform.clone();
     let background = tokio::spawn(async move {
+        let mut last_cleanup = 0;
         loop {
             tokio::time::sleep(Duration::from_secs(config.controller.tick_seconds)).await;
             // Persistence failure is fatal: continuing would lose resource accounting.
             runner.reconcile(now()).await?;
             publications.activate_pending()?;
+            if now().saturating_sub(last_cleanup) >= 60 {
+                publications.db.cleanup()?;
+                last_cleanup = now();
+            }
         }
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     });
-    let app = api::router(controller, token).merge(infuser::portal::router(platform));
+    let app = api::router_with_peers(controller, token, Some(platform.peer_rooms()))
+        .merge(infuser::portal::router(platform));
     let server = axum::serve(listener, app).with_graceful_shutdown(async {
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())

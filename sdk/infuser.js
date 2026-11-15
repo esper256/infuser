@@ -27,7 +27,33 @@ export const saves = {
   })
 };
 export async function leave() { stopped = true; clearInterval(timer); await request('heartbeat', { method: 'DELETE' }); }
-export const Infuser = { ready, saves, leave };
+// Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
+export const peers = { join: async options => (await import('/_infuser/peers.js')).join(options) };
+const checkpoint = method => async (...args) => (await import('/_infuser/cloud-v1.js')).cloud[method](...args);
+export const cloud = {load:checkpoint('load'),read:checkpoint('read'),history:checkpoint('history'),commit:checkpoint('commit'),resolve:checkpoint('resolve')};
+// Managed backends only. Peer-hosted games continue to use peers.join().
+// acquire() returns starting/ready; poll status() before connecting. Keep the
+// returned session_id for release so an old retry cannot end a newer session.
+export const runtime = {
+  acquire: () => request('runtime/v1', {method:'POST'}),
+  status: () => request('runtime/v1'),
+  release: sessionId => {
+    if (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId)) {
+      return Promise.reject(new TypeError('release requires the acquired session_id'));
+    }
+    return request('runtime/v1/' + sessionId, {method:'DELETE'});
+  }
+};
+export const presence = {
+  // A snapshot only: no backend acquisition, peer lease, or presence spoofing.
+  get: () => request('presence/v1', {signal:AbortSignal.timeout(5000)})
+};
+export const launchIntent = {
+  // Consume in the game after loading its state, never in the embedding player.
+  // At most once: refresh and lost-response retries cannot silently replay a join.
+  consume: () => request('launch-intent/v1/consume', {method:'POST',signal:AbortSignal.timeout(5000)})
+};
+export const Infuser = { ready, saves, leave, peers, cloud, runtime, presence, launchIntent };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.
