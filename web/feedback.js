@@ -19,11 +19,14 @@ export function initFeedback(button, closeMenu, api) {
   const form=dialog.querySelector('form'),review=dialog.querySelector('section'),status=dialog.querySelector('[role=status]');
   const close=dialog.querySelector('.close'),send=dialog.querySelector('.feedback-send'),edit=dialog.querySelector('.feedback-edit'),consent=review.querySelector('input');
   let report,available=false,pending=false,finished=false,uncertain=false;
+  const uncertainMessage='We could not confirm whether GitHub received your report. Keep this preview and ask your adult admin to check the issues before sending it again.';
   const message=text=>{status.textContent=text;};
   button.onclick=async()=>{
     closeMenu();
     if(finished){form.reset();form.hidden=false;review.hidden=true;finished=false;report=null;edit.disabled=false;consent.disabled=false;updateKind();}
-    dialog.showModal();message('Checking feedback availability…');
+    dialog.showModal();
+    if(uncertain){message(uncertainMessage);updateSend();return;}
+    available=false;updateSend();message('Checking feedback availability…');
     try{available=(await api('/api/feedback')).available;message(available?'No GitHub account needed. Nothing is sent until you choose Post public issue.':'Feedback is not set up. Ask your adult admin to enable it. You can still prepare and review a draft.');}
     catch{available=false;message('Cannot connect to Infuser. You can still prepare a draft. Close and reopen to check again.');}
     updateSend();
@@ -55,7 +58,7 @@ export function initFeedback(button, closeMenu, api) {
     catch(error){
       // A dropped response may follow successful creation. Never retry automatically.
       uncertain=!error.status||error.status>=500&&error.status!==503;
-      message(uncertain?'We could not confirm whether GitHub received your report. Keep this preview and ask your adult admin to check the issues before sending it again.':error.message);
+      message(uncertain?uncertainMessage:error.message);
       if(error.status===503)available=false;
     }finally{clearTimeout(timeout);pending=false;close.disabled=false;edit.disabled=finished||uncertain;consent.disabled=finished||uncertain;updateSend();}
   };

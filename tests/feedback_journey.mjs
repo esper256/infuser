@@ -48,6 +48,7 @@ try{
   failure=502;await dialog.locator('.feedback-send').click();await page.waitForFunction(()=>document.querySelector('.feedback-status').textContent.includes('could not confirm'));
   assert.equal(posts.length,3);assert.equal(await dialog.locator('.feedback-send').isDisabled(),true);assert.equal(await dialog.locator('.feedback-edit').isDisabled(),true);
   await page.keyboard.press('Escape');assert.equal(await dialog.isVisible(),false);await page.waitForFunction(()=>document.getElementById('account-trigger')===document.activeElement);
+  await open();assert.match(await dialog.locator('.feedback-status').textContent(),/could not confirm/);assert.equal(await dialog.locator('.feedback-send').isDisabled(),true);
   await page.reload();available=false;await open();await dialog.locator('[name=title]').fill('Draft');await dialog.locator('[name=description]').fill('Keep this');await review();await consent();assert.equal(await dialog.locator('.feedback-send').isDisabled(),true);
   assert.equal(await dialog.evaluate(e=>e.getBoundingClientRect().right<=innerWidth),true);
   await page.setViewportSize({width:1280,height:900});available=true;failure=-1;await page.reload();await open();
