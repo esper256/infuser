@@ -426,7 +426,9 @@ img.avatar { object-fit: cover; }
 .tag-overflow-panel .edit-tags { opacity: 1; pointer-events: auto; }
 @media (pointer:coarse) { .tag-more { min-height: 44px; min-width: 44px; } }
 /* Operator tools stay separate from normal group membership. */
-#operator-groups{font-size:.8rem;padding:.45rem .7rem}
+#operator-groups{margin-bottom:20px}
+.admin-panel.operator-only{width:min(280px,calc(100% - 28px))}
+.admin-panel.operator-only #operator-groups{margin-bottom:0}
 #group-inspection{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem 1.2rem;border-bottom:1px solid var(--line,#45536a);background:var(--surface,#172234)}
 #groups-dialog{width:min(94vw,30rem)}
 .group-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.65rem 0}
