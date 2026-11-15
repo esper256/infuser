@@ -1,6 +1,6 @@
 # Profile pictures
 
-Thirty-one original AI-generated pictures for Infuser's profile picker, generated
+Forty-one original AI-generated pictures for Infuser's profile picker, generated
 for this project rather than sourced from a stock library or an existing game
 franchise. The collection mixes characters with object-only gaming artwork.
 
@@ -15,6 +15,12 @@ franchise. The collection mixes characters with object-only gaming artwork.
   Frost Owl, Lime Frog.
 - 2D pixel animals: Pixel Panther (black cat), Moon Wolf, Loot Raccoon,
   Byte Gecko, Ember Raven.
+- Sports and racing: Soccer Comet (soccer ball), Hoop Hero (basketball), Turbo
+  Kart (go-kart).
+- Dinosaurs and sea life: Jurassic Grin (T-rex), Reef Shark.
+- Building and science: Mech Buddy (robot), Brick Rocket (toy construction),
+  Lab Spark (laboratory flask).
+- Playful fantasy and food: Treasure Mimic (chest creature), Pizza Planet.
 
 Each `NAME.png` is a 512×512 square source export. The `NAME-128.webp` files serve
 the 34–36px header, presence, and creator circles; `NAME-256.webp` serves the 88px
@@ -42,3 +48,8 @@ done
 Pixel-art source exports and WebP sizes use nearest-neighbor scaling. Their WebP
 exports are lossless to avoid introducing blur or ringing along pixel edges.
 All source exports are opaque; the circle is a CSS crop, not baked transparency.
+
+The latest ten originals were generated in two aligned sheets of five, then
+exported together into the existing square PNG and WebP sizes. They expand sports,
+dinosaurs, construction, and science themes while keeping strong silhouettes for
+the small circular badges.
