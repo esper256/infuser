@@ -119,6 +119,16 @@ async fn private_queue_enforces_adult_group_boundaries_consent_and_retention() -
             .await?,
         queued
     );
+    let mut alias_changed = retry.clone();
+    alias_changed["report"]["title"] = json!("Changed alias");
+    assert_eq!(
+        request(Method::POST, "/api/feedback", "member=one")
+            .json(&alias_changed)
+            .send()
+            .await?
+            .status(),
+        409
+    );
     retry["request_id"] = intake["request_id"].clone();
     retry["report"]["title"] = json!("Different");
     assert_eq!(
@@ -271,7 +281,7 @@ async fn private_queue_enforces_adult_group_boundaries_consent_and_retention() -
     );
     for n in 2..=4 {
         let mut body = intake.clone();
-        body["request_id"] = json!(format!("request-000000000{n}"));
+        body["request_id"] = json!(format!("request-000000001{n}"));
         body["report"]["title"] = json!(format!("Idea {n}"));
         assert_eq!(
             request(Method::POST, "/api/feedback", "member=one")

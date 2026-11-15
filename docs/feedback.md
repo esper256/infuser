@@ -57,7 +57,7 @@ across restarts. Run one controller per state directory, as with normal Infuser.
 
 The client retries private intake with the same request ID and frozen draft;
 replays return the original entry. Identical drafts from the same member/group
-are also deduplicated for the retention window, including dismissed reports.
+are also deduplicated for the retention window, including dismissed reports (up to 32 retry IDs per identical draft).
 Reusing a request ID with different content returns 409. Unsent client drafts
 are only in page memory; closing/reloading the form discards them.
 

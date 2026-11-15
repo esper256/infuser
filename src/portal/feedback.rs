@@ -156,7 +156,7 @@ enum ReviewState {
 #[derive(Clone, Deserialize, Serialize)]
 struct Entry {
     id: String,
-    key: String,
+    keys: Vec<String>,
     fingerprint: String,
     approved_fingerprint: Option<String>,
     member: String,
@@ -190,7 +190,7 @@ impl Queue {
         let member = hash(email);
         let key = hash(&format!("{group}:{email}:{}", body.request_id));
         let fingerprint = hash(&serde_json::to_string(&body.report)?);
-        if let Some(entry) = self.entries.iter().find(|e| e.key == key) {
+        if let Some(entry) = self.entries.iter().find(|e| e.keys.contains(&key)) {
             ensure!(
                 entry.fingerprint == fingerprint,
                 fault(
@@ -202,9 +202,17 @@ impl Queue {
         }
         if let Some(entry) = self
             .entries
-            .iter()
+            .iter_mut()
             .find(|e| e.member == member && e.group == group && e.fingerprint == fingerprint)
         {
+            ensure!(
+                entry.keys.len() < 32,
+                fault(
+                    429,
+                    "This identical report has already been received. Please ask an adult to check the queue."
+                )
+            );
+            entry.keys.push(key);
             return Ok(entry.id.clone());
         }
         let recent: Vec<_> = self
@@ -224,7 +232,7 @@ impl Queue {
         let id = secret();
         self.entries.push(Entry {
             id: id.clone(),
-            key,
+            keys: vec![key],
             fingerprint,
             approved_fingerprint: None,
             member,
