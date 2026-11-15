@@ -3,7 +3,9 @@
 Themes change presentation, not the application's features or identity. The
 profile dropdown contains **Change profile picture**, **Theme**, and **Sign out**.
 Theme choices apply immediately, persist in this browser, and sync across its open
-tabs. They are not account settings and do not change a player's handle or avatar.
+tabs. The presence stack includes the current player beside their friends; the
+account menu uses a rectangular handle button rather than a duplicate portrait.
+They are not account settings and do not change a player's handle or avatar.
 
 ## Architecture
 

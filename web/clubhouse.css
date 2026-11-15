@@ -327,7 +327,7 @@ img.avatar { object-fit: cover; }
 .header-menu > summary::-webkit-details-marker { display: none; }
 #recent-menu { margin-left: auto; }
 #account { margin-left: 0; }
-.profile-menu > summary { padding: 4px; background: transparent; border-color: transparent; }
+.profile-menu > summary { padding: 10px 12px; background: var(--field); border-color: var(--line); border-radius: 9px; font-weight: 650; }
 .profile-menu > summary::after { content: '⌄'; margin-left: 2px; }
 .account-menu { position: absolute; top: calc(100% - 8px); right: 36px; z-index: 20; width: 260px; max-width: calc(100% - 36px); padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 16px 40px #0008; }
 .account-menu > button, #account .account-menu > a { display: block; width: 100%; min-height: 44px; padding: 12px; text-align: left; border-radius: 8px; color: var(--ink); background: transparent; font-size: 13px; }
