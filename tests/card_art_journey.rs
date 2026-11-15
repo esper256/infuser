@@ -151,6 +151,95 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         json_ok(member("/api/library", "kid")).await?["apps"],
         json!([])
     );
+    // Adult visibility changes do not publish, rebuild, or change game data.
+    let visibility = |app: &str, who: &str| {
+        http.put(format!("{url}/api/admin/apps/{app}/visibility"))
+            .header("host", "games.example.com")
+            .header("cookie", format!("member={who}"))
+            .header("origin", "https://games.example.com")
+    };
+    assert_eq!(
+        visibility("pond", "kid")
+            .json(&json!({"listed":true}))
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        visibility("pond", "none")
+            .json(&json!({"listed":true}))
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    assert_eq!(
+        http.put(format!("{url}/api/admin/apps/pond/visibility"))
+            .header("host", "games.example.com")
+            .header("cookie", "member=adult")
+            .json(&json!({"listed":true}))
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        visibility("missing", "adult")
+            .json(&json!({"listed":true}))
+            .send()
+            .await?
+            .status(),
+        404
+    );
+    assert_eq!(
+        visibility("pond", "adult")
+            .json(&json!({"listed":true,"build":"other"}))
+            .send()
+            .await?
+            .status(),
+        422
+    );
+    let before_visibility = p.db.read()?;
+    json_ok(visibility("pond", "adult").json(&json!({"listed":true}))).await?;
+    assert_eq!(
+        json_ok(member("/api/library", "kid")).await?["apps"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(member(image_url, "kid").send().await?.status(), 200);
+    json_ok(visibility("pond", "adult").json(&json!({"listed":false}))).await?;
+    assert_eq!(
+        json_ok(member("/api/library", "kid")).await?["apps"],
+        json!([])
+    );
+    assert_eq!(member(image_url, "kid").send().await?.status(), 404);
+    assert_eq!(
+        http.post(format!("{url}/api/apps/pond/launch"))
+            .header("host", "games.example.com")
+            .header("cookie", "member=kid")
+            .header("origin", "https://games.example.com")
+            .json(&json!({"guest":false}))
+            .send()
+            .await?
+            .status(),
+        404
+    );
+    let after_visibility = p.db.read()?;
+    assert_eq!(
+        serde_json::to_value(&before_visibility.apps)?,
+        serde_json::to_value(&after_visibility.apps)?
+    );
+    assert_eq!(
+        serde_json::to_value(&before_visibility.builds)?,
+        serde_json::to_value(&after_visibility.builds)?
+    );
+    assert_eq!(
+        serde_json::to_value(&before_visibility.launches)?,
+        serde_json::to_value(&after_visibility.launches)?
+    );
     let image = member(image_url, "adult")
         .send()
         .await?

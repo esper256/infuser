@@ -442,6 +442,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/members", get(members).post(invite))
         .route("/api/admin/members/handle", put(rename_member).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/admin/apps/{app}/visibility", put(set_visibility).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/peer-health", get(peer_health_admin))
         .route(
             "/api/admin/credentials",
@@ -776,6 +777,28 @@ async fn unreact(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMa
 async fn members(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.admin(&h, false).await?;
     Ok(reply(json!({"members":p.db.read()?.members})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Visibility {
+    listed: bool,
+}
+async fn set_visibility(
+    State(p): State<Platform>,
+    Path(app): Path<String>,
+    h: HeaderMap,
+    Json(body): Json<Visibility>,
+) -> Answer {
+    p.admin(&h, true).await?;
+    p.db.edit(|d| {
+        let game = d
+            .apps
+            .get_mut(&app)
+            .ok_or_else(|| fault(404, "Game not found."))?;
+        game.listed = body.listed;
+        Ok(())
+    })?;
+    Ok(reply(json!({"app_id":app,"listed":body.listed})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

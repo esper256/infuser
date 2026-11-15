@@ -123,6 +123,12 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
   Opted-in peer games also accept an optional [Join friend intent](launch-intents.md).
 - `GET /api/launches/ID` — owner-only startup polling/renewal.
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
+- Adult-only `PUT /api/admin/apps/APP/visibility` with `{"listed":true}` or
+  `{"listed":false}` changes the active game's visibility without publishing a build.
+  Requires the exact HTTPS Origin. In the game's Play dropdown, choose **Make visible**
+  or **Make invisible**. Invisible games remain available to admins but are omitted
+  from player Libraries and reject new player launches. Existing sessions continue.
+  Pending/future build publications retain their own explicit visibility settings.
 - Adult-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
   DELETE `/api/admin/credentials/ID` revokes a credential.
 - Adult-only `PUT /api/admin/members/handle` with `{"email":"player@example.com","name":"New handle"}`

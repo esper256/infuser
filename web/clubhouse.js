@@ -53,7 +53,7 @@ function renderGames() {
     const meta=el('div',undefined,'game-meta'),dock=el('div',undefined,'game-dock'),heading=el('div',undefined,'game-heading');
     const title=el('h2',game.title);title.title=game.title;heading.append(title);card.append(art,meta,dock);
     const modes = game.play_modes.map(m => m === 'solo' ? 'Single player' : 'Multiplayer').join(' + ');
-    const mode=el('p',(game.preview ? 'ADMIN PREVIEW · ' : '') + modes,'game-mode');mode.title=mode.textContent;meta.append(mode);
+    const mode=el('p',(game.preview ? 'INVISIBLE · ' : '') + modes,'game-mode');mode.title=mode.textContent;meta.append(mode);
     const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}meta.append(tags);
     const names = [...new Set(game.players.map(p => p.name + (p.guest ? '’s guest' : '')))];
     const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
@@ -66,6 +66,18 @@ function renderGames() {
       const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
     }
     if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
+    if(me.admin){
+      const visibility=el('button',game.preview?'Make visible':'Make invisible');visibility.type='button';
+      visibility.onclick=async()=>{
+        if(visibility.disabled)return;visibility.disabled=true;
+        try{
+          const result=await api(`/api/admin/apps/${encodeURIComponent(game.id)}/visibility`,{method:'PUT',body:JSON.stringify({listed:game.preview})});
+          game.preview=!result.listed;menu.open=false;
+          notice(result.listed?'Visible in the Library.':'Invisible to players.');await refresh();
+        }catch(error){showError(error);}finally{visibility.disabled=false;}
+      };
+      items.append(visibility);
+    }
     if(names.length)items.append(el('p',names.join(', ')+' · game open','players'));
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
     play.onclick=()=>start(game,play,card);actions.append(play,menu);
