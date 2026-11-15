@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs,
-    os::unix::fs::symlink,
+    os::unix::fs::{PermissionsExt, symlink},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -22,6 +22,10 @@ const CANDIDATE: &[u8] = b"#!/bin/sh\nexit 0\n";
 impl Service for TestService {
     async fn check(&self, binary: &Path) -> Result<()> {
         ensure!(fs::read(binary)? == CANDIDATE, "wrong download");
+        ensure!(
+            fs::metadata(binary.parent().unwrap())?.permissions().mode() & 0o055 == 0o055,
+            "release directory must be traversable by the daemon user"
+        );
         ensure!(
             tokio::process::Command::new(binary)
                 .status()

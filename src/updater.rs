@@ -363,6 +363,9 @@ pub async fn update(
     );
     let candidate_dir = config.install_dir.join("releases").join(&release.commit);
     fs::create_dir_all(&candidate_dir)?;
+    // The updater runs with umask 0077, but the daemon runs as another user.
+    // Release binaries are public artifacts; credentials live outside this tree.
+    fs::set_permissions(&candidate_dir, fs::Permissions::from_mode(0o755))?;
     let binary = candidate_dir.join("infuser");
     let staging = candidate_dir.join("infuser.part");
     let mut file = OpenOptions::new()
