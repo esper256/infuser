@@ -44,6 +44,8 @@ in the header; the account choice appears on their creator and presence portrait
 Initials remain available. Never invent author identities. Cards use the Nightglass layout with
 a content-sized glass dock and the approved Infuser artwork as a fallback until
 game-provided hero art has an agreed contract. Fictional art stays in mockups.
+The draft [card hero art guide](card-art-guide.md) defines composition and export
+requirements for review; it does not introduce an artwork API or manifest field.
 
 Online players appear as overlapping avatars beside the logo. Filters and search
 share a row, with the game count after the final filter. Tag editing appears on

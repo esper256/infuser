@@ -1,0 +1,19 @@
+/* Review only. Shared Library card styling; the proposed hero uses centered cover. */
+.art-review { max-width: 1460px; padding: 28px 18px; }
+.art-review > h1 { margin: 0 0 12px; font-size: 30px; }
+.art-review section { margin-top: 32px; }
+.art-review section > h2 { font-size: 18px; margin-bottom: 16px; }
+.review-note,figcaption { color: var(--quiet); font-size: 13px; line-height: 1.5; }
+.review-cards { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 24px; }
+.review-sample { margin: 0; max-width: 100%; }
+.review-sample > figcaption { margin-bottom: 10px; }
+.game-art { background: url('firefly-drift.webp') center / cover no-repeat; }
+.review-small { width: 284px; height: 380px; }
+.review-medium { width: 368px; height: 388px; }
+.review-large { width: 600px; height: 632px; }
+.source-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
+.source-art { width: min(100%,512px); height: auto; }
+.source-row figure { margin: 0; }
+.thumbnail { width: 96px; height: 96px; }
+.source-row figcaption { margin-top: 8px; }
+@media(max-width:650px) { .review-large { width: 100%; height: auto; } }
