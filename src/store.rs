@@ -58,6 +58,8 @@ pub struct State {
     pub version: u32,
     pub owner: String,
     pub games: BTreeMap<String, Instance>,
+    #[serde(default)]
+    pub published_games: BTreeMap<String, Game>,
 }
 
 pub struct Store {
@@ -86,6 +88,7 @@ impl Store {
                 version: 1,
                 owner: secret()[..16].into(),
                 games: BTreeMap::new(),
+                published_games: BTreeMap::new(),
             }
         };
         ensure!(state.version == 1, "unsupported state version");

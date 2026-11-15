@@ -17,6 +17,30 @@ async fn main() -> Result<()> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args
+        .first()
+        .is_some_and(|s| s == "publish" || s == "unpublish")
+    {
+        return infuser::publisher::run(&args).await;
+    }
+    if args.first().is_some_and(|s| s == "firewall-serve") {
+        return infuser::firewall::serve(Path::new(args.get(1).context("socket path required")?))
+            .await;
+    }
+    if args.first().is_some_and(|s| s == "member") {
+        let config = Config::load(Path::new(args.get(1).context("config path required")?))?;
+        let email = args.get(2).context("email required")?;
+        let name = args.get(3).context("display name required")?;
+        infuser::platform::member(
+            &config,
+            email,
+            name,
+            args.iter().any(|s| s == "--admin"),
+            !args.iter().any(|s| s == "--disable"),
+        )?;
+        println!("Member saved.");
+        return Ok(());
+    }
     if args.first().is_some_and(|s| s == "validate-game") {
         let path = args.get(1).context("game manifest path required")?;
         let manifest: infuser::manifest::Manifest = serde_json::from_slice(&std::fs::read(path)?)?;
@@ -93,6 +117,7 @@ async fn main() -> Result<()> {
         port = config.controller.api_port,
         "Infuser API listening on loopback"
     );
+    let platform = infuser::portal::Platform::open(controller.clone())?;
     let runner = controller.clone();
     let background = tokio::spawn(async move {
         loop {
@@ -103,7 +128,7 @@ async fn main() -> Result<()> {
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     });
-    let app = api::router(controller, token);
+    let app = api::router(controller, token).merge(infuser::portal::router(platform));
     let server = axum::serve(listener, app).with_graceful_shutdown(async {
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())

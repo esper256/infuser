@@ -1,0 +1,56 @@
+# Replace example.com in private installation configuration only.
+# Requires Caddy built with the DNS provider used for wildcard certificates.
+example.com {
+    encode gzip
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+    }
+    handle /oauth2/* {
+        reverse_proxy 127.0.0.1:4180
+    }
+    # The private lifecycle API must never be routed to the internet.
+    @private path /v1/* /healthz
+    handle @private {
+        respond 404
+    }
+    handle {
+        reverse_proxy 127.0.0.1:7777 {
+            header_up X-Infuser-Client-IP {remote_host}
+        }
+    }
+}
+*.example.com {
+    tls {
+        dns porkbun {
+            api_key {env.PORKBUN_API_KEY}
+            api_secret_key {env.PORKBUN_API_SECRET_KEY}
+        }
+    }
+    @private path /v1/* /healthz /api/* /oauth2/*
+    handle @private {
+        respond 404
+    }
+    handle /_infuser/server/* {
+        route {
+            request_header -X-Infuser-Port
+            forward_auth 127.0.0.1:7777 {
+                uri /_infuser/proxy-auth
+                copy_headers X-Infuser-Port
+            }
+            uri strip_prefix /_infuser/server
+            reverse_proxy 127.0.0.1:{http.request.header.X-Infuser-Port} {
+                header_up -Cookie
+                header_up -Authorization
+                header_up -X-Infuser-Port
+                header_down -Set-Cookie
+            }
+        }
+    }
+    handle {
+        reverse_proxy 127.0.0.1:7777 {
+            header_up X-Infuser-Client-IP {remote_host}
+        }
+    }
+}

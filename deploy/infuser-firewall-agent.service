@@ -1,0 +1,25 @@
+[Unit]
+Description=Infuser expiring game-port admission helper
+Requires=infuser-firewall.service
+After=infuser-firewall.service
+
+[Service]
+ExecStart=/usr/local/bin/infuser firewall-serve /run/infuser-firewall/admit.sock
+User=root
+Group=infuser
+RuntimeDirectory=infuser-firewall
+RuntimeDirectoryMode=0750
+UMask=0007
+Restart=on-failure
+RestartSec=2
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+MemoryMax=64M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

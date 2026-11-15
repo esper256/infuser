@@ -46,9 +46,17 @@ pub struct Controller {
 }
 
 impl Controller {
-    pub fn open(config: Config, engine: Arc<dyn Engine>) -> Result<Self> {
+    pub fn open(mut config: Config, engine: Arc<dyn Engine>) -> Result<Self> {
         config.validate()?;
         let (store, mut state) = Store::open(&config.controller.state_dir)?;
+        for (id, game) in &state.published_games {
+            ensure!(
+                !config.games.contains_key(id),
+                "published app conflicts with operator catalog: {id}"
+            );
+            config.games.insert(id.clone(), game.clone());
+        }
+        config.validate()?;
         for (id, instance) in &state.games {
             ensure!(
                 !instance.reserved() || config.games.get(id) == Some(&instance.spec),
@@ -110,6 +118,50 @@ impl Controller {
 
     pub fn snapshot(&self) -> State {
         self.inner.lock().unwrap().1.clone()
+    }
+
+    /// Register a published server without restarting the daemon. Active worlds
+    /// cannot change version: publishing must wait until their session ends.
+    pub fn register(&self, id: &str, game: crate::config::Game) -> Result<()> {
+        let mut validation = self.config.clone();
+        validation.games.clear();
+        validation.games.insert(id.into(), game.clone());
+        validation.validate()?;
+        self.mutate(|state| {
+            if self.config.games.contains_key(id) && !state.published_games.contains_key(id) {
+                return Err(fault(409, "app belongs to the operator catalog"));
+            }
+            if let Some(i) = state.games.get_mut(id) {
+                if i.spec != game && i.reserved() {
+                    return Err(fault(
+                        409,
+                        "players are using this server; retry after it sleeps",
+                    ));
+                }
+                i.spec = game.clone();
+            } else {
+                let port = (self.config.controller.port_start..=self.config.controller.port_end)
+                    .find(|p| !state.games.values().any(|i| i.port == *p))
+                    .ok_or_else(|| fault(503, "no game ports available"))?;
+                state.games.insert(
+                    id.into(),
+                    Instance {
+                        spec: game.clone(),
+                        port,
+                        phase: Phase::Sleeping,
+                        attempt: String::new(),
+                        name: String::new(),
+                        started: 0,
+                        idle_since: None,
+                        retry_at: 0,
+                        error: None,
+                        leases: BTreeMap::new(),
+                    },
+                );
+            }
+            state.published_games.insert(id.into(), game);
+            Ok(())
+        })
     }
 
     fn mutate<T>(&self, f: impl FnOnce(&mut State) -> Result<T>) -> Result<T> {

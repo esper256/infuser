@@ -2,7 +2,7 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub schema_version: u32,
@@ -12,19 +12,19 @@ pub struct Manifest {
     pub solo_runtime: Option<SoloRuntime>,
     pub multiplayer: Option<Multiplayer>,
 }
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlayMode {
     Solo,
     Multiplayer,
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SoloRuntime {
     ClientOnly,
     SharedServer,
 }
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     PeerHosted,
@@ -32,7 +32,7 @@ pub enum Mode {
     Dedicated,
     PersistentWorld,
 }
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Transport {
     Webrtc,
@@ -40,25 +40,25 @@ pub enum Transport {
     Tcp,
     Udp,
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DirectConnect {
     Optional,
     Disabled,
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RelayFallback {
     Required,
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JoinPolicy {
     Anytime,
     BetweenRounds,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Multiplayer {
     pub mode: Mode,

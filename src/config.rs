@@ -34,6 +34,11 @@ pub struct Settings {
     pub lease_seconds: u64,
     pub tick_seconds: u64,
     pub retry_seconds: u64,
+    /// Google session validation endpoint, reachable only on this host.
+    pub auth_url: String,
+    /// Optional Unix socket for the privileged, narrowly scoped firewall helper.
+    pub firewall_socket: Option<PathBuf>,
+    pub content_budget_mb: u64,
 }
 
 impl Default for Settings {
@@ -54,6 +59,9 @@ impl Default for Settings {
             lease_seconds: 90,
             tick_seconds: 2,
             retry_seconds: 30,
+            auth_url: "http://127.0.0.1:4180/oauth2/auth".into(),
+            firewall_socket: None,
+            content_budget_mb: 2048,
         }
     }
 }
@@ -152,6 +160,24 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
+        let auth = reqwest::Url::parse(&s.auth_url)?;
+        ensure!(
+            auth.scheme() == "http"
+                && auth
+                    .host_str()
+                    .is_some_and(|h| h == "127.0.0.1" || h == "[::1]")
+                && auth.username().is_empty()
+                && auth.password().is_none(),
+            "auth_url must point to the loopback authentication proxy"
+        );
+        ensure!(
+            (64..=1048576).contains(&s.content_budget_mb),
+            "invalid content budget"
+        );
+        ensure!(
+            s.firewall_socket.as_ref().is_none_or(|p| p.is_absolute()),
+            "firewall socket must be absolute"
+        );
         ensure!(
             hostname(&s.public_host) && hostname(&s.domain),
             "invalid public_host or domain"

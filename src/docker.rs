@@ -270,6 +270,16 @@ impl Docker {
                 format!("type=volume,source=infuser-{owner}-{id}-data,target=/data"),
             ]);
         }
+        if let Ok(token) =
+            std::fs::read_to_string(self.settings.state_dir.join("server-keys").join(id))
+        {
+            args.extend([
+                "--env".into(),
+                format!("INFUSER_SERVER_TOKEN={}", token.trim()),
+                "--env".into(),
+                format!("INFUSER_API_URL=https://{}", self.settings.domain),
+            ]);
+        }
         args.push(g.image.clone());
         args
     }

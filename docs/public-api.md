@@ -1,0 +1,90 @@
+# Public platform API
+
+The engine recipes are the preferred entry point. These are the stable, low-level
+building blocks for custom agents. All bodies/responses are JSON unless noted.
+Public traffic goes through HTTPS/Caddy; `/v1/*` is still private to the host.
+
+## Publisher credentials
+
+An adult admin can create an app-scoped connection file. An invited player can
+create a new game and its own scoped connection through **Add a game**. Each file
+contains `api_url`, `app_id`, and `token`. Use `Authorization: Bearer TOKEN`.
+Credentials can publish only their game, cannot read player saves, invite members,
+or control the host. Admin revocation and member disabling take effect immediately.
+
+| Method | Route | Action |
+|---|---|---|
+| GET | `/api/publisher/capabilities` | Supported runtimes, architecture, limits |
+| PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
+| GET | same | Inspect metadata and uploaded file inventory |
+| PUT | `/api/publisher/apps/APP/builds/BUILD/files/PATH` | Upload raw file body |
+| POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for adult-only preview |
+| DELETE | `/api/publisher/apps/APP/builds/BUILD` | Remove an unused build |
+| DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |
+
+Create body: `{"manifest":MANIFEST,"server":null,"spa":false,"cross_origin_isolation":false}`.
+The manifest follows `examples/game-manifest.json`. IDs are lowercase slug strings,
+up to 48 characters, beginning with a letter. Upload a UTF-8 `index.html` including
+`<script type="module" src="/_infuser/sdk.js"></script>`; the CLI adds it for you.
+Files are limited to 64 MiB, builds to 256 MiB/4096 files, and each app to 12 builds.
+The installation also has an aggregate content budget and a free-disk reserve.
+Drafts can be resumed by checking the file inventory. Published files are immutable.
+No arbitrary remote URLs are fetched and no build scripts execute on the host.
+
+An optional advanced `server` object uses the validated game settings documented
+in `deploy/infuser.example.toml`. Images must already be staged on the host and
+pinned to a digest; image upload/build/pull automation is not yet provided.
+For `web:true`, the player endpoint is its game origin plus `/_infuser/server`;
+Caddy authenticates and strips this prefix before proxying HTTP/WebSockets. Native
+TCP/UDP endpoints use expiring IP admission plus game-validated launch tickets.
+Changing a server build returns 409 while its shared server is active. Retry after
+it sleeps; do not force a second server or silently give players mismatched clients.
+
+## Player website
+
+Google sessions are validated against the loopback OAuth2 Proxy, then checked
+against Infuser's own invitation list. Unsafe browser requests require the exact
+HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection IP.
+
+- `GET /api/me`, `GET /api/library` — identity, games, friends, reactions.
+- `POST /api/my-games` with `{"title":"My Game"}` — create an owned app and pass.
+- `POST /api/apps/APP/launch` with `{"mode":"solo","guest":false}` — scoped launch URL.
+- `GET /api/launches/ID` — owner-only startup polling/renewal.
+- `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
+- Adult-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
+  DELETE `/api/admin/credentials/ID` revokes a credential.
+
+## Game SDK and saves
+
+The launch URL contains a short-lived, single-use token in its fragment. A minimal
+bootstrap exchanges it for a secure, HttpOnly, host-only game cookie and removes
+the fragment before loading any game code. Portal Google cookies never go to
+untrusted game hosts. Normal player/app hosts are stable; every guest launch gets
+a fresh host. Existing sessions are pinned to their selected build.
+
+The browser SDK is `/_infuser/sdk.js`.
+It exports `ready`, `saves.load(slot)`, `saves.save(slot,data,version)`, and `leave()`;
+it also exposes `window.Infuser`. See the Three.js recipe for usage.
+
+- `GET /_infuser/context` — player identity, guest flag, app/build, scoped game
+  ticket and ready endpoint. Never treat a display name as an identity.
+- `POST /_infuser/heartbeat` — renew every 25 seconds, including startup.
+- `DELETE /_infuser/heartbeat` — explicit leave. Closing a tab is handled by expiry.
+- `GET /_infuser/saves/SLOT` — `{version:0,data:null}` for an empty slot.
+- `PUT /_infuser/saves/SLOT` — `{version:EXPECTED,data:JSON}`; returns new version.
+  A stale version is 409. Limit 1 MiB/slot, 16 slots/player/game. Add your game's
+  schema version inside data. Guest saves expire with the session; personal saves
+  survive releases and daemon restarts. Publisher credentials cannot access them.
+
+For native sockets, servers receive `INFUSER_SERVER_TOKEN` and `INFUSER_API_URL`
+as runtime environment variables. Verify the client's scoped ticket by POSTing
+`{"ticket":"..."}` to `/api/server/verify` with that **server** bearer credential.
+The response is game-bound identity and expiry. Authenticate joins, periodically
+revalidate, and never accept a publisher token or client-claimed identity.
+
+## Current boundaries
+
+No peer relay/signaling, native client distribution, automatic engine server
+packaging, build queues, or multi-branch previews yet. An admin-only preview is an
+app visibility setting; it does not create a second server. Guest browser and
+cloud saves are isolated; server games must honor the returned guest identity.

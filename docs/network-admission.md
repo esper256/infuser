@@ -6,10 +6,10 @@ while their authenticated session is active. This is an extra scanner barrier,
 not player identity: everyone behind the same public IP shares access. Games
 still need short-lived launch tickets and their own player authorization.
 
-The initial deployment provides the closed firewall and expiring address sets.
-**Automatic grants from Google login are not implemented yet.** Do not open the
-game range broadly while that integration is pending. Web games stay behind the
-web authentication layer on HTTPS.
+The platform grants and refreshes these addresses through the optional Unix-socket
+firewall helper after Google session and Infuser membership checks pass. See
+[clubhouse installation](clubhouse-operations.md) for setup. Web games use HTTPS
+and scoped host-only game sessions.
 
 The nftables table in `deploy/game-ingress.nft` filters incoming TCP and UDP
 traffic to local game ports before Docker's DNAT. Filtering only host INPUT or
@@ -32,7 +32,7 @@ sudo nft add element inet infuser_ingress members4 '{ 192.0.2.123 timeout 60s }'
 ```
 
 The kernel expires grants even if the platform crashes. Restarting the firewall
-atomically clears grants; it never flushes unrelated firewall tables. A future
+atomically clears grants; it never flushes unrelated firewall tables. The
 login integration must obtain the address from the actual connection or the
 explicitly trusted reverse proxy, never an arbitrary client-supplied header or
 request field. Multiple sessions sharing an IP need combined expiry tracking;

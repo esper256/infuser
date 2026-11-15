@@ -1,49 +1,44 @@
 # Infuser
 
-A private game library where creators' agents handle publishing and players just
-press Play. Rust for the controller; Docker for game processes; Caddy for the web.
+A private game clubhouse. Kids make games with their agents, publish them, and
+press Play together. Rust runs the platform; Caddy handles HTTPS; Docker isolates
+servers when a game needs one. No Python, Node, or database service on the host.
 
-The first working slice is the infrastructure. The daemon starts a server when a
-session requests it, waits for its Docker health check, and stops it after the
-last player lease expires and the idle grace period passes. RAM and CPU are
-reserved before launch and released only after confirmed removal. Container
-limits are hard limits, and the total budget leaves room for the host.
+**Working platform:** Google sign-in plus adult-managed invitations, an online
+clubhouse, engine-aware web publishing, immutable releases, isolated game hosts,
+cloud saves, fresh guest sessions, positive emoji reactions, and a copyable agent
+prompt with an app-scoped private game pass. Admin-only previews keep test games
+out of the kids' library. SQLite stores platform data independently of games.
 
-**Implemented:** authenticated lifecycle API, idempotent launches, expiring
-session leases, fixed per-app port allocation, resource admission, idle shutdown,
-restart recovery, failure backoff, disk admission threshold, architecture checks,
-persistent server volumes, Caddy route generation, explicit solo/multiplayer
-manifest validation, a sample Rust game server, and automatic release updates
-with health checks and rollback.
-An optional game-port firewall provides default-deny access with expiring IP
-grants; connecting grants to Google login is part of the upcoming player API.
+**Server infrastructure:** one shared process per game, readiness checks, hard
+RAM/CPU limits, aggregate resource admission, fixed port allocation, expiring
+leases, idle shutdown, restart recovery, persistent world volumes, authenticated
+HTTP/WebSocket routing, and game-bound admission tickets. An optional nftables
+helper grants authenticated player IPs temporary access to native game ports.
 
-**Next:** the Google-authenticated library UI and player API, agent publishing
-API/CLI, immutable builds and branches, lobbies/presence, cloud saves, and engine
-adapters. The current control API is a loopback-only operator/backend API, **not
-the public publishing API**. Caddy's Google-login integration expects a separately
-configured OAuth2 Proxy; the project does not yet ship a player website.
+**Engine studies, in order:** Three.js/Vite first, Godot web next, Godot multiplayer,
+then Bevy. The happy path starts with a game project, not a Dockerfile. Server
+engine packaging, native client distribution, and peer relay/signaling are still
+in progress. Custom server images currently need operator staging. Peer-hosted
+multiplayer must have relay fallback; direct-only networking is unsupported.
 
 ```sh
 cargo build --locked --release --bin infuser
 cargo test --locked
-target/release/infuser check deploy/infuser.example.toml
+infuser publish /private/game.credentials.json /path/to/vite-game --solo
 ```
 
-Requires Rust 1.89+ to build. The resulting Linux executable needs Docker's CLI
-and socket, but no Python, Node, database service, or Rust installation at runtime.
-Build on ARM64 for an ARM64 host. Game images must match the host architecture.
+Requires Rust 1.89+ to build. Releases provide Linux AMD64/ARM64 executables.
+An existing Vite project needs its usual Node tooling on the game-making machine,
+not on the Infuser host. Godot exports likewise use the creator's Godot toolchain.
 
-Start here:
+- [Agent instructions and engine recipes](docs/agents.md)
+- [Public publishing, player and cloud-save API](docs/public-api.md)
+- [Install the clubhouse](docs/clubhouse-operations.md)
+- [Controller operations](docs/operations.md) and [private lifecycle API](docs/api.md)
+- [Automatic updates](docs/deployment.md) and [game-port firewall](docs/network-admission.md)
+- [Product boundaries](docs/architecture.md)
 
-- [Run a server](docs/operations.md)
-- [Automatic deployment](docs/deployment.md)
-- [Lifecycle API](docs/api.md)
-- [Game-port admission firewall](docs/network-admission.md)
-- [Game integration instructions for agents](docs/agents.md)
-- [Product boundaries and Steam-style concepts](docs/architecture.md)
-
-Tests focus on journeys through the HTTP API, with a simulated container runtime
-and an advanced clock so idle shutdown does not require real-time waits. An
-opt-in Docker journey exercises the actual sample game. A small CI workflow
-publishes passing builds; local development never waits for it.
+Private domains, provider details and credentials live outside the repository.
+Use ignored `.local/` files for installation configuration. Development does not
+wait for CI; a small workflow only promotes tested builds to the live server.

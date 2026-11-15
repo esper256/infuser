@@ -108,7 +108,7 @@ async fn capabilities(State(app): State<App>, headers: HeaderMap) -> Result<Resp
     admin(&app, &headers)?;
     Ok(reply(json!({
         "manifest_version":1,
-        "public_publishing_available":false,
+        "public_publishing_available":true,
         "play_modes":["solo","multiplayer"],
         "session_policy":"one_per_app",
         "multiplayer_modes":{
@@ -118,7 +118,7 @@ async fn capabilities(State(app): State<App>, headers: HeaderMap) -> Result<Resp
             "persistent_world":{"available":true}
         },
         "peer_connection_policy":{"direct_connect":"optional","relay_fallback":"required"},
-        "deployment":"operator_staged",
+        "deployment":"web_publishing_api_and_operator_staged_server_images",
         "architecture":std::env::consts::ARCH
     })))
 }
