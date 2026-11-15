@@ -1,0 +1,47 @@
+name: PR checks (advisory)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Advisory feedback only; no approval gate or release dependency.
+jobs:
+  checks:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [fast-tests, formatting, clippy]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable (2026-11-15)
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1 # v2.8.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Fast Rust journeys
+        if: matrix.check == 'fast-tests'
+        run: cargo test --locked
+      - name: Fast SDK and theme journeys
+        if: ${{ !cancelled() && matrix.check == 'fast-tests' }}
+        run: node --test tests/*_sdk.mjs tests/themes.mjs
+      - name: Rust formatting
+        if: matrix.check == 'formatting'
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        if: matrix.check == 'clippy'
+        run: cargo clippy --locked --all-targets -- -D warnings

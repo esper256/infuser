@@ -1,0 +1,38 @@
+name: Docker and Caddy integration (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable (2026-11-15)
+      - uses: Swatinem/rust-cache@bc2d2e71bd35c5549942babaa51a89c586b981d1 # v2.8.1
+      - name: Build the isolated demo image
+        run: docker build -f examples/demo/Dockerfile -t infuser-demo .
+      - name: Docker lifecycle journey
+        run: |
+          INFUSER_TEST_IMAGE=$(docker image inspect infuser-demo --format '{{.Id}}') \
+            cargo test --locked --test docker_journey -- --ignored --nocapture
+      - name: Extract Caddy 2.10.2
+        if: ${{ !cancelled() }}
+        run: |
+          docker pull caddy:2.10.2
+          container=$(docker create caddy:2.10.2)
+          trap 'docker rm "$container"' EXIT
+          docker cp "$container:/usr/bin/caddy" "$RUNNER_TEMP/caddy"
+          chmod +x "$RUNNER_TEMP/caddy"
+          "$RUNNER_TEMP/caddy" version
+      - name: Caddy authenticated web journey
+        if: ${{ !cancelled() }}
+        run: |
+          CADDY_BIN="$RUNNER_TEMP/caddy" \
+            cargo test --locked --test web_journey -- --ignored --nocapture

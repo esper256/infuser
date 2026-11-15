@@ -53,4 +53,7 @@ not on the Infuser host. Godot exports likewise use the creator's Godot toolchai
 
 Private domains, provider details and credentials live outside the repository.
 Use ignored `.local/` files for installation configuration. Development does not
-wait for CI; a small workflow only promotes tested builds to the live server.
+wait for CI. [Advisory checks and dependency maintenance](docs/ci.md) provide
+feedback independently of the existing build-and-release workflow.
+
+Licensed under the [MIT License](LICENSE).
