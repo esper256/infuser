@@ -106,7 +106,7 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game-tags { flex-wrap: nowrap; gap: 5px; min-height: 0; margin: 0; padding: 4px; justify-content: flex-start; overflow-x: auto; scrollbar-width: thin; }
 .game-tags > button { scroll-margin-inline: 4px; flex: none; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .game-tags > button:focus-visible { outline-offset: 1px; }
-.game-meta > .game-mode { width: fit-content; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.game-meta > .game-visibility { width: fit-content; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .game-tags .tag-chip,.edit-tags { background: #061b25cf; border-color: #d6f4e238; color: #e2efe6; min-height: 28px; padding: 4px 9px; backdrop-filter: blur(8px); }
 .edit-tags { border-style: dashed; opacity: 0; pointer-events: none; }
 .game-tags:focus-within .edit-tags { opacity: 1; pointer-events: auto; }
@@ -128,7 +128,7 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .creator:hover .reaction-hint,.creator:focus-visible .reaction-hint { visibility: visible; opacity: 1; }
 .game:focus-within,.game:hover { z-index: 1; }
 .tone-0 { --avatar-bg: #244d49; }.tone-1 { --avatar-bg: #44405e; }.tone-2 { --avatar-bg: #5a4933; }.tone-3 { --avatar-bg: #28465d; }.tone-4 { --avatar-bg: #573c52; }.tone-5 { --avatar-bg: #40533a; }
-.game-mode,.game .players { margin: 0; padding: 4px 8px; border-radius: 9px; background: #061b25cf; color: #d2e5df; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.game-visibility,.game .players { margin: 0; padding: 4px 8px; border-radius: 9px; background: #061b25cf; color: #d2e5df; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .game .players { flex-basis: 100%; width: fit-content; max-width: 100%; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip { border: 1px solid #668a7866; color: #e0eee6; background: #071b25df; padding: 4px 8px; border-radius: 14px; font-size: 11px; }

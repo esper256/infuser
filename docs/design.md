@@ -34,6 +34,8 @@ Use a dark, game-like visual style and small, responsive feedback throughout
 player flows: pressed controls, subtle card movement, clear launch progress,
 and a brief acknowledgement when an action succeeds. Respect reduced motion.
 The games get the spotlight. Keep adult tools straightforward.
+Do not label cards Single player or Multiplayer; tags and launch options convey
+those choices. Keep the admin-only Invisible indicator for unlisted games.
 
 When creator portraits are available, use the game author’s portrait as the
 reaction entry point, without a separate reaction control. Hover and keyboard
