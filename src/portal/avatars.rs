@@ -61,6 +61,16 @@ const AVATARS: &[Avatar] = &[
     avatar!("lab-spark", "Lab Spark"),
     avatar!("treasure-mimic", "Treasure Mimic"),
     avatar!("pizza-planet", "Pizza Planet"),
+    avatar!("home-run", "Home Run"),
+    avatar!("slapshot", "Slapshot"),
+    avatar!("monster-truck", "Monster Truck"),
+    avatar!("astro-sloth", "Astro Sloth"),
+    avatar!("moon-moth", "Moon Moth"),
+    avatar!("ink-captain", "Ink Captain"),
+    avatar!("cobalt-cobra", "Cobalt Cobra"),
+    avatar!("spell-hat", "Spell Hat"),
+    avatar!("ghost-toast", "Ghost Toast"),
+    avatar!("power-chord", "Power Chord"),
 ];
 
 pub(super) fn catalog() -> Value {
