@@ -1,0 +1,47 @@
+name: Merge owner PRs
+
+on:
+  schedule:
+    - cron: '3/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Inspect candidates without merging or dispatching releases
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-auto-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    # Explicit activation/kill switch; never run privileged code from a PR ref.
+    if: >-
+      github.repository == 'esper256/infuser' &&
+      github.ref == 'refs/heads/main' &&
+      (vars.OWNER_AUTO_MERGE == 'true' ||
+       (github.event_name == 'workflow_dispatch' && inputs.dry_run))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      statuses: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        with:
+          script: |
+            const { run } = require('./.github/scripts/auto-merge.cjs');
+            await run({ github, context, core, dryRun: process.env.DRY_RUN !== 'false' });
