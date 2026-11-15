@@ -59,9 +59,10 @@ Infer a few initial tags from the actual game. Prefer the supplied catalog or
 example `"tags":["3d","arcade","chill"]`. Later publishes preserve author edits.
 
 For Library card artwork, follow the draft [card hero art guide](card-art-guide.md).
-Prepare the image and review handoff in the game project. Automatic artwork
-registration is not implemented yet; do not invent manifest fields or claim the
-image appears in Infuser merely because it exists in the game export.
+Keep `infuser-art/card-hero.webp` in the project; `infuser publish` validates and
+attaches it automatically when the server advertises `card_art`. Review the art
+in the Library after publication. No artwork manifest field or game SDK call is
+needed; source masters and notes stay in the project.
 
 ## What Infuser handles
 

@@ -32,6 +32,7 @@ use std::{
 use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
 mod avatars;
+mod card_art;
 mod presence;
 mod runtime;
 mod sdk_v1;
@@ -418,6 +419,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/my-games", post(new_game))
         .route("/api/my-games/{app}/setup",post(renew_setup))
         .route("/api/apps/{app}/launch", post(launch))
+        .route("/api/apps/{app}/card-art/{build}", get(card_art::image))
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/members", get(members).post(invite))
@@ -555,7 +557,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
                 .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
         } else { vec![] };
         let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name,"avatar":member.avatar})));
-        json!({"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        json!({"card_art_url":card_art::url(id,&a.build,b),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence
@@ -858,7 +860,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1022,6 +1024,9 @@ async fn upload(
         .get(&key)
         .ok_or_else(|| fault(404, "create the build first"))?;
     ensure!(!b.ready, fault(409, "published builds are immutable"));
+    if path == crate::card_art::PATH {
+        crate::card_art::validate(&body).map_err(|e| fault(422, &format!("{e:#}")))?;
+    }
     let prior = b.files.get(&path).copied().unwrap_or(0);
     let size = body.len() as u64;
     ensure!(
@@ -1100,6 +1105,11 @@ impl Platform {
             if let Some(sdk) = &b.manifest.sdk { sdk.admit(&crate::sdk_contract::capabilities(self.relay.is_some())).map_err(|e|fault(422,&e.to_string()))?; }
             let script = crate::sdk_contract::script(&b.manifest);
             anyhow::ensure!(index.contains(script), fault(422,&format!("include <script type=module src=\"{script}\"></script> so the game maintains its session")));
+            if let Some(size) = b.files.get(crate::card_art::PATH) {
+                anyhow::ensure!(*size <= crate::card_art::MAX_BYTES as u64, fault(422, "card hero exceeds 250 KiB"));
+                let bytes = std::fs::read(self.root().join(&key).join(crate::card_art::PATH))?;
+                crate::card_art::validate(&bytes).map_err(|e| fault(422, &format!("{e:#}")))?;
+            }
             crate::game_urls::assign(d, app, &b.manifest.title);
             for credential in d.credentials.values_mut().filter(|c|c.app==app && c.role=="publish" && c.label=="Existing game") { credential.label=b.manifest.title.clone(); }
             let changes_server = b.server.is_some() || d.apps.get(app).is_some_and(|a| d.builds[&build_key(app,&a.build)].server.is_some());

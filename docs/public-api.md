@@ -56,6 +56,12 @@ The installation also has an aggregate content budget and a free-disk reserve.
 Drafts can be resumed by checking the file inventory. Published files are immutable.
 No arbitrary remote URLs are fetched and no build scripts execute on the host.
 
+Optional card art uses the ordinary file upload at `infuser-art/card-hero.webp`.
+`capabilities.card_art` advertises `path`, `width`, `height`, `max_bytes`, and
+`format`. See the [card art guide](card-art-guide.md) for the image constraints;
+invalid images return 422. Art belongs to the immutable build and activates with
+it. There is no separate manifest field or art mutation endpoint.
+
 An optional advanced `server` object uses the validated game settings documented
 in `deploy/infuser.example.toml`. Images must already be staged on the host and
 pinned to a digest; image upload/build/pull automation is not yet provided.
@@ -83,6 +89,10 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
   presence; no email is exposed. `avatar` is a curated picture ID or `null` for
   initials. Friends and `/api/me` include the same optional `avatar` field.
   `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog.
+  Library games include `card_art_url` (or `null` for the fallback). This relative
+  URL serves the active build's image at `/api/apps/APP/card-art/BUILD` with member
+  authentication and private revalidation caching. Hidden images require admin
+  membership; inactive-build images return 404.
 - `PUT /api/profile` with `{"avatar":"circuit-fox"}` — saves the signed-in member's
   picture; `{"avatar":""}` restores initials. Returns `{"avatar":ID_OR_NULL}`.
   Unknown IDs return 400; missing/null values and extra fields are rejected.

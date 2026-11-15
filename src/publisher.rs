@@ -48,6 +48,11 @@ fn walk(root: &Path, path: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()
         if name.starts_with('.') || name == "node_modules" {
             continue;
         }
+        // A plain-web export can also be the source project. Ship only the
+        // delivery image from this reserved directory, never its art masters.
+        if path == root.join("infuser-art") && name != "card-hero.webp" {
+            continue;
+        }
         let kind = entry.file_type()?;
         ensure!(
             !kind.is_symlink(),
@@ -73,6 +78,29 @@ fn walk(root: &Path, path: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[test]
+fn plain_web_export_keeps_art_sources_local() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("infuser-art/source"))?;
+    for name in [
+        "index.html",
+        crate::card_art::PATH,
+        "infuser-art/README.md",
+        "infuser-art/source/master.png",
+    ] {
+        std::fs::write(root.join(name), b"fixture")?;
+    }
+    let mut files = Vec::new();
+    walk(root, root, &mut files)?;
+    let mut names: Vec<_> = files.into_iter().map(|(name, _)| name).collect();
+    names.sort();
+    assert_eq!(names, vec!["index.html", crate::card_art::PATH]);
+    Ok(())
+}
+
 pub async fn run(args: &[String]) -> Result<()> {
     let connection_path=args.get(1).context("usage: infuser publish CONNECTION.credentials.json PROJECT --solo [--preview] [--title TITLE] [--web-dir EXPORT]")?;
     let connection: Connection = serde_json::from_slice(&std::fs::read(connection_path)?)?;
@@ -255,6 +283,32 @@ pub async fn run(args: &[String]) -> Result<()> {
     // Upload the export only. The project, node_modules and credentials never leave this machine.
     let mut files = Vec::new();
     walk(&export, &export, &mut files)?;
+    // Godot packages resources inside a PCK. Attach only this conventional
+    // delivery image separately; never upload the art master or provenance files.
+    let hero = project.join(crate::card_art::PATH);
+    if !files.iter().any(|(name, _)| name == crate::card_art::PATH) && hero.exists() {
+        ensure!(
+            !project
+                .join("infuser-art")
+                .symlink_metadata()?
+                .file_type()
+                .is_symlink()
+                && hero.symlink_metadata()?.file_type().is_file(),
+            "card hero must be a regular project file"
+        );
+        files.push((crate::card_art::PATH.into(), hero));
+    }
+    if let Some((_, path)) = files.iter().find(|(name, _)| name == crate::card_art::PATH) {
+        ensure!(
+            path.metadata()?.len() <= crate::card_art::MAX_BYTES as u64,
+            "card hero exceeds 250 KiB"
+        );
+        crate::card_art::validate(&std::fs::read(path)?)?;
+        ensure!(
+            capabilities["card_art"]["path"] == crate::card_art::PATH,
+            "this Infuser server needs an update before it can accept card artwork"
+        );
+    }
     files.sort_by(|a, b| a.0.cmp(&b.0));
     ensure!(files.len() <= 4096, "too many exported files");
     let mut total = 0;
