@@ -108,6 +108,12 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
 - Adult-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
   DELETE `/api/admin/credentials/ID` revokes a credential.
+- Adult-only `PUT /api/admin/members/handle` with `{"email":"player@example.com","name":"New handle"}`
+  renames an existing member. Requires the exact HTTPS Origin. Handles are trimmed,
+  1–40 characters, without control characters. Returns `{player_id, name}`; preserves
+  identity, permissions, enabled status, avatar, and saves. Unknown members return 404.
+  Ordinary players cannot rename themselves or anyone else; `/api/profile` accepts
+  avatar selection only. The adult uses **Admin tools → Members → Rename**.
 
 ## Game SDK and saves
 

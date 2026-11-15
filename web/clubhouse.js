@@ -24,6 +24,8 @@ async function refresh() {
   if (refreshing) return; refreshing = true;
   try {
     library = await api('/api/library');
+    const self=(library.friends||[]).find(person=>person.id===me.player_id);
+    if(self&&self.name!==me.name){me.name=self.name;renderAccount();}
     if(entrySlug && !entryGame){entryGame=await api('/api/games/'+encodeURIComponent(entrySlug));history.replaceState(null,'',new URL(entryGame.url).pathname);document.title=entryGame.title+' · Infuser';}
     renderPresence();
     renderFilters(); renderGames(); renderFeed();
@@ -149,12 +151,40 @@ $('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
 async function adminRefresh(){
   const [members,credentials]=await Promise.all([api('/api/admin/members'),api('/api/admin/credentials')]);
-  $('members').replaceChildren();for(const[email,m]of Object.entries(members.members)){const row=el('div');row.append(el('span',`${m.name} · ${email}${m.admin?' · admin':''}${m.enabled?'':' · disabled'}`));if(!m.admin){const toggle=el('button',m.enabled?'Disable':'Enable','secondary');toggle.onclick=async()=>{try{await api('/api/admin/members',{method:'POST',body:JSON.stringify({email,name:m.name,admin:m.admin,enabled:!m.enabled})});await adminRefresh();}catch(error){showError(error);}};row.append(toggle);}$('members').append(row);}
+  $('members').replaceChildren();
+  for(const[email,m]of Object.entries(members.members)){
+    const row=el('div'),label=el('span'),actions=el('div',undefined,'member-actions'),rename=el('button','Rename','secondary');
+    const updateLabel=()=>{label.textContent=`${m.name} · ${email}${m.admin?' · admin':''}${m.enabled?'':' · disabled'}`;rename.setAttribute('aria-label','Rename '+m.name);};updateLabel();
+    rename.type='button';rename.onclick=()=>openMemberRename(row,actions,email,m,updateLabel,rename);actions.append(rename);
+    if(!m.admin){const toggle=el('button',m.enabled?'Disable':'Enable','secondary');toggle.onclick=async()=>{try{await api('/api/admin/members',{method:'POST',body:JSON.stringify({email,name:m.name,admin:m.admin,enabled:!m.enabled})});await adminRefresh();}catch(error){showError(error);}};actions.append(toggle);}
+    row.append(label,actions);$('members').append(row);
+  }
   $('credentials').replaceChildren();for(const c of credentials.credentials){const row=el('div'),button=el('button','Revoke','secondary');row.append(el('span',c.label+' · '+c.app),button);button.onclick=async()=>{try{await api('/api/admin/credentials/'+c.id,{method:'DELETE'});await adminRefresh();}catch(error){showError(error);}};$('credentials').append(row);}
+}
+function openMemberRename(row,actions,email,member,updateLabel,rename){
+  actions.hidden=true;
+  const form=el('form',undefined,'member-handle'),label=el('label'),input=el('input'),save=el('button','Save'),cancel=el('button','Cancel','secondary'),error=el('p',undefined,'member-error');
+  label.append(el('span','Handle for '+member.name,'sr-only'),input);input.name='name';input.value=member.name;input.required=true;input.maxLength=40;input.autocomplete='off';input.oninput=()=>input.setCustomValidity('');
+  save.type='submit';cancel.type='button';error.setAttribute('role','alert');
+  const close=()=>{form.remove();actions.hidden=false;rename.focus();};cancel.onclick=close;
+  form.onkeydown=event=>{if(event.key==='Escape'&&!save.disabled){event.preventDefault();event.stopPropagation();close();}};
+  form.onsubmit=async event=>{
+    event.preventDefault();if(save.disabled)return;
+    if(!input.value.trim()){input.setCustomValidity('Enter a handle.');input.reportValidity();return;}
+    error.textContent='';save.disabled=true;cancel.disabled=true;input.disabled=true;
+    try{
+      const updated=await api('/api/admin/members/handle',{method:'PUT',body:JSON.stringify({email,name:input.value.trim()})});
+      member.name=updated.name;updateLabel();if(updated.player_id===me.player_id){me.name=updated.name;renderAccount();}
+      close();notice('Handle updated.');await refresh();
+    }catch(problem){error.textContent=problem.message;}
+    finally{save.disabled=false;cancel.disabled=false;input.disabled=false;}
+  };
+  form.append(label,save,cancel,error);row.append(form);input.focus();input.select();
 }
 $('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with that Google account.');await adminRefresh();}catch(error){showError(error);}};
 $('credential-form').onsubmit=async event=>{event.preventDefault();try{const data=Object.fromEntries(new FormData(event.target)),connection=await api('/api/admin/credentials',{method:'POST',body:JSON.stringify(data)});const blob=new Blob([JSON.stringify(connection,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=connection.app_id+'.credentials.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Connection file downloaded. Attach it in your game’s existing agent chat.');await adminRefresh();}catch(error){showError(error);}};
 function renderAccount(){
+  $('greeting').textContent='Signed in as '+me.name+'.';$('open-profile').setAttribute('aria-label',me.name+' · Change profile picture');
   $('open-profile').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),el('span',me.name));
 }
 function openProfile(){
