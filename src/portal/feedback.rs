@@ -1,4 +1,4 @@
-//! Fixed-destination public feedback, authenticated by the ordinary member session.
+//! Private, group-scoped feedback. Only an adult can approve a public issue.
 use super::*;
 use serde::Serialize;
 
@@ -10,7 +10,15 @@ pub(super) fn routes() -> Router<Platform> {
     Router::new()
         .route(
             "/api/feedback",
-            get(status).post(send).layer(DefaultBodyLimit::max(8192)),
+            get(status)
+                .post(enqueue)
+                .layer(DefaultBodyLimit::max(16384)),
+        )
+        .route("/api/feedback/review", get(list))
+        .route("/api/feedback/review/{id}", delete(dismiss))
+        .route(
+            "/api/feedback/review/{id}/send",
+            post(send).layer(DefaultBodyLimit::max(16384)),
         )
         .route(
             "/assets/feedback.js",
@@ -41,16 +49,17 @@ fn token(p: &Platform) -> Result<String> {
     Ok(value.into())
 }
 async fn status(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    p.member(&h, false).await?;
-    Ok(reply(json!({"available":token(&p).is_ok()})))
+    let email = p.member(&h, false).await?;
+    let adult = !h.contains_key(groups::INSPECT) && p.db.read()?.members[&email].admin;
+    Ok(reply(json!({"adult":adult})))
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Kind {
     Feature,
     Bug,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Diagnostics {
     online: bool,
@@ -60,28 +69,23 @@ struct Diagnostics {
     webassembly: bool,
     viewport: Viewport,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Viewport {
     Small,
     Medium,
     Large,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Report {
     kind: Kind,
     title: String,
     description: String,
     diagnostics: Option<Diagnostics>,
-    public_consent: bool,
 }
 impl Report {
     fn issue(&self) -> Result<Value> {
-        ensure!(
-            self.public_consent,
-            fault(422, "Review and agree to post this publicly first.")
-        );
         ensure!(
             !self.title.trim().is_empty()
                 && self.title.chars().count() <= 80
@@ -110,7 +114,7 @@ impl Report {
         Ok(json!({"title":format!("[{kind}] {}", self.title.trim()), "body":body}))
     }
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 struct Attempt {
     at: u64,
     member: String,
@@ -129,33 +133,285 @@ fn reserve(path: &std::path::Path, member: &str, time: u64) -> Result<()> {
         entries.len() < 10
             && !entries
                 .iter()
-                .any(|e| e.member == member && time.saturating_sub(e.at) < 3600),
+                .any(|e| e.member == member && time.saturating_sub(e.at) < 60),
         fault(
             429,
-            "Feedback limit reached. Please try tomorrow, or ask your adult admin for help."
+            "Posting limit reached. Wait a minute and try again; the installation allows ten attempts per day."
         )
     );
     entries.push(Attempt { at: time, member });
     crate::private_file::replace(path, &serde_json::to_vec(&entries)?)?;
     Ok(())
 }
-async fn send(State(p): State<Platform>, h: HeaderMap, Json(report): Json<Report>) -> Answer {
+const RETENTION: u64 = 30 * 86400;
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum ReviewState {
+    Pending,
+    Sending,
+    Sent,
+    Uncertain,
+    Dismissed,
+}
+#[derive(Clone, Deserialize, Serialize)]
+struct Entry {
+    id: String,
+    key: String,
+    fingerprint: String,
+    approved_fingerprint: Option<String>,
+    member: String,
+    group: String,
+    created: u64,
+    attempted: Option<u64>,
+    state: ReviewState,
+    report: Option<Report>,
+}
+#[derive(Default, Deserialize, Serialize)]
+struct Queue {
+    entries: Vec<Entry>,
+}
+impl Queue {
+    fn prune(&mut self, time: u64) -> bool {
+        let count = self.entries.len();
+        self.entries
+            .retain(|e| time.saturating_sub(e.created) < RETENTION);
+        count != self.entries.len()
+    }
+    fn enqueue(&mut self, body: Intake, email: &str, group: &str, time: u64) -> Result<String> {
+        body.report.issue()?;
+        ensure!(
+            (16..=64).contains(&body.request_id.len())
+                && body
+                    .request_id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-'),
+            fault(422, "Invalid feedback request ID.")
+        );
+        let member = hash(email);
+        let key = hash(&format!("{group}:{email}:{}", body.request_id));
+        let fingerprint = hash(&serde_json::to_string(&body.report)?);
+        if let Some(entry) = self.entries.iter().find(|e| e.key == key) {
+            ensure!(
+                entry.fingerprint == fingerprint,
+                fault(
+                    409,
+                    "This request ID was already used for different feedback."
+                )
+            );
+            return Ok(entry.id.clone());
+        }
+        if let Some(entry) = self
+            .entries
+            .iter()
+            .find(|e| e.member == member && e.group == group && e.fingerprint == fingerprint)
+        {
+            return Ok(entry.id.clone());
+        }
+        let recent: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|e| time.saturating_sub(e.created) < 86400)
+            .collect();
+        ensure!(
+            self.entries.len() < 500
+                && recent.len() < 50
+                && recent.iter().filter(|e| e.member == member).count() < 3,
+            fault(
+                429,
+                "The private feedback queue is full or your daily limit was reached. Please try tomorrow."
+            )
+        );
+        let id = secret();
+        self.entries.push(Entry {
+            id: id.clone(),
+            key,
+            fingerprint,
+            approved_fingerprint: None,
+            member,
+            group: group.into(),
+            created: time,
+            attempted: None,
+            state: ReviewState::Pending,
+            report: Some(body.report),
+        });
+        Ok(id)
+    }
+    fn entry(&mut self, id: &str, group: &str) -> Result<&mut Entry> {
+        self.entries
+            .iter_mut()
+            .find(|e| e.id == id && e.group == group)
+            .ok_or_else(|| fault(404, "Feedback not found."))
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Intake {
+    request_id: String,
+    report: Report,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Approval {
+    report: Report,
+    public_consent: bool,
+}
+fn queue_path(p: &Platform) -> PathBuf {
+    p.config().controller.state_dir.join("feedback-queue.json")
+}
+fn load_queue(p: &Platform) -> Result<Queue> {
+    let path = queue_path(p);
+    let mut queue: Queue = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Queue::default(),
+        Err(e) => return Err(e.into()),
+    };
+    if queue.prune(now()) {
+        crate::private_file::replace(&path, &serde_json::to_vec(&queue)?)?;
+    }
+    Ok(queue)
+}
+fn change<T>(p: &Platform, edit: impl FnOnce(&mut Queue) -> Result<T>) -> Result<T> {
+    let _lock = p.feedback_lock.lock().unwrap();
+    let mut queue = load_queue(p)?;
+    let result = edit(&mut queue)?;
+    crate::private_file::replace(&queue_path(p), &serde_json::to_vec(&queue)?)?;
+    Ok(result)
+}
+impl Platform {
+    pub fn cleanup_feedback(&self) -> Result<()> {
+        let _lock = self.feedback_lock.lock().unwrap();
+        load_queue(self)?;
+        Ok(())
+    }
+}
+async fn adult_group(p: &Platform, h: &HeaderMap, write: bool) -> Result<String> {
+    ensure!(
+        !h.contains_key(groups::INSPECT),
+        fault(
+            403,
+            "Feedback review is unavailable in inspection mode. Return home first."
+        )
+    );
+    let email = p.admin(h, write).await?;
+    Ok(p.db.read()?.groups.member(&email).into())
+}
+async fn enqueue(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Intake>) -> Answer {
     let email = p.member(&h, true).await?;
-    let issue = report.issue()?;
-    let token = token(&p)?;
-    {
-        let _lock = p.feedback_lock.lock().unwrap();
+    let group = p.db.read()?.groups.member(&email).to_string();
+    let id = change(&p, |q| q.enqueue(body, &email, &group, now()))?;
+    Ok(reply(json!({"queued":true,"id":id})))
+}
+async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let group = adult_group(&p, &h, false).await?;
+    let _lock = p.feedback_lock.lock().unwrap();
+    let queue = load_queue(&p)?;
+    let entries: Vec<_> = queue
+        .entries
+        .iter()
+        .filter(|e| {
+            e.group == group && !matches!(e.state, ReviewState::Sent | ReviewState::Dismissed)
+        })
+        .map(|e| json!({"id":e.id,"created":e.created,"state":e.state,"report":e.report}))
+        .collect();
+    Ok(reply(
+        json!({"available":token(&p).is_ok(),"entries":entries}),
+    ))
+}
+async fn dismiss(State(p): State<Platform>, h: HeaderMap, Path(id): Path<String>) -> Answer {
+    let group = adult_group(&p, &h, true).await?;
+    change(&p, |q| {
+        let entry = q.entry(&id, &group)?;
+        ensure!(
+            entry.state != ReviewState::Sending
+                || now().saturating_sub(entry.attempted.unwrap_or(now())) > 60,
+            fault(409, "Posting is still in progress.")
+        );
+        entry.state = ReviewState::Dismissed;
+        entry.report = None;
+        Ok(())
+    })?;
+    Ok(reply(json!({"dismissed":true})))
+}
+async fn send(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<Approval>,
+) -> Answer {
+    send_to(p, h, id, body, DESTINATION).await
+}
+async fn send_to(
+    p: Platform,
+    h: HeaderMap,
+    id: String,
+    body: Approval,
+    destination: &str,
+) -> Answer {
+    let group = adult_group(&p, &h, true).await?;
+    ensure!(
+        body.public_consent,
+        fault(422, "Review and agree to post this publicly first.")
+    );
+    let issue = body.report.issue()?;
+    let approved_fingerprint =
+        hash(&serde_json::to_string(&body.report).map_err(anyhow::Error::from)?);
+    let mut credential = None;
+    let claimed = change(&p, |q| {
+        let entry = q.entry(&id, &group)?;
+        if entry.state == ReviewState::Sent {
+            ensure!(
+                entry.approved_fingerprint.as_ref() == Some(&approved_fingerprint),
+                fault(
+                    409,
+                    "Another approved version was already posted. Refresh the queue."
+                )
+            );
+            return Ok(false);
+        }
+        ensure!(
+            entry.state == ReviewState::Pending,
+            fault(
+                409,
+                "This report was already attempted or dismissed. Check GitHub before creating another report."
+            )
+        );
+        credential = Some(token(&p)?);
+        // A global daily posting budget. The group is the rate-limit principal,
+        // so one adult cannot accidentally flood the repository with a queue.
         reserve(
             &p.config()
                 .controller
                 .state_dir
                 .join("feedback-attempts.json"),
-            &email,
+            &group,
             now(),
         )?;
+        entry.state = ReviewState::Sending;
+        entry.attempted = Some(now());
+        entry.approved_fingerprint = Some(approved_fingerprint);
+        entry.report = Some(body.report);
+        Ok(true)
+    })?;
+    if !claimed {
+        return Ok(reply(json!({"submitted":true})));
     }
-    // Never forward session headers, identity, host, or upstream error bodies.
-    submit(&p.http, &token, &issue, DESTINATION).await?;
+    // Claim is durable BEFORE the external side effect. Even a process crash
+    // cannot cause a second automatic GitHub POST for this queue entry.
+    let result = submit(&p.http, &credential.unwrap(), &issue, destination).await;
+    change(&p, |q| {
+        let entry = q.entry(&id, &group)?;
+        if entry.state != ReviewState::Sending {
+            return Ok(());
+        }
+        if result.is_ok() {
+            entry.state = ReviewState::Sent;
+            entry.report = None;
+        } else {
+            entry.state = ReviewState::Uncertain;
+        }
+        Ok(())
+    })?;
+    result?;
     Ok(reply(json!({"submitted":true})))
 }
 async fn submit(
@@ -187,7 +443,7 @@ mod tests {
     use super::*;
     #[test]
     fn reports_are_bounded_and_diagnostics_are_an_allowlist() {
-        let value = json!({"kind":"feature","title":"Idea","description":"Please add this","public_consent":true});
+        let value = json!({"kind":"feature","title":"Idea","description":"Please add this"});
         let report: Report = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(
             report.issue().unwrap()["body"],
@@ -222,7 +478,6 @@ mod tests {
             assert!(serde_json::from_value::<Report>(v).is_err());
         }
         for (key, val) in [
-            ("public_consent", json!(false)),
             ("title", json!("x".repeat(81))),
             ("description", json!("x".repeat(2001))),
         ] {
@@ -282,6 +537,107 @@ mod tests {
             assert_eq!(fault.message, UNCERTAIN);
         }
         task.abort();
+    }
+    #[tokio::test]
+    async fn adult_approval_is_durable_at_most_once_and_only_posts_edited_text() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        for status in [StatusCode::CREATED, StatusCode::FORBIDDEN] {
+            let dir = tempfile::tempdir().unwrap();
+            let config: Config = toml::from_str(&format!(
+                "[controller]\nstate_dir={:?}",
+                dir.path().to_string_lossy()
+            ))
+            .unwrap();
+            platform::member(&config, "adult@example.com", "Adult", true, true).unwrap();
+            let controller = Arc::new(
+                Controller::open(
+                    config.clone(),
+                    Arc::new(crate::docker::Docker {
+                        settings: config.controller.clone(),
+                    }),
+                )
+                .unwrap(),
+            );
+            let p = Platform::open(controller.clone()).unwrap();
+            // Synthetic fixture only. Never reads or contacts production.
+            std::fs::write(
+                dir.path().join("feedback.github-token"),
+                "synthetic-test-token",
+            )
+            .unwrap();
+            let original = json!({"kind":"feature","title":"Original private title","description":"Private original text","diagnostics":null});
+            let id = change(&p, |q| {
+                q.enqueue(
+                    serde_json::from_value(
+                        json!({"request_id":"request-1234567890","report":original}),
+                    )
+                    .unwrap(),
+                    "child@example.com",
+                    "home",
+                    now(),
+                )
+            })
+            .unwrap();
+            let count = Arc::new(AtomicUsize::new(0));
+            let calls = count.clone();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let destination = format!("http://{}/issues", listener.local_addr().unwrap());
+            let app=Router::new().route("/issues",post(move |h:HeaderMap,Json(body):Json<Value>|{let calls=calls.clone();async move {
+                calls.fetch_add(1,Ordering::SeqCst);
+                assert_eq!(h["authorization"],"Bearer synthetic-test-token");assert!(!h.contains_key("cookie"));
+                assert_eq!(body,json!({"title":"[Feature request] Edited","body":"Feature request\n\nSafe public description"}));
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                status
+            }}));
+            let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut h = HeaderMap::new();
+            h.insert("host", "games.example.com".parse().unwrap());
+            h.insert("origin", "https://games.example.com".parse().unwrap());
+            h.insert(
+                "x-infuser-verified-email",
+                "adult@example.com".parse().unwrap(),
+            );
+            let approval = || {
+                serde_json::from_value::<Approval>(json!({"report":{"kind":"feature","title":"Edited","description":"Safe public description","diagnostics":null},"public_consent":true})).unwrap()
+            };
+            let (first, second) = tokio::join!(
+                send_to(p.clone(), h.clone(), id.clone(), approval(), &destination),
+                send_to(p.clone(), h.clone(), id.clone(), approval(), &destination)
+            );
+            assert_eq!(count.load(Ordering::SeqCst), 1);
+            assert!(second.is_err());
+            assert_eq!(first.is_ok(), status == StatusCode::CREATED);
+            let restarted = Platform::open(controller).unwrap();
+            let retry = send_to(
+                restarted.clone(),
+                h.clone(),
+                id.clone(),
+                approval(),
+                &destination,
+            )
+            .await;
+            assert_eq!(retry.is_ok(), status == StatusCode::CREATED);
+            assert_eq!(count.load(Ordering::SeqCst), 1);
+            let queue = load_queue(&restarted).unwrap();
+            if status == StatusCode::CREATED {
+                assert!(queue.entries[0].report.is_none());
+            } else {
+                assert!(queue.entries[0].state == ReviewState::Uncertain);
+            }
+            // Simulate a crash after the durable claim, before recording a result.
+            change(&restarted, |q| {
+                q.entries[0].state = ReviewState::Sending;
+                Ok(())
+            })
+            .unwrap();
+            assert!(
+                send_to(restarted, h, id, approval(), &destination)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(count.load(Ordering::SeqCst), 1);
+            task.abort();
+        }
     }
     #[test]
     fn budget_survives_reloads_and_limits_all_members() {

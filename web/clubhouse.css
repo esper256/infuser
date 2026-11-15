@@ -444,3 +444,5 @@ body[data-inspecting] #add-game,body[data-inspecting] #chat-form{display:none}
 #feedback-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 35dvh; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .notification-hint { display: block; max-width: 230px; white-space: normal; color: var(--quiet); font-size: 12px; line-height: 1.4; }
 .notification-hint:empty { display: none; }
+#feedback-dialog .feedback-entries > section { margin: 16px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+#feedback-dialog .feedback-entries button { margin: 4px 8px 4px 0; }

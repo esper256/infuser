@@ -350,8 +350,8 @@ function setupAccount(){
   label.append(select);
   const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
   const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
-  initFeedback(feedback,()=>{menu.open=false;},api);
-  panel.append(profile,label,feedback,out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
+  const reviewFeedback=initFeedback(feedback,()=>{menu.open=false;},api,me.admin&&!me.inspecting);
+  panel.append(profile,label,feedback,...(reviewFeedback?[reviewFeedback]:[]),out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;
