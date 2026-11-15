@@ -1,5 +1,6 @@
 // Fictional fixtures for a standalone visual review. No API requests or real launches.
 const $=id=>document.getElementById(id);
+const gameCount=$('game-count');
 const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
 const games=[
   ['Firefly Drift','KwamiKwami','Chill',-1,8],['Moon Racers','OrbitFox','Racing',0,0],['Mossbyte','ByteMoth','Adventure',1,1],
@@ -50,7 +51,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelTagHo
 $('games').addEventListener('contextmenu',event=>{
   if(tagHold||Date.now()<suppressContextUntil&&heldCard?.contains(event.target))event.preventDefault();
 });
-function renderFilters(){const nav=$('tag-filters');nav.replaceChildren();for(const label of ['',...new Set(games.flatMap(g=>g.tags))]){const button=node('button',label||'All games','tag-filter'+(category===label?' selected':''));button.setAttribute('aria-pressed',String(category===label));button.onclick=()=>{category=label;renderFilters();render();};nav.append(button);}}
+function renderFilters(){const nav=$('tag-filters');nav.replaceChildren();for(const label of ['',...new Set(games.flatMap(g=>g.tags))]){const button=node('button',label||'All games','tag-filter'+(category===label?' selected':''));button.setAttribute('aria-pressed',String(category===label));button.onclick=()=>{category=label;renderFilters();render();};nav.append(button);}nav.append(gameCount);}
 function openTags(game){editing=game;$('tags-title').textContent='Tags: '+game.title;$('tag-picker').replaceChildren();for(const label of ['Arcade','Adventure','Racing','Chill']){const b=node('button',label,'tag-chip'+(game.tags.includes(label)?' selected':''));b.setAttribute('aria-pressed',String(game.tags.includes(label)));b.onclick=()=>{b.classList.toggle('selected');b.setAttribute('aria-pressed',String(b.classList.contains('selected')));};$('tag-picker').append(b);}$('tag-selection-count').textContent='Preview';$('tags-dialog').showModal();}
 $('save-tags').onclick=()=>{editing.tags=[...$('tag-picker').querySelectorAll('.selected')].map(e=>e.textContent);$('tags-dialog').close();renderFilters();render();};
 $('new-tag-form').onsubmit=e=>{e.preventDefault();const text=$('new-tag').value.trim();if(!text)return;const b=node('button',text,'tag-chip selected');b.setAttribute('aria-pressed','true');b.onclick=()=>{b.classList.toggle('selected');b.setAttribute('aria-pressed',String(b.classList.contains('selected')));};$('tag-picker').append(b);$('new-tag').value='';};
@@ -63,7 +64,12 @@ $('add-game-form').onsubmit=e=>{e.preventDefault();$('add-game-title').textConte
 $('copy-prompt').onclick=async()=>{try{await navigator.clipboard.writeText($('agent-prompt').value);$('copy-prompt').textContent='Copied';}catch{$('agent-prompt').select();}};
 $('another-game').onclick=()=>{$('add-game-title').textContent='Add a game';$('agent-kit').hidden=true;$('add-game-form').hidden=false;};$('refresh-setup').onclick=()=>notify('Preview · no setup code generated');
 $('game-search').oninput=render;
-$('friends').textContent='OrbitFox · ByteMoth';$('account').append(node('span','KwamiKwami'));const out=node('a','Sign out');out.href='#';out.onclick=e=>{e.preventDefault();notify('Preview only');};$('account').append(out);$('admin').hidden=false;
+for(const [name,avatar]of [['OrbitFox',0],['ByteMoth',1]]){
+  const person=node('li',undefined,'presence-person');person.tabIndex=0;person.setAttribute('aria-label',name+' · online');
+  const picture=node('span',undefined,'avatar');picture.setAttribute('aria-hidden','true');picture.style.setProperty('--avatar-x',avatar%3*50+'%');picture.style.setProperty('--avatar-y',Math.floor(avatar/3)*50+'%');
+  const nameTag=node('span',name,'presence-name');nameTag.setAttribute('aria-hidden','true');person.append(picture,nameTag);$('friends').append(person);
+}
+$('account').append(node('span','KwamiKwami'));const out=node('a','Sign out');out.href='#';out.onclick=e=>{e.preventDefault();notify('Preview only');};$('account').append(out);$('admin').hidden=false;
 for(const id of ['invite-form','credential-form'])$(id).onsubmit=e=>{e.preventDefault();notify('Preview only · nothing saved');};
 for(const [emoji,text]of [['🚀','OrbitFox reacted to Firefly Drift'],['↗','Mossbyte updated'],['👏','KwamiKwami reacted to Tide Runner']]){const row=node('div',undefined,'feed-row');row.append(node('span',emoji,'feed-emoji'),node('small',text));$('feed').append(row);}
 renderFilters();render();

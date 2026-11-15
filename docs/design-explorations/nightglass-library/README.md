@@ -8,6 +8,11 @@ fixtures. The generated atlas supplies nine different paintings; Firefly Drift u
 the earlier approved throwaway illustration. Avatars are selected crops of the
 fictional artwork. Nothing in this mockup is production metadata or a publishing contract.
 
+Online players appear as overlapping avatars beside the header logo, with names
+on hover or keyboard focus. Category filters and search share one row; the game
+count follows the last filter and search aligns right. Phones wrap search beneath
+the filters without horizontal overflow.
+
 Every card has full-bleed art and a content-sized smoked-glass dock at bottom right.
 Title and creator avatar share a row; the small joined Play/dropdown sits below on
 narrow cards. Hover or keyboard focus on the avatar shows “React to {author}’s game.”
