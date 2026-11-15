@@ -400,6 +400,9 @@ pub fn router(platform: Platform) -> Router {
                 )
             }),
         )
+        .route("/assets/themes.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript")], include_str!("../web/themes.js")) }))
+        .route("/assets/themes/nightglass.css", get(|| async { ([(header::CONTENT_TYPE, "text/css")], include_str!("../web/themes/nightglass.css")) }))
+        .route("/assets/themes/cartridge-club.css", get(|| async { ([(header::CONTENT_TYPE, "text/css")], include_str!("../web/themes/cartridge-club.css")) }))
         .route(
             "/assets/google-signin.png",
             get(|| async {

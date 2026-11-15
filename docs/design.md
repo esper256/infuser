@@ -65,3 +65,8 @@ Do not force a review after playing or imply a numerical rating.
 
 Reference: [Juice it or lose it, Martin Jonasson and Petri Purho](https://www.youtube.com/watch?v=Fy0aCDmgnxg)
 and the authors' [Juicy Breakout demo](https://github.com/grapefrukt/juicy-breakout).
+
+Visual experiments use the [theme system](themes.md). Nightglass stays the default
+until a candidate earns adoption. Cartridge Club is an opt-in preview in the
+profile dropdown. Profile, Recently, and all game/admin behavior are shared across
+themes; never duplicate functionality to preserve an older visual design.
