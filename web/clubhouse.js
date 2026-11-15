@@ -307,12 +307,12 @@ function showSetupPrompt() {
 
 Read https://github.com/esper256/infuser/blob/main/docs/agents.md and use the recipe for the engine already in this project. Preserve the gameplay, art, and project structure. This game already exists in this project. Detect its current title and engine from the project; use that title in infuser.game.json. Do not ask me to rename it or rebuild it from scratch.
 
-ONE-TIME SETUP CODE (expires after one hour):
+ONE-TIME SETUP CODE (expires after three hours):
 ${newGameConnection.setup_code}
 
 First inspect this project for an existing Infuser integration and working credentials for this same game on ${newGameConnection.api_url}. If present, reuse that connection and its original app ID; ignore the provided setup code and update the existing game instead of creating a duplicate.
 
-Otherwise, use the reserved app ID ${newGameConnection.app_id}. Get the current Infuser CLI from the repository's release instructions. Feed the setup code to 'infuser connect --server ${newGameConnection.api_url} --app ${newGameConnection.app_id}' on stdin. It exchanges the code once and saves the permanent game-scoped credentials under .local/. Keep .local/ and *.credentials.json out of Git and game exports. Do not print or echo setup tokens or permanent credentials. If this project already has working credentials for this app ID, reuse them.
+Otherwise, use the reserved app ID ${newGameConnection.app_id}. Follow docs/publisher-install.md for a prebuilt publishing CLI on macOS (Apple Silicon or Intel) or Linux; no Rust or Docker is needed. If running a downloaded tool is unavailable, use docs/publishing-http.md with existing tools such as curl instead. With the CLI, feed the setup code to 'infuser connect --server ${newGameConnection.api_url} --app ${newGameConnection.app_id}' on stdin. It exchanges the code once and saves the permanent game-scoped credentials under .local/. Keep .local/ and *.credentials.json out of Git and game exports. Do not print or echo setup tokens or permanent credentials. If this project already has working credentials for this app ID, reuse them.
 
 Available tag IDs in this Infuser: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting default tags from the game’s design and code; prefer these existing IDs. Put them in infuser.game.json. Query the current tag catalog after connecting if needed.
 

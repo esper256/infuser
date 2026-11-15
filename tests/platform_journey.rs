@@ -154,6 +154,8 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .iter()
             .any(|t| t["id"] == "puzzle")
     );
+    let lifetime = owned["expires_at"].as_u64().unwrap() - infuser::controller::now();
+    assert!((10790..=10800).contains(&lifetime));
     let app_id = owned["app_id"].as_str().unwrap().to_string();
     let setup_token = owned["setup_code"]
         .as_str()
@@ -180,6 +182,8 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     .await?
     .json()
     .await?;
+    let lifetime = renewed["expires_at"].as_u64().unwrap() - infuser::controller::now();
+    assert!((10790..=10800).contains(&lifetime));
     let expired = renewed["setup_code"]
         .as_str()
         .unwrap()

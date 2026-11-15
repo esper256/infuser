@@ -10,9 +10,12 @@ Public traffic goes through HTTPS/Caddy; `/v1/*` is still private to the host.
 
 ## Publisher credentials
 
+For a complete upload using existing tools, see [Publishing over HTTP](publishing-http.md).
+This is a supported alternative to the CLI, including on Mac and Windows.
+
 An adult admin can create an app-scoped connection file. An invited player can
 create a new game through **Add a game**, then copy a prompt containing an opaque,
-single-use setup code valid for one hour. The agent runs `infuser connect --server
+single-use setup code valid for three hours. The agent runs `infuser connect --server
 HTTPS_ORIGIN --app APP`, supplying the code on stdin. The CLI exchanges it once
 and stores `.local/APP.credentials.json` with private permissions. Each file
 contains `api_url`, `app_id`, and `token`. Use `Authorization: Bearer TOKEN`.

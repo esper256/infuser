@@ -40,6 +40,17 @@ fn option(args: &[String], flag: &str) -> Option<String> {
 fn has(args: &[String], flag: &str) -> bool {
     args.iter().any(|a| a == flag)
 }
+fn http_client(args: &[String], timeout: u64) -> Result<reqwest::Client> {
+    let mut client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout))
+        .redirect(reqwest::redirect::Policy::none());
+    if has(args, "--ca-cert") {
+        let path = option(args, "--ca-cert").context("--ca-cert requires a PEM file")?;
+        let pem = std::fs::read(path).context("cannot read private CA certificate")?;
+        client = client.add_root_certificate(reqwest::Certificate::from_pem(&pem)?);
+    }
+    Ok(client.build()?)
+}
 pub(crate) fn walk(root: &Path, path: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;
@@ -118,10 +129,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         "invalid app ID in connection file"
     );
     let api = connection.api_url.trim_end_matches('/');
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
+    let http = http_client(args, 120)?;
     if args[0] == "unpublish" {
         response(
             http.delete(format!("{api}/api/publisher/apps/{}", connection.app_id))
@@ -510,10 +518,7 @@ pub async fn connect(args: &[String]) -> Result<()> {
             "cannot create credential file; choose a new path or reuse the existing connection",
         )?;
     let result: Result<()> = async {
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+        let http = http_client(args, 30)?;
         let connection = response(
             http.post(format!("{}/api/publisher/claim", api_url))
                 .json(&json!({"token":token,"app_id":app}))

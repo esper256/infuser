@@ -21,7 +21,7 @@ features explicitly. Bevy remains paused while these contracts settle.
    stdin to `infuser connect --server HTTPS_ORIGIN --app APP`. The CLI exchanges it
    once and stores `.local/APP.credentials.json`. Do not echo secrets into logs or
    shell history. Ignore `.local/` and `*.credentials.json` in Git and exports.
-   The code expires in one hour; the child can use **Refresh code** for the same
+   The code expires in three hours; the child can use **Refresh code** for the same
    app. An operator-supplied credentials file also works. Never create another
    app just to refresh credentials.
 2. Inspect the project, then choose the closest recipe:
@@ -35,11 +35,13 @@ features explicitly. Bevy remains paused while these contracts settle.
    `GET /api/publisher/capabilities` with the pass's bearer token before
    choosing a multiplayer integration. Engine choice does **not** tell you the
    game's topology. Solo and multiplayer may both be supported.
-4. Use the Infuser CLI matching this server's current release. Linux AMD64/ARM64
-   executables are attached to this repository's releases; verify their SHA-256
-   against `release.json`. Publishing currently needs a Linux workspace: native
-   Windows/macOS agents should use WSL or a Linux cloud/development environment.
-   Infuser Play installers are player applications, not a Windows publishing CLI.
+4. Use a [prebuilt publishing CLI](publisher-install.md) for **macOS (Apple Silicon
+   or Intel)** or Linux (AMD64/ARM64). No Rust or Docker installation is needed.
+   The commands in this guide work with either CLI. If downloading/running a tool
+   is unavailable or needs approval, use the supported [HTTP publishing recipe](publishing-http.md)
+   with existing tools such as `curl`; do not block the child on a toolchain
+   installation. Windows agents can also use that recipe, or the Linux CLI in WSL.
+   Infuser Play is the native player application, not the publishing CLI.
 5. Integrate saves, publish, then exercise a real player journey. An upload alone
    is not completion. Use `--preview` for admin-only dogfood/test games.
 6. If the child reports a platform problem or you hit one while integrating,

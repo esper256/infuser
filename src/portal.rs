@@ -1774,7 +1774,7 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
             &secret()[..6]
         )
     };
-    let expires = now() + 3600;
+    let expires = now() + SETUP_CODE_SECONDS;
     let token = secret();
     p.db.edit(|d| {
         ensure!(
@@ -1844,10 +1844,12 @@ async fn claim_setup(
         json!({"id":id,"app_id":app,"api_url":format!("https://{}",p.domain()),"token":token}),
     ))
 }
+const SETUP_CODE_SECONDS: u64 = 3 * 60 * 60;
+
 async fn renew_setup(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMap) -> Answer {
     let email = p.member(&h, true).await?;
     let token = secret();
-    let expires = now() + 3600;
+    let expires = now() + SETUP_CODE_SECONDS;
     p.db.edit(|d| {
         let owner = d
             .owners

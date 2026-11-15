@@ -32,7 +32,10 @@ cargo test --locked
 infuser publish /private/game.credentials.json /path/to/vite-game --solo
 ```
 
-Requires Rust 1.89+ to build. Releases provide Linux AMD64/ARM64 executables.
+Requires Rust 1.89+ to build. Releases provide Linux AMD64/ARM64 executables and
+[macOS Apple Silicon/Intel publishing CLIs](docs/publisher-install.md).
+Game agents do not need Rust or Docker; [HTTP publishing](docs/publishing-http.md)
+also works with existing tools.
 An existing Vite project needs its usual Node tooling on the game-making machine,
 not on the Infuser host. Godot exports likewise use the creator's Godot toolchain.
 
