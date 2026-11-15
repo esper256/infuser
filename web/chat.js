@@ -18,11 +18,12 @@ export function initChat({me, api, profileAvatar}) {
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
   let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0;
-  const bottom=()=>log.scrollHeight-log.scrollTop-log.clientHeight<32;
+  // Only allow rounding error, not a "near bottom" zone that traps small gestures.
+  const bottom=()=>log.scrollHeight-log.scrollTop-log.clientHeight<=1;
   const isOpen=()=>!$('panel').hidden;
   function position() {
     if(!isOpen())return;
-    const stick=bottom(), viewport=window.visualViewport;
+    const stick=bottom(), height=log.clientHeight, widthBefore=log.clientWidth, viewport=window.visualViewport;
     const viewTop=viewport?.offsetTop||0, viewBottom=viewTop+(viewport?.height||innerHeight);
     const badges=[...presence.querySelectorAll('[data-player-id]')];
     const anchor=(badges[0]||$('toggle')).getBoundingClientRect();
@@ -40,7 +41,7 @@ export function initChat({me, api, profileAvatar}) {
       pointer.style.left=(center-left)+'px';pointer.style.setProperty('--tail-height',(top-bounds.bottom-4)+'px');pointers.push(pointer);
     }
     $('pointers').replaceChildren(...pointers);
-    if(stick)log.scrollTop=log.scrollHeight;
+    if(stick&&(log.clientHeight!==height||log.clientWidth!==widthBefore))log.scrollTop=log.scrollHeight;
   }
   // Follow badge replacement, theme changes, wrapping and the mobile keyboard.
   new ResizeObserver(position).observe(document.querySelector('body > header'));
@@ -54,7 +55,7 @@ export function initChat({me, api, profileAvatar}) {
     $('unread').textContent=unread>9?'9+':String(unread);$('unread').hidden=!unread;
     $('toggle').setAttribute('aria-label',(isOpen()?'Hide chat':'Show chat')+(unread?`, ${unread} unread messages`:''));
     $('toggle').classList.toggle('has-unread',unread>0);
-    position();
+    // This runs during scrolling. Updating the unread badge must never scroll the log.
   }
   function scrollLatest(){log.scrollTop=log.scrollHeight;markRead();}
   function setOpen(open,restoreFocus=true) {
@@ -99,10 +100,12 @@ export function initChat({me, api, profileAvatar}) {
     const stick=bottom(), previousIds=new Set(messages.map(m=>m.id));
     const added=initialized?next.filter(m=>!previousIds.has(m.id)&&m.author.id!==me.player_id):[];
     const nodes=new Map([...log.querySelectorAll('.chat-message')].map(n=>[Number(n.dataset.id),n]));
+    let changed=next.length!==messages.length;
     // Keep unchanged nodes so polling doesn't reset selection, focus or scroll position.
     for(const message of next){
       const signature=JSON.stringify(message);let node=nodes.get(message.id);
       if(node?.dataset.signature===signature){nodes.delete(message.id);continue;}
+      changed=true;
       const replacement=row(message);replacement.dataset.signature=signature;
       if(node){node.replaceWith(replacement);nodes.delete(message.id);}else log.append(replacement);
     }
@@ -111,10 +114,11 @@ export function initChat({me, api, profileAvatar}) {
     if(!next.length){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent='No messages yet.';log.append(empty);}
     messages=next;
     if(!initialized){lastRead=Math.max(0,...next.map(m=>m.id));initialized=true;}
-    if(isOpen()&&stick&&!document.hidden)scrollLatest();
+    if(isOpen()&&stick&&changed&&!document.hidden)scrollLatest();
     else if(added.length&&isOpen())$('new').hidden=false;
     if(added.length&&isOpen())$('announcement').textContent=added.length===1?`${added[0].author.name}: ${added[0].text}`:`${added.length} new messages`;
     updateToggle();
+    position();
   }
   async function poll() {
     clearTimeout(timer);

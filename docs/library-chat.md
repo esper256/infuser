@@ -16,6 +16,8 @@ Enter sends; Shift+Enter adds a line. Sending failures preserve the draft and
 reuse its request ID on retry. Message text is plain text, with no HTML, links,
 attachments, direct messages, or game SDK access. Reading older messages does not
 force-scroll when new ones arrive. **New messages ↓** returns to the bottom.
+Small upward gestures must leave the bottom immediately. Unread badge updates,
+unchanged polls and presence repositioning must not pull the reader back down.
 The sender and adult admins can remove a message with its × control.
 
 The room holds at most 100 records (including removal tombstones), displays the
@@ -68,6 +70,10 @@ Checks: `cargo test --locked --test chat_journey` exercises real HTTP/SQLite,
 permissions, retry/removal, bounded storage, profile changes, and game activity.
 Browser review covers both themes, narrow phones, two member sessions, drafts,
 unread state, scrolling, reconnects, and automatic refresh deferrals.
+`node tests/chat_scroll_journey.mjs` is the focused browser regression for tiny
+upward wheel gestures, keyboard scrolling and history anchoring. It uses Playwright
+with a local mock API; set `INFUSER_PLAYWRIGHT` to its module path and optionally
+`INFUSER_CHROMIUM` to a system Chromium executable when not using their defaults.
 
 ## Home Screen and notifications
 
