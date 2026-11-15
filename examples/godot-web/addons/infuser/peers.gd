@@ -17,9 +17,18 @@ var _polling := false
 var _ice: Array = []
 var _policy := "all"
 var _refresh_at := 0
+var _refreshing := false
+var _tick_callback: JavaScriptObject
+var _ticker := 0
+
+func _tick(_args: Array) -> void:
+	_process(0.0)
+
+func _exit_tree() -> void:
+	close()
 
 func is_active() -> bool:
-	return _live and Time.get_ticks_msec() < _lease_until
+	return _live and Infuser.now_msec() < _lease_until
 
 func _current(id: String, link: Dictionary) -> bool:
 	return is_active() and _links.get(id) == link
@@ -27,14 +36,21 @@ func _current(id: String, link: Dictionary) -> bool:
 func _request(path: String, method: String = "GET", body: Variant = null) -> Dictionary:
 	return await Infuser.call_api("peers", {"path": path, "method": method, "body": body})
 
-func join(relay_only: bool = false) -> Dictionary:
+func join(relay_only: bool = false, intent: Dictionary = {}) -> Dictionary:
 	if _live or _joining:
 		return {"ok": false, "error": "Already joining or playing."}
 	_joining = true
 	_run += 1
 	var run := _run
-	var sent := Time.get_ticks_msec()
-	var result := await _request("/", "POST", {"connection_id": Infuser.uuid(), "relay_only": relay_only, "joinable": true})
+	var sent: int = Infuser.now_msec()
+	var body := {"connection_id": Infuser.uuid(), "relay_only": relay_only, "joinable": true}
+	if not intent.is_empty():
+		if intent.get("kind") != "join_friend" or not intent.has("session_id") or not intent.has("player_id"):
+			_joining = false
+			return {"ok": false, "error": "That friend's session is unavailable."}
+		body["expected_epoch"] = intent.session_id
+		body["expected_player"] = intent.player_id
+	var result := await _request("/", "POST", body)
 	_joining = false
 	if run != _run:
 		if result.ok:
@@ -47,25 +63,34 @@ func join(relay_only: bool = false) -> Dictionary:
 	_policy = room.ice_transport_policy
 	_cursor = 0
 	_lease_until = sent + int(room.lease_ms)
-	_refresh_at = sent + 1200000
+	_refresh_at = _renew_at(_ice, sent)
+	_refreshing = false
 	_next_poll = 0
 	_polling = false
 	_live = true
+	if OS.has_feature("web"):
+		# Browsers can pause rendering in a hidden tab. Coordinator renewal
+		# must not depend on a game frame; long/full suspension still fences.
+		_tick_callback = JavaScriptBridge.create_callback(_tick)
+		_ticker = Infuser.start_ticker(_tick_callback)
 	rtc = WebRTCMultiplayerPeer.new()
 	var err: int = rtc.create_server() if room.role == "host" else rtc.create_client(_number(room.self_id))
 	if err != OK:
 		close("Couldn't create the multiplayer connection.")
 		return {"ok": false, "error": "WebRTC initialization failed."}
 	multiplayer.multiplayer_peer = rtc
+	_bind_rtc()
+	Infuser.network("connecting")
+	changed.emit()
+	return {"ok": true, "value": room}
+
+func _bind_rtc() -> void:
 	rtc.peer_connected.connect(func(_id: int):
 		Infuser.network("connected")
 		changed.emit())
 	rtc.peer_disconnected.connect(func(_id: int):
 		Infuser.network("connecting")
 		changed.emit())
-	Infuser.network("connecting")
-	changed.emit()
-	return {"ok": true, "value": room}
 
 func _number(id: String) -> int:
 	# Godot reserves 1 for the host. IDs are session-local, not player identity.
@@ -77,18 +102,47 @@ func _process(_delta: float) -> void:
 	if not is_active():
 		close("Connection lost. Join again from the title screen.")
 		return
-	if not _polling and Time.get_ticks_msec() >= _next_poll:
+	if not _polling and Infuser.now_msec() >= _next_poll:
 		_poll()
+	if not _refreshing and Infuser.now_msec() >= _refresh_at:
+		_refresh_ice()
+
+func _renew_at(servers: Array, now: int) -> int:
+	var deadline := now + 1200000
+	for server: Dictionary in servers:
+		if server.has("expires_at"):
+			deadline = mini(deadline, int(server.expires_at) * 1000 - 120000)
+	return maxi(now + 1000, deadline)
+
+func _refresh_ice() -> void:
+	_refreshing = true
+	var run := _run
+	var fresh := await _request("/" + str(room.self_id) + "/ice", "POST")
+	if run != _run or not is_active():
+		return
+	_refreshing = false
+	_refresh_at = Infuser.now_msec() + 5000
+	if not fresh.ok:
+		if fresh.get("status", 0) in [401, 403, 404, 409, 410]:
+			close(fresh.error)
+		return
+	_ice = fresh.value.ice_servers
+	_refresh_at = _renew_at(_ice, Infuser.now_msec())
+	if room.role == "host":
+		# New connections allocate with fresh TURN credentials. The host owns
+		# negotiation; members never create a replacement shared session.
+		for id: String in _links.keys():
+			_drop(id)
 
 func _poll() -> void:
 	_polling = true
 	var run := _run
-	var sent := Time.get_ticks_msec()
+	var sent: int = Infuser.now_msec()
 	var result := await _request("/" + str(room.self_id) + "?after=" + str(_cursor))
 	if run != _run or not is_active():
 		return
 	_polling = false
-	_next_poll = Time.get_ticks_msec() + 750
+	_next_poll = Infuser.now_msec() + 750
 	if not result.ok:
 		if result.get("status", 0) in [401, 403, 404, 409, 410]:
 			close(result.error)
@@ -114,27 +168,42 @@ func _poll() -> void:
 				if not link.is_empty() and link.pc.create_offer() != OK:
 					close("Couldn't start the peer connection.")
 	for link: Dictionary in _links.values():
-		if Time.get_ticks_msec() - int(link.created) > 20000 and link.pc.get_connection_state() != WebRTCPeerConnection.STATE_CONNECTED:
+		var state: int = link.pc.get_connection_state()
+		if not rtc.has_peer(_number(link.id)):
+			state = WebRTCPeerConnection.STATE_FAILED
+		if state == WebRTCPeerConnection.STATE_CONNECTED:
+			link.disconnected = 0
+		elif state in [WebRTCPeerConnection.STATE_DISCONNECTED, WebRTCPeerConnection.STATE_FAILED, WebRTCPeerConnection.STATE_CLOSED]:
+			if link.disconnected == 0:
+				link.disconnected = Infuser.now_msec()
+			if room.role == "host" and Infuser.now_msec() - int(link.disconnected) >= 2500:
+				_drop(link.id)
+				Infuser.network("connecting")
+				continue
+		var waiting_since: int = link.disconnected if link.disconnected != 0 else link.created
+		if Infuser.now_msec() - waiting_since > 20000 and state != WebRTCPeerConnection.STATE_CONNECTED:
 			close("Couldn't reach the other player. Join again.")
 			return
-	if sent >= _refresh_at:
-		_refresh_at = sent + 1200000
-		var fresh := await _request("/" + str(room.self_id) + "/ice", "POST")
-		if run == _run and is_active() and fresh.ok:
-			_ice = fresh.value.ice_servers
-			if room.role == "host":
-				# Renew allocations before the old TURN credentials expire.
-				for id: String in _links.keys():
-					_drop(id)
 
 func _connect(id: String, generation: String) -> Dictionary:
+	var replacing := _links.has(id)
 	_drop(id)
+	if room.role == "member" and (replacing or rtc.get_connection_status() == MultiplayerPeer.CONNECTION_DISCONNECTED):
+		# Godot stops polling a disconnected client MultiplayerPeer. Recreate
+		# that local adapter, preserving coordinator identity and session epoch.
+		rtc.close()
+		rtc = WebRTCMultiplayerPeer.new()
+		if rtc.create_client(_number(room.self_id)) != OK:
+			close("Couldn't reconnect to the shared game.")
+			return {}
+		multiplayer.multiplayer_peer = rtc
+		_bind_rtc()
 	for other: String in _links:
 		if _number(other) == _number(id):
 			close("Peer ID collision. Start a new shared session.")
 			return {}
 	var pc := WebRTCPeerConnection.new()
-	var link := {"pc": pc, "generation": generation, "queue": [], "sending": false, "created": Time.get_ticks_msec()}
+	var link := {"id": id, "pc": pc, "generation": generation, "queue": [], "sending": false, "created": Infuser.now_msec(), "disconnected": 0}
 	if pc.initialize({"iceServers": _ice, "iceTransportPolicy": _policy}) != OK:
 		close("WebRTC configuration failed.")
 		return {}
@@ -173,6 +242,9 @@ func _flush(id: String, link: Dictionary) -> void:
 		if not _current(id, link):
 			return
 		if not result.ok:
+			if result.get("status", 0) in [0, 429, 500, 502, 503, 504]:
+				await get_tree().create_timer(0.75).timeout
+				continue # Keep the exact queued payload after an uncertain send.
 			close("Signaling interrupted. Join again.")
 			return
 		link.queue.pop_front()
@@ -189,12 +261,14 @@ func _receive(message: Dictionary) -> void:
 	if generation.is_empty() or generation.length() > 64:
 		return
 	if payload.type == "offer" and room.role == "member" and id == room.host_id:
+		if _links.has(id) and _links[id].generation == generation:
+			return # An acknowledged-late retry must not reset this connection.
 		var link := _connect(id, generation)
 		if not link.is_empty():
 			link.pc.set_remote_description("offer", payload.description.sdp)
 	elif _links.has(id) and _links[id].generation == generation:
 		var pc: WebRTCPeerConnection = _links[id].pc
-		if payload.type == "answer" and room.role == "host":
+		if payload.type == "answer" and room.role == "host" and pc.get_signaling_state() == WebRTCPeerConnection.SIGNALING_STATE_HAVE_LOCAL_OFFER:
 			pc.set_remote_description("answer", payload.description.sdp)
 		elif payload.type == "candidate":
 			var c: Dictionary = payload.candidate
@@ -202,7 +276,8 @@ func _receive(message: Dictionary) -> void:
 
 func _drop(id: String) -> void:
 	if _links.has(id):
-		rtc.remove_peer(_number(id))
+		if rtc.has_peer(_number(id)):
+			rtc.remove_peer(_number(id))
 		_links[id].pc.close()
 		_links.erase(id)
 
@@ -211,6 +286,8 @@ func close(reason: String = "Left multiplayer.") -> void:
 	if not _live:
 		return
 	_live = false
+	Infuser.stop_ticker(_ticker)
+	_ticker = 0
 	for id: String in _links.keys():
 		_drop(id)
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()

@@ -236,6 +236,8 @@ impl Database {
           CREATE TABLE IF NOT EXISTS platform (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS saves (owner TEXT, app TEXT, slot TEXT, version INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,app,slot));")?;
         crate::cloud::initialize(&c)?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS native_v1 (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
+            INSERT OR IGNORE INTO native_v1(id,data) VALUES(1,'{\"pairs\":{},\"devices\":{},\"requests\":{}}');")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
@@ -285,6 +287,31 @@ impl Database {
         tx.execute(
             "UPDATE platform SET data=?1 WHERE id=1",
             [encode_catalog(&tx, &data)?],
+        )?;
+        tx.commit()?;
+        Ok(result)
+    }
+    pub fn native_edit<T>(
+        &self,
+        f: impl FnOnce(&mut Data, &mut crate::native::Data) -> Result<T>,
+    ) -> Result<T> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
+        let mut data = decode_catalog(&tx, &raw)?;
+        let raw: String =
+            tx.query_row("SELECT data FROM native_v1 WHERE id=1", [], |r| r.get(0))?;
+        let mut native: crate::native::Data = serde_json::from_str(&raw)?;
+        native.pairs.retain(|_, p| p.expires > now());
+        native.requests.retain(|_, p| p.expires > now());
+        let result = f(&mut data, &mut native)?;
+        tx.execute(
+            "UPDATE platform SET data=?1 WHERE id=1",
+            [encode_catalog(&tx, &data)?],
+        )?;
+        tx.execute(
+            "UPDATE native_v1 SET data=?1 WHERE id=1",
+            [serde_json::to_string(&native)?],
         )?;
         tx.commit()?;
         Ok(result)

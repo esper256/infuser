@@ -18,17 +18,21 @@ Firefly's JSON messaging helper.
   without a model or tokens.
 - One shared session: the first arrival hosts; the other joins the same epoch.
   Host departure ends the session. The addon fences RPCs when its lease expires.
-  Brief signaling interruptions may recover within the lease; a failed link
-  eventually returns to the title screen for explicit rejoining.
+  Brief signaling interruptions retry within the lease; a failed transport is
+  rebuilt within the same room. Godot's member MultiplayerPeer is recreated when
+  reconnecting to the host so polling and RPCs resume. Expiry ends the room.
 - `tests/godot_relay_journey.mjs` verifies relay/relay selected candidate pairs,
   traffic and real RPC reception in both directions, plus host departure. A second
   automatic-mode run verified a direct connection. Test-only instrumentation
   collects stats; the game has no numeric network overlay.
 
-This is a two-player prototype, not the stable Godot SDK. It does not implement
-Join friend intents, a reusable conflict chooser, native clients or Godot-specific
-adult telemetry. Test long-running TURN credential rotation and background/suspend
-behavior before promoting the recipe. No new production auth mode was introduced.
+This is a two-player prototype, not the stable Godot SDK. Join Friend is explicit
+and targeted; consuming an intent never silently creates a replacement room.
+The web addon renews TURN ahead of its advertised deadline, retries transient
+failures and refreshes connections. The recovery journey passed on Bazzite's
+Flatpak Chrome with both threaded and single-threaded exports. It accelerates the
+renewal deadline while using real TURN credentials; it does not claim a full-hour
+soak or physical suspend test. Native multiplayer remains a separate study.
 
 Other engine paths remain studies:
 
@@ -39,7 +43,8 @@ Other engine paths remain studies:
 - **ENet/UDP:** native clients only. A gated UDP port does not make peer-hosted
   ENet relay-capable. Add a deliberate relay adapter or use a dedicated server.
 - **Native WebRTC:** bundle Godot's WebRTC extension for each OS/architecture,
-  then test it with the web game. Native launch authentication is pending.
+  then test it with the web game. The desktop preview currently permits only
+  client-only single-player games.
   Windows and Bazzite Linux are required acceptance platforms.
 
 References: [Godot WebRTC](https://docs.godotengine.org/en/stable/tutorials/networking/webrtc.html),

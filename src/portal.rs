@@ -33,6 +33,7 @@ use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
 mod avatars;
 mod card_art;
+mod native;
 mod presence;
 mod runtime;
 mod sdk_v1;
@@ -374,6 +375,7 @@ pub fn router(platform: Platform) -> Router {
         .layer(ConcurrencyLimitLayer::new(1));
     Router::new()
         .merge(publishing)
+        .merge(native::routes())
         .nest("/_infuser/api/v1", sdk_v1::routes())
         .route("/_infuser/sdk/v1.js", get(sdk_v1::core))
         .route("/_infuser/sdk/v1/peers.js", get(sdk_v1::peers))
@@ -478,7 +480,7 @@ async fn session_auth(
     let player_api = path.starts_with("/api/")
         && !path.starts_with("/api/publisher/")
         && !path.starts_with("/api/server/");
-    if !player_api || host(request.headers()) != p.domain() {
+    if !player_api || native::public(path) || host(request.headers()) != p.domain() {
         return next.run(request).await;
     }
     let cookie = request.headers().get("cookie").cloned();
@@ -555,8 +557,9 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
             room["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(&email))
                 .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
         } else { vec![] };
+        let desktop = native::bundle(&p, id, &a.build, b).ok().flatten();
         let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name,"avatar":member.avatar})));
-        json!({"card_art_url":card_art::url(id,&a.build,b),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        json!({"native_platforms":desktop.as_ref().map(|m|m.platforms.keys().collect::<Vec<_>>()).unwrap_or_default(),"native_only":desktop.as_ref().is_some_and(|m|m.native_only),"card_art_url":card_art::url(id,&a.build,b),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence
@@ -828,7 +831,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1078,6 +1081,7 @@ impl Platform {
                 let bytes = std::fs::read(self.root().join(&key).join(crate::card_art::PATH))?;
                 crate::card_art::validate(&bytes).map_err(|e| fault(422, &format!("{e:#}")))?;
             }
+            crate::native::validate(&self.root().join(&key), &b.files).map_err(|e|fault(422,&format!("{e:#}")))?;
             crate::game_urls::assign(d, app, &b.manifest.title);
             for credential in d.credentials.values_mut().filter(|c|c.app==app && c.role=="publish" && c.label=="Existing game") { credential.label=b.manifest.title.clone(); }
             let changes_server = b.server.is_some() || d.apps.get(app).is_some_and(|a| d.builds[&build_key(app,&a.build)].server.is_some());

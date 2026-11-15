@@ -8,6 +8,7 @@ pub mod docker;
 pub mod game_urls;
 pub mod launch_intent;
 pub mod manifest;
+pub mod native;
 pub mod sdk_contract;
 pub mod store;
 pub mod tags;

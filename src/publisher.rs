@@ -15,7 +15,7 @@ struct Connection {
 }
 /// Validated entry-point recipes, not every engine a browser could theoretically run.
 pub fn supported_engines() -> Value {
-    json!([{"id":"threejs-vite","label":"Three.js / Vite"},{"id":"web","label":"plain HTML/JavaScript"}])
+    json!([{"id":"threejs-vite","label":"Three.js / Vite"},{"id":"web","label":"plain HTML/JavaScript"},{"id":"godot-web","label":"Godot web (preview)"},{"id":"godot-native","label":"Godot desktop single-player (preview)"}])
 }
 async fn response(r: reqwest::Response) -> Result<Value> {
     let status = r.status();
@@ -40,7 +40,7 @@ fn option(args: &[String], flag: &str) -> Option<String> {
 fn has(args: &[String], flag: &str) -> bool {
     args.iter().any(|a| a == flag)
 }
-fn walk(root: &Path, path: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
+pub(crate) fn walk(root: &Path, path: &Path, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;
         let name = entry.file_name();
@@ -232,7 +232,51 @@ pub async fn run(args: &[String]) -> Result<()> {
     println!("Detected {engine}. Preparing {title}…");
     let override_dir =
         option(args, "--web-dir").or_else(|| settings["web_dir"].as_str().map(str::to_owned));
-    let export = if let Some(dir) = override_dir {
+    let native_only = has(args, "--native-only");
+    let native_dirs: Vec<_> = [
+        ("linux-x86_64", "--native-linux"),
+        ("windows-x86_64", "--native-windows"),
+    ]
+    .into_iter()
+    .filter_map(|(platform, flag)| {
+        option(args, flag).map(|path| (platform.to_owned(), project.join(path)))
+    })
+    .collect();
+    ensure!(
+        !native_only || !native_dirs.is_empty(),
+        "--native-only requires a native export directory"
+    );
+    if !native_dirs.is_empty() {
+        ensure!(
+            engine == "godot",
+            "native preview currently supports Godot exports"
+        );
+        ensure!(
+            capabilities["native_delivery"]["version"] == 1,
+            "this server needs native delivery support first"
+        );
+        ensure!(
+            parsed.multiplayer.is_none()
+                && matches!(
+                    parsed.solo_runtime,
+                    Some(crate::manifest::SoloRuntime::ClientOnly)
+                ),
+            "native preview supports client-only single-player games; keep multiplayer in the tested web export for now"
+        );
+    }
+    let native = if native_dirs.is_empty() {
+        None
+    } else {
+        Some(crate::native::pack(&native_dirs, native_only)?)
+    };
+    let native_web = tempfile::tempdir()?;
+    let export = if native_only {
+        std::fs::write(
+            native_web.path().join("index.html"),
+            "<!doctype html><title>Infuser desktop game</title><p>Open this game with Infuser Desktop from your Library.</p>",
+        )?;
+        native_web.path().to_path_buf()
+    } else if let Some(dir) = override_dir {
         project.join(dir)
     } else if engine == "vite" {
         ensure!(
@@ -283,6 +327,10 @@ pub async fn run(args: &[String]) -> Result<()> {
     // Upload the export only. The project, node_modules and credentials never leave this machine.
     let mut files = Vec::new();
     walk(&export, &export, &mut files)?;
+    if let Some(native) = &native {
+        files.retain(|(name, _)| !name.starts_with("infuser-native/"));
+        walk(native.path(), native.path(), &mut files)?;
+    }
     // Godot packages resources inside a PCK. Attach only this conventional
     // delivery image separately; never upload the art master or provenance files.
     let hero = project.join(crate::card_art::PATH);

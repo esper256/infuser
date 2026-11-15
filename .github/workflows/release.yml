@@ -38,7 +38,9 @@ jobs:
       - name: Fast journeys
         run: cargo test --locked
       - name: Fast SDK journeys
-        run: node --test tests/*_sdk.mjs
+        run: |
+          mapfile -t tests < <(rg --files tests -g '*_sdk.mjs' -g '*theme*.mjs' -g '*theme*.js')
+          node --test "${tests[@]}"
       - name: Build native binary
         run: cargo build --locked --release --bin infuser
       - name: Package
@@ -53,9 +55,46 @@ jobs:
           path: dist/infuser-linux-${{ matrix.arch }}
           retention-days: 3
 
+  desktop:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Desktop journeys
+        run: cargo test --manifest-path desktop/Cargo.toml --locked
+      - name: Build companion
+        run: cargo build --manifest-path desktop/Cargo.toml --locked --release
+      - name: Package Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DBuild=$env:GITHUB_SHA" desktop/packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package Linux installer
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y flatpak
+          mkdir -p dist
+          sh desktop/packaging/build-flatpak.sh desktop/target/release/infuser-desktop "$PWD/dist/Infuser.flatpak"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: infuser-desktop-${{ runner.os }}
+          path: dist/*
+          retention-days: 3
+
   release:
     if: github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build, desktop]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -66,7 +105,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: infuser-linux-*
+          pattern: infuser-*
           path: dist
           merge-multiple: true
       - name: Publish the latest passing commit
@@ -91,7 +130,8 @@ jobs:
           arm64=$(sha256sum dist/infuser-linux-arm64 | cut -d ' ' -f 1)
           jq -n --arg commit "$GITHUB_SHA" --arg amd64 "$amd64" --arg arm64 "$arm64" \
             '{commit:$commit,artifacts:{"linux-amd64":{file:"infuser-linux-amd64",sha256:$amd64},"linux-arm64":{file:"infuser-linux-arm64",sha256:$arm64}}}' > dist/release.json
-          gh release upload "$tag" dist/infuser-linux-amd64 dist/infuser-linux-arm64 dist/release.json --clobber
+          (cd dist && sha256sum infuser-linux-* Infuser-Setup.exe Infuser.flatpak > SHA256SUMS)
+          gh release upload "$tag" dist/infuser-linux-amd64 dist/infuser-linux-arm64 dist/Infuser-Setup.exe dist/Infuser.flatpak dist/SHA256SUMS dist/release.json --clobber
           head=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
           if [ "$head" != "$GITHUB_SHA" ]; then
             echo 'Superseded while uploading; leaving this draft unpublished.'

@@ -2,10 +2,14 @@
 
 - Before freezing SDK 1.0, exercise [Godot web](engines/godot-web.md) with the
   hidden Lantern Lake test game: real GDScript saves, guest isolation, and Godot
-  RPCs over forced TURN. This study now passes in Chromium. Next validate on
-  actual Windows and Bazzite browsers, plus threaded exports and session recovery.
-  Then study native Windows/Linux launch authentication, save directories and
-  artifact delivery; Bazzite is a required target. Bevy remains paused.
+  RPCs over forced TURN. Bazzite Flatpak Chrome now passes single/threaded recovery
+  and Join Friend journeys. Existing upstream Dodge the Creeps passes adapted
+  gameplay, saves and guest isolation. Finish actual Windows browser acceptance,
+  physical laptop sleep and a full-duration TURN soak before calling these complete.
+- Exercise the [Rust desktop preview](engines/godot-native.md): browser account
+  handoff, verified immutable downloads, native cloud saves and isolated guest
+  directories. Native multiplayer remains paused; Windows hardware acceptance
+  follows the installer handoff. Keep native delivery separate from SDK 1.0.
 - Review the [game SDK 1.0 contract](sdk-contract.md) after these engine studies
   expose browser-specific assumptions. Major 1 remains preview. Firefly is now
   listed by the operator's request; preserve its active build.

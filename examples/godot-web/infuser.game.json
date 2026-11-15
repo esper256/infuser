@@ -8,6 +8,7 @@
   },
   "play_modes": ["solo", "multiplayer"],
   "solo_runtime": "client_only",
+  "launch_intents": ["join_friend"],
   "multiplayer": {
     "mode": "peer_hosted",
     "transport": "webrtc",

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Infuser
+Comment=Play games from your private Infuser library
+Exec=infuser-desktop %u
+Icon=io.github.esper256.Infuser
+Terminal=false
+Categories=Game;
+MimeType=x-scheme-handler/infuser;
+StartupNotify=true

@@ -1,7 +1,11 @@
 extends Node2D
 ## Disposable integration game. Autoplay is deterministic movement, not an AI.
 const PeerAdapter = preload("res://addons/infuser/peers.gd")
+const SaveChooser = preload("res://addons/infuser/save_conflict.gd")
 var peers: Node
+var chooser: Window
+var conflict_candidate := ""
+var choosing := false
 var lanterns := 0
 var revision: Variant = null
 var saving := false
@@ -27,6 +31,9 @@ func _ready() -> void:
 	peers = PeerAdapter.new()
 	peers.name = "InfuserPeers"
 	add_child(peers)
+	chooser = SaveChooser.new()
+	add_child(chooser)
+	chooser.prepared.connect(_report)
 	peers.ended.connect(func(reason: String):
 		multiplayer_mode = false
 		status.text = reason
@@ -67,10 +74,19 @@ func _ready() -> void:
 		status.text = context.error
 		return
 	guest = context.value.guest
+	# Consume once even if loading/choosing saves prevents us acting on it.
+	var launch_request: Dictionary = await Infuser.call_api("launch_intent")
+	var intent: Dictionary = launch_request.get("value", {}).get("intent") if launch_request.get("value", {}).get("intent") is Dictionary else {}
 	var result: Dictionary = await Infuser.call_api("load", {"group": "progress"})
 	if not result.ok:
 		status.text = result.error
 		return
+	while not result.value.get("conflicts", []).is_empty():
+		intent = {} # Don't surprise-join later after a save decision.
+		result = await chooser.choose("progress", result.value.conflicts[0].candidate_revision, _valid_save)
+		if not result.ok:
+			status.text = result.error + " Reopen to continue."
+			return
 	revision = result.value.revision
 	var saved: Dictionary = result.value.files.get("progress.json", {"schema": 1, "lanterns": 0})
 	if saved.get("schema", 0) != 1:
@@ -83,8 +99,35 @@ func _ready() -> void:
 	join_button.disabled = false
 	status.text = "Guest adventure — your friend's progress is safe." if guest else "Your adventure is ready."
 	_report()
-	if options.get("multiplayer", "") == "1":
+	if not intent.is_empty():
+		_join(intent)
+	elif options.get("multiplayer", "") == "1":
 		_join()
+
+func _valid_save(files: Dictionary) -> bool:
+	var progress: Variant = files.get("progress.json", {"schema": 1, "lanterns": 0})
+	return progress is Dictionary and progress.get("schema") == 1 and (progress.get("lanterns") is float or progress.get("lanterns") is int)
+
+func _choose_conflict() -> void:
+	choosing = true
+	collect_button.disabled = true
+	save_button.disabled = true
+	join_button.disabled = true
+	var result: Dictionary = await chooser.choose("progress", conflict_candidate, _valid_save)
+	choosing = false
+	if result.ok and _valid_save(result.value.files):
+		conflict_candidate = ""
+		revision = result.value.revision
+		lanterns = int(result.value.files.get("progress.json", {}).get("lanterns", 0))
+		if not result.value.get("conflicts", []).is_empty():
+			conflict_candidate = result.value.conflicts[0].candidate_revision
+		status.text = "Saved!" if conflict_candidate.is_empty() else "Another save needs your choice."
+	else:
+		status.text = result.get("error", "This save needs a different game version.")
+	save_button.disabled = false
+	collect_button.disabled = not conflict_candidate.is_empty()
+	join_button.disabled = multiplayer_mode or not conflict_candidate.is_empty()
+	_report()
 
 func _button(row: HBoxContainer, title: String, action: Callable) -> Button:
 	var button := Button.new()
@@ -96,13 +139,16 @@ func _button(row: HBoxContainer, title: String, action: Callable) -> Button:
 	return button
 
 func _collect() -> void:
-	if loaded and pending_checkpoint.is_empty():
+	if loaded and pending_checkpoint.is_empty() and conflict_candidate.is_empty() and not choosing:
 		lanterns += 1
 		status.text = "A little brighter. Save when you're ready."
 		_report()
 
 func _save() -> void:
-	if not loaded or saving:
+	if not loaded or saving or choosing:
+		return
+	if not conflict_candidate.is_empty():
+		_choose_conflict()
 		return
 	saving = true
 	save_button.disabled = true
@@ -117,7 +163,11 @@ func _save() -> void:
 		status.text = "Not saved: " + str(result.error)
 	elif result.value.status == "conflict":
 		pending_checkpoint = {}
-		status.text = "Another save arrived. Both copies are safe; reopen to load the cloud copy."
+		conflict_candidate = result.value.candidate_revision
+		status.text = "Another save arrived. Choose which adventure to continue."
+		_report()
+		_choose_conflict()
+		return
 	else:
 		pending_checkpoint = {}
 		revision = result.value.revision
@@ -133,12 +183,12 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			KEY_M: _join()
 			KEY_L: peers.close()
 
-func _join() -> void:
-	if not loaded or multiplayer_mode:
+func _join(intent: Dictionary = {}) -> void:
+	if not loaded or multiplayer_mode or choosing or not conflict_candidate.is_empty():
 		return
 	join_button.disabled = true
 	status.text = "Finding the shared lake…"
-	var result: Dictionary = await peers.join(force_relay)
+	var result: Dictionary = await peers.join(force_relay, intent)
 	if result.ok:
 		multiplayer_mode = true
 		leave_button.disabled = false
@@ -194,5 +244,5 @@ func _report() -> void:
 	score.text = str(lanterns) + " lanterns"
 	# Disposable game's read-only acceptance probe; no credentials or general SDK contract.
 	if OS.has_feature("web"):
-		var probe := {"loaded": loaded, "guest": guest, "lanterns": lanterns, "revision": revision, "received": received, "multiplayer": multiplayer_mode, "status": status.text, "role": peers.room.get("role", ""), "session": peers.room.get("epoch", ""), "policy": peers.room.get("ice_transport_policy", "")}
+		var probe := {"loaded": loaded, "guest": guest, "lanterns": lanterns, "revision": revision, "received": received, "multiplayer": multiplayer_mode, "status": status.text, "save_choice_ready": chooser.can_choose(), "role": peers.room.get("role", ""), "session": peers.room.get("epoch", ""), "policy": peers.room.get("ice_transport_policy", "")}
 		JavaScriptBridge.eval("window.lanternLake = " + JSON.stringify(probe), true)

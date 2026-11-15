@@ -9,9 +9,9 @@ means build using the project's existing tools, then invoke `infuser publish`.
 Supply prebuilt output with `--web-dir dist` (or the project's actual export path);
 automatic build detection is only a convenience. GitHub is not required for games.
 
-Current development is focused on stabilizing Three.js/Vite. Existing Godot/Bevy
-notes are preliminary; do not expand those adapters while the first engine's
-publishing, saves, sessions, and SDK contract are still changing.
+Three.js/Vite is the first supported journey. Godot web and native Godot are
+preview integration studies; use the tested recipes below and report unsupported
+features explicitly. Bevy remains paused while these contracts settle.
 
 1. Inspect this project for an existing integration with the target Infuser.
    Reuse its game-scoped credentials and immutable app ID if present, even if the
@@ -28,6 +28,7 @@ publishing, saves, sessions, and SDK contract are still changing.
    - **[Three.js / Vite / browser JavaScript](engines/threejs-vite.md)** — first supported journey.
    - **[Godot web export](engines/godot-web.md)** — export and adapter path.
    - **[Godot multiplayer](engines/godot-multiplayer.md)** — explicit transport choices; recipe in progress.
+   - **[Godot desktop](engines/godot-native.md)** — preview Windows/Linux companion and single-player exports.
    - **[Bevy](engines/bevy.md)** — browser export first; recipe in progress.
 3. Declare the [SDK/API major and required capabilities](sdk-versioning.md) for
    new integrations; use the matching versioned runtime import. Query

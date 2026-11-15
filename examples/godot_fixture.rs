@@ -18,6 +18,7 @@ use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<_> = std::env::args().collect();
     let export = std::env::args()
         .nth(1)
         .context("export directory required")?;
@@ -44,10 +45,13 @@ async fn main() -> Result<()> {
         .await
         .unwrap();
     });
-    let cfg: Config = toml::from_str(&format!(
+    let mut cfg: Config = toml::from_str(&format!(
         "[controller]\nstate_dir={:?}\nauth_url={auth_url:?}\ndisk_reserve_mb=64",
         dir.path().display().to_string()
     ))?;
+    if let Some(index) = args.iter().position(|a| a == "--domain") {
+        cfg.controller.domain = args.get(index + 1).context("domain missing")?.clone();
+    }
     platform::member(&cfg, "adult@example.com", "Test Player", true, true)?;
     let p = portal::Platform::open(Arc::new(Controller::open(
         cfg.clone(),
@@ -55,8 +59,15 @@ async fn main() -> Result<()> {
             settings: cfg.controller.clone(),
         }),
     )?))?;
-    let mut manifest: Value =
-        serde_json::from_slice(&std::fs::read("examples/godot-web/infuser.game.json")?)?;
+    let project = args
+        .iter()
+        .position(|a| a == "--project")
+        .and_then(|i| args.get(i + 1))
+        .map(String::as_str)
+        .unwrap_or("examples/godot-web");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(
+        Path::new(project).join("infuser.game.json"),
+    )?)?;
     manifest["schema_version"] = json!(1);
     manifest["app_id"] = json!("lantern-lake");
     manifest
@@ -68,6 +79,18 @@ async fn main() -> Result<()> {
     let dest = dir.path().join("content/lantern-lake/test");
     let mut files = BTreeMap::new();
     copy(Path::new(&export), Path::new(&export), &dest, &mut files)?;
+    if let Some(index) = args.iter().position(|a| a == "--native-linux") {
+        let native = infuser::native::pack(
+            &[(
+                "linux-x86_64".into(),
+                args.get(index + 1)
+                    .context("native directory missing")?
+                    .into(),
+            )],
+            true,
+        )?;
+        copy(native.path(), native.path(), &dest, &mut files)?;
+    }
     p.db.edit(|d| {
         d.builds.insert(
             "lantern-lake/test".into(),
@@ -75,7 +98,7 @@ async fn main() -> Result<()> {
                 manifest: serde_json::from_value(manifest)?,
                 server: None,
                 spa: false,
-                cross_origin_isolation: false,
+                cross_origin_isolation: std::env::args().any(|a| a == "--threaded"),
                 ready: true,
                 created: now(),
                 files,

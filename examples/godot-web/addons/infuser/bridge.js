@@ -2,6 +2,9 @@
 // Godot owns WebRTCMultiplayerPeer, RPCs, and all game state.
 (() => {
   const sdk = import('/_infuser/sdk/v1.js');
+  // performance.now alone may stop during OS sleep. Fence leases with both
+  // clocks, never allowing a backwards wall-clock adjustment to extend them.
+  let wall = Date.now(), monotonic = performance.now();
   window.InfuserGodot = {
     async call(id, operation, encoded, callback) {
       try {
@@ -11,6 +14,9 @@
         if (operation === 'ready') value = await api.ready;
         else if (operation === 'load') value = await api.cloud.load(args.group);
         else if (operation === 'commit') value = await api.cloud.commit(args.group, args.checkpoint);
+        else if (operation === 'read') value = await api.cloud.read(args.group, args.revision);
+        else if (operation === 'resolve') value = await api.cloud.resolve(args.group, args.checkpoint);
+        else if (operation === 'launch_intent') value = await api.launchIntent.consume();
         else if (operation === 'presence') value = await api.presence.get();
         else if (operation === 'peers') {
           if (!/^\/(?:[a-f0-9]+(?:\/(?:signals|ice))?)?(?:\?after=\d+)?$/.test(args.path)) throw Error('Invalid signaling path');
@@ -23,10 +29,13 @@
         } else throw Error('Unknown Infuser operation');
         callback(id, JSON.stringify({ok:true, value}));
       } catch (error) {
-        callback(id, JSON.stringify({ok:false, error:error.message, status:error.status || 0}));
+        callback(id, JSON.stringify({ok:false, error:error.message, status:error.status || 0, code:error.code || ''}));
       }
     },
     uuid() { return crypto.randomUUID(); },
+    now() { const next=performance.now();wall=Math.max(Date.now(),wall+next-monotonic);monotonic=next;return wall; },
+    startTicker(callback) { return setInterval(()=>callback(),1000); },
+    stopTicker(id) { clearInterval(id); },
     options() { return JSON.stringify(Object.fromEntries(new URLSearchParams(location.search))); },
     network(status) { if (parent !== window) parent.postMessage({type:'infuser-network', status}, location.origin); }
   };

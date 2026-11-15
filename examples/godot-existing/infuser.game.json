@@ -1,0 +1,8 @@
+{
+  "title": "Dodge the Creeps",
+  "sdk": {"major": 1, "api_major": 1, "required_capabilities": ["identity.v1", "cloud_checkpoints.v1"]},
+  "play_modes": ["solo"],
+  "solo_runtime": "client_only",
+  "cross_origin_isolation": false,
+  "cloud_saves": {"groups": [{"id": "record", "label": "Best score", "files": [{"path": "record.json", "format": "json"}]}]}
+}

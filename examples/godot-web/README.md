@@ -79,6 +79,9 @@ relay/relay; automatic mode reports its selected working path. These tests execu
 real WASM. Browser instrumentation is not exported with the game. Screenshots go
 under ignored `.local/artifacts/`.
 
-Remaining work: actual Windows/Bazzite browser runs, threaded exports, interrupted
-negotiation/suspend and long-session journeys, Join friend, reusable conflict UI,
-and native/binary saves. See the [engine study](../../docs/engines/godot-web.md).
+Bazzite's installed Flatpak Chrome passed both export variants, recovery and
+targeted Join Friend. `recovery` mode accelerates TURN renewal, injects one failed
+refresh, closes a transport, backgrounds the host and suspends its renderer past
+the lease. This is not physical laptop sleep or a full-hour soak. Windows browser
+acceptance remains pending. See the [engine study](../../docs/engines/godot-web.md)
+and [native preview](../../docs/engines/godot-native.md).

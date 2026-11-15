@@ -58,6 +58,7 @@ function renderGames() {
     const items=el('div',undefined,'play-menu-items');
     items.append(el('p',game.title,'menu-game-title'));
     const guest=el('button','Play in guest mode');guest.onclick=()=>{menu.open=false;start(game,play,card,{guest:true});};items.append(guest);
+    if(!game.native_only && game.native_platforms?.length){const desktop=el('button','Play on computer');desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card);};items.append(desktop);}
     for(const target of game.join_targets||[]){
       const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
     }
@@ -116,6 +117,7 @@ $('games').addEventListener('contextmenu',event=>{
   if(tagHold||Date.now()<suppressContextUntil&&heldCard?.contains(event.target))event.preventDefault();
 });
 async function start(game,button,card,{guest=false,intent}={}) {
+  if(game.native_only)return startDesktop(game,button,card,{guest});
   // Open synchronously in the click event so browser popup blockers allow Play.
   const tab = window.open('about:blank','_blank');
   if(!tab){notice('Allow this site to open a game tab, then press Play again.');return;}
@@ -133,6 +135,30 @@ async function start(game,button,card,{guest=false,intent}={}) {
     }
     tab.opener=null;tab.location.replace(launch.url);
   } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent='Play';}
+}
+function desktopPlatform(){
+  const platform=navigator.userAgentData?.platform||navigator.platform;
+  if(/Win/i.test(platform))return 'windows-x86_64';
+  if(/Linux/i.test(platform)&&!/Android/i.test(navigator.userAgent))return 'linux-x86_64';
+  return null;
+}
+async function startDesktop(game,button,card,{guest=false}={}){
+  const platform=desktopPlatform();
+  if(!game.native_platforms?.includes(platform)){notice('This desktop game needs a supported Windows or Linux computer.');return;}
+  card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
+  try{
+    const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest})});
+    document.querySelector('#desktop-launch')?.remove();
+    const dialog=el('dialog');dialog.id='desktop-launch';dialog.setAttribute('aria-label','Open '+game.title);
+    const heading=el('h2','Let’s play'),text=el('p','Open Infuser when your browser asks. First time? Install it, then press Play again.');
+    const open=el('a','Open Infuser','button');open.href=launch.url;
+    const install=el('a','Install Infuser','button secondary');
+    install.href='https://github.com/esper256/infuser/releases/latest/download/'+(platform==='windows-x86_64'?'Infuser-Setup.exe':'Infuser.flatpak');
+    const close=el('button','Done','secondary');close.onclick=()=>dialog.close();
+    const actions=el('div',undefined,'actions');actions.append(open,install,close);dialog.append(heading,text,actions);document.body.append(dialog);dialog.showModal();
+    // Keep a real link available if the browser requires a fresh user gesture.
+    open.click();
+  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent='Play';}
 }
 document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open]'))if(!menu.contains(event.target))menu.open=false;});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open]')){menu.open=false;menu.querySelector('summary').focus();}});

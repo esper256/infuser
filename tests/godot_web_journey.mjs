@@ -24,6 +24,7 @@ const proxy=https.createServer({key:await fs.readFile('.local/godot/key.pem'),ce
 await new Promise(resolve=>proxy.listen(17878,'127.0.0.1',resolve));
 const browser = await chromium.launch({headless:true,args:['--enable-unsafe-swiftshader','--use-angle=swiftshader','--no-proxy-server','--host-resolver-rules=MAP *.games.example.com 127.0.0.1:17878, MAP games.example.com 127.0.0.1:17878']});
 const errors=[];
+const existing=process.env.INFUSER_GODOT_DEMO==='dodge';
 try {
   const context=await browser.newContext({viewport:{width:1000,height:740},ignoreHTTPSErrors:true});
   async function launch(guest=false) {
@@ -42,8 +43,8 @@ try {
     // FrameLocator cannot evaluate; get the actual Frame once the iframe navigates.
     await frame.locator('canvas').waitFor();
     const actual=await (await page.locator('#game').elementHandle()).contentFrame();
-    await actual.waitForFunction(()=>window.lanternLake?.loaded,{},{timeout:30000});
-    await actual.locator('canvas').click({position:{x:800,y:400}});
+    await actual.waitForFunction(existing=>existing?window.dodgeProbe?.ready:window.lanternLake?.loaded,existing,{timeout:30000});
+    await actual.locator('canvas').click(existing?{}:{position:{x:800,y:400}});
     return actual;
   }
   async function state(client) { return client.frame.evaluate(()=>window.lanternLake); }
@@ -57,6 +58,25 @@ try {
     await client.page.keyboard.press('s');
     await client.frame.waitForFunction(old=>window.lanternLake.status==='Saved!'&&window.lanternLake.revision!==old,before);
   }
+  if(existing){
+    const owner=await launch();
+    assert.equal(await owner.frame.evaluate(()=>window.dodgeProbe.best),0);
+    await owner.page.keyboard.press('Enter');
+    await owner.frame.waitForFunction(()=>window.dodgeProbe.score>=2,{}, {timeout:20000});
+    await owner.frame.waitForFunction(()=>window.dodgeProbe.ready&&window.dodgeProbe.best>=2&&window.dodgeProbe.revision,{}, {timeout:60000});
+    const best=await owner.frame.evaluate(()=>window.dodgeProbe.best);
+    await owner.page.reload();owner.frame=await game(owner.page);
+    assert.equal(await owner.frame.evaluate(()=>window.dodgeProbe.best),best);
+    const guest=await launch(true);
+    assert.equal(await guest.frame.evaluate(()=>window.dodgeProbe.guest),true);
+    assert.equal(await guest.frame.evaluate(()=>window.dodgeProbe.best),0);
+    const again=await launch();
+    assert.equal(await again.frame.evaluate(()=>window.dodgeProbe.best),best);
+    await fs.mkdir('.local/artifacts',{recursive:true});
+    await again.page.screenshot({path:'.local/artifacts/godot-dodge-migration.png'});
+    assert.deepEqual(errors,[]);
+    console.log('Existing Dodge the Creeps: original gameplay, game-over checkpoint, reload, empty guest and preserved owner passed.');
+  }else{
   const owner=await launch();
   assert.equal((await state(owner)).lanterns,0);
   assert.equal((await state(owner)).guest,false);
@@ -82,6 +102,14 @@ try {
   const conflict=await ownerAgain.frame.evaluate(async()=> (await fetch('/_infuser/api/v1/cloud/v1/groups/progress')).json());
   assert.equal(conflict.files['progress.json'].lanterns,4);
   assert.ok(conflict.conflicts.length>0,'conflicting candidate preserved');
+  // The reusable Godot chooser focuses the cloud copy; choose it explicitly.
+  await ownerAgain.frame.waitForFunction(()=>window.lanternLake.save_choice_ready);
+  await ownerAgain.page.keyboard.press('Enter');
+  await ownerAgain.frame.waitForFunction(()=>window.lanternLake.status==='Saved!'&&window.lanternLake.lanterns===4);
+  const resolved=await ownerAgain.frame.evaluate(async()=> (await fetch('/_infuser/api/v1/cloud/v1/groups/progress')).json());
+  assert.equal(resolved.conflicts.length,0);
+  assert.equal(resolved.files['progress.json'].lanterns,4);
+  assert.notEqual(resolved.revision,conflict.revision);
   // An explicit error must not display success or forget the retry's commit ID.
   const attempts=[]; let fail=true;
   await fresh.page.route('**/_infuser/api/v1/cloud/v1/groups/progress',async route=>{
@@ -99,5 +127,6 @@ try {
   await fs.mkdir('.local/artifacts',{recursive:true});
   await owner.page.screenshot({path:'.local/artifacts/godot-lantern-lake.jpg',type:'jpeg',quality:85});
   assert.deepEqual(errors,[]);
-  console.log('Godot/WASM: save + reload, guest refresh, fresh guest, owner isolation, conflict preservation, error + idempotent retry passed.');
+  console.log('Godot/WASM: save + reload, guest refresh, fresh guest, owner isolation, conflict chooser, error + idempotent retry passed.');
+  }
 } finally { await browser.close(); proxy.closeAllConnections(); await new Promise(resolve=>proxy.close(resolve)); }
