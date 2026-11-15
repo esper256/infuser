@@ -87,3 +87,18 @@ header .admin summary:focus-visible{outline:3px solid #aa9dff;outline-offset:4px
 .admin-panel .admin-grid{margin-top:0;gap:24px}
 @media(max-width:650px){header{gap:8px 16px;flex-wrap:wrap}header #account{max-width:55%}header .admin{margin-left:auto}.admin-panel{right:14px;width:calc(100% - 28px);padding:18px;max-height:calc(100dvh - 180px)}}
 @media(pointer:coarse){.actions select{flex-basis:40px;width:40px}}
+
+/* Signed-out landing: artwork and the official sign-in button only. */
+body:has(#welcome:not([hidden])){background:#060b12}
+body:has(#welcome:not([hidden]))>header,body:has(#welcome:not([hidden]))>footer{display:none}
+body:has(#welcome:not([hidden]))>main{max-width:none;min-height:100svh;padding:24px 16px;display:grid;place-items:center}
+#welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;width:100%;padding:0;isolation:isolate}
+.welcome-art{display:block;width:min(380px,calc(100vw - 32px),44svh);height:auto;max-width:100%}
+#welcome .google{margin:0;border-radius:50px;flex:none}
+#welcome #login-message{max-width:360px;margin:0;text-align:center;line-height:1.5;color:#b4c2d0;overflow-wrap:anywhere}
+#welcome #login-message:empty{display:none}
+
+/* Compact horizontal identity leaves the Library's content width intact. */
+header .brand{display:block;flex:none;line-height:0;letter-spacing:normal}
+header .brand img{display:block;width:200px;height:50px;object-fit:contain}
+@media(max-width:650px){header .brand img{width:152px;height:38px}header #account{max-width:calc(100% - 168px)}}

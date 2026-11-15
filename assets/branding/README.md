@@ -38,8 +38,11 @@ Do not add slogans or taglines.
 
 Run `./export.sh` from this folder (or any working directory) with ImageMagick 7
 to regenerate derived assets from the masters. It only writes exports beside
-the script. It does not change masters. No new web routes or live logo references
-are installed by this pack; consuming the files is a separate integration step.
+the script. It does not change masters. The signed-out domain landing page embeds `landing-logo.webp` as a data URL in
+`web/index.html`, supported by the existing image CSP. This avoids adding a backend
+asset route. If regenerating that file, update its embedded copy too. The signed-in
+Library header similarly embeds `header-light.webp`, the horizontal lockup.
+Update both data URLs if regenerating those WebP exports.
 
 ## Pixel and transparency review
 
