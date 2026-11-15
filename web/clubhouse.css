@@ -95,10 +95,10 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game-art.has-game-art { background: none; }
 .game-art img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; border-radius: inherit; }
 .game-meta { display: grid; grid-template-columns: minmax(0,1fr); align-content: start; gap: 3px; }
-.game-tags { flex-wrap: nowrap; gap: 5px; min-height: 0; margin: 0; padding: 4px; justify-content: flex-start; overflow-x: auto; scrollbar-width: thin; }
-.game-tags > button { scroll-margin-inline: 4px; flex: none; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.game-tags > button:focus-visible { outline-offset: 1px; }
-.game-meta > .game-mode { width: fit-content; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.game-tags { flex-wrap: nowrap; gap: 5px; min-height: 0; margin: 0; padding: 4px; justify-content: flex-start; overflow: visible; }
+.game-tags button { flex: none; }
+.game-tags button:focus-visible { outline-offset: 1px; }
+.game-meta > .game-visibility { width: fit-content; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .game-tags .tag-chip,.edit-tags { background: #061b25cf; border-color: #d6f4e238; color: #e2efe6; min-height: 28px; padding: 4px 9px; backdrop-filter: blur(8px); }
 .edit-tags { border-style: dashed; opacity: 0; pointer-events: none; }
 .game-tags:focus-within .edit-tags { opacity: 1; pointer-events: auto; }
@@ -120,7 +120,7 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .creator:hover .reaction-hint,.creator:focus-visible .reaction-hint { visibility: visible; opacity: 1; }
 .game:focus-within,.game:hover { z-index: 1; }
 .tone-0 { --avatar-bg: #244d49; }.tone-1 { --avatar-bg: #44405e; }.tone-2 { --avatar-bg: #5a4933; }.tone-3 { --avatar-bg: #28465d; }.tone-4 { --avatar-bg: #573c52; }.tone-5 { --avatar-bg: #40533a; }
-.game-mode,.game .players { margin: 0; padding: 4px 8px; border-radius: 9px; background: #061b25cf; color: #d2e5df; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.game-visibility,.game .players { margin: 0; padding: 4px 8px; border-radius: 9px; background: #061b25cf; color: #d2e5df; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .game .players { flex-basis: 100%; width: fit-content; max-width: 100%; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip { border: 1px solid #668a7866; color: #e0eee6; background: #071b25df; padding: 4px 8px; border-radius: 14px; font-size: 11px; }
@@ -340,7 +340,7 @@ img.avatar { object-fit: cover; }
 @media (max-width:1100px) { header { flex-wrap: wrap; gap: 12px 18px; } }
 @media (max-width:650px) {
   .library-toolbar { gap: 14px 10px; }
-  .library-toolbar .tag-filters { grid-area: 2 / 1 / 3 / -1; flex-wrap: nowrap; overflow-x: auto; padding: 4px; scrollbar-width: thin; }
+  .library-toolbar .tag-filters { grid-area: 2 / 1 / 3 / -1; flex-wrap: nowrap; overflow: visible; padding: 4px; }
   .library-toolbar .tag-filters > * { flex: none; }
   .library-toolbar .search-label { grid-area: 3 / 1 / 4 / -1; width: 100%; max-width: none; }
   #recent-menu { margin-left: 0; }
@@ -413,6 +413,18 @@ img.avatar { object-fit: cover; }
 @media (prefers-reduced-motion: reduce) { #chat-toggle.has-unread .chat-icon { animation: none; } }
 @media (forced-colors: active) { .chat-bubble::before { background: Canvas; border-color: CanvasText; } .chat-pointer { border-bottom-color: CanvasText; } .chat-pointer::after { border-bottom-color: Canvas; } #chat-toggle { border: 1px solid ButtonText; } }
 
+/* Tag rows tighten their padding overlap before offering the remaining tags. */
+.library-toolbar .tag-row, .game-tags.tag-row { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; align-items: center; overflow: visible; }
+.tag-strip { display: flex; align-items: center; flex: none; min-width: 0; }
+.tag-strip > button { flex: none; white-space: nowrap; }
+.tag-strip > button + button { margin-left: var(--tag-spacing,7px); }
+.tag-more { flex: none; min-width: 32px; min-height: 32px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); color: var(--ink); font-size: 15px; }
+.tag-more:hover,.tag-more.selected { background: var(--surface); border-color: var(--accent); }
+.tag-overflow-panel { position: fixed; inset: auto; margin: 0; padding: 12px; max-width: calc(100vw - 32px); overflow-y: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); box-shadow: 0 12px 36px #0008; }
+.tag-overflow-panel:popover-open { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.tag-overflow-panel > button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.tag-overflow-panel .edit-tags { opacity: 1; pointer-events: auto; }
+@media (pointer:coarse) { .tag-more { min-height: 44px; min-width: 44px; } }
 /* Operator tools stay separate from normal group membership. */
 #operator-groups{font-size:.8rem;padding:.45rem .7rem}
 #group-inspection{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem 1.2rem;border-bottom:1px solid var(--line,#45536a);background:var(--surface,#172234)}
@@ -430,3 +442,5 @@ body[data-inspecting] #add-game,body[data-inspecting] #chat-form{display:none}
 #feedback-dialog .feedback-check input { flex: none; width: auto; margin-top: 4px; }
 #feedback-dialog [hidden] { display: none; }
 #feedback-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 35dvh; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.notification-hint { display: block; max-width: 230px; white-space: normal; color: var(--quiet); font-size: 12px; line-height: 1.4; }
+.notification-hint:empty { display: none; }

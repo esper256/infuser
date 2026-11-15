@@ -140,5 +140,9 @@ export function initChat({me, api, profileAvatar}) {
   };
   document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(timer);else poll();});
   window.addEventListener('online',poll);
+  const openFromLink=()=>{if(location.hash==='#chat')setOpen(true,false);};
+  window.addEventListener('hashchange',openFromLink);
+  navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='infuser-open-chat')setOpen(true,false);});
+  openFromLink();
   poll();
 }

@@ -34,6 +34,7 @@ image-webp = { version = "0.2", default-features = false }
 infuser-native-protocol = { path = "native-protocol" }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 tempfile = "3"
+ring = "0.17.14"
 
 [dev-dependencies]
 rcgen = "0.14"

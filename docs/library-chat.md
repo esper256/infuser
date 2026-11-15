@@ -1,6 +1,6 @@
 # Library chat
 
-One shared room for enabled invited members. Open **Chat** beside the online
+One shared room per private group for enabled invited members. Open **Chat** beside the online
 player badges in the header. The panel opens directly below them, with upward
 triangles pointing to visible connected players who appear in the last twelve
 messages and have chatted within five minutes. Pointers follow badge replacement,
@@ -46,7 +46,7 @@ Responses are `Cache-Control: no-store` and expose opaque player IDs, never emai
 
 The UI polls every three seconds while open and ten seconds while closed,
 pauses in hidden tabs, and reconnects without repeated toasts. Requests time out
-after twelve seconds. No external messaging provider or new dependency is used.
+after twelve seconds. Chat itself stays on Infuser; optional background notifications use the browser’s push service.
 
 ## Automatic client updates
 
@@ -68,3 +68,54 @@ Checks: `cargo test --locked --test chat_journey` exercises real HTTP/SQLite,
 permissions, retry/removal, bounded storage, profile changes, and game activity.
 Browser review covers both themes, narrow phones, two member sessions, drafts,
 unread state, scrolling, reconnects, and automatic refresh deferrals.
+
+## Home Screen and notifications
+
+Infuser can be installed from the browser menu or **Install Infuser** in the
+profile menu. On iPhone/iPad, use **Share → Add to Home Screen**, then open that
+icon. The installed website is named **Infuser**; **Infuser Play** remains the
+native game launcher.
+
+In your profile menu, turn **Chat notifications** on for each device you want.
+Permission is requested only after that tap. On iOS/iPadOS, this requires the
+Home Screen app (16.4 or later). If permission was denied, change it in the
+browser/device settings before trying again. Turn the same switch off to stop
+alerts on that device. Signing out unsubscribes that browser too.
+
+Alerts work while the Library is closed. They say “Your group has a new message”
+without including message text. They are quiet, share one notification slot,
+and open chat when tapped. Arrival never navigates a window or exits fullscreen.
+Delivery is best-effort and subject to the browser, OS notification settings and
+network availability. No alerts for your own messages or other private groups.
+Operator inspection never subscribes to the inspected group.
+
+The daemon sends standard VAPID-authenticated Web Push to the browser's push
+service. It generates `web-push.key` in the private state directory automatically;
+back it up with the database. No Firebase project, Apple developer account or
+extra process is needed. The key survives updates. Replacing it requires devices
+to turn notifications off and on again.
+
+Subscriptions and a coalescing outbox live in separate SQLite tables. Message
+retries don't re-notify. Delivery rechecks group membership, enabled accounts and
+message removal; dead endpoints are removed. Temporary failures retry up to three
+times, and queued work expires after five minutes. Provider-side delivery expires
+after one minute, avoiding a burst of stale chat alerts when a phone reconnects.
+Browser subscriptions unused for 180 days are removed.
+
+`GET /api/notifications` returns `{public_key}`. `PUT` with `{endpoint}` enables
+that device; `DELETE` with `{endpoint}` disables it. These use the same membership,
+Origin and read-only inspection rules as chat. Endpoints must belong to supported
+Google, Mozilla, Apple or Microsoft push services, use HTTPS and port 443; redirects
+are disabled. Endpoints are private credentials and must not be logged. Since
+alerts have no payload, no chat content or encryption keys are sent or stored for
+push delivery.
+
+The service worker does not cache authenticated pages, API responses, games or
+saves. Offline navigation shows a small reconnect page. Existing app revision
+checks still govern Library reloads.
+
+Checks: `cargo test --locked --test notifications_journey`. To include the actual
+Chromium service worker, notification, fullscreen and sign-out journey, set
+`INFUSER_PWA_BROWSER_NODE=/path/to/node` (use the Playwright setup in
+[development](development.md)). The test substitutes browser-provider registration;
+actual iPhone/Android background delivery must also be checked on a phone.

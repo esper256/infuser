@@ -42,6 +42,7 @@ mod metadata;
 mod native;
 mod peerjs;
 mod presence;
+mod pwa;
 mod runtime;
 mod sdk_v1;
 mod urls;
@@ -109,6 +110,8 @@ pub struct Platform {
     relay: Option<Arc<crate::peers::Relay>>,
     feedback_lock: Arc<Mutex<()>>,
     peerjs_sockets: Arc<Mutex<std::collections::BTreeSet<String>>>,
+    push: Arc<crate::notifications::Push>,
+    push_dispatch: Arc<tokio::sync::Mutex<()>>,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -144,6 +147,10 @@ impl Platform {
         };
         Ok(Self {
             feedback_lock: Default::default(),
+            push: Arc::new(crate::notifications::Push::open(
+                &controller.config.controller.state_dir,
+            )?),
+            push_dispatch: Default::default(),
             peerjs_sockets: Default::default(),
             controller,
             db,
@@ -433,6 +440,7 @@ pub fn router(platform: Platform) -> Router {
         .merge(native::routes())
         .merge(groups::routes())
         .merge(feedback::routes())
+        .merge(pwa::routes())
         .route("/assets/groups.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/groups.js")) }))
         .nest("/_infuser/api/v1", sdk_v1::routes())
         .route("/_infuser/sdk/v1.js", get(sdk_v1::core))

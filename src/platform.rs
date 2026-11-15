@@ -117,7 +117,7 @@ pub struct Data {
 }
 // Keep the legacy catalog JSON readable by older daemons. New declarations
 // live separately so an old binary rewriting that catalog cannot erase them.
-fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
+pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     let mut data: Data = serde_json::from_str(raw)?;
     data.metadata = metadata::read(c)?;
     let policy: String = c.query_row("SELECT data FROM private_groups WHERE id=1", [], |r| {
@@ -262,6 +262,7 @@ impl Database {
         )?;
         metadata::initialize(&c)?;
         chat::initialize(&c)?;
+        crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;

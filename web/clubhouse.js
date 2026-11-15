@@ -1,4 +1,5 @@
 import { initFeedback } from '/assets/feedback.js';
+import { setupPwa } from '/assets/pwa.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
 import { initClientUpdates } from '/assets/client-updates.js';
@@ -13,6 +14,70 @@ const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea']];
 function el(tag, text, cls) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(cls) node.className = cls; return node; }
+// Fit tag rows without scrolling or covering their text. Overflow keeps the same
+// buttons and handlers in a top-layer popover, including the tag editor action.
+const tagRows=new Map();
+let tagPanelId=0;
+const tagResize=new ResizeObserver(entries=>{
+  for(const {target} of entries){const state=tagRows.get(target);if(state){state.close();fitTagRow(target,state);}}
+});
+function prepareTagRow(row,suffix){
+  const previous=tagRows.get(row);if(previous)previous.close();
+  const buttons=[...row.children],strip=el('div',undefined,'tag-strip'),more=el('button','…','tag-more'),panel=el('div',undefined,'tag-overflow-panel');
+  row.classList.add('tag-row');more.type='button';more.hidden=true;
+  panel.id='tag-overflow-'+(++tagPanelId);panel.setAttribute('popover','auto');panel.setAttribute('role','group');panel.setAttribute('aria-label','More tags');
+  more.setAttribute('aria-label','More tags');more.setAttribute('aria-expanded','false');more.setAttribute('aria-controls',panel.id);
+  strip.append(...buttons);row.replaceChildren(strip,more,panel);if(suffix)row.append(suffix);
+  let closeTimer,returningFocus=false;
+  function close(){returningFocus=true;panel.hidePopover();returningFocus=false;}
+  function position(){
+    const bounds=more.getBoundingClientRect(),width=Math.min(320,innerWidth-32);
+    panel.style.width=width+'px';panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
+    panel.style.top='0px';panel.style.maxHeight=Math.min(400,innerHeight-32)+'px';
+    const height=panel.getBoundingClientRect().height;
+    panel.style.top=Math.max(16,Math.min(bounds.bottom+6,innerHeight-height-16))+'px';
+  }
+  function show(){clearTimeout(closeTimer);if(more.hidden||!more.isConnected)return;if(!panel.matches(':popover-open'))panel.showPopover();position();}
+  function deferClose(){clearTimeout(closeTimer);closeTimer=setTimeout(()=>{if(!panel.contains(document.activeElement)&&document.activeElement!==more)close();},160);}
+  more.onclick=show;more.onfocus=()=>{if(!returningFocus&&more.matches(':focus-visible'))queueMicrotask(()=>{if(document.activeElement===more)show();});};
+  more.onpointerenter=event=>{if(event.pointerType==='mouse')show();};more.onpointerleave=deferClose;
+  panel.onpointerenter=()=>clearTimeout(closeTimer);panel.onpointerleave=deferClose;
+  panel.addEventListener('click',close,{capture:true});
+  panel.addEventListener('toggle',()=>{more.setAttribute('aria-expanded',String(panel.matches(':popover-open')));});
+  row.onfocusout=()=>{setTimeout(()=>{if(!row.contains(document.activeElement)&&!more.matches(':hover')&&!panel.matches(':hover'))close();},0);};
+  panel.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();returningFocus=true;panel.hidePopover();more.focus();returningFocus=false;}};
+  const state={buttons,strip,more,panel,suffix,close};tagRows.set(row,state);tagResize.observe(row);
+}
+function fitTagRow(row,{buttons,strip,more,panel,suffix}){
+  if(!row.isConnected||panel.matches(':popover-open'))return;
+  strip.append(...buttons);more.hidden=true;strip.style.width='auto';
+  const style=getComputedStyle(row),gap=parseFloat(style.columnGap)||0;
+  const room=row.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-(suffix?suffix.getBoundingClientRect().width+parseFloat(getComputedStyle(suffix).marginLeft)+parseFloat(getComputedStyle(suffix).marginRight)+gap:0);
+  const widths=buttons.map(button=>button.getBoundingClientRect().width),sum=widths.reduce((a,b)=>a+b,0);
+  let spacing=7;
+  for(const candidate of [7,3,0,-3,-6]){spacing=candidate;if(sum+candidate*Math.max(0,buttons.length-1)<=room)break;}
+  strip.style.setProperty('--tag-spacing',spacing+'px');
+  let count=buttons.length,width=sum+spacing*Math.max(0,count-1);
+  if(width>room){
+    more.hidden=false;const available=room-more.getBoundingClientRect().width-gap;
+    count=0;width=0;
+    while(count<buttons.length&&width+widths[count]+(count?spacing:0)<=available){width+=widths[count]+(count?spacing:0);count++;}
+    panel.append(...buttons.slice(count));
+  }
+  strip.style.width=Math.max(0,width)+'px';
+  more.classList.toggle('selected',buttons.slice(count).some(button=>button.classList.contains('selected')));
+}
+function layoutTagRows(){
+  for(const [row,state] of tagRows){
+    if(!row.isConnected){tagResize.unobserve(row);tagRows.delete(row);continue;}
+    fitTagRow(row,state);
+  }
+}
+window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(layoutTagRows));
+window.addEventListener('resize',()=>{for(const {close} of tagRows.values())close();layoutTagRows();});
+window.addEventListener('scroll',()=>{for(const {close} of tagRows.values())close();},{passive:true});
+document.fonts.ready.then(layoutTagRows);
+
 function notice(message) {
   clearTimeout(noticeTimer);
   const toast=$('notice');toast.textContent=message;toast.classList.add('visible');
@@ -40,7 +105,7 @@ async function refresh() {
 function renderGames() {
   const games = $('games');
   // Preserve ongoing launch controls and selections during presence polling.
-  if (games.querySelector('[data-launching], .play-menu[open]')) return;
+  if (games.querySelector('[data-launching], .play-menu[open], .tag-overflow-panel:popover-open')) return;
   cancelTagHold();
   const previousCards = new Map([...games.querySelectorAll('.game')].map(card=>[card.dataset.app,card]));
   const nextCards = [];
@@ -66,9 +131,8 @@ function renderGames() {
     for(const child of [...card.children])if(child!==art)child.remove();
     const meta=el('div',undefined,'game-meta'),dock=el('div',undefined,'game-dock'),heading=el('div',undefined,'game-heading');
     const title=el('h2',game.title);title.title=game.title;heading.append(title);card.append(meta,dock);
-    const modes = game.play_modes.map(m => m === 'solo' ? 'Single player' : 'Multiplayer').join(' + ');
-    const mode=el('p',(game.preview ? 'INVISIBLE · ' : '') + modes,'game-mode');mode.title=mode.textContent;meta.append(mode);
-    const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}meta.append(tags);
+    if(game.preview)meta.append(el('p','INVISIBLE','game-visibility'));
+    const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}meta.append(tags);prepareTagRow(tags);
     const names = [...new Set(game.players.map(p => p.name + (p.guest ? '’s guest' : '')))];
     const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
     const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
@@ -108,6 +172,7 @@ function renderGames() {
   const retained = new Set(nextCards);
   for(const child of [...games.children])if(!retained.has(child))child.remove();
   nextCards.forEach((card,index)=>{if(games.children[index]!==card)games.insertBefore(card,games.children[index]||null);});
+  layoutTagRows();
 }
 function profileAvatar(name,id,picture,size=128) {
   if((me?.avatars||[]).some(a=>a.id===picture)){
@@ -130,9 +195,6 @@ function renderPresence() {
   if(people.length>1){const extra=people.slice(1),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
 }
 function cancelTagHold(){if(tagHold)clearTimeout(tagHold.timer);tagHold=null;}
-$('games').addEventListener('focusin',event=>{
-  if(event.target.matches('.game-tags > button'))event.target.scrollIntoView({block:'nearest',inline:'nearest'});
-});
 document.addEventListener('pointerdown',event=>{
   cancelTagHold();
   const card=event.target.closest('.game');
@@ -289,7 +351,7 @@ function setupAccount(){
   const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
   const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
   initFeedback(feedback,()=>{menu.open=false;},api);
-  panel.append(profile,label,feedback,out);menu.append(trigger,panel);renderAccount();
+  panel.append(profile,label,feedback,out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;
@@ -399,7 +461,7 @@ $('copy-prompt').onclick=async()=>{
 $('refresh-setup').onclick=refreshSetup;
 $('another-game').onclick=()=>{if(setupPending)return;newGameConnection=null;prepareGame();};
 function tagLabel(id){return library?.tags?.find(t=>t.id===id)?.label||id.split('-').map(w=>w[0]?.toUpperCase()+w.slice(1)).join(' ');}
-function renderFilters(){const nav=$('tag-filters');nav.replaceChildren();const all=el('button','All games','tag-filter'+(!activeTag?' selected':''));all.setAttribute('aria-pressed',String(!activeTag));all.onclick=()=>{activeTag='';renderFilters();renderGames();};nav.append(all);for(const tag of library.tags||[]){if(!tag.count&&activeTag!==tag.id)continue;const button=el('button',tag.label+' '+tag.count,'tag-filter'+(activeTag===tag.id?' selected':''));button.setAttribute('aria-pressed',String(activeTag===tag.id));button.onclick=()=>{activeTag=activeTag===tag.id?'':tag.id;renderFilters();renderGames();};nav.append(button);}nav.append(gameCount);}
+function renderFilters(){const nav=$('tag-filters');if(nav.querySelector('.tag-overflow-panel:popover-open'))return;nav.replaceChildren();const all=el('button','All games','tag-filter'+(!activeTag?' selected':''));all.setAttribute('aria-pressed',String(!activeTag));all.onclick=()=>{activeTag='';renderFilters();renderGames();};nav.append(all);for(const tag of library.tags||[]){if(!tag.count&&activeTag!==tag.id)continue;const button=el('button',tag.label,'tag-filter'+(activeTag===tag.id?' selected':''));button.setAttribute('aria-pressed',String(activeTag===tag.id));button.onclick=()=>{activeTag=activeTag===tag.id?'':tag.id;renderFilters();renderGames();};nav.append(button);}prepareTagRow(nav,gameCount);layoutTagRows();}
 $('game-search').oninput=()=>{if(library)renderGames();};
 function openTags(game){editingTags=game;selectedTags=new Set(game.tags||[]);$('tags-title').textContent='Tags: '+game.title;renderTagPicker();$('tags-dialog').showModal();}
 function renderTagPicker(){const picker=$('tag-picker');picker.replaceChildren();const ids=new Set([...(library.tags||[]).map(t=>t.id),...selectedTags]);for(const id of [...ids].sort()){const button=el('button',tagLabel(id),'tag-chip'+(selectedTags.has(id)?' selected':''));button.type='button';button.setAttribute('aria-pressed',String(selectedTags.has(id)));button.onclick=()=>{if(selectedTags.has(id))selectedTags.delete(id);else if(selectedTags.size<8)selectedTags.add(id);renderTagPicker();};picker.append(button);}$('tag-selection-count').textContent=selectedTags.size+' / 8 selected';}
