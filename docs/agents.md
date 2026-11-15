@@ -3,6 +3,10 @@
 Start with the game's engine. Do not ask the child to configure a server, Docker,
 DNS, or ports. Keep their existing game and build workflow intact.
 
+Current development is focused on stabilizing Three.js/Vite. Existing Godot/Bevy
+notes are preliminary; do not expand those adapters while the first engine's
+publishing, saves, sessions, and SDK contract are still changing.
+
 1. Reuse existing credentials for this app if present. Otherwise the copied prompt
    contains a one-time setup code, server origin, and app ID. Supply the code on
    stdin to `infuser connect --server HTTPS_ORIGIN --app APP`. The CLI exchanges it

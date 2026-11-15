@@ -51,8 +51,9 @@ are not implemented yet. Existing explicit-mode launch requests remain accepted.
 
 The current `/_infuser/sdk.js` and unversioned game routes do **not** provide this
 promise yet. Do not advertise them as stable or start a second engine adapter
-that independently guesses their semantics. Review a browser and Godot example
-against the same proposed contract before freezing 1.0.
+while the first is still changing. Settle and exercise the contract with
+Three.js/Vite before expanding compatibility. During review, consider whether
+the wire format is usable from other engines without implementing their adapters.
 
 ## Later features: achievements as an example
 

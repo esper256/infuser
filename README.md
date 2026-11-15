@@ -17,8 +17,9 @@ leases, idle shutdown, restart recovery, persistent world volumes, authenticated
 HTTP/WebSocket routing, and game-bound admission tickets. An optional nftables
 helper grants authenticated player IPs temporary access to native game ports.
 
-**Engine studies, in order:** Three.js/Vite first, Godot web next, Godot multiplayer,
-then Bevy. The happy path starts with a game project, not a Dockerfile. Server
+**Current engine focus:** make the full Three.js/Vite journey solid before expanding
+compatibility. Godot and Bevy work is paused while the SDK is changing. The happy
+path starts with a game project, not a Dockerfile. Server
 engine packaging, native client distribution, and peer relay/signaling are still
 in progress. Custom server images currently need operator staging. Peer-hosted
 multiplayer must have relay fallback; direct-only networking is unsupported.
