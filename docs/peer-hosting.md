@@ -62,6 +62,14 @@ not provide reliable application-level acknowledgments, rollback, anti-cheat,
 simulation, save ownership, or host migration. The game must validate inputs,
 check player/host roles, and tolerate reconnects. Avoid sending secrets to peers.
 
+Brief signaling failures retain the current session while its coordinator lease
+is valid. The host rebuilds failed peer links inside that same session; games
+should send their latest authoritative snapshot when a member reconnects. Once
+the lease expires, `close()` is called, or the host departs, the room is terminal:
+late negotiation results and obsolete channel events cannot revive it. `onEnd`
+fires once. Rejoining requires an explicit new `peers.join()` call. A channel
+closing during `send()` returns false rather than throwing into the game loop.
+
 The controller handles authenticated HTTP signaling only; game traffic flows
 through WebRTC. Host/member edges form a star. Each connection is bound to a
 verified game launch and an opaque session epoch. HTTP signaling queues are
@@ -134,3 +142,12 @@ byte counters, and the browser's current ICE round-trip estimate when available.
 These are diagnostic observations, not proof of device performance or blame for
 lag. Reporting failures never stop gameplay. The diagnostics contract remains
 experimental and is separate from game state and cloud saves.
+
+## Fast recovery checks
+
+`node --test tests/*_sdk.mjs` runs the shipped SDK against controllable signaling
+and WebRTC boundaries, with a simulated clock. It covers transient signaling
+failure, link replacement, tab sleep/lease expiry, leaving during host/member
+negotiation, stale events, and send/close races without real-time sleeps. These
+checks complement the HTTP peer journeys and live two-browser TURN dogfood;
+they do not claim to simulate a browser's actual ICE implementation.

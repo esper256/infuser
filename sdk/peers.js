@@ -20,8 +20,10 @@ export async function join({relayOnly = true, sessionId, playerId, joinable, onS
   const links = new Map();
   const config = () => ({iceServers, iceTransportPolicy: initial.ice_transport_policy});
   const ownsLease = () => live && performance.now() - lastPoll < state.lease_ms;
+  const current = (id, link) => ownsLease() && links.get(id) === link;
   const indicator = status => { if (window.parent !== window) window.parent.postMessage({type:'infuser-network',status}, location.origin); };
   const report = () => {
+    if (!ownsLease()) return;
     const connected = [...links].filter(([, l]) => l.channel?.readyState === 'open').map(([id]) => id);
     indicator(connected.length === state.peers.length - 1 ? 'connected' : 'connecting');
     onState({...state, connected});
@@ -37,15 +39,19 @@ export async function join({relayOnly = true, sessionId, playerId, joinable, onS
   // Fence a disconnected old host before the controller can appoint another one.
   const watchdog = setInterval(() => { if (!ownsLease()) end('Connection lost. Join the shared session again.'); }, 500);
   function channel(link, dc, id) {
+    if (!current(id, link)) { dc.close(); return; }
     link.channel = dc;
-    dc.onopen = dc.onclose = () => { if (live) report(); };
+    dc.onopen = dc.onclose = () => { if (current(id, link)) report(); };
     dc.onmessage = event => {
       if (!ownsLease() || links.get(id) !== link || typeof event.data !== 'string' || event.data.length > 65536) return;
       let data; try { data = JSON.parse(event.data); } catch { return; }
       onMessage(id, data);
     };
   }
-  function signal(id, payload) { return request('/' + initial.self_id + '/signals', {epoch: initial.epoch, to:id, payload}); }
+  function signal(id, link, payload) {
+    if (!current(id, link)) return Promise.resolve();
+    return request('/' + initial.self_id + '/signals', {epoch: initial.epoch, to:id, payload});
+  }
   function connect(id, generation) {
     drop(id);
     const pc = new RTCPeerConnection(config());
@@ -53,13 +59,13 @@ export async function join({relayOnly = true, sessionId, playerId, joinable, onS
     links.set(id, link);
     const sendCandidate = candidate => {
       // Preserve trickle order and never leave rejected promises unhandled.
-      link.outgoing = link.outgoing.then(() => signal(id, {type:'candidate', generation, candidate})).catch(() => {});
+      link.outgoing = link.outgoing.then(() => signal(id, link, {type:'candidate', generation, candidate})).catch(() => {});
     };
     link.flush = () => { link.announced = true; for (const c of link.candidates.splice(0)) sendCandidate(c); };
-    pc.onicecandidate = ({candidate}) => { if (candidate && links.get(id) === link) { const c = candidate.toJSON(); if (link.announced) sendCandidate(c); else link.candidates.push(c); } };
+    pc.onicecandidate = ({candidate}) => { if (candidate && current(id, link)) { const c = candidate.toJSON(); if (link.announced) sendCandidate(c); else link.candidates.push(c); } };
     pc.ondatachannel = ({channel: dc}) => channel(link, dc, id);
     pc.onconnectionstatechange = () => {
-      if (links.get(id) !== link) return;
+      if (!current(id, link)) return;
       if (pc.connectionState === 'connected') link.disconnected = 0;
       else if (!link.disconnected) link.disconnected = performance.now();
       report();
@@ -67,26 +73,40 @@ export async function join({relayOnly = true, sessionId, playerId, joinable, onS
     return link;
   }
   async function offer(id) {
+    if (!ownsLease()) return;
     const link = connect(id, crypto.randomUUID());
     channel(link, link.pc.createDataChannel('infuser-game'), id);
-    await link.pc.setLocalDescription(await link.pc.createOffer());
-    await signal(id, {type:'offer', generation:link.generation, description:link.pc.localDescription.toJSON()});
+    const description = await link.pc.createOffer();
+    if (!current(id, link)) return;
+    await link.pc.setLocalDescription(description);
+    if (!current(id, link)) return;
+    await signal(id, link, {type:'offer', generation:link.generation, description:link.pc.localDescription.toJSON()});
+    if (!current(id, link)) return;
     link.flush();
   }
   async function receive({from, payload}) {
+    if (!ownsLease()) return;
     if (!state.peers.some(p => p.id === from)) return;
     if (typeof payload.generation !== 'string' || payload.generation.length > 64) return;
     let link = links.get(from);
     if (payload.type === 'offer' && initial.role === 'member' && from === initial.host_id) {
       link = connect(from, payload.generation);
       await link.pc.setRemoteDescription(payload.description);
-      await link.pc.setLocalDescription(await link.pc.createAnswer());
-      await signal(from, {type:'answer', generation:link.generation, description:link.pc.localDescription.toJSON()});
+      if (!current(from, link)) return;
+      const description = await link.pc.createAnswer();
+      if (!current(from, link)) return;
+      await link.pc.setLocalDescription(description);
+      if (!current(from, link)) return;
+      await signal(from, link, {type:'answer', generation:link.generation, description:link.pc.localDescription.toJSON()});
+      if (!current(from, link)) return;
       link.flush();
     } else if (link?.generation === payload.generation) {
       if (payload.type === 'answer' && initial.role === 'host' && link.pc.signalingState === 'have-local-offer') {
         await link.pc.setRemoteDescription(payload.description);
-        for (const c of (link.pending || [])) await link.pc.addIceCandidate(c);
+        for (const c of (link.pending || [])) {
+          if (!current(from, link)) return;
+          await link.pc.addIceCandidate(c);
+        }
         link.pending = [];
       } else if (payload.type === 'candidate') {
         if (link.pc.remoteDescription) await link.pc.addIceCandidate(payload.candidate);
@@ -116,8 +136,10 @@ export async function join({relayOnly = true, sessionId, playerId, joinable, onS
           }
         }
       }
-      if (performance.now() - refreshed > 1200000) {
-        iceServers = (await request('/' + initial.self_id + '/ice')).ice_servers;
+      if (ownsLease() && performance.now() - refreshed > 1200000) {
+        const refreshedIce = await request('/' + initial.self_id + '/ice');
+        if (!ownsLease()) return;
+        iceServers = refreshedIce.ice_servers;
         refreshed = performance.now();
         if (initial.role === 'host') for (const id of links.keys()) await offer(id);
       }
@@ -143,7 +165,8 @@ export async function join({relayOnly = true, sessionId, playerId, joinable, onS
       if (!ownsLease()) return false;
       const dc = links.get(to)?.channel, message = JSON.stringify(data);
       if (!dc || dc.readyState !== 'open' || dc.bufferedAmount > 65536 || message.length > 65536) return false;
-      dc.send(message); return true;
+      // A ready channel can close or exhaust its buffer before send completes.
+      try { dc.send(message); return true; } catch { return false; }
     },
     broadcast(data) { for (const id of links.keys()) room.send(id, data); },
     close() { end('Left the shared session.'); },
@@ -163,7 +186,10 @@ export async function join({relayOnly = true, sessionId, playerId, joinable, onS
   // Operator diagnostics are separate from the player's quiet title-bar indicator.
   healthTimer = setInterval(async () => {
     if (!ownsLease()) return;
-    try { await request('/' + initial.self_id + '/health', {connections:await room.stats()}); } catch { /* Diagnostics cannot interrupt play. */ }
+    try {
+      const connections = await room.stats();
+      if (ownsLease()) await request('/' + initial.self_id + '/health', {connections});
+    } catch { /* Diagnostics cannot interrupt play. */ }
   }, 5000);
   report(); timer = setTimeout(poll, 0);
   return room;
