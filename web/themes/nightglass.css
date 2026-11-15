@@ -1,0 +1,23 @@
+/* Stable baseline tokens. Shared components remain in clubhouse.css. */
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-synthesis: none;
+  --page: #080f15;
+  --field: #09171d;
+  --button-ink: #102c28;
+  --accent-hover: #d0f4e4;
+  --accent-pressed: #9ed5c0;
+  --panel: #122128;
+  --card-dock: linear-gradient(125deg,#173e4080,#071e2be8);
+  color: #edf4ef;
+  --ink: #edf4ef;
+  --quiet: #9cafaf;
+  --accent: #b5ead6;
+  --green: #b5ead6;
+  --warm: #e8d5a4;
+  --line: #30444a;
+  --surface: #13242b;
+  --glass: linear-gradient(135deg, #1b3537e8, #101e28f5);
+  --focus: #e8d5a4;
+}

@@ -3,6 +3,7 @@ const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
 let noticeTimer;
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
+let seenEvents;
 let entryGame;
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
@@ -140,10 +141,15 @@ document.addEventListener('click',event=>{for(const menu of document.querySelect
 document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open]')){menu.open=false;menu.querySelector('summary').focus();}});
 function renderFeed() {
   const feed=$('feed');feed.replaceChildren();const entries=[];
-  for(const game of library.apps){entries.push({at:game.updated,emoji:'↗',title:game.title+' updated',text:'A new build is ready to play.'});for(const r of game.reactions)entries.push({at:r.updated,emoji:r.emoji,title:r.name+' reacted to '+game.title,text:r.text});}
+  for(const game of library.apps){entries.push({at:game.updated,emoji:'↗',title:game.author?.name?game.author.name+' updated '+game.title:game.title+' updated',text:'',person:game.author});for(const r of game.reactions)entries.push({at:r.updated,emoji:r.emoji,title:r.name+' reacted to '+game.title,text:r.text,person:{name:r.name}});}
   entries.sort((a,b)=>b.at-a.at);
+  const keys=new Set(entries.slice(0,12).map(entry=>JSON.stringify([entry.at,entry.title,entry.text])));
+  if(!seenEvents||$('recent-menu').open)seenEvents=keys;
+  const unseen=[...keys].some(key=>!seenEvents.has(key));
+  $('recent-toggle').classList.toggle('has-updates',unseen);
+  $('recent-toggle').setAttribute('aria-label',unseen?'Recently · new events':'Recently');
   if(!entries.length)feed.append(el('p','Game updates and reactions show up here.','quiet'));
-  for(const entry of entries.slice(0,12)){const row=el('div',undefined,'feed-row'),body=el('div');body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));row.append(el('span',entry.emoji,'feed-emoji'),body);feed.append(row);}
+  for(const entry of entries.slice(0,12)){const row=el('div',undefined,'feed-row'),body=el('div');body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));mark.append(el('span',entry.emoji,'feed-emoji'));row.append(mark,body);feed.append(row);}
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.append(radio,el('span',emoji));$('emoji').append(l);}
 function openReaction(game){currentReaction=game;$('reaction-comment').hidden=true;$('reaction-title').textContent=game.title;const mine=game.reactions.find(r=>r.mine);$('reaction-form').reset();if(mine){$('reaction-comment').hidden=false;$('reaction-form').elements.emoji.value=mine.emoji;$('reaction-form').elements.text.value=mine.text;}$('remove-reaction').hidden=!mine;$('reaction-dialog').showModal();}
@@ -185,9 +191,40 @@ function openMemberRename(row,actions,email,member,updateLabel,rename){
 $('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with that Google account.');await adminRefresh();}catch(error){showError(error);}};
 $('credential-form').onsubmit=async event=>{event.preventDefault();try{const data=Object.fromEntries(new FormData(event.target)),connection=await api('/api/admin/credentials',{method:'POST',body:JSON.stringify(data)});const blob=new Blob([JSON.stringify(connection,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=connection.app_id+'.credentials.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Connection file downloaded. Attach it in your game’s existing agent chat.');await adminRefresh();}catch(error){showError(error);}};
 function renderAccount(){
-  $('greeting').textContent='Signed in as '+me.name+'.';$('open-profile').setAttribute('aria-label',me.name+' · Change profile picture');
-  $('open-profile').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),el('span',me.name));
+  $('greeting').textContent='Signed in as '+me.name+'.';$('account-trigger').setAttribute('aria-label',me.name+' · Profile menu');
+  $('account-trigger').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),el('span',me.name));
 }
+function setupAccount(){
+  const menu=el('details',undefined,'header-menu profile-menu'),trigger=el('summary',undefined,'profile-button'),panel=el('div',undefined,'account-menu');
+  trigger.id='account-trigger';
+  const profile=el('button','Change profile picture');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');
+  profile.onclick=()=>{menu.open=false;openProfile();};
+  const label=el('label','Theme'),select=el('select');select.id='theme-picker';
+  const themes=window.InfuserThemes;
+  for(const theme of themes.catalog.filter(theme=>theme.status!=='retired')){
+    const option=el('option',theme.name+(theme.status==='preview'?' · Preview':''));option.value=theme.id;select.append(option);
+  }
+  select.value=themes.current;select.onchange=()=>themes.select(select.value);
+  window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
+  label.append(select);
+  const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
+  panel.append(profile,label,out);menu.append(trigger,panel);$('account').append(menu);renderAccount();
+}
+function closeHeaderMenus(except){
+  for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;
+}
+document.addEventListener('click',event=>{
+  const menu=event.target.closest('header details');
+  if(!menu)closeHeaderMenus();
+  else if(event.target.closest('summary'))closeHeaderMenus(menu);
+});
+document.addEventListener('keydown',event=>{
+  if(event.key!=='Escape'||document.querySelector('dialog[open]'))return;
+  const menu=document.querySelector('header details[open]');
+  if(menu){closeHeaderMenus();menu.querySelector('summary').focus();}
+});
+$('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();});
+$('close-recent').onclick=()=>{$('recent-menu').open=false;$('recent-toggle').focus();};
 function openProfile(){
   $('profile-error').textContent='';
   const picker=$('profile-options');picker.replaceChildren();
@@ -201,6 +238,7 @@ function openProfile(){
   $('profile-dialog').showModal();picker.querySelector('input:checked').focus();
 }
 $('close-profile').onclick=()=>$('profile-dialog').close();
+$('profile-dialog').addEventListener('close',()=>$('account-trigger').focus());
 $('profile-dialog').addEventListener('cancel',event=>{if($('save-profile').disabled)event.preventDefault();});
 $('profile-form').onsubmit=async event=>{
   event.preventDefault();if($('save-profile').disabled)return;
@@ -217,7 +255,7 @@ $('profile-form').onsubmit=async event=>{
 
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
-  $('greeting').textContent='Signed in as '+me.name+'.';const profile=el('button',undefined,'profile-button');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');profile.setAttribute('aria-label',me.name+' · Change profile picture');profile.onclick=openProfile;$('account').append(profile);renderAccount();const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';$('account').append(out);
+  setupAccount();$('recent-menu').hidden=false;
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
   if(me.admin){$('admin').hidden=false;await adminRefresh();}
 } catch(error) {if(error.status!==401)$('login-message').textContent=error.message;}

@@ -67,6 +67,24 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
             .header("cookie", cookie)
             .header("origin", "https://games.example.com")
     };
+    // Theme bootstrap and both stylesheets must be available before authentication.
+    for (path, mime, marker) in [
+        ("/assets/themes.js", "text/javascript", "InfuserThemes"),
+        ("/assets/themes/nightglass.css", "text/css", "--page"),
+        (
+            "/assets/themes/cartridge-club.css",
+            "text/css",
+            "data-theme",
+        ),
+    ] {
+        let asset = http
+            .get(format!("{url}{path}"))
+            .send()
+            .await?
+            .error_for_status()?;
+        assert_eq!(asset.headers()["content-type"], mime);
+        assert!(asset.text().await?.contains(marker));
+    }
     let before: Value = request(Method::GET, "/api/me", "member=one")
         .send()
         .await?
