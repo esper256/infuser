@@ -15,6 +15,8 @@ restart recovery, failure backoff, disk admission threshold, architecture checks
 persistent server volumes, Caddy route generation, explicit solo/multiplayer
 manifest validation, a sample Rust game server, and automatic release updates
 with health checks and rollback.
+An optional game-port firewall provides default-deny access with expiring IP
+grants; connecting grants to Google login is part of the upcoming player API.
 
 **Next:** the Google-authenticated library UI and player API, agent publishing
 API/CLI, immutable builds and branches, lobbies/presence, cloud saves, and engine
@@ -37,6 +39,7 @@ Start here:
 - [Run a server](docs/operations.md)
 - [Automatic deployment](docs/deployment.md)
 - [Lifecycle API](docs/api.md)
+- [Game-port admission firewall](docs/network-admission.md)
 - [Game integration instructions for agents](docs/agents.md)
 - [Product boundaries and Steam-style concepts](docs/architecture.md)
 

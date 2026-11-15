@@ -1,0 +1,26 @@
+# Keep this range aligned with the controller's published game ports.
+# HTTP/HTTPS and SSH are deliberately outside this table's scope.
+table inet infuser_ingress {
+    set members4 {
+        type ipv4_addr
+        flags timeout
+        timeout 30m
+    }
+    set members6 {
+        type ipv6_addr
+        flags timeout
+        timeout 30m
+    }
+    chain clients {
+        ip saddr @members4 return
+        ip6 saddr @members6 return
+        counter drop
+    }
+    chain ingress {
+        type filter hook prerouting priority -150; policy accept;
+        iifname "lo" return
+        # Match the host's original port before Docker's destination NAT.
+        # The local-destination test leaves container outbound traffic alone.
+        fib daddr type local meta l4proto { tcp, udp } th dport 8000-9000 jump clients
+    }
+}
