@@ -1,6 +1,6 @@
 # Infuser card hero art
 
-**Draft 0.3 — artwork preparation, publishing, and review.** This guide specifies
+**Draft 0.4 — artwork preparation, publishing, and review.** This guide specifies
 the image for a Library card. `infuser publish` automatically includes the
 delivery image described below. No artwork field in `infuser.game.json` is needed.
 
@@ -64,9 +64,13 @@ Custom publishers use the existing build file-upload route with that path. The
 server validates dimensions, format, opacity, static encoding, and size before
 publication. No new game SDK integration is involved.
 
-Artwork activates with its immutable game build; a queued update keeps the old
-cover until activation. Publish a new build to replace art. Missing art uses the
-abstract Library fallback. The Library returns an optional `card_art_url`, accessible only
+Build-bundled artwork activates with its immutable game build; a queued update
+keeps the old cover until activation. To add or replace only the cover, use the
+[independent metadata API](game-metadata.md): upload the same delivery WebP with
+`PUT /api/publisher/apps/APP/card-art`. This requires only the existing game
+connection file, not its source or a new build. An explicit cover override survives
+future builds until cleared with DELETE; then the active build cover is used again.
+Missing art uses the abstract Library fallback. The Library returns an optional `card_art_url`, accessible only
 to members who can see that game; hidden preview art is adult-only as well.
 
 A larger About-window illustration will be a separate asset with its own future

@@ -33,6 +33,7 @@ use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
 mod avatars;
 mod card_art;
+mod metadata;
 mod presence;
 mod runtime;
 mod sdk_v1;
@@ -354,6 +355,18 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/publisher/tags", get(publisher_tags))
         .route("/api/publisher/apps/{app}/tags", put(publisher_set_tags))
         .route(
+            "/api/publisher/apps/{app}/metadata",
+            get(metadata::get_metadata)
+                .patch(metadata::patch_metadata)
+                .layer(DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/api/publisher/apps/{app}/card-art",
+            put(metadata::put_art)
+                .delete(metadata::delete_art)
+                .layer(DefaultBodyLimit::max(crate::card_art::MAX_BYTES)),
+        )
+        .route(
             "/api/publisher/apps/{app}/slug",
             put(urls::publisher_rename),
         )
@@ -560,7 +573,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
                 .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
         } else { vec![] };
         let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name,"avatar":member.avatar})));
-        json!({"card_art_url":card_art::url(id,&a.build,b),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        json!({"card_art_url":card_art::url(id,&a.build,b,data.metadata.get(id)),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":metadata::title(&data,id,&b.manifest.title),"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence
@@ -863,7 +876,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"game_metadata":{"version":1,"title_max_chars":80,"card_art_override":true},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1045,6 +1058,11 @@ async fn upload(
             .values()
             .flat_map(|b| b.files.values())
             .sum::<u64>()
+            + data
+                .metadata
+                .values()
+                .map(|m| m.card_art_bytes)
+                .sum::<u64>()
             - prior
             + size
             <= p.config().controller.content_budget_mb * 1024 * 1024,
