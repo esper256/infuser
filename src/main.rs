@@ -17,6 +17,9 @@ async fn main() -> Result<()> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "connect") {
+        return infuser::publisher::connect(&args).await;
+    }
     if args.first().is_some_and(|s| s == "preview-game") {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};
         let config = Config::load(Path::new(

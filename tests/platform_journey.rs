@@ -129,6 +129,64 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .unwrap()
             .starts_with("game-my-star-adventure-")
     );
+    assert!(
+        owned["token"].is_null(),
+        "the child should receive only a one-time setup code"
+    );
+    assert!(
+        owned["tag_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["id"] == "puzzle")
+    );
+    let app_id = owned["app_id"].as_str().unwrap().to_string();
+    let setup_token = owned["setup_code"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("infuser_setup_")
+        .unwrap()
+        .to_string();
+    let claim = || {
+        http.post(format!("{url}/api/publisher/claim"))
+            .header("host", HOST)
+            .json(&json!({"token":setup_token,"app_id":app_id}))
+    };
+    let owned: Value = claim().send().await?.json().await?;
+    assert_eq!(
+        claim().send().await?.status(),
+        401,
+        "setup code was reusable"
+    );
+    let renewed: Value = kid(
+        reqwest::Method::POST,
+        &format!("/api/my-games/{app_id}/setup"),
+    )
+    .send()
+    .await?
+    .json()
+    .await?;
+    let expired = renewed["setup_code"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("infuser_setup_")
+        .unwrap();
+    db.edit(|d| {
+        d.setup_claims
+            .get_mut(&platform::hash(expired))
+            .unwrap()
+            .expires = infuser::controller::now() - 1;
+        Ok(())
+    })?;
+    assert_eq!(
+        http.post(format!("{url}/api/publisher/claim"))
+            .header("host", HOST)
+            .json(&json!({"token":expired}))
+            .send()
+            .await?
+            .status(),
+        410
+    );
     assert_eq!(
         http.get(format!("{url}/api/publisher/capabilities"))
             .header("host", HOST)
@@ -150,7 +208,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .header("host", HOST)
             .bearer_auth(token)
     };
-    let build = json!({"manifest":{"schema_version":1,"app_id":"moon","title":"Moon","play_modes":["solo"],"solo_runtime":"client_only","multiplayer":null},"server":null,"spa":true,"cross_origin_isolation":true});
+    let build = json!({"manifest":{"schema_version":1,"app_id":"moon","title":"Moon","tags":["puzzle","3d"],"play_modes":["solo"],"solo_runtime":"client_only","multiplayer":null},"server":null,"spa":true,"cross_origin_isolation":true});
     assert_eq!(
         publisher(
             reqwest::Method::PUT,
@@ -245,6 +303,30 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .json()
         .await?;
     assert_eq!(list["apps"][0]["title"], "Moon");
+    assert_eq!(list["apps"][0]["tags"], json!(["puzzle", "3d"]));
+    assert_eq!(
+        kid(reqwest::Method::PUT, "/api/apps/moon/tags")
+            .json(&json!({"tags":["racing"]}))
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        kid(reqwest::Method::POST, "/api/my-games/moon/setup")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        adult(reqwest::Method::PUT, "/api/apps/moon/tags")
+            .json(&json!({"tags":["Chill","Puzzle"]}))
+            .send()
+            .await?
+            .status(),
+        200
+    );
     assert_eq!(
         kid(reqwest::Method::POST, "/api/apps/moon/launch")
             .header("origin", "https://evil.example")
@@ -257,7 +339,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     let mut sessions = vec![];
     for guest in [false, true, true] {
         let launch: Value = kid(reqwest::Method::POST, "/api/apps/moon/launch")
-            .json(&json!({"mode":"solo","guest":guest}))
+            .json(&json!({"guest":guest}))
             .send()
             .await?
             .json()
@@ -427,6 +509,16 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .json()
         .await?;
     let updated_url = reqwest::Url::parse(updated["url"].as_str().unwrap())?;
+    let tags: Value = kid(reqwest::Method::GET, "/api/library")
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        tags["apps"][0]["tags"],
+        json!(["chill", "puzzle"]),
+        "publishing erased author-edited tags"
+    );
     assert_ne!(
         updated_url.host_str().unwrap(),
         sessions[0].0,

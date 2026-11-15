@@ -3,9 +3,14 @@
 Start with the game's engine. Do not ask the child to configure a server, Docker,
 DNS, or ports. Keep their existing game and build workflow intact.
 
-1. Read the private `*.credentials.json` game pass supplied separately. It contains
-   `api_url`, `app_id`, and a publishing token for **one game**. Keep it outside the
-   game source/export, or in a Git-ignored `.local/` directory. Never print it.
+1. Reuse existing credentials for this app if present. Otherwise the copied prompt
+   contains a one-time setup code, server origin, and app ID. Supply the code on
+   stdin to `infuser connect --server HTTPS_ORIGIN --app APP`. The CLI exchanges it
+   once and stores `.local/APP.credentials.json`. Do not echo secrets into logs or
+   shell history. Ignore `.local/` and `*.credentials.json` in Git and exports.
+   The code expires in one hour; the child can use **Refresh code** for the same
+   app. An operator-supplied credentials file also works. Never create another
+   app just to refresh credentials.
 2. Inspect the project, then choose the closest recipe:
    - **[Three.js / Vite / browser JavaScript](engines/threejs-vite.md)** — first supported journey.
    - **[Godot web export](engines/godot-web.md)** — export and adapter path.
@@ -20,9 +25,18 @@ DNS, or ports. Keep their existing game and build workflow intact.
 5. Integrate saves, publish, then exercise a real player journey. An upload alone
    is not completion. Use `--preview` for admin-only dogfood/test games.
 
-The child can create a game pass and copy this task from **Add a game** in the
-clubhouse. Only adult admins can invite or disable members. A disabled member's
+The child copies this task from **Add a game** in the Library; no files to attach.
+Only adult admins can invite or disable members. A disabled member's
 publisher credentials and player sessions stop working.
+
+**SDK status: pre-1.0.** Read the [compatibility review](sdk-contract.md). The current
+integration is for dogfooding; do not mistake manifest schema 1 for SDK 1.0 or
+invent APIs for achievements, in-game presence, or Join friend. Play opens the
+game's own title screen; keep its Single player/Multiplayer selection intact.
+
+Infer a few initial tags from the actual game. Prefer the supplied catalog or
+`GET /api/publisher/tags`; put up to eight tag IDs in `infuser.game.json`, for
+example `"tags":["3d","arcade","chill"]`. Later publishes preserve author edits.
 
 ## What Infuser handles
 

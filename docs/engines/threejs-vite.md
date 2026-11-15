@@ -54,8 +54,8 @@ silently fall back to local saves when a production cloud write fails.
 ## Verify the experience
 
 1. Publish with `--preview` during development (adult admins only).
-2. Play from the clubhouse, earn progress, close and reopen, and confirm it loads.
-3. Open **Guest mode · solo**: progress must start empty. Earn different progress.
+2. Play from the Library, earn progress, close and reopen, and confirm it loads.
+3. Choose **Play in guest mode**: progress must start empty. Earn different progress.
 4. Reopen ordinary play: the owner's original progress must be unchanged.
 5. Publish a visible change. Existing tabs retain the previous build; a fresh Play
    receives the new one. Inspect missing assets rather than hiding them with SPA fallback.

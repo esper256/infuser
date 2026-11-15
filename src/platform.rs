@@ -30,6 +30,13 @@ pub struct Credential {
     pub owner: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
+pub struct SetupClaim {
+    pub app: String,
+    pub owner: String,
+    pub label: String,
+    pub expires: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Build {
     pub manifest: Manifest,
     pub server: Option<Game>,
@@ -72,6 +79,10 @@ pub struct Reaction {
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Data {
+    #[serde(default)]
+    pub tags: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub setup_claims: BTreeMap<String, SetupClaim>,
     #[serde(default)]
     pub owners: BTreeMap<String, String>,
     pub members: BTreeMap<String, Member>,

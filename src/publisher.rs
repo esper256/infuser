@@ -146,7 +146,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         settings.get("play_modes").cloned().context("Declare --solo, or put play_modes and multiplayer settings in infuser.game.json. Infuser never guesses multiplayer topology.")?
     };
     let solo = modes.as_array().is_some_and(|a| a.contains(&json!("solo")));
-    let manifest = json!({"schema_version":1,"app_id":connection.app_id,"title":title,"play_modes":modes,"solo_runtime":if solo{settings.get("solo_runtime").cloned().unwrap_or(json!("client_only"))}else{Value::Null},"multiplayer":settings.get("multiplayer").cloned().unwrap_or(Value::Null)});
+    let manifest = json!({"schema_version":1,"app_id":connection.app_id,"title":title,"tags":settings.get("tags").cloned().unwrap_or(json!([])),"play_modes":modes,"solo_runtime":if solo{settings.get("solo_runtime").cloned().unwrap_or(json!("client_only"))}else{Value::Null},"multiplayer":settings.get("multiplayer").cloned().unwrap_or(Value::Null)});
     let parsed: crate::manifest::Manifest = serde_json::from_value(manifest.clone())?;
     parsed.validate()?;
     let capabilities = response(
@@ -304,8 +304,89 @@ pub async fn run(args: &[String]) -> Result<()> {
         if has(args, "--preview") {
             "Admin-only preview: hidden from players."
         } else {
-            "Ready in the clubhouse."
+            "Ready in the Library."
         }
+    );
+    Ok(())
+}
+
+/// Read a one-hour opaque setup code from stdin; write the durable credential privately.
+pub async fn connect(args: &[String]) -> Result<()> {
+    use std::{
+        io::{Read, Write},
+        os::unix::fs::OpenOptionsExt,
+    };
+    let mut code = String::new();
+    std::io::stdin().take(16384).read_to_string(&mut code)?;
+    let token = code
+        .trim()
+        .strip_prefix("infuser_setup_")
+        .context("expected the setup code from the Infuser prompt on stdin")?;
+    ensure!(
+        token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit()),
+        "invalid setup code"
+    );
+    let app = option(args, "--app").context("--app APP_ID is required")?;
+    ensure!(crate::config::slug(&app), "invalid app ID");
+    let api_url = option(args, "--server").context("--server HTTPS_ORIGIN is required")?;
+    let api_url = api_url.trim_end_matches('/');
+    let url = reqwest::Url::parse(api_url)?;
+    ensure!(
+        url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url.path() == "/",
+        "setup requires an HTTPS API origin"
+    );
+    let output = PathBuf::from(
+        option(args, "--output").unwrap_or_else(|| format!(".local/{app}.credentials.json")),
+    );
+    if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    // Reserve the destination before consuming the one-time token. Never overwrite
+    // an existing working connection file just because another prompt was pasted.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&output)
+        .context(
+            "cannot create credential file; choose a new path or reuse the existing connection",
+        )?;
+    let result: Result<()> = async {
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let connection = response(
+            http.post(format!("{}/api/publisher/claim", api_url))
+                .json(&json!({"token":token,"app_id":app}))
+                .send()
+                .await?,
+        )
+        .await?;
+        ensure!(
+            connection["app_id"] == app
+                && connection["api_url"] == api_url
+                && connection["token"].as_str().is_some_and(|t| t.len() >= 32),
+            "server returned an unexpected connection"
+        );
+        file.write_all(serde_json::to_string_pretty(&connection)?.as_bytes())?;
+        file.sync_all()?;
+        Ok(())
+    }
+    .await;
+    if result.is_err() {
+        drop(file);
+        let _ = std::fs::remove_file(&output);
+    }
+    result?;
+    println!(
+        "Game connected. Credentials saved to {}. Keep this file out of Git and game exports.",
+        output.display()
     );
     Ok(())
 }

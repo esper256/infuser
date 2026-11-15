@@ -8,6 +8,8 @@ pub struct Manifest {
     pub schema_version: u32,
     pub app_id: String,
     pub title: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub play_modes: Vec<PlayMode>,
     pub solo_runtime: Option<SoloRuntime>,
     pub multiplayer: Option<Multiplayer>,
@@ -76,6 +78,18 @@ impl Manifest {
             "unsupported manifest schema_version"
         );
         ensure!(crate::config::slug(&self.app_id), "invalid app_id");
+        ensure!(
+            self.tags.len() <= 8 && self.tags.iter().all(|t| crate::tags::valid(t)),
+            "use up to 8 lowercase tag IDs, each 1–32 letters, numbers or dashes"
+        );
+        ensure!(
+            self.tags
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.tags.len(),
+            "duplicate tags"
+        );
         ensure!(
             !self.title.trim().is_empty() && self.title.chars().count() <= 80,
             "title must contain 1-80 characters"

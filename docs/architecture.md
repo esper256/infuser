@@ -3,6 +3,10 @@
 Infuser uses familiar Steam-style concepts, with its own small HTTP contracts.
 It is not Steamworks-compatible and does not require Steam.
 
+The current game SDK is pre-1.0. See the [contract review](sdk-contract.md) before
+adding durable game-facing features and the [public API](public-api.md) for
+implemented routes. Planned concepts below do not imply runtime availability.
+
 | Concept | Meaning in Infuser |
 | --- | --- |
 | App | Stable identity of a game; independent of engine and release |
@@ -107,21 +111,21 @@ need explicit checkpoint/migration/restore support. Binary rollback is not a
 database rollback. The first slice instead requires stopping an app before
 changing its configured image or runtime settings.
 
-## Cloud saves (planned)
+## Cloud saves
 
 The public game API owns saves keyed by `(player_id, app_id, slot)`. Identity
 comes from the authenticated session, never a caller-supplied player ID.
-`loadSave(slot)` returns bytes plus a version/ETag; `save(slot, bytes,
-expectedVersion)` uses conditional writes and reports a conflict instead of
+The current browser `saves.load(slot)` returns JSON plus a version;
+`saves.save(slot, data, version)` uses conditional writes and reports a conflict instead of
 silently losing another device's update. Creation must also be conditional.
 
-Bound per-slot size, per-player/app storage, and retained versions. The game owns
-the save format and schema migrations; Infuser stores opaque bytes with metadata.
-Keep a few previous versions for recovery. Saves persist independently of game
+Bound per-slot size and per-player/app storage. The game owns
+the save format and schema migrations; Infuser stores JSON with version metadata.
+Retained versions for recovery are planned. Saves persist independently of game
 container lifetime and build promotion. Native games can later opt into a
 Steam Auto-Cloud-style file adapter; browsers need explicit API integration.
 
-## Reactions (planned)
+## Reactions
 
 Players can celebrate each other's games with an oversized positive emoji and an
 optional short comment. The interaction starts with choosing the emoji; only then
@@ -135,7 +139,7 @@ positive and equally prominent.
 Use large text in a compact field, with a suggested starting limit of 140
 characters. Friendly prompts such as "My favorite part was…" or "I loved when…"
 can help someone begin; they are optional, not a required compliment formula.
-The send action is "Send reaction". Show the selected emoji prominently alongside
+Enter or the arrow button sends the reaction. Show the selected emoji prominently alongside
 the player's name and sentence on the game page, retaining the large, brief feel.
 
 Initial implementation should stay small: select an emoji, optionally write a
@@ -149,7 +153,7 @@ leads with friends currently playing and includes a clubhouse activity feed for
 new games, updates and reactions. Only an adult admin can invite accounts; the
 initial admin will be bootstrapped through a local operator command.
 
-## Guest play (planned)
+## Guest play
 
 The dropdown beside Play includes **Play in guest mode** for sharing a device.
 Each guest launch starts with an empty, temporary save namespace. It cannot read

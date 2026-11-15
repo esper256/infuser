@@ -1,13 +1,17 @@
 # Public platform API
 
-The engine recipes are the preferred entry point. These are the stable, low-level
-building blocks for custom agents. All bodies/responses are JSON unless noted.
+The engine recipes are the preferred entry point. These are **pre-1.0** low-level
+building blocks for custom agents; see the [SDK compatibility review](sdk-contract.md).
+All bodies/responses are JSON unless noted.
 Public traffic goes through HTTPS/Caddy; `/v1/*` is still private to the host.
 
 ## Publisher credentials
 
 An adult admin can create an app-scoped connection file. An invited player can
-create a new game and its own scoped connection through **Add a game**. Each file
+create a new game through **Add a game**, then copy a prompt containing an opaque,
+single-use setup code valid for one hour. The agent runs `infuser connect --server
+HTTPS_ORIGIN --app APP`, supplying the code on stdin. The CLI exchanges it once
+and stores `.local/APP.credentials.json` with private permissions. Each file
 contains `api_url`, `app_id`, and `token`. Use `Authorization: Bearer TOKEN`.
 Credentials can publish only their game, cannot read player saves, invite members,
 or control the host. Admin revocation and member disabling take effect immediately.
@@ -15,6 +19,9 @@ or control the host. Admin revocation and member disabling take effect immediate
 | Method | Route | Action |
 |---|---|---|
 | GET | `/api/publisher/capabilities` | Supported runtimes, architecture, limits |
+| POST | `/api/publisher/claim` | Exchange a setup code for permanent app-scoped credentials |
+| GET | `/api/publisher/tags` | Current tag catalog |
+| PUT | `/api/publisher/apps/APP/tags` | Set this game's tags |
 | PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
 | GET | same | Inspect metadata and uploaded file inventory |
 | PUT | `/api/publisher/apps/APP/builds/BUILD/files/PATH` | Upload raw file body |
@@ -23,6 +30,16 @@ or control the host. Admin revocation and member disabling take effect immediate
 | DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |
 
 Create body: `{"manifest":MANIFEST,"server":null,"spa":false,"cross_origin_isolation":false}`.
+Claim is the exception to bearer authentication: send `{"token":"HEX_SECRET","app_id":"APP"}`,
+stripping the `infuser_setup_` prefix from the copyable code. Success returns the
+connection file; replay fails with 401 and an expired code with 410. A replacement
+code invalidates previous unclaimed codes for that app. Never print either secret.
+
+Tags use `{"tags":["puzzle","3d"]}`. Choose up to eight lowercase IDs, 1–32 letters,
+numbers or dashes, without leading/trailing dashes. Prefer the catalog; custom
+tags are allowed. Manifest `tags` initializes the game's tags at first publication;
+later builds preserve author edits. Use the tags endpoint to change them explicitly.
+
 The manifest follows `examples/game-manifest.json`. IDs are lowercase slug strings,
 up to 48 characters, beginning with a letter. Upload a UTF-8 `index.html` including
 `<script type="module" src="/_infuser/sdk.js"></script>`; the CLI adds it for you.
@@ -47,8 +64,13 @@ against Infuser's own invitation list. Unsafe browser requests require the exact
 HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection IP.
 
 - `GET /api/me`, `GET /api/library` — identity, games, friends, reactions.
-- `POST /api/my-games` with `{"title":"My Game"}` — create an owned app and pass.
-- `POST /api/apps/APP/launch` with `{"mode":"solo","guest":false}` — scoped launch URL.
+- `POST /api/my-games` with `{"title":"My Game"}` — returns `app_id`, `api_url`,
+  `setup_code`, `expires_at` (Unix seconds), and `tag_catalog`; no permanent credential.
+- `POST /api/my-games/APP/setup` — owner/admin replaces an unclaimed setup code.
+- `PUT /api/apps/APP/tags` — owner/admin sets `{"tags":["chill","puzzle"]}`.
+- `POST /api/apps/APP/launch` with `{"guest":false}` — scoped launch URL; game owns
+  mode selection. Legacy explicit `mode` is still accepted. Pre-1.0 warms a declared
+  multiplayer backend before launch; in-game on-demand startup is planned.
 - `GET /api/launches/ID` — owner-only startup polling/renewal.
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
 - Adult-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
@@ -67,6 +89,7 @@ browser-local storage is not a cross-version save mechanism.
 The browser SDK is `/_infuser/sdk.js`.
 It exports `ready`, `saves.load(slot)`, `saves.save(slot,data,version)`, and `leave()`;
 it also exposes `window.Infuser`. See the Three.js recipe for usage.
+It provides a small fullscreen/return-to-Library control without a title strip.
 
 - `GET /_infuser/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.

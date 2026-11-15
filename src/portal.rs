@@ -285,7 +285,13 @@ fn valid_path(path: &str) -> bool {
 
 pub fn router(platform: Platform) -> Router {
     let publishing = Router::new()
+        .route(
+            "/api/publisher/claim",
+            post(claim_setup).layer(DefaultBodyLimit::max(4096)),
+        )
         .route("/api/publisher/capabilities", get(capabilities))
+        .route("/api/publisher/tags", get(publisher_tags))
+        .route("/api/publisher/apps/{app}/tags", put(publisher_set_tags))
         .route("/api/publisher/apps/{app}", delete(unpublish))
         .route(
             "/api/publisher/apps/{app}/builds/{build}",
@@ -305,6 +311,7 @@ pub fn router(platform: Platform) -> Router {
         .merge(publishing)
         .route("/", get(page))
         .route("/clubhouse", get(page))
+        .route("/library", get(page))
         .route(
             "/assets/clubhouse.js",
             get(|| async {
@@ -334,7 +341,9 @@ pub fn router(platform: Platform) -> Router {
         )
         .route("/api/me", get(me))
         .route("/api/library", get(library))
+        .route("/api/apps/{app}/tags",put(set_tags))
         .route("/api/my-games", post(new_game))
+        .route("/api/my-games/{app}/setup",post(renew_setup))
         .route("/api/apps/{app}/launch", post(launch))
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
@@ -446,7 +455,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
         let b=&data.builds[&build_key(id,&a.build)];
         let players:Vec<_>=data.launches.values().filter(|l|l.app==*id&&l.seen+90>now()).map(|l|json!({"id":hash(&l.email),"name":data.members.get(&l.email).map(|m|m.name.as_str()).unwrap_or("Friend"),"guest":l.guest})).collect();
         let reactions:Vec<_>=data.reactions.get(id).into_iter().flat_map(|r|r.iter()).map(|(who,r)|json!({"name":data.members.get(who).map(|m|m.name.as_str()).unwrap_or("Friend"),"mine":*who==email,"emoji":r.emoji,"text":r.text,"updated":r.updated})).collect();
-        json!({"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions})
+        json!({"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence
@@ -457,7 +466,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .map(|(email, _)| json!({"id":hash(email),"name":data.members[email].name}))
         .collect();
     Ok(reply(
-        json!({"apps":apps,"friends":friends,"server":p.controller.list(now())}),
+        json!({"apps":apps,"friends":friends,"server":p.controller.list(now()),"tags":crate::tags::catalog(&data,data.members[&email].admin)}),
     ))
 }
 #[derive(Deserialize)]
@@ -465,7 +474,8 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
 struct LaunchRequest {
     #[serde(default)]
     guest: bool,
-    mode: String,
+    #[serde(default)]
+    mode: Option<String>,
 }
 async fn launch(
     State(p): State<Platform>,
@@ -487,10 +497,12 @@ async fn launch(
     );
     let b = &data.builds[&build_key(&app, &selected.build)];
     let mode = serde_json::to_value(&b.manifest.play_modes).unwrap();
-    ensure!(
-        mode.as_array().unwrap().contains(&json!(body.mode)),
-        fault(400, "choose a supported play mode")
-    );
+    if let Some(requested) = &body.mode {
+        ensure!(
+            mode.as_array().unwrap().contains(&json!(requested)),
+            fault(400, "choose a supported play mode")
+        );
+    }
     ensure!(
         data.launches
             .values()
@@ -499,7 +511,11 @@ async fn launch(
             < 32,
         fault(429, "Close an old game before opening more.")
     );
-    let needs_server = body.mode == "multiplayer"
+    // Normal Play does not choose gameplay on the game's behalf. During the
+    // pre-1.0 period, provision its backend before opening the title screen.
+    // In-game, on-demand session requests are part of the SDK 1.0 design review.
+    let needs_server = body.mode.as_deref() == Some("multiplayer")
+        || (body.mode.is_none() && b.manifest.multiplayer.is_some())
         || matches!(b.manifest.solo_runtime, Some(SoloRuntime::SharedServer));
     let id = secret()[..32].to_string();
     let token = secret();
@@ -907,6 +923,7 @@ async fn publish(
             p.controller.register(&app,server)?;
         }
         d.builds.get_mut(&key).unwrap().ready=true;
+        d.tags.entry(app.clone()).or_insert(b.manifest.tags);
         d.apps.insert(app.clone(),App {build:build.clone(),updated:now(),listed:body.as_ref().is_none_or(|b|b.listed)});Ok(())
     })?;
     Ok(reply(
@@ -1001,7 +1018,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"runtime":p.refresh(&id,&l)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"runtime":p.refresh(&id,&l)?}),
     ))
 }
 async fn heartbeat(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1256,18 +1273,151 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
             .trim_end_matches('-'),
         &secret()[..6]
     );
-    let (id, token) = p.db.edit(|d| {
+    let expires = now() + 3600;
+    let token = secret();
+    p.db.edit(|d| {
         ensure!(
-            d.owners.values().filter(|owner| **owner == email).count() < 12
+            d.owners.values().filter(|owner| **owner == email).count() < 256
                 || d.members[&email].admin,
-            fault(429, "Ask your grown-up before adding more than 12 games.")
+            fault(429, "Game limit reached; ask an admin.")
         );
-        let (id, token) = platform::credential(d, &app, "publish", &body.title)?;
-        d.credentials.get_mut(&id).unwrap().owner = Some(email.clone());
+        d.setup_claims.retain(|_, claim| claim.expires > now());
+        d.setup_claims.insert(
+            hash(&token),
+            platform::SetupClaim {
+                app: app.clone(),
+                owner: email.clone(),
+                label: body.title.clone(),
+                expires,
+            },
+        );
         d.owners.insert(app.clone(), email);
-        Ok((id, token))
+        Ok(())
+    })?;
+    let code = format!("infuser_setup_{token}");
+    Ok(reply(
+        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"tag_catalog":crate::tags::catalog(&p.db.read()?,false)}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClaimRequest {
+    token: String,
+    app_id: Option<String>,
+}
+async fn claim_setup(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<ClaimRequest>,
+) -> Answer {
+    p.main_host(&h)?;
+    ensure!(body.token.len() == 64, fault(401, "invalid setup code"));
+    let (id, token, app) = p.db.edit(|d| {
+        let key = hash(&body.token);
+        let claim = d
+            .setup_claims
+            .get(&key)
+            .ok_or_else(|| fault(401, "setup code is invalid or has already been used"))?
+            .clone();
+        ensure!(
+            claim.expires > now(),
+            fault(410, "setup code expired; copy a new publishing prompt")
+        );
+        ensure!(
+            body.app_id.as_ref().is_none_or(|app| *app == claim.app),
+            fault(400, "setup code belongs to a different game")
+        );
+        ensure!(
+            d.members.get(&claim.owner).is_some_and(|m| m.enabled),
+            fault(403, "publisher membership disabled")
+        );
+        let (id, token) = platform::credential(d, &claim.app, "publish", &claim.label)?;
+        d.credentials.get_mut(&id).unwrap().owner = Some(claim.owner);
+        d.setup_claims.remove(&key);
+        Ok((id, token, claim.app))
     })?;
     Ok(reply(
         json!({"id":id,"app_id":app,"api_url":format!("https://{}",p.domain()),"token":token}),
     ))
+}
+async fn renew_setup(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMap) -> Answer {
+    let email = p.member(&h, true).await?;
+    let token = secret();
+    let expires = now() + 3600;
+    p.db.edit(|d| {
+        let owner = d
+            .owners
+            .get(&app)
+            .ok_or_else(|| fault(404, "unknown game"))?
+            .clone();
+        ensure!(
+            owner == email || d.members[&email].admin,
+            fault(403, "not your game")
+        );
+        ensure!(
+            d.members.get(&owner).is_some_and(|m| m.enabled),
+            fault(403, "publisher membership disabled")
+        );
+        d.setup_claims
+            .retain(|_, claim| claim.app != app && claim.expires > now());
+        d.setup_claims.insert(
+            hash(&token),
+            platform::SetupClaim {
+                app: app.clone(),
+                owner,
+                label: app.clone(),
+                expires,
+            },
+        );
+        Ok(())
+    })?;
+    let code = format!("infuser_setup_{token}");
+    Ok(reply(
+        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"tag_catalog":crate::tags::catalog(&p.db.read()?,false)}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TagsRequest {
+    tags: Vec<String>,
+}
+async fn set_tags(
+    State(p): State<Platform>,
+    Path(app): Path<String>,
+    h: HeaderMap,
+    Json(body): Json<TagsRequest>,
+) -> Answer {
+    let email = p.member(&h, true).await?;
+    let tags = crate::tags::normalize(&body.tags)?;
+    p.db.edit(|d| {
+        ensure!(d.apps.contains_key(&app), fault(404, "unknown game"));
+        ensure!(
+            d.members[&email].admin || d.owners.get(&app) == Some(&email),
+            fault(403, "only the author or an admin can edit these tags")
+        );
+        d.tags.insert(app, tags.clone());
+        Ok(())
+    })?;
+    Ok(reply(json!({"tags":tags})))
+}
+async fn publisher_tags(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.publisher(&h, None, "publish")?;
+    Ok(reply(
+        json!({"tags":crate::tags::catalog(&p.db.read()?,false)}),
+    ))
+}
+async fn publisher_set_tags(
+    State(p): State<Platform>,
+    Path(app): Path<String>,
+    h: HeaderMap,
+    Json(body): Json<TagsRequest>,
+) -> Answer {
+    p.publisher(&h, Some(&app), "publish")?;
+    let tags = crate::tags::normalize(&body.tags)?;
+    p.db.edit(|d| {
+        ensure!(d.apps.contains_key(&app), fault(404, "unknown game"));
+        d.tags.insert(app, tags.clone());
+        Ok(())
+    })?;
+    Ok(reply(json!({"tags":tags})))
 }

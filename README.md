@@ -1,13 +1,14 @@
 # Infuser
 
-A private game clubhouse. Kids make games with their agents, publish them, and
+A private game library. Kids make games with their agents, publish them, and
 press Play together. Rust runs the platform; Caddy handles HTTPS; Docker isolates
 servers when a game needs one. No Python, Node, or database service on the host.
 
 **Working platform:** Google sign-in plus adult-managed invitations, an online
-clubhouse, engine-aware web publishing, immutable releases, isolated game hosts,
-cloud saves, fresh guest sessions, positive emoji reactions, and a copyable agent
-prompt with an app-scoped private game pass. Admin-only previews keep test games
+library, engine-aware web publishing, immutable releases, isolated game hosts,
+cloud saves, fresh guest sessions, positive emoji reactions, author tags, fullscreen,
+and a copyable agent prompt with a one-hour setup code. The agent stores its own
+app-scoped publishing credentials. Admin-only previews keep test games
 out of the kids' library. SQLite stores platform data independently of games.
 
 **Server infrastructure:** one shared process per game, readiness checks, hard
@@ -34,6 +35,8 @@ not on the Infuser host. Godot exports likewise use the creator's Godot toolchai
 
 - [Agent instructions and engine recipes](docs/agents.md)
 - [Public publishing, player and cloud-save API](docs/public-api.md)
+- [SDK 1.0 design review](docs/sdk-contract.md) — current game contract is experimental
+- [Player experience](docs/design.md) and [next steps](docs/roadmap.md)
 - [Install the clubhouse](docs/clubhouse-operations.md)
 - [Controller operations](docs/operations.md) and [private lifecycle API](docs/api.md)
 - [Automatic updates](docs/deployment.md) and [game-port firewall](docs/network-admission.md)
