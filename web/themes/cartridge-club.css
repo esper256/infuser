@@ -61,7 +61,7 @@
 [data-theme="cartridge-club"] .secondary { background: #29364c; color: #e2e6ef; }
 [data-theme="cartridge-club"] #notice { background: #253449f5; border-color: #a7b5d1; color: var(--ink); }
 @media (hover:hover) {
-  [data-theme="cartridge-club"] .game:hover { border-color: #bcb0df; box-shadow: 0 5px 0 #524563,0 20px 34px #02071266; }
+  [data-theme="cartridge-club"] .game:hover { border-color: #bcb0df; box-shadow: 0 5px 0 #524563,0 24px 48px #02071288; }
 }
 @media (max-width:1100px) {
   [data-theme="cartridge-club"] .library-toolbar { grid-template-columns: minmax(0,1fr) auto; gap: 14px; }

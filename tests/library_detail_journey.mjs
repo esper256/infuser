@@ -67,6 +67,8 @@ try {
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);
+   assert.equal(await dialog.locator('.reaction-choice').count(),6);
+   assert(await dialog.locator('.reaction-face').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=44));
    assert.equal(await dialog.locator('.feedback-author img').first().getAttribute('src'),'/assets/avatars/ember-raven/128.webp');
    assert(await dialog.locator('.game-updated').textContent());
    assert(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth),`${theme} ${width} dialog overflow`);
@@ -100,6 +102,38 @@ try {
   await page.locator('#tags-dialog').waitFor();await card().dispatchEvent('pointerup',{pointerType:'touch',pointerId:1});
   await card().dispatchEvent('click');assert(!(await dialog.isVisible()));await page.locator('#tags-dialog').evaluate(e=>e.close());
  }
+ // Obvious reaction controls: choose, add an optional kind note, or send emoji-only.
+ await page.setViewportSize({width:390,height:844});await open();
+ await dialog.getByRole('button',{name:'React: Exciting',exact:true}).click();
+ assert(await page.getByRole('radio',{name:'Exciting',exact:true}).isChecked());
+ assert(await page.locator('#reaction-comment').isVisible());assert(await page.locator('#reaction-text').evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=22));
+ await page.locator('#reaction-text').fill('');await page.getByRole('button',{name:'Send reaction',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.reaction-choice[aria-label="React: Exciting"]').getAttribute('aria-pressed')==='true');
+ assert.equal(game.reactions.find(r=>r.mine).text,'');assert.equal(game.reactions.find(r=>r.mine).emoji,'🚀');
+ await dialog.locator('.creator').click();await page.locator('#remove-reaction').click();await page.waitForFunction(()=>!document.querySelector('#reaction-dialog').open);await page.evaluate(()=>refreshTestLibrary());
+ await dialog.locator('.creator').click();assert(await page.locator('#reaction-comment').isHidden());
+ await page.getByRole('radio',{name:'Loved it',exact:true}).check();await page.locator('#reaction-text').fill('I liked the glowing trail!');
+ assert.equal(await page.locator('.reaction-burst:popover-open').count(),1);
+ await page.screenshot({path:new URL('reaction-composer-phone.png',out).pathname});
+ await page.getByRole('button',{name:'Send reaction',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#reaction-dialog').open);await close();
+ // Unread Recently is large and animated in both themes, clears on opening,
+ // and retains a static highlight with reduced motion.
+ for(const theme of ['nightglass','cartridge-club']){
+  await page.evaluate(t=>InfuserThemes.select(t),theme);game.updated+=1;await page.evaluate(()=>refreshTestLibrary());
+  const recent=page.locator('#recent-toggle');assert(await recent.evaluate(e=>e.classList.contains('has-updates')));
+  assert(await recent.evaluate(e=>getComputedStyle(e).animationName==='recent-excitement'));
+  assert(await recent.evaluate(e=>getComputedStyle(e).backgroundColor!=='rgba(0, 0, 0, 0)'&&parseFloat(getComputedStyle(e).fontSize)>=15));
+  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await recent.evaluate(e=>getComputedStyle(e).animationName),'none');
+  await page.screenshot({path:new URL('recent-unread-'+theme+'-phone.png',out).pathname});
+  await recent.click();await page.waitForFunction(()=>!document.querySelector('#recent-toggle').classList.contains('has-updates'));await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
+ }
+ if(process.env.INFUSER_TOUCH!=='1'){
+  await page.setViewportSize({width:1500,height:1000});await page.mouse.move(1,1);await page.waitForTimeout(300);const before=await card().boundingBox();
+  await card().hover();await page.waitForTimeout(300);const after=await card().boundingBox();
+  assert(after.width>before.width&&after.height>before.height);assert(Math.abs((before.x+before.width/2)-(after.x+after.width/2))<1);assert(Math.abs((before.y+before.height/2)-(after.y+after.height/2))<1);
+  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transform),'none');await page.emulateMedia({reducedMotion:'no-preference'});
+ }
+ await page.emulateMedia({reducedMotion:'reduce'});await open();await dialog.getByRole('button',{name:'React: Amazing',exact:true}).click();assert.equal(await page.locator('.reaction-burst').count(),0);await page.locator('#close-reaction').click();await close();await page.emulateMedia({reducedMotion:'no-preference'});
  // Actual description/text are rendered as text, not interpreted as markup.
  game.description='<img src=x onerror=alert(1)> '+('Long description. '.repeat(80));game.title='An exceptionally long game title that should remain usable on a narrow phone';
  await page.reload();await page.locator('.game-open').first().waitFor();await page.setViewportSize({width:320,height:640});await open();assert.equal(await dialog.locator('.game-description img').count(),0);assert(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth));await close();
@@ -108,7 +142,7 @@ try {
  game.reactions.push({...friend,emoji:'🚀',text:'New reaction',updated:now+2});
  await page.evaluate(()=>refreshTestLibrary());assert(await page.evaluate(()=>document.querySelector('.detail-art img')===detailImage));assert(await dialog.locator('.detail-creator .creator').evaluate(e=>e===document.activeElement));assert(await dialog.evaluate(e=>e.scrollTop>=200));await close();
  // Admin visibility moves a game between the shared shelves.
- await page.setViewportSize({width:1280,height:900});await page.locator('#hidden-games').evaluate(e=>e.open=false);await open();await dialog.locator('.play-menu summary').click();await dialog.getByRole('button',{name:'Make invisible',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===2);await close();assert(await page.locator('#hidden-games > summary').evaluate(e=>e===document.activeElement));
+ await page.setViewportSize({width:1280,height:900});await page.locator('#hidden-games').evaluate(e=>e.open=false);await open();await dialog.locator('.play-menu summary').click();await dialog.getByRole('button',{name:'Make invisible',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===2);await close();await page.waitForFunction(()=>document.querySelector('#hidden-games > summary')===document.activeElement);
  await page.locator('#hidden-games').evaluate(e=>e.open=true);await page.locator('#hidden-game-list [data-app="firefly-drift"] .game-open').click();await dialog.locator('.play-menu summary').click();await dialog.getByRole('button',{name:'Make visible',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===3);await close();
  // Presence portrait owns the existing profile options, including theme/install/notifications.
  await page.locator('#account-trigger').click();await page.locator('#open-profile').click();await page.locator('input[name="avatar"][value="byte-gecko"]').check();await page.locator('#save-profile').click();await page.waitForFunction(()=>!document.querySelector('#profile-dialog').open);assert.equal(me.avatar,'byte-gecko');
@@ -116,8 +150,8 @@ try {
  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transitionDuration),'0s');
  await page.emulateMedia({forcedColors:'active'});await open();assert(await dialog.isVisible());await close();await page.emulateMedia({forcedColors:'none'});
  // The same detail UI works read-only in operator inspection.
- me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());await close();
+ me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),6);await close();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);
- console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, creator reactions, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');
+ console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, positive reactions with optional notes and bursts, unread Recently, centered card scaling, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');
 } finally {await browser.close();}
