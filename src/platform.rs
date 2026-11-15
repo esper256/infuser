@@ -10,6 +10,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
+mod chat;
 mod metadata;
 pub use metadata::GameMetadata;
 
@@ -244,6 +245,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS native_v1 (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
             INSERT OR IGNORE INTO native_v1(id,data) VALUES(1,'{\"pairs\":{},\"devices\":{},\"requests\":{}}');")?;
         metadata::initialize(&c)?;
+        chat::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;

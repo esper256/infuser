@@ -1,3 +1,5 @@
+import { initChat } from '/assets/chat.js';
+import { initClientUpdates } from '/assets/client-updates.js';
 const $ = id => document.getElementById(id);
 const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
@@ -295,6 +297,8 @@ $('profile-form').onsubmit=async event=>{
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();$('recent-menu').hidden=false;
+  initChat({me, api, profileAvatar});
+  initClientUpdates({api});
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
   if(me.admin){$('admin').hidden=false;await adminRefresh();}
 } catch(error) {if(error.status!==401)$('login-message').textContent=error.message;}

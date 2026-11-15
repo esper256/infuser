@@ -70,3 +70,7 @@ Visual experiments use the [theme system](themes.md). Nightglass stays the defau
 until a candidate earns adoption. Cartridge Club is an opt-in preview in the
 profile dropdown. Profile, Recently, and all game/admin behavior are shared across
 themes; never duplicate functionality to preserve an older visual design.
+
+[Library chat](library-chat.md) uses compact speech bubbles with tails aimed at
+the speaker's profile picture. Keep the shared audience explicit, drafts safe,
+and the closed control small. New messages must not interrupt reading older ones.
