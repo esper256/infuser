@@ -27,12 +27,12 @@ jobs:
     env:
       INFUSER_BUILD_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: Fast journeys
@@ -49,7 +49,7 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/infuser "dist/infuser-linux-$ARCH"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: infuser-linux-${{ matrix.arch }}
           path: dist/infuser-linux-${{ matrix.arch }}
@@ -68,7 +68,7 @@ jobs:
     env:
       INFUSER_BUILD_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -83,7 +83,7 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/infuser-publisher "dist/infuser-macos-$ARCH"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: infuser-macos-${{ matrix.arch }}
           path: dist/infuser-macos-${{ matrix.arch }}
@@ -96,7 +96,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -120,7 +120,7 @@ jobs:
           sudo apt-get install -y flatpak
           mkdir -p dist
           sh desktop/packaging/build-flatpak.sh desktop/target/release/infuser-desktop "$PWD/dist/Infuser-Play.flatpak"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: infuser-desktop-${{ runner.os }}
           path: dist/*
@@ -137,7 +137,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: infuser-*
           path: dist
