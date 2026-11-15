@@ -84,10 +84,13 @@ pub fn label(id: &str) -> String {
     }
 }
 pub fn catalog(data: &Data, include_previews: bool) -> Vec<Tag> {
+    catalog_in_group(data, include_previews, crate::platform::groups::HOME)
+}
+pub fn catalog_in_group(data: &Data, include_previews: bool, group: &str) -> Vec<Tag> {
     let mut counts: BTreeMap<String, usize> =
         DEFAULTS.iter().map(|id| (id.to_string(), 0)).collect();
     for (id, app) in &data.apps {
-        if app.listed || include_previews {
+        if data.groups.app(id) == group && (app.listed || include_previews) {
             for tag in data.tags.get(id).into_iter().flatten() {
                 *counts.entry(tag.clone()).or_default() += 1;
             }

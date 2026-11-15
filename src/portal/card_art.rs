@@ -14,13 +14,27 @@ pub(super) fn url(
         .then(|| format!("/api/apps/{app}/card-art/{build}"))
 }
 
+#[derive(Deserialize)]
+pub(super) struct ImageQuery {
+    inspect_group: Option<String>,
+}
+
 pub(super) async fn image(
     State(p): State<Platform>,
     Path((app, build)): Path<(String, String)>,
-    h: HeaderMap,
+    mut h: HeaderMap,
+    Query(query): Query<ImageQuery>,
     mut request: Request,
 ) -> Answer {
+    if let Some(group) = query.inspect_group {
+        h.insert(
+            groups::INSPECT,
+            group.parse().map_err(|_| fault(400, "Invalid group."))?,
+        );
+    }
     let email = p.member(&h, false).await?;
+    p.visible_app(&h, &email, &app)?;
+    let (_, inspecting) = p.group_view(&h, &email)?;
     {
         let data = p.db.read()?;
         let active = data
@@ -28,7 +42,7 @@ pub(super) async fn image(
             .get(&app)
             .ok_or_else(|| fault(404, "game not found"))?;
         ensure!(
-            active.listed || data.members[&email].admin,
+            active.listed || inspecting || data.members[&email].admin,
             fault(404, "game not found")
         );
         if data

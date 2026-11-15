@@ -1,3 +1,4 @@
+import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
 import { initClientUpdates } from '/assets/client-updates.js';
 const $ = id => document.getElementById(id);
@@ -17,7 +18,8 @@ function notice(message) {
   noticeTimer=setTimeout(()=>{toast.classList.remove('visible');toast.textContent='';},5000);
 }
 async function api(path, options = {}) {
-  const r = await fetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers } });
+  if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
+  const r = await fetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...inspectionHeaders() } });
   const result = await r.json();
   if(!r.ok) { const error = new Error(result.error || 'Please try again.'); error.status = r.status; throw error; }
   return result;
@@ -82,11 +84,13 @@ function renderGames() {
     }
     if(names.length)items.append(el('p',names.join(', ')+' · game open','players'));
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
+    play.disabled=!!me.inspecting;guest.disabled=!!me.inspecting;
+    if(me.inspecting)for(const button of items.querySelectorAll('button')){if(button.textContent!=='Copy game link')button.disabled=true;}
     play.onclick=()=>start(game,play,card);actions.append(play,menu);
     const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
     const react=el('button',undefined,'creator react-button');react.type='button';react.setAttribute('aria-label',label);react.setAttribute('aria-haspopup','dialog');
     const avatar=profileAvatar(game.author?.name,game.author?.id||game.id,game.author?.avatar),hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
-    react.append(avatar,hint);react.onclick=()=>openReaction(game);heading.append(react);dock.append(heading,actions);
+    react.disabled=!!me.inspecting;react.append(avatar,hint);react.onclick=()=>openReaction(game);heading.append(react);dock.append(heading,actions);
     if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}items.append(chips);}
     games.append(card);
   }
@@ -135,6 +139,7 @@ $('games').addEventListener('contextmenu',event=>{
   if(tagHold||Date.now()<suppressContextUntil&&heldCard?.contains(event.target))event.preventDefault();
 });
 async function start(game,button,card,{guest=false,intent}={}) {
+  if(me.inspecting)return;
   if(game.native_only)return startDesktop(game,button,card,{guest});
   // Open synchronously in the click event so browser popup blockers allow Play.
   const tab = window.open('about:blank','_blank');
@@ -161,6 +166,7 @@ function desktopPlatform(){
   return null;
 }
 async function startDesktop(game,button,card,{guest=false}={}){
+  if(me.inspecting)return;
   const platform=desktopPlatform();
   if(!game.native_platforms?.includes(platform)){notice('This desktop game needs a supported Windows or Linux computer.');return;}
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
@@ -296,12 +302,15 @@ $('profile-form').onsubmit=async event=>{
 
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
-  setupAccount();$('recent-menu').hidden=false;
+  setupAccount();initGroups({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar});
   initClientUpdates({api});
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
   if(me.admin){$('admin').hidden=false;await adminRefresh();}
-} catch(error) {if(error.status!==401)$('login-message').textContent=error.message;}
+} catch(error) {
+  if(inspection){sessionStorage.removeItem('infuser.group-inspection');location.replace('/library');}
+  else if(error.status!==401)$('login-message').textContent=error.message;
+}
 
 let newGameConnection, setupPending=false;
 function showSetupPrompt() {

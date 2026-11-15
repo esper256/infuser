@@ -15,7 +15,7 @@ fn view(d: &platform::Data, app: &str) -> Result<Value> {
     let prompt_pending =
         prompt_revision.is_some() && prompt_revision != metadata.art_prompt_completed_revision;
     Ok(
-        json!({"app_id":app,"build":active.build,"listed":active.listed,
+        json!({"app_id":app,"private_group":d.groups.app(app),"build":active.build,"listed":active.listed,
         "title":title(d,app,&build.manifest.title),"title_override":metadata.title,
         "description":metadata.description,
         "art_prompt":metadata.art_prompt,"art_prompt_revision":prompt_revision,"art_prompt_pending":prompt_pending,
@@ -30,16 +30,29 @@ fn authorize(p: &Platform, h: &HeaderMap, app: &str) -> Result<()> {
     if p.publisher(h, Some("all-games"), "metadata").is_ok() {
         return Ok(());
     }
+    let group = p.db.read()?.groups.app(app).to_owned();
+    if p.publisher(h, Some(&group), "metadata-group").is_ok() {
+        return Ok(());
+    }
     p.publisher(h, Some(app), "publish")?;
     Ok(())
 }
 
 pub(super) async fn list_metadata(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    p.publisher(&h, Some("all-games"), "metadata")?;
+    let group = if p.publisher(&h, Some("all-games"), "metadata").is_ok() {
+        None
+    } else {
+        Some(p.publisher(&h, None, "metadata-group")?)
+    };
     let data = p.db.read()?;
     let apps = data
         .apps
         .keys()
+        .filter(|app| {
+            group
+                .as_ref()
+                .is_none_or(|group| data.groups.app(app) == group)
+        })
         .map(|app| view(&data, app))
         .collect::<Result<Vec<_>>>()?;
     Ok(reply(

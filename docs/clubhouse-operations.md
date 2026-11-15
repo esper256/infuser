@@ -110,3 +110,10 @@ This only accepts a hidden, client-only preview and creates a single-use,
 two-minute launch link with a **fresh guest** save namespace. It grants no portal,
 publishing or admin access. Treat the output as private and close the test game
 when done. Normal player launches still require Google and enabled membership.
+
+## Multiple families
+
+Use [private groups](private-groups.md) to invite a separate family. Ordinary
+admin invites always belong to the inviting adult’s group. The local `member`
+command adds new accounts to Home; it is not the way to invite another family.
+For a manual publisher pass outside Home, append `--group GROUP_ID`.

@@ -14,6 +14,7 @@ pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTre
                 && l.exchanged
                 && l.expires > time
                 && data.members.get(&l.email).is_some_and(|m| m.enabled)
+                && data.groups.allows(&l.email, &l.app)
         })
         .map(|(id, _)| id.clone())
         .collect()
@@ -38,7 +39,7 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     };
     let mut players = BTreeMap::new();
     for (email, seen) in &data.presence {
-        if seen + 90 <= time {
+        if seen + 90 <= time || data.groups.member(email) != data.groups.app(&launch.app) {
             continue;
         }
         if let Some(member) = data.members.get(email).filter(|m| m.enabled) {

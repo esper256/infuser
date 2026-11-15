@@ -14,6 +14,7 @@ export function initChat({me, api, profileAvatar}) {
     </section>`;
   document.body.append(root);
   const $=id=>document.getElementById('chat-'+id), log=$('log'), input=$('text');
+  if(me.inspecting)$('form').hidden=true;
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
   let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0;
@@ -59,7 +60,7 @@ export function initChat({me, api, profileAvatar}) {
   function setOpen(open,restoreFocus=true) {
     root.hidden=!open;$('panel').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));$('toggle').title=open?'Hide chat':'Show chat';
     updateToggle();
-    if(open){position();scrollLatest();input.focus({preventScroll:true});poll();}else if(restoreFocus)$('toggle').focus({preventScroll:true});
+    if(open){position();scrollLatest();(me.inspecting?log:input).focus({preventScroll:true});poll();}else if(restoreFocus)$('toggle').focus({preventScroll:true});
   }
   $('toggle').onclick=()=>setOpen(!isOpen());$('close').onclick=()=>setOpen(false);
   root.addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();event.stopPropagation();setOpen(false);}});

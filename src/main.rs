@@ -66,8 +66,20 @@ async fn main() -> Result<()> {
         let config = Config::load(Path::new(
             args.get(1).context("configuration path required")?,
         ))?;
+        let group = args
+            .iter()
+            .position(|a| a == "--group")
+            .map(|i| args.get(i + 1).context("group ID required"))
+            .transpose()?
+            .map(String::as_str)
+            .unwrap_or(infuser::platform::groups::HOME);
+        let all_groups = metadata && args.iter().any(|a| a == "--all-groups");
+        ensure!(
+            !(all_groups && args.iter().any(|a| a == "--group")),
+            "choose --group or --all-groups"
+        );
         let app = if metadata {
-            "all-games"
+            if all_groups { "all-games" } else { group }
         } else {
             args.get(2).context("app ID required")?
         };
@@ -81,12 +93,23 @@ async fn main() -> Result<()> {
             .open(output)?;
         let db = infuser::platform::Database::open(&config.controller.state_dir)?;
         let (id, token) = db.edit(|d| {
+            if !metadata {
+                d.reserve_app(app, group)?;
+            }
             infuser::platform::credential(
                 d,
                 app,
-                if metadata { "metadata" } else { "publish" },
-                if metadata {
-                    "Infuser art agent (all games)"
+                if all_groups {
+                    "metadata"
+                } else if metadata {
+                    "metadata-group"
+                } else {
+                    "publish"
+                },
+                if all_groups {
+                    "Infuser art agent (all groups)"
+                } else if metadata {
+                    "Group art agent"
                 } else {
                     "operator-issued game pass"
                 },
@@ -94,7 +117,15 @@ async fn main() -> Result<()> {
         })?;
         let mut connection = serde_json::json!({"id":id,"api_url":format!("https://{}",config.controller.domain),"token":token});
         if metadata {
-            connection["scope"] = "all_games_metadata".into();
+            connection["scope"] = if all_groups {
+                "all_games_metadata"
+            } else {
+                "group_metadata"
+            }
+            .into();
+            if !all_groups {
+                connection["group_id"] = group.into();
+            }
         } else {
             connection["app_id"] = app.into();
         }
@@ -106,6 +137,34 @@ async fn main() -> Result<()> {
     if args.first().is_some_and(|s| s == "firewall-serve") {
         return infuser::firewall::serve(Path::new(args.get(1).context("socket path required")?))
             .await;
+    }
+    if args.first().is_some_and(|s| s == "operator") {
+        let config = Config::load(Path::new(args.get(1).context("config path required")?))?;
+        ensure!(
+            config.controller.private_groups,
+            "enable controller.private_groups first"
+        );
+        let email = args
+            .get(2)
+            .context("existing member email required")?
+            .trim()
+            .to_lowercase();
+        let name = infuser::platform::Database::open(&config.controller.state_dir)?.edit(|d| {
+            let member = d
+                .members
+                .get(&email)
+                .filter(|m| m.enabled)
+                .context("enabled member required")?;
+            let name = member.name.clone();
+            if args.iter().any(|a| a == "--revoke") {
+                d.groups.operators.remove(&email);
+            } else {
+                d.groups.operators.insert(email.clone());
+            }
+            Ok(name)
+        })?;
+        println!("Operator permission updated for {name}.");
+        return Ok(());
     }
     if args.first().is_some_and(|s| s == "member") {
         let config = Config::load(Path::new(args.get(1).context("config path required")?))?;
@@ -150,7 +209,7 @@ async fn main() -> Result<()> {
     let command = args.first().map(String::as_str).unwrap_or("help");
     if !["serve", "init", "check", "render-caddy"].contains(&command) {
         bail!(
-            "usage: infuser metadata-pass CONFIG OUTPUT | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|render-caddy> CONFIG [--wildcard]"
+            "usage: infuser operator CONFIG EMAIL [--revoke] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|render-caddy> CONFIG [--wildcard]"
         );
     }
     let path = args.get(1).context("configuration path required")?;

@@ -35,6 +35,7 @@ mod avatars;
 mod card_art;
 mod chat;
 mod client;
+mod groups;
 mod metadata;
 mod native;
 mod peerjs;
@@ -112,6 +113,10 @@ impl Platform {
     }
     pub fn open(controller: Arc<Controller>) -> Result<Self> {
         let db = Arc::new(Database::open(&controller.config.controller.state_dir)?);
+        anyhow::ensure!(
+            db.read()?.groups.names.len() <= 1 || controller.config.controller.private_groups,
+            "enable controller.private_groups before serving multiple groups"
+        );
         let relay = controller
             .config
             .controller
@@ -175,6 +180,10 @@ impl Platform {
     async fn member(&self, h: &HeaderMap, write: bool) -> Result<String> {
         self.main_host(h)?;
         if write {
+            ensure!(
+                !h.contains_key(groups::INSPECT),
+                fault(403, "Inspection is read-only. Return home first.")
+            );
             self.origin(h, self.domain())?;
         }
         // This header is always removed and re-created by session_auth below.
@@ -191,12 +200,16 @@ impl Platform {
                 .is_some_and(|m| m.enabled),
             fault(403, "Ask your grown-up for an Infuser invitation.")
         );
+        self.group_view(h, &email)?;
         Ok(email)
     }
     async fn admin(&self, h: &HeaderMap, write: bool) -> Result<String> {
         let email = self.member(h, write).await?;
         ensure!(
-            self.db.read()?.members[&email].admin,
+            self.db.read()?.members[&email].admin
+                || (!write
+                    && h.contains_key(groups::INSPECT)
+                    && self.db.read()?.groups.operator(&email)),
             fault(403, "An adult admin account is required.")
         );
         Ok(email)
@@ -218,6 +231,12 @@ impl Platform {
                 .is_none_or(|email| data.members.get(email).is_some_and(|m| m.enabled)),
             fault(403, "publisher membership disabled")
         );
+        if let Some(owner) = &credential.owner {
+            ensure!(
+                data.groups.allows(owner, &credential.app),
+                fault(403, "publisher group no longer matches")
+            );
+        }
         Ok(credential.app.clone())
     }
     async fn admit(&self, h: &HeaderMap) -> bool {
@@ -269,6 +288,7 @@ impl Platform {
             data.members.get(&l.email).is_some_and(|m| m.enabled),
             fault(403, "Membership is disabled.")
         );
+        data.require_app_group(&l.email, &l.app)?;
         Ok((id.clone(), l.clone()))
     }
     fn refresh(&self, id: &str) -> Result<Value> {
@@ -407,6 +427,8 @@ pub fn router(platform: Platform) -> Router {
     Router::new()
         .merge(publishing)
         .merge(native::routes())
+        .merge(groups::routes())
+        .route("/assets/groups.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/groups.js")) }))
         .nest("/_infuser/api/v1", sdk_v1::routes())
         .route("/_infuser/sdk/v1.js", get(sdk_v1::core))
         .route("/_infuser/sdk/v1/peers.js", get(sdk_v1::peers))
@@ -583,40 +605,46 @@ async fn page(State(p): State<Platform>, request: Request) -> Answer {
 }
 async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
-    let admitted = p.admit(&h).await;
+    let (group, inspecting) = p.group_view(&h, &email)?;
+    let admitted = if inspecting { false } else { p.admit(&h).await };
     let data = p.db.read()?;
     let member = &data.members[&email];
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin,"player_id":hash(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
+        json!({"name":member.name,"admin":member.admin&&!inspecting,"operator":data.groups.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":hash(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
     ))
 }
 async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
-    p.admit(&h).await;
+    let (group, inspecting) = p.group_view(&h, &email)?;
+    if !inspecting {
+        p.admit(&h).await;
+    }
     p.db.cleanup()?;
     let data = p.db.edit(|d| {
-        d.presence.insert(email.clone(), now());
+        if !inspecting {
+            d.presence.insert(email.clone(), now());
+        }
         Ok(d.clone())
     })?;
-    let apps:Vec<_>=data.apps.iter().filter(|(_,a)|a.listed||data.members[&email].admin).map(|(id,a)| {
+    let apps:Vec<_>=data.apps.iter().filter(|(id,a)|data.groups.app(id)==group&&(a.listed||inspecting||data.members[&email].admin)).map(|(id,a)| {
         let b=&data.builds[&build_key(id,&a.build)];
-        let players:Vec<_>=data.launches.values().filter(|l|l.app==*id&&l.seen+90>now()).map(|l|json!({"id":hash(&l.email),"name":data.members.get(&l.email).map(|m|m.name.as_str()).unwrap_or("Friend"),"guest":l.guest})).collect();
-        let reactions:Vec<_>=data.reactions.get(id).into_iter().flat_map(|r|r.iter()).map(|(who,r)|json!({"name":data.members.get(who).map(|m|m.name.as_str()).unwrap_or("Friend"),"mine":*who==email,"emoji":r.emoji,"text":r.text,"updated":r.updated})).collect();
+        let players:Vec<_>=data.launches.values().filter(|l|l.app==*id&&l.seen+90>now()&&data.groups.allows(&l.email,id)&&data.members.get(&l.email).is_some_and(|m|m.enabled)).map(|l|json!({"id":hash(&l.email),"name":data.members.get(&l.email).map(|m|m.name.as_str()).unwrap_or("Friend"),"guest":l.guest})).collect();
+        let reactions:Vec<_>=data.reactions.get(id).into_iter().flat_map(|r|r.iter()).filter(|(who,_)|data.groups.member(who)==group&&data.members.get(*who).is_some_and(|m|m.enabled)).map(|(who,r)|json!({"name":data.members.get(who).map(|m|m.name.as_str()).unwrap_or("Friend"),"mine":*who==email,"emoji":r.emoji,"text":r.text,"updated":r.updated})).collect();
         p.peers.retain_launches(id, &presence::live_launches(&data,id,now()),now());
         let room = p.peers.discovery(id, &a.build, now());
-        let targets: Vec<_> = if b.manifest.launch_intents.contains(&crate::launch_intent::Kind::JoinFriend) && room["joinable"] == true {
+        let targets: Vec<_> = if !inspecting && b.manifest.launch_intents.contains(&crate::launch_intent::Kind::JoinFriend) && room["joinable"] == true {
             room["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(&email))
                 .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
         } else { vec![] };
         let desktop = native::bundle(&p, id, &a.build, b).ok().flatten();
         let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name,"avatar":member.avatar})));
-        json!({"native_platforms":desktop.as_ref().map(|m|m.platforms.keys().collect::<Vec<_>>()).unwrap_or_default(),"native_only":desktop.as_ref().is_some_and(|m|m.native_only),"card_art_url":card_art::url(id,&a.build,b,data.metadata.get(id)),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":metadata::title(&data,id,&b.manifest.title),"description":data.metadata.get(id).and_then(|m|m.description.as_deref()),"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        json!({"native_platforms":desktop.as_ref().map(|m|m.platforms.keys().collect::<Vec<_>>()).unwrap_or_default(),"native_only":desktop.as_ref().is_some_and(|m|m.native_only),"card_art_url":card_art::url(id,&a.build,b,data.metadata.get(id)).map(|url|if inspecting{format!("{url}?inspect_group={group}")}else{url}),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":metadata::title(&data,id,&b.manifest.title),"description":data.metadata.get(id).and_then(|m|m.description.as_deref()),"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":!inspecting&&(data.members[&email].admin||data.owners.get(id)==Some(&email))})
     }).collect();
     let friends: Vec<_> = data
         .presence
         .iter()
         .filter(|(email, t)| {
-            **t + 90 > now() && data.members.get(*email).is_some_and(|m| m.enabled)
+            **t + 90 > now() && data.groups.member(email)==group && data.members.get(*email).is_some_and(|m| m.enabled)
         })
         .map(|(email, _)| {
             let targets: Vec<_> = apps.iter().flat_map(|app| app["join_targets"].as_array().unwrap().iter()
@@ -626,7 +654,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
         })
         .collect();
     Ok(reply(
-        json!({"apps":apps,"friends":friends,"server":p.controller.list(now()),"tags":crate::tags::catalog(&data,data.members[&email].admin)}),
+        json!({"apps":apps,"friends":friends,"tags":crate::tags::catalog_in_group(&data,data.members[&email].admin||inspecting,&group)}),
     ))
 }
 #[derive(Deserialize)]
@@ -649,6 +677,7 @@ async fn launch(
     p.admit(&h).await;
     let _publishing = p.publishing.lock().unwrap();
     let data = p.db.read()?;
+    data.require_app_group(&email, &app)?;
     let selected = data
         .apps
         .get(&app)
@@ -744,6 +773,10 @@ async fn launch(
 }
 async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
+    ensure!(
+        !h.contains_key(groups::INSPECT),
+        fault(403, "Inspection cannot renew launches.")
+    );
     let data = p.db.read()?;
     let l = data
         .launches
@@ -753,6 +786,7 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
         l.email == email && l.expires > now(),
         fault(403, "not your active launch")
     );
+    data.require_app_group(&email, &l.app)?;
     // Startup may take longer than the initial grant window. Only the authenticated
     // launcher can extend the unused, single-use exchange token.
     p.db.edit(|d| {
@@ -778,6 +812,7 @@ async fn react(
     Json(body): Json<React>,
 ) -> Answer {
     let email = p.member(&h, true).await?;
+    p.visible_app(&h, &email, &app)?;
     ensure!(
         ["⭐", "👍", "🚀", "❤️", "👏", "💡"].contains(&body.emoji.as_str())
             && body.text.chars().count() <= 140,
@@ -802,6 +837,7 @@ async fn react(
 }
 async fn unreact(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMap) -> Answer {
     let email = p.member(&h, true).await?;
+    p.visible_app(&h, &email, &app)?;
     p.db.edit(|d| {
         if let Some(r) = d.reactions.get_mut(&app) {
             r.remove(&email);
@@ -811,8 +847,12 @@ async fn unreact(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMa
     Ok(reply(json!({"ok":true})))
 }
 async fn members(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    p.admin(&h, false).await?;
-    Ok(reply(json!({"members":p.db.read()?.members})))
+    let email = p.admin(&h, false).await?;
+    let (group, _) = p.group_view(&h, &email)?;
+    let data = p.db.read()?;
+    Ok(reply(
+        json!({"members":data.members.iter().filter(|(email,_)|data.groups.member(email)==group).collect::<BTreeMap<_,_>>()}),
+    ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -825,8 +865,9 @@ async fn set_visibility(
     h: HeaderMap,
     Json(body): Json<Visibility>,
 ) -> Answer {
-    p.admin(&h, true).await?;
+    let email = p.admin(&h, true).await?;
     p.db.edit(|d| {
+        d.require_app_group(&email, &app)?;
         let game = d
             .apps
             .get_mut(&app)
@@ -847,7 +888,7 @@ async fn rename_member(
     h: HeaderMap,
     Json(body): Json<RenameMember>,
 ) -> Answer {
-    p.admin(&h, true).await?;
+    let actor = p.admin(&h, true).await?;
     let email = body.email.trim().to_lowercase();
     let name = body.name.trim();
     ensure!(
@@ -858,6 +899,10 @@ async fn rename_member(
         )
     );
     p.db.edit(|d| {
+        ensure!(
+            d.groups.member(&actor) == d.groups.member(&email),
+            fault(404, "Member not found.")
+        );
         let member = d
             .members
             .get_mut(&email)
@@ -886,19 +931,26 @@ async fn invite(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Invite
         body.email.trim().to_lowercase() != email || (body.enabled && body.admin),
         fault(400, "You cannot disable or demote your own admin account.")
     );
-    platform::member(
-        p.config(),
-        &body.email,
-        &body.name,
-        body.admin,
-        body.enabled,
-    )?;
+    p.db.edit(|d| {
+        let group = d.groups.member(&email).to_owned();
+        ensure!(
+            !d.groups.operator(&body.email.trim().to_lowercase()) || body.enabled,
+            fault(403, "Only the operator can disable an operator account.")
+        );
+        d.invite_to_group(&group, &body.email, &body.name, body.admin, body.enabled)
+    })?;
     Ok(reply(json!({"ok":true})))
 }
 async fn credentials(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    p.admin(&h, false).await?;
+    let email = p.admin(&h, false).await?;
+    let data = p.db.read()?;
+    let (group, inspecting) = p.group_view(&h, &email)?;
+    ensure!(
+        !inspecting,
+        fault(403, "Inspection does not expose credentials.")
+    );
     Ok(reply(
-        json!({"credentials":p.db.read()?.credentials.iter().filter(|(_,c)|c.role=="publish"||c.role=="metadata").map(|(id,c)|json!({"id":id,"app":c.app,"role":c.role,"label":c.label})).collect::<Vec<_>>()}),
+        json!({"credentials":data.credentials.iter().filter(|(_,c)| (c.role=="publish"&&data.groups.app(&c.app)==group)||(c.role=="metadata-group"&&c.app==group)||(c.role=="metadata"&&data.groups.operator(&email))).map(|(id,c)|json!({"id":id,"app":c.app,"role":c.role,"label":c.label})).collect::<Vec<_>>()}),
     ))
 }
 #[derive(Deserialize)]
@@ -918,6 +970,8 @@ async fn create_credential(
         fault(400, "Use a lowercase game ID and a short label.")
     );
     let (id, token) = p.db.edit(|d| {
+        let group = d.groups.member(&owner).to_owned();
+        d.reserve_app(&body.app, &group)?;
         let (id, token) = platform::credential(d, &body.app, "publish", &body.label)?;
         d.credentials.get_mut(&id).unwrap().owner = Some(owner.clone());
         d.owners.entry(body.app.clone()).or_insert(owner);
@@ -928,8 +982,16 @@ async fn create_credential(
     ))
 }
 async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap) -> Answer {
-    p.admin(&h, true).await?;
+    let email = p.admin(&h, true).await?;
     p.db.edit(|d| {
+        if let Some(c) = d.credentials.get(&id) {
+            ensure!(
+                (c.role == "publish" && d.groups.allows(&email, &c.app))
+                    || (c.role == "metadata-group" && c.app == d.groups.member(&email))
+                    || (c.role == "metadata" && d.groups.operator(&email)),
+                fault(404, "Connection not found.")
+            );
+        }
         d.credentials.remove(&id);
         Ok(())
     })?;
@@ -1313,6 +1375,7 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
     p.origin(&h, host(&h))?;
     let digest = hash(&body.token);
     p.db.edit(|d| {
+        let policy = d.groups.clone();
         let l = d
             .launches
             .values_mut()
@@ -1326,6 +1389,10 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
         ensure!(
             d.members.get(&l.email).is_some_and(|m| m.enabled),
             fault(403, "membership disabled")
+        );
+        ensure!(
+            policy.allows(&l.email, &l.app),
+            fault(403, "Game membership changed.")
         );
         l.exchanged = true;
         l.seen = now();
@@ -1565,8 +1632,18 @@ async fn peer_health(
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    p.admin(&h, false).await?;
-    Ok(reply(p.peers.diagnostics(now())))
+    let email = p.admin(&h, false).await?;
+    let (group, _) = p.group_view(&h, &email)?;
+    let data = p.db.read()?;
+    let mut report = p.peers.diagnostics(now());
+    if let Some(sessions) = report["sessions"].as_array_mut() {
+        sessions.retain(|s| {
+            s["app_id"]
+                .as_str()
+                .is_some_and(|app| data.groups.app(app) == group)
+        });
+    }
+    Ok(reply(report))
 }
 async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (_, l) = p.game(&h)?;
@@ -1671,6 +1748,7 @@ async fn verify_ticket(
         .iter()
         .find(|(_, l)| l.app == app && l.token_hash == digest && l.exchanged && l.expires > now())
         .ok_or_else(|| fault(401, "invalid game ticket"))?;
+    data.require_app_group(&l.email, &l.app)?;
     ensure!(
         data.members.get(&l.email).is_some_and(|m| m.enabled),
         fault(403, "membership disabled")
@@ -1838,6 +1916,8 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
                 || d.members[&email].admin,
             fault(429, "Game limit reached; ask an admin.")
         );
+        let group = d.groups.member(&email).to_owned();
+        d.reserve_app(&app, &group)?;
         d.setup_claims.retain(|_, claim| claim.expires > now());
         d.setup_claims.insert(
             hash(&token),
@@ -1848,7 +1928,7 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
                 expires,
             },
         );
-        d.owners.insert(app.clone(), email);
+        d.owners.insert(app.clone(), email.clone());
         if let Some(title) = title {
             crate::game_urls::assign(d, &app, title);
         }
@@ -1856,7 +1936,7 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
     })?;
     let code = format!("infuser_setup_{token}");
     Ok(reply(
-        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog(&p.db.read()?,false)}),
+        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog_in_group(&p.db.read()?,false,p.db.read()?.groups.member(&email))}),
     ))
 }
 #[derive(Deserialize)]
@@ -1891,6 +1971,7 @@ async fn claim_setup(
             d.members.get(&claim.owner).is_some_and(|m| m.enabled),
             fault(403, "publisher membership disabled")
         );
+        d.require_app_group(&claim.owner, &claim.app)?;
         let (id, token) = platform::credential(d, &claim.app, "publish", &claim.label)?;
         d.credentials.get_mut(&id).unwrap().owner = Some(claim.owner);
         d.setup_claims.remove(&key);
@@ -1907,6 +1988,7 @@ async fn renew_setup(State(p): State<Platform>, Path(app): Path<String>, h: Head
     let token = secret();
     let expires = now() + SETUP_CODE_SECONDS;
     p.db.edit(|d| {
+        d.require_app_group(&email, &app)?;
         let owner = d
             .owners
             .get(&app)
@@ -1935,7 +2017,7 @@ async fn renew_setup(State(p): State<Platform>, Path(app): Path<String>, h: Head
     })?;
     let code = format!("infuser_setup_{token}");
     Ok(reply(
-        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog(&p.db.read()?,false)}),
+        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog_in_group(&p.db.read()?,false,p.db.read()?.groups.member(&email))}),
     ))
 }
 #[derive(Deserialize)]
@@ -1952,6 +2034,7 @@ async fn set_tags(
     let email = p.member(&h, true).await?;
     let tags = crate::tags::normalize(&body.tags)?;
     p.db.edit(|d| {
+        d.require_app_group(&email, &app)?;
         ensure!(d.apps.contains_key(&app), fault(404, "unknown game"));
         ensure!(
             d.members[&email].admin || d.owners.get(&app) == Some(&email),
@@ -1963,9 +2046,10 @@ async fn set_tags(
     Ok(reply(json!({"tags":tags})))
 }
 async fn publisher_tags(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    p.publisher(&h, None, "publish")?;
+    let app = p.publisher(&h, None, "publish")?;
+    let d = p.db.read()?;
     Ok(reply(
-        json!({"tags":crate::tags::catalog(&p.db.read()?,false)}),
+        json!({"tags":crate::tags::catalog_in_group(&d,false,d.groups.app(&app))}),
     ))
 }
 async fn publisher_set_tags(

@@ -13,12 +13,26 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
         created INTEGER NOT NULL, UNIQUE(author,client_id)
     );",
     )?;
+    let columns = c
+        .prepare("PRAGMA table_info(library_chat)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns.iter().any(|c| c == "private_group") {
+        c.execute(
+            "ALTER TABLE library_chat ADD COLUMN private_group TEXT NOT NULL DEFAULT 'home'",
+            [],
+        )?;
+    }
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS library_chat_group ON library_chat(private_group,id)",
+        [],
+    )?;
     Ok(())
 }
 
 fn members(c: &Connection, email: &str) -> Result<Data> {
     let raw: String = c.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
-    let data: Data = serde_json::from_str(&raw)?;
+    let data = decode_catalog(c, &raw)?;
     ensure!(
         data.members.get(email).is_some_and(|m| m.enabled),
         fault(403, "Membership is disabled.")
@@ -28,11 +42,23 @@ fn members(c: &Connection, email: &str) -> Result<Data> {
 
 impl Database {
     pub fn chat_list(&self, email: &str) -> Result<Value> {
+        let group = self.read()?.groups.member(email).to_owned();
+        self.chat_list_group(email, &group, false)
+    }
+    pub fn chat_list_group(&self, email: &str, group: &str, inspecting: bool) -> Result<Value> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         let data = members(&tx, email)?;
-        let mut statement = tx.prepare("SELECT id,author,text,created FROM library_chat WHERE text IS NOT NULL AND created>?1 ORDER BY id")?;
-        let rows = statement.query_map([now().saturating_sub(RETENTION)], |r| {
+        ensure!(
+            if inspecting {
+                data.groups.operator(email)
+            } else {
+                data.groups.member(email) == group
+            },
+            fault(403, "Group access denied.")
+        );
+        let mut statement = tx.prepare("SELECT id,author,text,created FROM library_chat WHERE private_group=?2 AND text IS NOT NULL AND created>?1 ORDER BY id")?;
+        let rows = statement.query_map(params![now().saturating_sub(RETENTION), group], |r| {
             Ok((
                 r.get::<_, u64>(0)?,
                 r.get::<_, String>(1)?,
@@ -43,10 +69,14 @@ impl Database {
         let mut messages = Vec::new();
         for row in rows {
             let (id, author, text, created) = row?;
-            if let Some(member) = data.members.get(&author).filter(|m| m.enabled) {
+            if let Some(member) = data
+                .members
+                .get(&author)
+                .filter(|m| m.enabled && data.groups.member(&author) == group)
+            {
                 messages.push(json!({"id":id,"text":text,"created":created,
                     "author":{"id":hash(&author),"name":member.name,"avatar":member.avatar},
-                    "can_delete":author==email||data.members[email].admin}));
+                    "can_delete":!inspecting&&(author==email||data.members[email].admin)}));
             }
         }
         Ok(json!({"messages":messages}))
@@ -69,11 +99,12 @@ impl Database {
         );
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        members(&tx, email)?;
+        let data = members(&tx, email)?;
+        let group = data.groups.member(email);
         let time = now();
         tx.execute(
-            "DELETE FROM library_chat WHERE created<=?1",
-            [time.saturating_sub(RETENTION)],
+            "DELETE FROM library_chat WHERE private_group=?2 AND created<=?1",
+            params![time.saturating_sub(RETENTION), group],
         )?;
         // Retrying a lost response must not create a duplicate or resurrect a removed message.
         if let Some((id, original)) = tx
@@ -100,11 +131,11 @@ impl Database {
             fault(429, "Give it a moment. Try again in a minute.")
         );
         tx.execute(
-            "INSERT INTO library_chat(author,client_id,text,created) VALUES(?1,?2,?3,?4)",
-            params![email, client_id, text, time],
+            "INSERT INTO library_chat(author,client_id,text,created,private_group) VALUES(?1,?2,?3,?4,?5)",
+            params![email, client_id, text, time,group],
         )?;
         let id = tx.last_insert_rowid();
-        tx.execute("DELETE FROM library_chat WHERE id NOT IN (SELECT id FROM library_chat ORDER BY id DESC LIMIT 100)", [])?;
+        tx.execute("DELETE FROM library_chat WHERE private_group=?1 AND id NOT IN (SELECT id FROM library_chat WHERE private_group=?1 ORDER BY id DESC LIMIT 100)", [group])?;
         tx.commit()?;
         Ok(json!({"id":id}))
     }
@@ -114,9 +145,11 @@ impl Database {
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let data = members(&tx, email)?;
         let author: String = tx
-            .query_row("SELECT author FROM library_chat WHERE id=?1", [id], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT author FROM library_chat WHERE id=?1 AND private_group=?2",
+                params![id, data.groups.member(email)],
+                |r| r.get(0),
+            )
             .optional()?
             .ok_or_else(|| fault(404, "Message not found."))?;
         ensure!(

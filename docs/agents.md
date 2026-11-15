@@ -142,3 +142,10 @@ If GitHub access is unavailable, save the sanitized report in
 `.local/infuser-issue.md` for an adult and say it has **not** been filed. Do not ask
 the child for GitHub credentials. Continue safe workarounds without wiping saves,
 weakening authentication, or quietly dropping multiplayer.
+
+## Private groups
+
+The publishing connection assigns the game to its creator’s private group. Do
+not ask the child for a group ID or add one to the manifest. Games, players,
+presence, and saves are scoped by Infuser; the SDK integration stays the same.
+See [private groups](private-groups.md) for operator setup.

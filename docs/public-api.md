@@ -82,9 +82,12 @@ art request when `game_metadata.art_prompt_max_chars` is advertised. Prompts are
 not included in player responses. Descriptions, prompts, and overrides survive
 later publications; none requires a manifest field.
 
-An operator can provision an [all-games metadata key](art-agent.md). It can list
+Publishing keys inherit their creator’s [private group](private-groups.md).
+Manifests cannot choose or change a group.
+
+An operator can provision a [group or all-games metadata key](art-agent.md). It can list
 `GET /api/metadata/apps`, read/PATCH `/api/metadata/apps/APP`, and PUT/DELETE
-`/api/metadata/apps/APP/card-art` across games. It cannot publish builds, access
+`/api/metadata/apps/APP/card-art` across games within the key’s scope. It cannot publish builds, access
 saves, or administer members. Ordinary game keys cannot enumerate other games.
 
 An optional advanced `server` object uses the validated game settings documented

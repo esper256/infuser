@@ -12,6 +12,7 @@ pub(super) fn version() -> &'static str {
                 include_str!("../../web/clubhouse.js"),
                 include_str!("../../web/clubhouse.css"),
                 include_str!("../../web/chat.js"),
+                include_str!("../../web/groups.js"),
                 include_str!("../../web/client-updates.js"),
                 include_str!("../../web/themes.js"),
                 include_str!("../../web/themes/nightglass.css"),
@@ -24,11 +25,14 @@ pub(super) fn version() -> &'static str {
 
 pub(super) async fn state(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
+    let (_, inspecting) = p.group_view(&h, &email)?;
     let time = now();
     let game_open =
         p.db.read()?
             .launches
             .values()
             .any(|l| l.email == email && l.expires > time && l.seen.saturating_add(90) > time);
-    Ok(reply(json!({"version":version(),"game_open":game_open})))
+    Ok(reply(
+        json!({"version":version(),"game_open":game_open&&!inspecting}),
+    ))
 }

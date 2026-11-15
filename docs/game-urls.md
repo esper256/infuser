@@ -6,6 +6,8 @@ guest play remain explicit clicks; opening a shared link does not start a server
 The card's arrow menu includes **Copy game link**. Publication responses and the
 CLI also return the link. An authenticated resolver is available at
 `GET /api/games/SLUG`; it returns `app_id`, canonical `slug`, `url`, and `title`.
+Names and aliases resolve within the signed-in player’s private group. Two
+groups may use the same slug; sharing a link never grants another group access.
 Aliases resolve to the canonical link. Hidden previews remain adult-only;
 unpublished games return 404. Anonymous resolution requires sign-in.
 

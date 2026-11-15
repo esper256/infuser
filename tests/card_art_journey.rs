@@ -744,6 +744,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
             "{path}: {status}"
         );
     }
+    p.db.edit(|d| {
+        d.groups.operators.insert("adult@example.com".into());
+        Ok(())
+    })?;
     let credentials = json_ok(member("/api/admin/credentials", "adult")).await?;
     assert!(
         credentials["credentials"]
