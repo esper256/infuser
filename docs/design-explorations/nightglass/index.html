@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nightglass · card option</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#080e14;color:#edf4f3}
+*{box-sizing:border-box}
+body{margin:0;padding:32px 18px}
+main{max-width:440px;margin:auto}
+h1{font-size:20px;font-weight:600;margin:0 0 8px}
+.note,#status{font-size:12px;line-height:1.5;color:#91a4af;margin:0 0 24px}
+.card{position:relative;isolation:isolate;aspect-ratio:.95;container-type:inline-size;overflow:hidden;border-radius:22px;border:1px solid #ffffff19;background:#102d32;box-shadow:0 18px 50px #0004;transition:transform .3s ease,box-shadow .3s ease;--mx:60%}
+.art{position:absolute;z-index:-3;inset:0;width:100%;height:100%;object-fit:cover;object-position:32% 50%;transition:transform .7s cubic-bezier(.2,.8,.2,1)}
+.card:before{content:"";position:absolute;inset:0;z-index:-2;background:linear-gradient(transparent 62%,#001b2655);pointer-events:none}
+/* Content-sized, bottom-right; never stretched between two horizontal insets. */
+.dock{position:absolute;right:16px;bottom:16px;width:max-content;max-width:calc(100% - 32px);padding:12px;display:flex;align-items:center;gap:12px;border:1px solid #b9f5ee35;border-top-color:#d8fff45c;border-radius:16px;background:linear-gradient(125deg,#173e4080,#071e2be8);backdrop-filter:blur(16px) saturate(.8);box-shadow:0 8px 30px #00101855,inset 0 1px #fff1}
+.dock:before{content:"";position:absolute;inset:0;border-radius:inherit;background:radial-gradient(ellipse at var(--mx) 0,#b5f5d41c,transparent 65%);pointer-events:none}
+.row{display:flex;justify-content:flex-end;align-items:center;gap:7px;min-width:0}
+.title{font-size:clamp(22px,5.5cqw,27px);letter-spacing:-.045em;text-align:right;line-height:1.05;margin:0;overflow-wrap:anywhere}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid #e8d5a4;outline-offset:3px}
+.creator{position:relative;border:0;display:grid;place-items:center;background:transparent;width:44px;height:44px;padding:4px;border-radius:50%;flex:none}
+.creator img{width:36px;height:36px;object-fit:cover;object-position:25% 25%;border:1px solid #a5dac2;box-shadow:0 2px 8px #0006;border-radius:50%}
+.tooltip{visibility:hidden;opacity:0;position:absolute;bottom:calc(100% + 8px);right:0;white-space:nowrap;padding:7px 10px;border:1px solid #40505c;background:#101a23;border-radius:14px 14px 4px 14px;font-size:12px;color:#f3f7f7;pointer-events:none}
+.tooltip:after{content:"";position:absolute;right:13px;bottom:-7px;width:7px;height:7px;border:1px solid #688a80;background:#172c32;border-radius:50%}
+.creator:hover .tooltip,.creator:focus-visible .tooltip{visibility:visible;opacity:1}
+.creator:hover img,.creator:focus-visible img{border-color:#e8d5a4;box-shadow:0 0 14px #b5ead633}
+dialog{color:#edf4ef;width:min(420px,calc(100% - 32px));padding:24px;border:1px solid #88b5a0;border-radius:24px 24px 24px 6px;background:linear-gradient(135deg,#1b3537,#101e28);box-shadow:4px 5px #29473c}
+dialog::backdrop{background:#030b10bb;backdrop-filter:blur(6px)}
+dialog h2{font-size:20px;letter-spacing:-.035em;margin:0 30px 22px 0}
+.close{position:absolute;right:12px;top:10px;width:44px;height:44px;border:0;background:transparent;color:#bdd4ca;font-size:25px}
+.emojis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.emojis button{min-height:65px;font-size:36px;border:1px solid #476057;background:#0e2328;border-radius:14px}
+.emojis button:hover{background:#2c5141}
+dialog .note{margin:18px 0 0}
+.play{display:flex;width:max-content;flex:none}
+.play button{height:42px;border:0;background:#b8edda;color:#172c2d;font-weight:750}
+.launch{padding:0 16px;border-radius:10px 0 0 10px;font-size:14px}
+.play .options{width:28px;border-radius:0 10px 10px 0;border-left:1px solid #172c2d33;font-size:13px}
+.play button:hover{filter:brightness(1.1)}
+.play button:active{filter:brightness(.9)}
+#status{margin-top:18px;min-height:18px}
+@container(max-width:390px){.dock{display:block}.title{font-size:25px}.play{margin:7px 0 0 auto}}
+@media(hover:hover){.card:hover{transform:translateY(-4px);box-shadow:0 24px 55px #0007}.card:hover .art{transform:scale(1.035)}.card:hover .dock{border-color:#d0fff378}}
+.card:focus-within .art{transform:scale(1.025)}
+@media(pointer:coarse){.play button{height:44px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}.card:hover,.card:hover .art,.card:focus-within .art{transform:none}}
+</style>
+</head>
+<body>
+<main>
+<h1>Nightglass</h1>
+<p class="note">Design option · concept art and placeholder avatar · preview controls</p>
+<article class="card">
+<img class="art" src="hero.webp" alt="">
+<div class="dock">
+<div class="row"><h2 class="title">Firefly Drift</h2><button class="creator" aria-label="React to KwamiKwami’s game" aria-haspopup="dialog"><img src="hero.webp" alt=""><span class="tooltip" aria-hidden="true">React to KwamiKwami’s game</span></button></div>
+<div class="play"><button class="launch">Play</button><button class="options" aria-label="Play options">⌄</button></div>
+</div>
+</article>
+<p id="status" role="status"></p>
+<dialog id="reactions" aria-labelledby="reaction-title">
+<button class="close" aria-label="Close reactions">×</button>
+<h2 id="reaction-title">Firefly Drift</h2>
+<div class="emojis"><button aria-label="Amazing">🤩</button><button aria-label="Love it">😍</button><button aria-label="Awesome">🔥</button><button aria-label="Great work">👏</button><button aria-label="So fun">😎</button><button aria-label="Out of this world">🚀</button></div>
+<p class="note">Preview only · reactions aren’t saved</p>
+</dialog>
+</main>
+<script>
+const reactions=document.getElementById('reactions');
+document.querySelector('.creator').onclick=()=>reactions.showModal();
+document.querySelector('.close').onclick=()=>reactions.close();
+document.querySelectorAll('.emojis button').forEach(button=>button.onclick=()=>{reactions.close();document.getElementById('status').textContent=button.textContent+' Preview reaction — not saved.'});
+const card=document.querySelector('.card'), reduced=matchMedia('(prefers-reduced-motion: reduce)');
+card.addEventListener('pointermove',event=>{if(reduced.matches||event.pointerType==='touch')return;const bounds=card.getBoundingClientRect();card.style.setProperty('--mx',100*(event.clientX-bounds.left)/bounds.width+'%')});
+document.querySelectorAll('.play button').forEach(button=>button.onclick=()=>{document.getElementById('status').textContent='Preview only — no game launched.'});
+</script>
+</body>
+</html>

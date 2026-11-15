@@ -317,6 +317,12 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .json()
         .await?;
     assert_eq!(list["apps"][0]["title"], "Moon");
+    assert_eq!(list["apps"][0]["author"]["name"], "Grown-up");
+    assert_eq!(
+        list["apps"][0]["author"]["id"],
+        platform::hash("adult@example.com")
+    );
+    assert!(list["apps"][0]["author"].get("email").is_none());
     assert_eq!(list["apps"][0]["tags"], json!(["puzzle", "3d"]));
     assert_eq!(
         kid(reqwest::Method::PUT, "/api/apps/moon/tags")

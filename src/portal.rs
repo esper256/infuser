@@ -537,7 +537,8 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
             room["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(&email))
                 .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
         } else { vec![] };
-        json!({"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name})));
+        json!({"author":author,"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence

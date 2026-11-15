@@ -70,6 +70,9 @@ against Infuser's own invitation list. Unsafe browser requests require the exact
 HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection IP.
 
 - `GET /api/me`, `GET /api/library` — identity, games, friends, reactions.
+  Library games include `author: {id, name}` from the existing owner/member records,
+  or `null` for an unrecorded owner. `id` is the same opaque player ID used for
+  presence; no email or profile-image URL is exposed.
 - `POST /api/my-games` with `{"title":"My Game"}` — returns `app_id`, `api_url`,
   `setup_code`, `expires_at` (Unix seconds), and `tag_catalog`; no permanent credential.
 - `POST /api/my-games/APP/setup` — owner/admin replaces an unclaimed setup code.

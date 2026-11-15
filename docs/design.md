@@ -6,7 +6,18 @@ UI wording. Adult invitations and administration belong in a quiet admin area.
 
 One heading per task. Avoid stacking a slogan, title, explanation, and field
 question that all say the same thing. Cut redundant text aggressively; let the
-action and state explain themselves. Add a game needs a name, then a copyable
+action and state explain themselves. Player-facing copy should name the task,
+action, or useful state. Do not add slogans, sentimental taglines, motivational
+filler, or decorative sentences such as “Your games. Your crew.” or “Make games.
+Play together.” Do not reintroduce them in headers, sign-in screens, empty states,
+footers, or notifications. Prefer fewer words and omit copy that adds no useful
+information.
+
+Keep the Library usable on narrow phones: avoid horizontal overflow, keep Play
+prominent with secondary options behind its adjacent dropdown, and preserve
+comfortable touch targets and reduced-motion support.
+
+Add a game needs a name, then a copyable
 prompt for the existing game-making agent. No credential file chores for kids.
 
 Play opens the game's title screen. The game chooses gameplay modes; Infuser
@@ -23,6 +34,20 @@ Use a dark, game-like visual style and small, responsive feedback throughout
 player flows: pressed controls, subtle card movement, clear launch progress,
 and a brief acknowledgement when an action succeeds. Respect reduced motion.
 The games get the spotlight. Keep adult tools straightforward.
+
+When creator portraits are available, use the game author’s portrait as the
+reaction entry point, without a separate reaction control. Hover and keyboard
+focus show a thought bubble: “React to {author}’s game.” Click, Enter, or a phone
+tap opens the picker directly; never require hover. Give the portrait the same
+accessible action name. The Library uses recorded author names and initials while profile images are
+unavailable. Never invent author identities. Cards use the Nightglass layout with
+a content-sized glass dock and the approved Infuser artwork as a fallback until
+game-provided hero art has an agreed contract. Fictional art stays in mockups.
+
+Online players appear as overlapping avatars beside the logo. Filters and search
+share a row, with the game count after the final filter. Tag editing appears on
+tag-area hover or keyboard focus; a touch hold on an editable card opens the same
+picker. Scrolling and multi-touch cancel the hold.
 
 Reactions begin with large positive emoji in a speech bubble. Selecting one
 reveals a short optional comment and Enter-to-send. Emoji-only is complete.
