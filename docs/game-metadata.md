@@ -1,9 +1,10 @@
-# Edit a game's description, title, or cover
+# Game descriptions, art requests, and covers
 
 Use the game's existing publisher connection. These edits do not rebuild the
 game, restart sessions, or change saves. Check `GET /api/publisher/capabilities`
 for `game_metadata.version: 1`; descriptions additionally require
-`game_metadata.description_max_chars`.
+`game_metadata.description_max_chars`. Art requests require
+`game_metadata.art_prompt_max_chars`.
 
 ## Endpoints
 
@@ -11,8 +12,8 @@ Authenticate with the connection's bearer token, scoped to its `app_id`.
 
 | Method | Path | Effect |
 | --- | --- | --- |
-| GET | `/api/publisher/apps/APP/metadata` | Read title, description, cover, tags, slug, active build, and visibility |
-| PATCH | `/api/publisher/apps/APP/metadata` | Set `title`, `description`, or both |
+| GET | `/api/publisher/apps/APP/metadata` | Read title, description, art prompt, cover, tags, slug, build, and visibility |
+| PATCH | `/api/publisher/apps/APP/metadata` | Set any of `title`, `description`, `art_prompt` |
 | PUT | `/api/publisher/apps/APP/card-art` | Replace the independent cover with raw `image/webp` bytes |
 | DELETE | `/api/publisher/apps/APP/card-art` | Remove the override; use build art or the fallback |
 | PUT | `/api/publisher/apps/APP/tags` | Set `{"tags":["chill","arcade"]}` |
@@ -23,7 +24,9 @@ editing it. `title` accepts 1–80 characters, `description` 1–2000; both trim
 whitespace and reject control characters. Use a single plain-text paragraph.
 An omitted field is unchanged. `title:null` restores the build title;
 `description:null` clears the description. Empty patches and unknown fields fail.
-An invalid field rejects the entire patch.
+An invalid field rejects the entire patch. `art_prompt` accepts 1–4000 characters,
+trims outer whitespace, and permits newlines but no other control characters.
+`art_prompt:null` cancels the request. Omitted prompts remain unchanged.
 
 Write a short factual description after first publication: what players do,
 setting, and distinctive visual features. Derive it from the project or creator's
@@ -38,6 +41,28 @@ Example patch:
 {"description":"Race tiny hovercraft through moonlit canals, alone or with friends. Low-poly boats and glowing buoys define the scene."}
 ```
 
+## Either an image or a prompt
+
+A game agent should **either upload high-quality artwork meeting the spec or
+store an art prompt**, not improvise an inferior placeholder. The game can
+publish immediately; an Infuser art agent can fulfill the prompt later.
+
+Keep `description` factual. Use `art_prompt` for the image brief: recognizable
+subjects, setting, composition, style, mood, and exclusions. Make it understandable
+without the source repository. The Infuser art agent also follows the shared
+[art spec](card-art-guide.md), so do not paste the whole spec into each prompt.
+
+```json
+{"art_prompt":"Moon Racers: low-poly hovercraft skimming through moonlit canals, glowing buoys reflected on dark water. Fast and playful, with a bold readable boat silhouette. No text or interface elements."}
+```
+
+Prompts are private metadata for authorized publishers and the all-games metadata
+service key. They are not returned by the player Library API or displayed in the
+UI. `art_prompt_pending:true` marks a request awaiting artwork. Completed prompts
+remain stored with `art_prompt_pending:false`; null means no brief. Setting a
+prompt, even to the same text, requests artwork again. Do not promise
+a turnaround time. For the Infuser-side workflow, see [art-agent access](art-agent.md).
+
 Every mutation returns the same shape as GET:
 
 ```json
@@ -48,6 +73,9 @@ Every mutation returns the same shape as GET:
   "title": "Moon Racers",
   "title_override": null,
   "description": "Race tiny hovercraft through moonlit canals.",
+  "art_prompt": null,
+  "art_prompt_revision": null,
+  "art_prompt_pending": false,
   "card_art_url": "/api/apps/moon-racers/card-art/CONTENT_SHA256",
   "card_art_override": "CONTENT_SHA256",
   "updated": 1234567890,
@@ -73,7 +101,7 @@ curl --silent --show-error --fail --proto '=https' \
   "$API/api/publisher/apps/$APP/card-art"
 ```
 
-For a description, write the patch JSON to `.local/metadata.json`, then:
+For a description or art prompt, write the patch JSON to `.local/metadata.json`, then:
 
 ```sh
 curl --silent --show-error --fail --proto '=https' \
@@ -89,8 +117,11 @@ membership; a publisher token is not a browser login.
 
 ## Persistence
 
-Descriptions and title/cover overrides survive publications, restarts, and
+Descriptions, art prompts and their completion state, and title/cover overrides survive publications, restarts, and
 unpublishing. An explicit cover overrides build art until DELETE clears it.
+Ordinary cover uploads do not complete a pending request. The [art-agent completion
+request](art-agent.md#fulfill-a-request) uploads and marks its matching prompt fulfilled
+atomically, retaining the brief for future reference.
 Only one override image is retained; keep source art in the game project if you
 want to restore an earlier image. Replacements produce a new cover URL; obsolete
 override URLs return 404. Library refresh picks up the change.

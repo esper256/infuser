@@ -31,9 +31,14 @@ pub fn valid(value: &str) -> bool {
         .contains(&value)
 }
 pub fn resolve<'a>(data: &'a Data, slug: &str) -> Option<&'a str> {
+    resolve_in_group(data, slug, crate::platform::groups::HOME)
+}
+pub fn resolve_in_group<'a>(data: &'a Data, slug: &str, group: &str) -> Option<&'a str> {
     data.game_urls
         .iter()
-        .find(|(_, u)| u.slug == slug || u.aliases.iter().any(|a| a == slug))
+        .find(|(app, u)| {
+            data.groups.app(app) == group && (u.slug == slug || u.aliases.iter().any(|a| a == slug))
+        })
         .map(|(app, _)| app.as_str())
 }
 pub fn assign(data: &mut Data, app: &str, title: &str) -> String {
@@ -57,7 +62,7 @@ pub fn assign(data: &mut Data, app: &str, title: &str) -> String {
     }
     let mut slug = base.clone();
     let mut suffix = 2;
-    while resolve(data, &slug).is_some() {
+    while resolve_in_group(data, &slug, data.groups.app(app)).is_some() {
         let tail = format!("-{suffix}");
         slug = format!(
             "{}{}",
@@ -84,7 +89,7 @@ pub fn rename(data: &mut Data, app: &str, slug: &str) -> Result<()> {
         )
     );
     ensure!(
-        resolve(data, slug).is_none_or(|owner| owner == app),
+        resolve_in_group(data, slug, data.groups.app(app)).is_none_or(|owner| owner == app),
         crate::portal::fault(409, "That game URL is already reserved.")
     );
     let url = data

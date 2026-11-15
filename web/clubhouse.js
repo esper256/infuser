@@ -1,3 +1,4 @@
+import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
 import { initClientUpdates } from '/assets/client-updates.js';
 const $ = id => document.getElementById(id);
@@ -81,7 +82,8 @@ function notice(message) {
   noticeTimer=setTimeout(()=>{toast.classList.remove('visible');toast.textContent='';},5000);
 }
 async function api(path, options = {}) {
-  const r = await fetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers } });
+  if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
+  const r = await fetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...inspectionHeaders() } });
   const result = await r.json();
   if(!r.ok) { const error = new Error(result.error || 'Please try again.'); error.status = r.status; throw error; }
   return result;
@@ -103,21 +105,30 @@ function renderGames() {
   // Preserve ongoing launch controls and selections during presence polling.
   if (games.querySelector('[data-launching], .play-menu[open], .tag-overflow-panel:popover-open')) return;
   cancelTagHold();
-  games.replaceChildren();
+  const previousCards = new Map([...games.querySelectorAll('.game')].map(card=>[card.dataset.app,card]));
+  const nextCards = [];
   if(!library.apps.length) {
-    const empty = el('div',undefined,'empty'); empty.append(el('h2','No games yet'),el('p','Add a game to get started.')); games.append(empty);
+    const empty = el('div',undefined,'empty'); empty.append(el('h2','No games yet'),el('p','Add a game to get started.')); nextCards.push(empty);
   }
   const query=$('game-search').value.trim().toLowerCase();
   const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(!query||(g.title+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   $('game-count').textContent=matching.length+' / '+library.apps.length+' games';
-  if(library.apps.length&&!matching.length){const empty=el('div',undefined,'empty');empty.append(el('h2','No matches'),el('p','Try another tag or clear your search.'));games.append(empty);}
+  if(library.apps.length&&!matching.length){const empty=el('div',undefined,'empty');empty.append(el('h2','No matches'),el('p','Try another tag or clear your search.'));nextCards.push(empty);}
   for(const game of matching) {
-    const card = el('article',undefined,'game');
+    const card = previousCards.get(game.id) || el('article',undefined,'game');
     card.dataset.app=game.id;
-    const art=el('div',undefined,'game-art game-mark');art.setAttribute('aria-hidden','true');
-    if(game.card_art_url){const image=el('img');image.alt='';image.loading='lazy';image.decoding='async';image.onload=()=>art.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=game.card_art_url;art.append(image);}
+    // Keep loaded (or still loading) covers connected across presence refreshes.
+    // Recreating an img resets has-game-art and briefly paints the fallback.
+    let art=card.querySelector('.game-art');
+    if(!art || art.querySelector('img')?.getAttribute('src') !== (game.card_art_url || undefined)) {
+      const replacement=el('div',undefined,'game-art game-mark');replacement.setAttribute('aria-hidden','true');
+      if(game.card_art_url){const image=el('img');image.alt='';image.loading='lazy';image.decoding='async';image.onload=()=>replacement.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=game.card_art_url;replacement.append(image);}
+      if(art)art.replaceWith(replacement);else card.append(replacement);
+      art=replacement;
+    }
+    for(const child of [...card.children])if(child!==art)child.remove();
     const meta=el('div',undefined,'game-meta'),dock=el('div',undefined,'game-dock'),heading=el('div',undefined,'game-heading');
-    const title=el('h2',game.title);title.title=game.title;heading.append(title);card.append(art,meta,dock);
+    const title=el('h2',game.title);title.title=game.title;heading.append(title);card.append(meta,dock);
     if(game.preview)meta.append(el('p','INVISIBLE','game-visibility'));
     const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}meta.append(tags);prepareTagRow(tags);
     const names = [...new Set(game.players.map(p => p.name + (p.guest ? '’s guest' : '')))];
@@ -145,14 +156,20 @@ function renderGames() {
     }
     if(names.length)items.append(el('p',names.join(', ')+' · game open','players'));
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
+    play.disabled=!!me.inspecting;guest.disabled=!!me.inspecting;
+    if(me.inspecting)for(const button of items.querySelectorAll('button')){if(button.textContent!=='Copy game link')button.disabled=true;}
     play.onclick=()=>start(game,play,card);actions.append(play,menu);
     const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
     const react=el('button',undefined,'creator react-button');react.type='button';react.setAttribute('aria-label',label);react.setAttribute('aria-haspopup','dialog');
     const avatar=profileAvatar(game.author?.name,game.author?.id||game.id,game.author?.avatar),hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
-    react.append(avatar,hint);react.onclick=()=>openReaction(game);heading.append(react);dock.append(heading,actions);
+    react.disabled=!!me.inspecting;react.append(avatar,hint);react.onclick=()=>openReaction(game);heading.append(react);dock.append(heading,actions);
     if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}items.append(chips);}
-    games.append(card);
+    nextCards.push(card);
   }
+  // Do not detach unchanged cards: their decoded artwork should stay on screen.
+  const retained = new Set(nextCards);
+  for(const child of [...games.children])if(!retained.has(child))child.remove();
+  nextCards.forEach((card,index)=>{if(games.children[index]!==card)games.insertBefore(card,games.children[index]||null);});
   layoutTagRows();
 }
 function profileAvatar(name,id,picture,size=128) {
@@ -165,13 +182,15 @@ function profileAvatar(name,id,picture,size=128) {
   const avatar=el('span',initials.toLocaleUpperCase()||'···','avatar tone-'+tone);avatar.setAttribute('aria-hidden','true');return avatar;
 }
 function renderPresence() {
-  const people=[...(library.friends||[])].sort((a,b)=>Number(b.id===me.player_id)-Number(a.id===me.player_id)),list=$('friends');list.replaceChildren();list.hidden=!people.length;
-  for(const person of people.slice(0,2)){
-    const nameLabel=person.name+(person.id===me.player_id?' · you':'');
-    const item=el('li',undefined,'presence-person');item.dataset.playerId=person.id;item.tabIndex=0;item.setAttribute('aria-label',nameLabel+' · online');
-    const name=el('span',nameLabel,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id,person.avatar),name);list.append(item);
+  const people=(library.friends||[]).filter(person=>person.id!==me.player_id),list=$('friends');
+  // The account badge stays mounted so polling cannot close its menu or lose focus.
+  for(const item of [...list.children])if(!item.classList.contains('presence-self'))item.remove();
+  list.hidden=false;
+  for(const person of people.slice(0,1)){
+    const item=el('li',undefined,'presence-person');item.dataset.playerId=person.id;item.tabIndex=0;item.setAttribute('aria-label',person.name+' · online');
+    const name=el('span',person.name,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id,person.avatar),name);list.append(item);
   }
-  if(people.length>2){const extra=people.slice(2),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
+  if(people.length>1){const extra=people.slice(1),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
 }
 function cancelTagHold(){if(tagHold)clearTimeout(tagHold.timer);tagHold=null;}
 document.addEventListener('pointerdown',event=>{
@@ -196,6 +215,7 @@ $('games').addEventListener('contextmenu',event=>{
   if(tagHold||Date.now()<suppressContextUntil&&heldCard?.contains(event.target))event.preventDefault();
 });
 async function start(game,button,card,{guest=false,intent}={}) {
+  if(me.inspecting)return;
   if(game.native_only)return startDesktop(game,button,card,{guest});
   // Open synchronously in the click event so browser popup blockers allow Play.
   const tab = window.open('about:blank','_blank');
@@ -222,6 +242,7 @@ function desktopPlatform(){
   return null;
 }
 async function startDesktop(game,button,card,{guest=false}={}){
+  if(me.inspecting)return;
   const platform=desktopPlatform();
   if(!game.native_platforms?.includes(platform)){notice('This desktop game needs a supported Windows or Linux computer.');return;}
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
@@ -294,11 +315,24 @@ $('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object
 $('credential-form').onsubmit=async event=>{event.preventDefault();try{const data=Object.fromEntries(new FormData(event.target)),connection=await api('/api/admin/credentials',{method:'POST',body:JSON.stringify(data)});const blob=new Blob([JSON.stringify(connection,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=connection.app_id+'.credentials.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Connection file downloaded. Attach it in your game’s existing agent chat.');await adminRefresh();}catch(error){showError(error);}};
 function renderAccount(){
   $('greeting').textContent='Signed in as '+me.name+'.';$('account-trigger').setAttribute('aria-label',me.name+' · Profile menu');
-  $('account-trigger').replaceChildren(el('span',me.name));
+  const name=el('span',me.name+' · you','presence-name');name.setAttribute('aria-hidden','true');
+  $('account-trigger').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),name);
 }
 function setupAccount(){
   const menu=el('details',undefined,'header-menu profile-menu'),trigger=el('summary',undefined,'profile-button'),panel=el('div',undefined,'account-menu');
   trigger.id='account-trigger';
+  const self=el('li',undefined,'presence-person presence-self');self.dataset.playerId=me.player_id;
+  self.append(menu);$('friends').prepend(self);$('friends').hidden=false;
+  function positionMenu(){
+    const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
+    panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
+    const top=Math.max(16,bounds.bottom+10);
+    panel.style.top=top+'px';panel.style.maxHeight=Math.max(44,innerHeight-top-16)+'px';
+  }
+  trigger.addEventListener('click',positionMenu);
+  menu.addEventListener('toggle',positionMenu);
+  window.addEventListener('resize',positionMenu);
+  window.addEventListener('scroll',positionMenu,{passive:true});
   const profile=el('button','Change profile picture');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');
   profile.onclick=()=>{menu.open=false;openProfile();};
   const label=el('label','Theme'),select=el('select');select.id='theme-picker';
@@ -310,7 +344,7 @@ function setupAccount(){
   window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
   label.append(select);
   const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
-  panel.append(profile,label,out);menu.append(trigger,panel);$('account').append(menu);renderAccount();
+  panel.append(profile,label,out);menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;
@@ -357,12 +391,15 @@ $('profile-form').onsubmit=async event=>{
 
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
-  setupAccount();$('recent-menu').hidden=false;
+  setupAccount();initGroups({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar});
   initClientUpdates({api});
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
   if(me.admin){$('admin').hidden=false;await adminRefresh();}
-} catch(error) {if(error.status!==401)$('login-message').textContent=error.message;}
+} catch(error) {
+  if(inspection){sessionStorage.removeItem('infuser.group-inspection');location.replace('/library');}
+  else if(error.status!==401)$('login-message').textContent=error.message;
+}
 
 let newGameConnection, setupPending=false;
 function showSetupPrompt() {
@@ -382,7 +419,7 @@ First look for this game's existing connection to this server. Reuse it and its 
 
 Declare the actual Single player/Multiplayer modes. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Explain unsupported features rather than silently removing them.
 
-Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Save a short factual game description through the metadata API. Include Library cover art following the art guide; existing art or a suitable screenshot is fine. If you cannot provide a cover, explicitly tell me it is missing.
+Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Save a short factual game description through the metadata API. Either upload a cover meeting the art spec, or save a detailed art_prompt in the game metadata for an Infuser art agent to fulfill later. Do not substitute low-quality art.
 
 Build with this project's tools, publish, and test a real launch, saves, guest play, and multiplayer where supported. Handle routine hosting setup yourself. Tell me what is ready, anything still queued or untested, and any reported platform issue links.`;
   $('add-game-title').textContent='Bring your game';

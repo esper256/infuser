@@ -7,15 +7,18 @@ pub(super) fn title<'a>(data: &'a platform::Data, app: &str, fallback: &'a str) 
         .unwrap_or(fallback)
 }
 
-fn view(p: &Platform, app: &str) -> Result<Value> {
-    let d = p.db.read()?;
+fn view(d: &platform::Data, app: &str) -> Result<Value> {
     let active = d.apps.get(app).ok_or_else(|| fault(404, "unknown game"))?;
     let build = &d.builds[&build_key(app, &active.build)];
     let metadata = d.metadata.get(app).cloned().unwrap_or_default();
+    let prompt_revision = metadata.art_prompt.as_deref().map(hash);
+    let prompt_pending =
+        prompt_revision.is_some() && prompt_revision != metadata.art_prompt_completed_revision;
     Ok(
-        json!({"app_id":app,"build":active.build,"listed":active.listed,
-        "title":title(&d,app,&build.manifest.title),"title_override":metadata.title,
+        json!({"app_id":app,"private_group":d.groups.app(app),"build":active.build,"listed":active.listed,
+        "title":title(d,app,&build.manifest.title),"title_override":metadata.title,
         "description":metadata.description,
+        "art_prompt":metadata.art_prompt,"art_prompt_revision":prompt_revision,"art_prompt_pending":prompt_pending,
         "card_art_url":card_art::url(app,&active.build,build,d.metadata.get(app)),
         "card_art_override":metadata.card_art_revision,"updated":metadata.updated,
         "tags":d.tags.get(app).cloned().unwrap_or_default(),
@@ -23,13 +26,48 @@ fn view(p: &Platform, app: &str) -> Result<Value> {
     )
 }
 
+fn authorize(p: &Platform, h: &HeaderMap, app: &str) -> Result<()> {
+    if p.publisher(h, Some("all-games"), "metadata").is_ok() {
+        return Ok(());
+    }
+    let group = p.db.read()?.groups.app(app).to_owned();
+    if p.publisher(h, Some(&group), "metadata-group").is_ok() {
+        return Ok(());
+    }
+    p.publisher(h, Some(app), "publish")?;
+    Ok(())
+}
+
+pub(super) async fn list_metadata(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let group = if p.publisher(&h, Some("all-games"), "metadata").is_ok() {
+        None
+    } else {
+        Some(p.publisher(&h, None, "metadata-group")?)
+    };
+    let data = p.db.read()?;
+    let apps = data
+        .apps
+        .keys()
+        .filter(|app| {
+            group
+                .as_ref()
+                .is_none_or(|group| data.groups.app(app) == group)
+        })
+        .map(|app| view(&data, app))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(reply(
+        json!({"version":1,"apps":apps,"description_max_chars":2000,
+        "art_prompt_max_chars":4000,"card_art":crate::card_art::capabilities()}),
+    ))
+}
+
 pub(super) async fn get_metadata(
     State(p): State<Platform>,
     Path(app): Path<String>,
     h: HeaderMap,
 ) -> Answer {
-    p.publisher(&h, Some(&app), "publish")?;
-    Ok(reply(view(&p, &app)?))
+    authorize(&p, &h, &app)?;
+    Ok(reply(view(&p.db.read()?, &app)?))
 }
 
 #[derive(Deserialize)]
@@ -39,6 +77,8 @@ pub(super) struct Patch {
     title: Option<Option<String>>,
     #[serde(default, deserialize_with = "present_text")]
     description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_text")]
+    art_prompt: Option<Option<String>>,
 }
 fn present_text<'de, D: serde::Deserializer<'de>>(
     d: D,
@@ -51,14 +91,21 @@ pub(super) async fn patch_metadata(
     h: HeaderMap,
     Json(body): Json<Patch>,
 ) -> Answer {
-    p.publisher(&h, Some(&app), "publish")?;
+    authorize(&p, &h, &app)?;
     ensure!(
-        body.title.is_some() || body.description.is_some(),
-        fault(400, "provide title or description; null clears that field")
+        body.title.is_some() || body.description.is_some() || body.art_prompt.is_some(),
+        fault(
+            400,
+            "provide title, description, or art_prompt; null clears that field"
+        )
     );
     let title = body.title.as_ref().map(|v| v.as_deref().map(str::trim));
     let description = body
         .description
+        .as_ref()
+        .map(|v| v.as_deref().map(str::trim));
+    let art_prompt = body
+        .art_prompt
         .as_ref()
         .map(|v| v.as_deref().map(str::trim));
     if let Some(Some(title)) = title {
@@ -83,8 +130,27 @@ pub(super) async fn patch_metadata(
             )
         );
     }
-    p.db.metadata_update(&app, title, description, None)?;
-    Ok(reply(view(&p, &app)?))
+    if let Some(Some(prompt)) = art_prompt {
+        ensure!(
+            !prompt.is_empty()
+                && prompt.chars().count() <= 4000
+                && !prompt.chars().any(|c| c.is_control() && c != '\n'),
+            fault(
+                422,
+                "art_prompt must be 1–4000 characters; newlines are allowed"
+            )
+        );
+    }
+    p.db.metadata_update(
+        &app,
+        platform::MetadataUpdate {
+            title,
+            description,
+            art_prompt,
+            ..Default::default()
+        },
+    )?;
+    Ok(reply(view(&p.db.read()?, &app)?))
 }
 
 pub(super) async fn put_art(
@@ -93,7 +159,7 @@ pub(super) async fn put_art(
     h: HeaderMap,
     body: Bytes,
 ) -> Answer {
-    p.publisher(&h, Some(&app), "publish")?;
+    authorize(&p, &h, &app)?;
     crate::card_art::validate(&body).map_err(|e| fault(422, &format!("{e:#}")))?;
     let _guard = p.publishing.lock().unwrap();
     let d = p.db.read()?;
@@ -116,8 +182,22 @@ pub(super) async fn put_art(
             >= p.config().controller.disk_reserve_mb * 1024 * 1024 + size * 2,
         fault(507, "host disk reserve would be exhausted")
     );
-    p.db.metadata_update(&app, None, None, Some(Some(&body)))?;
-    Ok(reply(view(&p, &app)?))
+    let complete_prompt = h
+        .get("x-infuser-art-prompt-revision")
+        .map(|v| {
+            v.to_str()
+                .map_err(|_| fault(400, "invalid art prompt revision"))
+        })
+        .transpose()?;
+    p.db.metadata_update(
+        &app,
+        platform::MetadataUpdate {
+            art: Some(Some(&body)),
+            complete_prompt,
+            ..Default::default()
+        },
+    )?;
+    Ok(reply(view(&p.db.read()?, &app)?))
 }
 
 pub(super) async fn delete_art(
@@ -125,7 +205,13 @@ pub(super) async fn delete_art(
     Path(app): Path<String>,
     h: HeaderMap,
 ) -> Answer {
-    p.publisher(&h, Some(&app), "publish")?;
-    p.db.metadata_update(&app, None, None, Some(None))?;
-    Ok(reply(view(&p, &app)?))
+    authorize(&p, &h, &app)?;
+    p.db.metadata_update(
+        &app,
+        platform::MetadataUpdate {
+            art: Some(None),
+            ..Default::default()
+        },
+    )?;
+    Ok(reply(view(&p.db.read()?, &app)?))
 }

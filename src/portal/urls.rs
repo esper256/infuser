@@ -9,13 +9,14 @@ pub(super) async fn resolve(
     h: HeaderMap,
 ) -> Answer {
     let email = p.member(&h, false).await?;
+    let (group, inspecting) = p.group_view(&h, &email)?;
     let d = p.db.read()?;
-    let app =
-        crate::game_urls::resolve(&d, &slug).ok_or_else(|| fault(404, "Game unavailable."))?;
+    let app = crate::game_urls::resolve_in_group(&d, &slug, &group)
+        .ok_or_else(|| fault(404, "Game unavailable."))?;
     let selected = d
         .apps
         .get(app)
-        .filter(|a| a.listed || d.members[&email].admin)
+        .filter(|a| a.listed || inspecting || d.members[&email].admin)
         .ok_or_else(|| fault(404, "Game unavailable."))?;
     let mut value = view(&d, app, p.domain());
     value["title"] = json!(metadata::title(
@@ -47,6 +48,7 @@ pub(super) async fn owner_rename(
 ) -> Answer {
     let email = p.member(&h, true).await?;
     let d = p.db.read()?;
+    d.require_app_group(&email, &app)?;
     ensure!(
         d.members[&email].admin || d.owners.get(&app) == Some(&email),
         fault(

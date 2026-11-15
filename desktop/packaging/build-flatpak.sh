@@ -9,6 +9,8 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
 mkdir -p "$stage/build/files/bin" "$stage/build/files/share/applications" "$stage/build/files/share/metainfo" "$stage/build/files/share/icons/hicolor/256x256/apps"
 install -m755 "$binary" "$stage/build/files/bin/infuser-desktop"
+mkdir -p "$stage/build/files/share/licenses/infuser-play"
+cp "$repo_root/desktop/assets/fonts/OFL.txt" "$stage/build/files/share/licenses/infuser-play/NotoSans-OFL.txt"
 cp "$repo_root/desktop/packaging/io.github.esper256.Infuser.desktop" "$stage/build/files/share/applications/"
 cp "$repo_root/desktop/packaging/io.github.esper256.Infuser.metainfo.xml" "$stage/build/files/share/metainfo/"
 cp "$repo_root/assets/branding/infuser/icon-256.png" "$stage/build/files/share/icons/hicolor/256x256/apps/io.github.esper256.Infuser.png"

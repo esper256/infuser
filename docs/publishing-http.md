@@ -152,7 +152,8 @@ still active. The update waits for shutdown/session end; do not call it live yet
 GET `$BUILD_URL` for `publication_state` and check the returned canonical game
 URL in Infuser. Exercise Play, saves/guest mode, and relevant multiplayer behavior.
 After first publication, save a factual description via the [metadata API](game-metadata.md)
-and check the cover. Report missing artwork explicitly. An upload alone is not
+and either upload a spec-compliant cover or store an `art_prompt` for later
+fulfillment by an Infuser art agent. An upload alone is not
 acceptance. Use the same credentials/app ID and a fresh
 build ID for each future “update it on Infuser.”
 

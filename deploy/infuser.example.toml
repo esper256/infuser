@@ -3,6 +3,9 @@ state_dir = "/var/lib/infuser"
 token_file = "/etc/infuser/control.secret"
 public_host = "games.example.com"
 domain = "games.example.com"
+# Enable before creating another private group. Keep enabled on later upgrades.
+# See docs/private-groups.md; older binaries must not serve a multi-group database.
+private_groups = false
 # These are game budgets, not the machine's total resources.
 memory_budget_mb = 8192
 cpu_budget_millis = 1500

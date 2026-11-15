@@ -43,6 +43,8 @@ pub struct Settings {
     pub turn: Option<Turn>,
     /// Optional private PeerServer listener on IPv4 loopback; never a public port.
     pub peerjs_port: Option<u16>,
+    /// Required before creating groups; older binaries reject this configuration.
+    pub private_groups: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -78,6 +80,7 @@ impl Default for Settings {
             cloud_save_budget_mb: 512,
             turn: None,
             peerjs_port: None,
+            private_groups: false,
         }
     }
 }

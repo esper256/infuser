@@ -100,9 +100,20 @@ The CLI creates a mode-0600 file, never prints its token, and refuses to overwri
 an existing file. Transfer it privately to the game-making agent; revoke it in
 the admin UI when finished. Normal kids use Add a game instead.
 
+For an Infuser-side art agent, create a separate [all-games metadata key](art-agent.md).
+It can read private art prompts and edit presentation across games, without
+publishing builds or accessing player saves.
+
 For automated dogfooding without sharing a Google session, a local operator can
 run `infuser preview-game CONFIG APP EXISTING_ADMIN_EMAIL PRIVATE_OUTPUT_FILE`.
 This only accepts a hidden, client-only preview and creates a single-use,
 two-minute launch link with a **fresh guest** save namespace. It grants no portal,
 publishing or admin access. Treat the output as private and close the test game
 when done. Normal player launches still require Google and enabled membership.
+
+## Multiple families
+
+Use [private groups](private-groups.md) to invite a separate family. Ordinary
+admin invites always belong to the inviting adult’s group. The local `member`
+command adds new accounts to Home; it is not the way to invite another family.
+For a manual publisher pass outside Home, append `--group GROUP_ID`.

@@ -168,6 +168,7 @@ async fn play(
     p.admit(&h).await;
     let id = secret();
     p.db.native_edit(|d, n| {
+        d.require_app_group(&email, &app)?;
         let active = d
             .apps
             .get(&app)
@@ -230,6 +231,7 @@ async fn claim(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Claim>)
         let request = n.requests.get(&hash(&body.request_id)).ok_or_else(|| fault(410, "press Play again in the Library"))?.clone();
         ensure!(request.email == device.email, fault(403, "this computer is connected to a different player; switch account in Infuser"));
         ensure!(request.platform == body.platform, fault(409, "open this game on the computer that requested it"));
+        d.require_app_group(&device.email,&request.app)?;
         let active = d.apps.get(&request.app).ok_or_else(|| fault(410, "game was removed"))?;
         ensure!(active.listed || d.members[&device.email].admin, fault(404, "game not found"));
         ensure!(active.build == request.build, fault(409, "game was updated; press Play again"));

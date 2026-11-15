@@ -6,8 +6,11 @@ delivery image described below. No artwork field in `infuser.game.json` is neede
 Read the game description from the [metadata API](game-metadata.md), then inspect
 available project assets or screenshots. If neither gives enough context, use the
 creator's brief; do not guess gameplay from the title. Image generation is optional:
-a suitable existing image or HUD-free screenshot also works. If no usable cover
-can be produced, publish with the fallback and explicitly report the missing art.
+a suitable existing image or HUD-free screenshot also works. **Either upload an
+image meeting this spec or save a detailed `art_prompt` using the [metadata API](game-metadata.md).**
+If your tools cannot produce high-quality art, use the prompt handoff. Describe
+the real game, subjects, style, mood, and exclusions for an Infuser art agent.
+The game publishes immediately with a fallback while the request waits.
 
 ## What to make
 

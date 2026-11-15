@@ -1,10 +1,12 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 mod client;
 mod install;
+mod ui;
 use eframe::egui;
 use std::sync::mpsc;
 
 struct App {
+    presentation: ui::Presentation,
     root: std::path::PathBuf,
     request: Option<client::Request>,
     status: String,
@@ -19,7 +21,9 @@ impl App {
             return;
         };
         self.running = true;
+        self.playing = false;
         self.failed = false;
+        self.status = "Connecting…".into();
         let root = self.root.clone();
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
@@ -40,8 +44,7 @@ impl eframe::App for App {
                     client::Event::Status(message) => self.status = message,
                     client::Event::Playing => {
                         self.playing = true;
-                        self.status =
-                            "Have fun! Infuser Play is keeping your game connected.".into();
+                        self.status = "Game running".into();
                         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                     }
                     client::Event::Done => {
@@ -63,29 +66,43 @@ impl eframe::App for App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             }
         }
-        egui::CentralPanel::default().show(ctx,|ui|{
-            ui.add_space(14.0);
-            ui.heading(egui::RichText::new("Infuser Play").size(32.0).color(egui::Color32::from_rgb(159,224,201)));
-            ui.add_space(18.0);
-            ui.label(egui::RichText::new(&self.status).size(17.0));
-            ui.add_space(16.0);
-            if self.running {ui.spinner();}
-            else if let Some(request)=self.request.clone(){
-                if !self.failed {
-                    ui.label(format!("Connect to {}",request.server));
-                    ui.small("Only connect to an Infuser server you know. This allows its games to run on your computer.");
-                    if ui.button("Connect & sign in").clicked(){self.launch(ctx);}
-                }else{
-                    if ui.button("Back to Library").clicked(){let _=open::that(format!("{}/library",request.server));}
-                    if ui.button("Switch player / reconnect").clicked(){
-                        match client::forget(&self.root,&request){
-                            Ok(())=>{self.failed=false;self.status="Connect with your Google account, then press Play in the Library again.".into();},
-                            Err(error)=>self.status=error.to_string(),
+        let screen = if self.failed {
+            ui::Screen::Error {
+                message: &self.status,
+                has_request: self.request.is_some(),
+            }
+        } else if self.playing && self.running {
+            ui::Screen::Playing
+        } else if self.running {
+            ui::Screen::Busy(&self.status)
+        } else if let Some(request) = &self.request {
+            ui::Screen::Connect {
+                server: &request.server,
+                note: &self.status,
+            }
+        } else {
+            ui::Screen::Idle
+        };
+        match self.presentation.show(ctx, screen) {
+            ui::Action::None => {}
+            ui::Action::Connect => self.launch(ctx),
+            ui::Action::Library => {
+                if let Some(request) = &self.request {
+                    let _ = open::that(format!("{}/library", request.server));
+                }
+            }
+            ui::Action::Reconnect => {
+                if let Some(request) = &self.request {
+                    match client::forget(&self.root, request) {
+                        Ok(()) => {
+                            self.failed = false;
+                            self.status = "Sign in, then press Play in the Library again.".into();
                         }
+                        Err(error) => self.status = error.to_string(),
                     }
                 }
             }
-        });
+        }
         if self.running {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
@@ -98,12 +115,9 @@ fn main() -> eframe::Result {
     let argument = std::env::args().nth(1);
     let parsed = argument.as_deref().map(client::parse).transpose();
     let (mut request, mut status, mut failed) = match parsed {
-        Ok(request) => (request, "Your games, ready to go.".to_owned(), false),
+        Ok(request) => (request, String::new(), false),
         Err(error) => (None, error.to_string(), true),
     };
-    if argument.is_none() {
-        status = "Infuser Play is ready. Open Infuser in your browser and press Play.".into();
-    }
     if let Some(error) = storage_error {
         request = None;
         status = error;
@@ -113,18 +127,15 @@ fn main() -> eframe::Result {
         .as_ref()
         .is_some_and(|r| client::connected(&root, r));
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Infuser Play")
-            .with_inner_size([440.0, 280.0])
-            .with_resizable(false),
+        viewport: ui::viewport(),
         ..Default::default()
     };
     eframe::run_native(
         "Infuser Play",
         options,
         Box::new(move |cc| {
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
             let mut app = App {
+                presentation: ui::Presentation::new(&cc.egui_ctx),
                 root,
                 request,
                 status,

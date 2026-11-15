@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
 mod chat;
+pub mod groups;
 mod metadata;
-pub use metadata::GameMetadata;
+pub use metadata::{GameMetadata, MetadataUpdate};
 
 pub fn hash(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))
@@ -93,6 +94,8 @@ pub struct Reaction {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Data {
     #[serde(skip)]
+    pub groups: groups::Groups,
+    #[serde(skip)]
     pub metadata: BTreeMap<String, GameMetadata>,
     #[serde(skip)]
     pub game_urls: BTreeMap<String, crate::game_urls::GameUrl>,
@@ -117,6 +120,10 @@ pub struct Data {
 fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     let mut data: Data = serde_json::from_str(raw)?;
     data.metadata = metadata::read(c)?;
+    let policy: String = c.query_row("SELECT data FROM private_groups WHERE id=1", [], |r| {
+        r.get(0)
+    })?;
+    data.groups = serde_json::from_str(&policy)?;
     let mut statement = c.prepare("SELECT app,declaration FROM game_urls")?;
     for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
         let (app, declaration) = row?;
@@ -154,6 +161,10 @@ fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     Ok(data)
 }
 fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
+    tx.execute(
+        "UPDATE private_groups SET data=?1 WHERE id=1",
+        [serde_json::to_string(&data.groups)?],
+    )?;
     let mut value = serde_json::to_value(data)?;
     for (app, url) in &data.game_urls {
         tx.execute("INSERT INTO game_urls(app,declaration) VALUES(?1,?2) ON CONFLICT(app) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![app,serde_json::to_string(url)?])?;
@@ -244,6 +255,11 @@ impl Database {
         crate::cloud::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS native_v1 (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
             INSERT OR IGNORE INTO native_v1(id,data) VALUES(1,'{\"pairs\":{},\"devices\":{},\"requests\":{}}');")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS private_groups(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);")?;
+        c.execute(
+            "INSERT OR IGNORE INTO private_groups(id,data) VALUES(1,?1)",
+            [serde_json::to_string(&groups::Groups::default())?],
+        )?;
         metadata::initialize(&c)?;
         chat::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
@@ -445,7 +461,10 @@ pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bo
 pub fn credential(data: &mut Data, app: &str, role: &str, label: &str) -> Result<(String, String)> {
     ensure!(crate::config::slug(app), "invalid app id");
     ensure!(
-        role == "publish" || role == "server",
+        role == "publish"
+            || role == "server"
+            || (role == "metadata" && app == "all-games")
+            || (role == "metadata-group" && data.groups.names.contains_key(app)),
         "invalid credential role"
     );
     let id = secret()[..16].to_string();
@@ -474,6 +493,7 @@ pub fn preview(
     let email = email.to_lowercase();
     Database::open(&config.controller.state_dir)?.edit(|d| {
         ensure!(d.members.get(&email).is_some_and(|m|m.enabled&&m.admin),"preview requires an existing enabled adult admin");
+        d.require_app_group(&email, app)?;
         let selected=d.apps.get(app).context("unknown app")?;
         ensure!(!selected.listed,"operator preview only accepts hidden test games");
         let build=d.builds.get(&format!("{app}/{}",selected.build)).context("missing build")?;

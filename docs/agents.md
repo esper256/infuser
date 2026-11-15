@@ -75,11 +75,18 @@ identity and storage; the game must use them.
 Choose up to eight initial tags from the prompt or `GET /api/publisher/tags` and
 put them in `infuser.game.json`. Later publications preserve author tag edits.
 
-Prepare a Library cover following the [card art guide](card-art-guide.md). An
-existing suitable image or HUD-free screenshot is fine; image generation is not
-required. Put the delivery image at `infuser-art/card-hero.webp`. If no suitable
-art or image tools are available, publishing can use the fallback: clearly report
-that the cover is missing, rather than silently skipping it.
+Choose **one** Library art handoff:
+
+- Upload a cover meeting the [art spec](card-art-guide.md), at
+  `infuser-art/card-hero.webp`. Suitable existing art or a HUD-free screenshot is fine.
+- If you cannot produce high-quality artwork, save an `art_prompt` through the
+  [metadata API](game-metadata.md) after publication. Describe the real game,
+  recognizable subjects, visual style, mood, and anything to avoid. An Infuser art
+  agent can read this request and upload the cover later. Do not upload inferior
+  placeholder art. Tell the child the game is playable and artwork is requested.
+
+The fallback cover remains until artwork arrives. A prompt is a valid handoff,
+not a failed publication; do not claim an image is ready or promise a completion time.
 
 After first publication, use the [metadata API](game-metadata.md) to save a short,
 factual `description`: what players do, the game's setting, and any distinctive
@@ -135,3 +142,10 @@ If GitHub access is unavailable, save the sanitized report in
 `.local/infuser-issue.md` for an adult and say it has **not** been filed. Do not ask
 the child for GitHub credentials. Continue safe workarounds without wiping saves,
 weakening authentication, or quietly dropping multiplayer.
+
+## Private groups
+
+The publishing connection assigns the game to its creator’s private group. Do
+not ask the child for a group ID or add one to the manifest. Games, players,
+presence, and saves are scoped by Infuser; the SDK integration stays the same.
+See [private groups](private-groups.md) for operator setup.

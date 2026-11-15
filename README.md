@@ -46,10 +46,14 @@ not on the Infuser host. Godot exports likewise use the creator's Godot toolchai
 - [SDK 1.0 design review](docs/sdk-contract.md) — current game contract is experimental
 - [Player experience](docs/design.md) and [next steps](docs/roadmap.md)
 - [Install Infuser](docs/clubhouse-operations.md)
+- [Private groups and operator access](docs/private-groups.md)
 - [Controller operations](docs/operations.md) and [private lifecycle API](docs/api.md)
 - [Automatic updates](docs/deployment.md) and [game-port firewall](docs/network-admission.md)
 - [Product boundaries](docs/architecture.md)
 
 Private domains, provider details and credentials live outside the repository.
 Use ignored `.local/` files for installation configuration. Development does not
-wait for CI; a small workflow only promotes tested builds to the live server.
+wait for CI. [Advisory checks and dependency maintenance](docs/ci.md) provide
+feedback independently of the existing build-and-release workflow.
+
+Licensed under the [MIT License](LICENSE).

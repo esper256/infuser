@@ -1,0 +1,47 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 1
+    groups:
+      cargo-versions:
+        applies-to: version-updates
+        patterns: ['*']
+      cargo-security:
+        applies-to: security-updates
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 1
+    groups:
+      github-actions-versions:
+        applies-to: version-updates
+        patterns: ['*']
+      github-actions-security:
+        applies-to: security-updates
+        patterns: ['*']
+  - package-ecosystem: docker
+    directory: /examples/demo
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 1
+    groups:
+      docker-versions:
+        applies-to: version-updates
+        patterns: ['*']
+      docker-security:
+        applies-to: security-updates
+        patterns: ['*']
