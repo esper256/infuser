@@ -1,3 +1,4 @@
+import { openHomeChat } from '/assets/groups.js';
 // Shared Library room. All message text stays text, never markup or links.
 export function initChat({me, api, profileAvatar}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
@@ -142,7 +143,7 @@ export function initChat({me, api, profileAvatar}) {
   window.addEventListener('online',poll);
   const openFromLink=()=>{if(location.hash==='#chat')setOpen(true,false);};
   window.addEventListener('hashchange',openFromLink);
-  navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='infuser-open-chat')setOpen(true,false);});
+  navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='infuser-open-chat'){if(me.inspecting)openHomeChat();else setOpen(true,false);}});
   openFromLink();
   poll();
 }

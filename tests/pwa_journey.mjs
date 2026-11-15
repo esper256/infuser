@@ -79,6 +79,14 @@ try {
   assert.equal(await worker.evaluate(()=>self.testNotifications.length),2);
   page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(origin+'/library#chat');
   await page.locator('#chat-panel').waitFor({state:'visible'});await page.locator('#chat-close').click();
+  await page.evaluate(()=>sessionStorage.setItem('infuser.group-inspection',JSON.stringify({group:'away',expires:Date.now()+600000})));
+  await page.goto(origin+'/library');await page.locator('#group-inspection').waitFor();
+  await page.evaluate(()=>navigator.serviceWorker.dispatchEvent(new MessageEvent('message',{data:{type:'infuser-open-chat'}})));
+  await page.waitForURL('**/library?chat#chat');
+  await page.locator('#chat-panel').waitFor({state:'visible'});
+  assert.equal(await page.locator('#group-inspection').count(),0,'home alert leaves operator inspection');
+  assert.equal(await page.evaluate(()=>sessionStorage.getItem('infuser.group-inspection')),null);
+  await page.locator('#chat-close').click();
   await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Chat notifications: on',exact:true}).click();
   await page.getByRole('button',{name:'Chat notifications: off',exact:true}).waitFor();
   await page.getByRole('button',{name:'Chat notifications: off',exact:true}).click();
