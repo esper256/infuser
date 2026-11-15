@@ -2,7 +2,8 @@
 export function initChat({me, api, profileAvatar}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const root=document.createElement('aside');root.id='library-chat';root.setAttribute('aria-label','Library chat');
-  root.innerHTML=`<button id="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-panel"><span class="chat-icon" aria-hidden="true">···</span><span>Chat</span><span id="chat-faces" aria-hidden="true"></span><span id="chat-unread" hidden></span></button>
+  root.innerHTML=`<button id="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-panel" title="Show chat"><span class="chat-icon" aria-hidden="true">···</span><span class="sr-only">Chat</span><span id="chat-unread" hidden></span></button>
+    <div id="chat-pointers" aria-hidden="true"></div>
     <section id="chat-panel" aria-labelledby="chat-title" hidden>
       <div class="chat-heading"><div><h2 id="chat-title">Chat</h2><span class="chat-audience">Everyone in the Library</span></div><button id="chat-close" type="button" aria-label="Close chat">×</button></div>
       <div id="chat-log" role="log" aria-label="Messages" aria-live="off" tabindex="0"><p class="chat-empty">No messages yet.</p></div>
@@ -12,36 +13,58 @@ export function initChat({me, api, profileAvatar}) {
       <span id="chat-announcement" class="sr-only" role="status"></span>
     </section>`;
   document.body.append(root);
-  const $=id=>root.querySelector('#chat-'+id), log=$('log'), input=$('text');
+  const $=id=>document.getElementById('chat-'+id), log=$('log'), input=$('text');
+  const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
+  presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
   let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0;
   const bottom=()=>log.scrollHeight-log.scrollTop-log.clientHeight<32;
   const isOpen=()=>!$('panel').hidden;
-  // Mobile keyboards resize the visual viewport, not always the layout viewport.
-  if(window.visualViewport){
-    const fit=()=>{
-      const stick=isOpen()&&bottom();
-      root.style.setProperty('--chat-viewport',window.visualViewport.height+'px');
-      root.style.setProperty('--chat-keyboard',Math.max(0,innerHeight-window.visualViewport.height-window.visualViewport.offsetTop)+'px');
-      if(stick)requestAnimationFrame(()=>{log.scrollTop=log.scrollHeight;});
-    };
-    window.visualViewport.addEventListener('resize',fit);window.visualViewport.addEventListener('scroll',fit);fit();
+  function position() {
+    if(!isOpen())return;
+    const stick=bottom(), viewport=window.visualViewport;
+    const viewTop=viewport?.offsetTop||0, viewBottom=viewTop+(viewport?.height||innerHeight);
+    const badges=[...presence.querySelectorAll('[data-player-id]')];
+    const anchor=(badges[0]||$('toggle')).getBoundingClientRect();
+    const width=Math.min(380,document.documentElement.clientWidth-24);
+    const left=Math.max(12,Math.min(anchor.left-16,document.documentElement.clientWidth-width-12));
+    const top=Math.max(viewTop+12,Math.min(anchor.bottom+18,viewBottom-260));
+    root.style.left=left+'px';root.style.top=top+'px';
+    root.style.setProperty('--chat-height',Math.min(560,viewBottom-top-12)+'px');
+    const recent=new Set([...messages].reverse().slice(0,12).filter(m=>Date.now()/1000-m.created<300).map(m=>m.author.id));
+    const pointers=[];
+    for(const badge of badges){
+      const bounds=badge.getBoundingClientRect(), center=bounds.left+bounds.width/2;
+      if(!recent.has(badge.dataset.playerId)||bounds.top<viewTop||bounds.bottom+4>=top)continue;
+      const pointer=document.createElement('span');pointer.className='chat-pointer';pointer.dataset.playerId=badge.dataset.playerId;
+      pointer.style.left=(center-left)+'px';pointer.style.setProperty('--tail-height',(top-bounds.bottom-4)+'px');pointers.push(pointer);
+    }
+    $('pointers').replaceChildren(...pointers);
+    if(stick)log.scrollTop=log.scrollHeight;
   }
+  // Follow badge replacement, theme changes, wrapping and the mobile keyboard.
+  new ResizeObserver(position).observe(document.querySelector('body > header'));
+  new MutationObserver(position).observe(presence,{childList:true});
+  new MutationObserver(position).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+  window.addEventListener('resize',position);window.addEventListener('scroll',position,{passive:true});
+  window.visualViewport?.addEventListener('resize',position);window.visualViewport?.addEventListener('scroll',position);
   const markRead=()=>{lastRead=Math.max(lastRead,...messages.map(m=>m.id));$('new').hidden=true;updateToggle();};
   function updateToggle() {
     const unread=messages.filter(m=>m.id>lastRead&&m.author.id!==me.player_id).length;
     $('unread').textContent=unread>9?'9+':String(unread);$('unread').hidden=!unread;
-    $('toggle').setAttribute('aria-label',unread?`Chat, ${unread} unread messages`:'Chat');
+    $('toggle').setAttribute('aria-label',(isOpen()?'Hide chat':'Show chat')+(unread?`, ${unread} unread messages`:''));
     $('toggle').classList.toggle('has-unread',unread>0);
-    const people=[...new Map([...messages].reverse().map(m=>[m.author.id,m.author])).values()].slice(0,3);
-    $('faces').replaceChildren(...people.map(p=>profileAvatar(p.name,p.id,p.avatar)));
+    position();
   }
   function scrollLatest(){log.scrollTop=log.scrollHeight;markRead();}
-  function setOpen(open) {
-    $('panel').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));
-    if(open){scrollLatest();input.focus();poll();}else $('toggle').focus();
+  function setOpen(open,restoreFocus=true) {
+    root.hidden=!open;$('panel').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));$('toggle').title=open?'Hide chat':'Show chat';
+    updateToggle();
+    if(open){position();scrollLatest();input.focus({preventScroll:true});poll();}else if(restoreFocus)$('toggle').focus({preventScroll:true});
   }
   $('toggle').onclick=()=>setOpen(!isOpen());$('close').onclick=()=>setOpen(false);
   root.addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();event.stopPropagation();setOpen(false);}});
+  $('toggle').addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();setOpen(false);}});
+  document.addEventListener('pointerdown',event=>{if(isOpen()&&!root.contains(event.target)&&!$('toggle').contains(event.target))setOpen(false,false);});
   $('new').onclick=scrollLatest;
   log.addEventListener('scroll',()=>{if(bottom()&&isOpen())markRead();},{passive:true});
   input.oninput=()=>{

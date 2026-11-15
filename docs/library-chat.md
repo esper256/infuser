@@ -1,9 +1,15 @@
 # Library chat
 
-One shared room for enabled invited members. Open **Chat** in the lower right.
+One shared room for enabled invited members. Open **Chat** beside the online
+player badges in the header. The panel opens directly below them, with upward
+triangles pointing to visible connected players who appear in the last twelve
+messages and have chatted within five minutes. Pointers follow badge replacement,
+wrapping and theme changes; offline or offscreen portraits get no pointer.
+Toggle Chat again, use × or Escape, or click outside to hide it. Outside clicks
+still reach the Library controls underneath; hiding preserves your draft.
 Speech bubbles point toward each sender's current profile picture; your messages
-sit on the right. The closed button shows the latest speakers and a session-local
-unread badge. Initial history is not marked unread. Names and portraits follow
+sit on the right. The header button shows a session-local unread badge.
+Initial history is not marked unread. Names and portraits follow
 profile changes. The same component works in every Library theme.
 
 Enter sends; Shift+Enter adds a line. Sending failures preserve the draft and
