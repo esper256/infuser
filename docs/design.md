@@ -6,7 +6,18 @@ UI wording. Adult invitations and administration belong in a quiet admin area.
 
 One heading per task. Avoid stacking a slogan, title, explanation, and field
 question that all say the same thing. Cut redundant text aggressively; let the
-action and state explain themselves. Add a game needs a name, then a copyable
+action and state explain themselves. Player-facing copy should name the task,
+action, or useful state. Do not add slogans, sentimental taglines, motivational
+filler, or decorative sentences such as “Your games. Your crew.” or “Make games.
+Play together.” Do not reintroduce them in headers, sign-in screens, empty states,
+footers, or notifications. Prefer fewer words and omit copy that adds no useful
+information.
+
+Keep the Library usable on narrow phones: avoid horizontal overflow, keep Play
+prominent with secondary options behind its adjacent dropdown, and preserve
+comfortable touch targets and reduced-motion support.
+
+Add a game needs a name, then a copyable
 prompt for the existing game-making agent. No credential file chores for kids.
 
 Play opens the game's title screen. The game chooses gameplay modes; Infuser
