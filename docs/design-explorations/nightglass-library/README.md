@@ -12,7 +12,10 @@ Every card has full-bleed art and a content-sized smoked-glass dock at bottom ri
 Title and creator avatar share a row; the small joined Play/dropdown sits below on
 narrow cards. Hover or keyboard focus on the avatar shows “React to {author}’s game.”
 Click, Enter or tap opens the existing style of emoji picker. There is no second
-reaction control. Categories and tag editing remain compact over the art.
+reaction control. Categories remain compact over the art. “＋ Tags” appears only when the tag
+area is hovered or keyboard-focused. On touch screens, holding the card surface
+for 600ms opens tag editing. Movement, scrolling, cancellation or another pointer
+cancels the hold; Play, portraits and other controls keep their own gestures.
 
 Search, categories, tags, reactions, guest selection and the prompt flow are local
 preview interactions. Play does not launch, and no API calls are made. Fixtures
@@ -25,5 +28,7 @@ not a source of licensed third-party profile pictures or actual gameplay screens
 
 Verified in Chromium at 1280px desktop, 768px tablet and 320/390px phones, including
 content-sized dock bounds, focus/keyboard and touch reactions, dropdown selection,
-search/filter/tag previews, copyable mock prompt and reduced motion. See `desktop.webp`,
+search/filter/tag previews, copyable mock prompt and reduced motion. Tag controls
+were also checked for hover/focus visibility and real touch long presses, including
+short-tap, scroll, pointer-cancel and multi-touch cancellation. See `desktop.webp`,
 `phone.webp`, `phone-viewport.webp`, and `portrait-focus.webp` for captures.
