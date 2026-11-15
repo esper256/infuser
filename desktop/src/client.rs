@@ -304,7 +304,7 @@ pub fn run_with_http(
         .create(true)
         .truncate(false)
         .open(game_root.join(format!("{player}.lock")))?;
-    fs2::FileExt::try_lock_exclusive(&lock)
+    lock.try_lock()
         .context("This game is already open for this player.")?;
     let versions = game_root.join("versions");
     private_dir(&versions)?;
@@ -335,7 +335,7 @@ pub fn run_with_http(
             .create(true)
             .truncate(false)
             .open(game_root.join("install.lock"))?;
-        fs2::FileExt::lock_exclusive(&cache_lock)?;
+        cache_lock.lock()?;
         install::install(&versions, &launch.artifact, &bytes)?;
     }
     events

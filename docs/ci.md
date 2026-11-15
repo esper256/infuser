@@ -22,8 +22,8 @@ its PR limit. These rules take effect on the default branch. There is no auto-me
 
 The standalone **Dependency audit (advisory)** workflow runs weekly and manually,
 using cargo-audit 0.23.0 and the current RustSec database. Findings and operational
-errors appear in the Actions job summary and warning annotations. It neither opens
-individual issues nor blocks releases. This checks Cargo.lock, not container OS
+errors from both the server and desktop lockfiles appear in the Actions job summary and warning annotations. It neither opens
+individual issues nor blocks releases. This checks both Cargo.lock files, not container OS
 packages or the code of Actions.
 
 Native Dependabot alerts, the dependency graph and automated security-update PRs

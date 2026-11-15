@@ -71,7 +71,7 @@ pub fn install(root: &Path, artifact: &Artifact, bytes: &[u8]) -> Result<PathBuf
     let mut seen = std::collections::BTreeSet::new();
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
-        let name = entry.name().to_owned();
+        let name = entry.name()?.into_owned();
         ensure!(
             infuser_native_protocol::safe_path(&name) && seen.insert(name.to_ascii_lowercase()),
             "unsafe or duplicate archive path"

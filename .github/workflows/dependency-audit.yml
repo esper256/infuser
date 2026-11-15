@@ -26,7 +26,10 @@ jobs:
         id: audit
         run: |
           set -o pipefail
-          cargo audit --color never 2>&1 | tee "$RUNNER_TEMP/dependency-audit.txt"
+          failed=0
+          cargo audit --color never 2>&1 | tee "$RUNNER_TEMP/dependency-audit.txt" || failed=1
+          cargo audit --file desktop/Cargo.lock --color never 2>&1 | tee -a "$RUNNER_TEMP/dependency-audit.txt" || failed=1
+          exit "$failed"
       - name: Publish advisory report
         if: always()
         env:

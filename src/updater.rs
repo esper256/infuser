@@ -1,4 +1,5 @@
 //! Pull CI-approved binaries. Keep development and the live deployment independent.
+use crate::private_file::replace as write_atomic;
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -169,21 +170,6 @@ impl Service for Systemd {
 struct Pending {
     commit: String,
     previous: String,
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let temporary = path.with_extension("next");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    fs::rename(temporary, path)?;
-    File::open(path.parent().context("missing parent directory")?)?.sync_all()?;
-    Ok(())
 }
 
 fn build_id(directory: &Path) -> Result<String> {

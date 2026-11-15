@@ -22,4 +22,5 @@ pub mod firewall;
 pub mod peers;
 pub mod platform;
 pub mod portal;
+pub mod private_file;
 pub mod publisher;

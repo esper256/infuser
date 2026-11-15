@@ -34,6 +34,17 @@ impl Groups {
     }
 }
 impl Data {
+    /// Shared policy for credential inventory and revocation. The caller must
+    /// already be an enabled adult in their home group, outside inspection.
+    pub fn can_manage_credential(&self, email: &str, credential: &Credential) -> bool {
+        match credential.role.as_str() {
+            "publish" => self.groups.allows(email, &credential.app),
+            "metadata-group" => credential.app == self.groups.member(email),
+            "metadata" => self.groups.operator(email),
+            _ => false,
+        }
+    }
+
     pub fn require_app_group(&self, email: &str, app: &str) -> Result<()> {
         ensure!(
             self.groups.allows(email, app),

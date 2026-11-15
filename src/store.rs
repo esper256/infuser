@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fs::{self, File, OpenOptions},
-    io::Write,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
@@ -103,17 +102,6 @@ impl Store {
 
     pub fn save(&self, state: &State) -> Result<()> {
         // A committed reservation always reaches disk before any Docker mutation.
-        let path = self.dir.join("state.next");
-        let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(&path)?;
-        file.write_all(&serde_json::to_vec(state)?)?;
-        file.sync_all()?;
-        fs::rename(path, self.dir.join("state.json"))?;
-        File::open(&self.dir)?.sync_all()?;
-        Ok(())
+        crate::private_file::replace(&self.dir.join("state.json"), &serde_json::to_vec(state)?)
     }
 }

@@ -45,6 +45,7 @@ not on the Infuser host. Godot exports likewise use the creator's Godot toolchai
 - [Public publishing, player and cloud-save API](docs/public-api.md)
 - [SDK 1.0 design review](docs/sdk-contract.md) — current game contract is experimental
 - [Player experience](docs/design.md) and [next steps](docs/roadmap.md)
+- [Development checks](docs/development.md)
 - [Install Infuser](docs/clubhouse-operations.md)
 - [Private groups and operator access](docs/private-groups.md)
 - [Controller operations](docs/operations.md) and [private lifecycle API](docs/api.md)

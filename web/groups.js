@@ -13,7 +13,7 @@ export function initGroups({me,api}) {
   if(!me.operator)return;
   const el=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
   const button=el('button','Groups');button.id='operator-groups';button.title='Operator: private groups';button.type='button';
-  document.getElementById('account').before(button);
+  document.getElementById('friends').after(button);
   const dialog=el('dialog');dialog.id='groups-dialog';dialog.setAttribute('aria-labelledby','groups-title');
   const heading=el('div');heading.className='panel-heading';const title=el('h2','Private groups');title.id='groups-title';
   const close=el('button','×');close.className='close';close.setAttribute('aria-label','Close groups');close.onclick=()=>dialog.close();heading.append(title,close);

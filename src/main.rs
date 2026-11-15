@@ -21,18 +21,13 @@ async fn main() -> Result<()> {
         return infuser::publisher::connect(&args).await;
     }
     if args.first().is_some_and(|s| s == "preview-game") {
-        use std::{io::Write, os::unix::fs::OpenOptionsExt};
         let config = Config::load(Path::new(
             args.get(1).context("configuration path required")?,
         ))?;
         let app = args.get(2).context("preview app ID required")?;
         let email = args.get(3).context("existing adult admin email required")?;
         let output = args.get(4).context("private output path required")?;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(output)?;
+        let file = infuser::private_file::reserve(Path::new(output))?;
         let intent = if args.len() == 5 {
             None
         } else {
@@ -46,8 +41,7 @@ async fn main() -> Result<()> {
             })
         };
         let launch = infuser::platform::preview(&config, app, email, intent)?;
-        file.write_all(serde_json::to_string_pretty(&launch)?.as_bytes())?;
-        file.sync_all()?;
+        infuser::private_file::finish_json(file, &launch)?;
         println!("Single-use guest preview written; open within two minutes.");
         return Ok(());
     }
@@ -61,7 +55,6 @@ async fn main() -> Result<()> {
         .first()
         .is_some_and(|s| s == "publisher-pass" || s == "metadata-pass")
     {
-        use std::{io::Write, os::unix::fs::OpenOptionsExt};
         let metadata = args[0] == "metadata-pass";
         let config = Config::load(Path::new(
             args.get(1).context("configuration path required")?,
@@ -86,11 +79,7 @@ async fn main() -> Result<()> {
         let output = args
             .get(if metadata { 2 } else { 3 })
             .context("output .credentials.json path required")?;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(output)?;
+        let file = infuser::private_file::reserve(Path::new(output))?;
         let db = infuser::platform::Database::open(&config.controller.state_dir)?;
         let (id, token) = db.edit(|d| {
             if !metadata {
@@ -129,8 +118,7 @@ async fn main() -> Result<()> {
         } else {
             connection["app_id"] = app.into();
         }
-        file.write_all(serde_json::to_string_pretty(&connection)?.as_bytes())?;
-        file.sync_all()?;
+        infuser::private_file::finish_json(file, &connection)?;
         println!("Private connection file written. Keep it out of source control.");
         return Ok(());
     }

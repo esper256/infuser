@@ -471,12 +471,9 @@ pub async fn run(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Read a one-hour opaque setup code from stdin; write the durable credential privately.
+/// Read a three-hour opaque setup code from stdin; write the durable credential privately.
 pub async fn connect(args: &[String]) -> Result<()> {
-    use std::{
-        io::{Read, Write},
-        os::unix::fs::OpenOptionsExt,
-    };
+    use std::io::Read;
     let mut code = String::new();
     std::io::stdin().take(16384).read_to_string(&mut code)?;
     let token = code
@@ -509,39 +506,24 @@ pub async fn connect(args: &[String]) -> Result<()> {
     }
     // Reserve the destination before consuming the one-time token. Never overwrite
     // an existing working connection file just because another prompt was pasted.
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&output)
-        .context(
-            "cannot create credential file; choose a new path or reuse the existing connection",
-        )?;
-    let result: Result<()> = async {
-        let http = http_client(args, 30)?;
-        let connection = response(
-            http.post(format!("{}/api/publisher/claim", api_url))
-                .json(&json!({"token":token,"app_id":app}))
-                .send()
-                .await?,
-        )
-        .await?;
-        ensure!(
-            connection["app_id"] == app
-                && connection["api_url"] == api_url
-                && connection["token"].as_str().is_some_and(|t| t.len() >= 32),
-            "server returned an unexpected connection"
-        );
-        file.write_all(serde_json::to_string_pretty(&connection)?.as_bytes())?;
-        file.sync_all()?;
-        Ok(())
-    }
-    .await;
-    if result.is_err() {
-        drop(file);
-        let _ = std::fs::remove_file(&output);
-    }
-    result?;
+    let file = crate::private_file::reserve(&output).context(
+        "cannot create credential file; choose a new path or reuse the existing connection",
+    )?;
+    let http = http_client(args, 30)?;
+    let connection = response(
+        http.post(format!("{}/api/publisher/claim", api_url))
+            .json(&json!({"token":token,"app_id":app}))
+            .send()
+            .await?,
+    )
+    .await?;
+    ensure!(
+        connection["app_id"] == app
+            && connection["api_url"] == api_url
+            && connection["token"].as_str().is_some_and(|t| t.len() >= 32),
+        "server returned an unexpected connection"
+    );
+    crate::private_file::finish_json(file, &connection)?;
     println!(
         "Game connected. Credentials saved to {}. Keep this file out of Git and game exports.",
         output.display()

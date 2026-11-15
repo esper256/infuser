@@ -261,7 +261,10 @@ function setupAccount(){
   const menu=el('details',undefined,'header-menu profile-menu'),trigger=el('summary',undefined,'profile-button'),panel=el('div',undefined,'account-menu');
   trigger.id='account-trigger';
   const self=el('li',undefined,'presence-person presence-self');self.dataset.playerId=me.player_id;
-  self.append(menu);$('friends').prepend(self);$('friends').hidden=false;
+  self.append(menu);
+  if(me.inspecting){
+    const profile=el('ul',undefined,'presence-stack');profile.setAttribute('aria-label','Your profile');profile.append(self);$('recent-menu').before(profile);
+  }else{$('friends').prepend(self);$('friends').hidden=false;}
   function positionMenu(){
     const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
     panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';

@@ -36,6 +36,7 @@ mod card_art;
 mod chat;
 mod client;
 mod groups;
+mod library;
 mod metadata;
 mod native;
 mod peerjs;
@@ -472,7 +473,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/me", get(me))
         .route("/assets/avatars/{id}/{size}", get(avatars::image))
         .route("/api/profile", put(avatars::update).layer(DefaultBodyLimit::max(1024)))
-        .route("/api/library", get(library))
+        .route("/api/library", get(library::list))
         .route("/api/client-state", get(client::state))
         .route("/assets/client-updates.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/client-updates.js")) }))
         .route("/api/chat", get(chat::list).post(chat::send).layer(DefaultBodyLimit::max(4096)))
@@ -611,50 +612,6 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let member = &data.members[&email];
     Ok(reply(
         json!({"name":member.name,"admin":member.admin&&!inspecting,"operator":data.groups.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":hash(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
-    ))
-}
-async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let email = p.member(&h, false).await?;
-    let (group, inspecting) = p.group_view(&h, &email)?;
-    if !inspecting {
-        p.admit(&h).await;
-    }
-    p.db.cleanup()?;
-    let data = p.db.edit(|d| {
-        if !inspecting {
-            d.presence.insert(email.clone(), now());
-        }
-        Ok(d.clone())
-    })?;
-    let apps:Vec<_>=data.apps.iter().filter(|(id,a)|data.groups.app(id)==group&&(a.listed||inspecting||data.members[&email].admin)).map(|(id,a)| {
-        let b=&data.builds[&build_key(id,&a.build)];
-        let players:Vec<_>=data.launches.values().filter(|l|l.app==*id&&l.seen+90>now()&&data.groups.allows(&l.email,id)&&data.members.get(&l.email).is_some_and(|m|m.enabled)).map(|l|json!({"id":hash(&l.email),"name":data.members.get(&l.email).map(|m|m.name.as_str()).unwrap_or("Friend"),"guest":l.guest})).collect();
-        let reactions:Vec<_>=data.reactions.get(id).into_iter().flat_map(|r|r.iter()).filter(|(who,_)|data.groups.member(who)==group&&data.members.get(*who).is_some_and(|m|m.enabled)).map(|(who,r)|json!({"name":data.members.get(who).map(|m|m.name.as_str()).unwrap_or("Friend"),"mine":*who==email,"emoji":r.emoji,"text":r.text,"updated":r.updated})).collect();
-        p.peers.retain_launches(id, &presence::live_launches(&data,id,now()),now());
-        let room = p.peers.discovery(id, &a.build, now());
-        let targets: Vec<_> = if !inspecting && b.manifest.launch_intents.contains(&crate::launch_intent::Kind::JoinFriend) && room["joinable"] == true {
-            room["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(&email))
-                .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
-        } else { vec![] };
-        let desktop = native::bundle(&p, id, &a.build, b).ok().flatten();
-        let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name,"avatar":member.avatar})));
-        json!({"native_platforms":desktop.as_ref().map(|m|m.platforms.keys().collect::<Vec<_>>()).unwrap_or_default(),"native_only":desktop.as_ref().is_some_and(|m|m.native_only),"card_art_url":card_art::url(id,&a.build,b,data.metadata.get(id)).map(|url|if inspecting{format!("{url}?inspect_group={group}")}else{url}),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":metadata::title(&data,id,&b.manifest.title),"description":data.metadata.get(id).and_then(|m|m.description.as_deref()),"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":!inspecting&&(data.members[&email].admin||data.owners.get(id)==Some(&email))})
-    }).collect();
-    let friends: Vec<_> = data
-        .presence
-        .iter()
-        .filter(|(email, t)| {
-            **t + 90 > now() && data.groups.member(email)==group && data.members.get(*email).is_some_and(|m| m.enabled)
-        })
-        .map(|(email, _)| {
-            let targets: Vec<_> = apps.iter().flat_map(|app| app["join_targets"].as_array().unwrap().iter()
-                .filter(|target| target["player_id"] == hash(email))
-                .map(|target| json!({"app_id":app["id"],"title":app["title"],"session_id":target["session_id"],"player_id":target["player_id"]})).collect::<Vec<_>>()).collect();
-            json!({"id":hash(email),"name":data.members[email].name,"avatar":data.members[email].avatar,"join_targets":targets})
-        })
-        .collect();
-    Ok(reply(
-        json!({"apps":apps,"friends":friends,"tags":crate::tags::catalog_in_group(&data,data.members[&email].admin||inspecting,&group)}),
     ))
 }
 #[derive(Deserialize)]
@@ -944,13 +901,13 @@ async fn invite(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Invite
 async fn credentials(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.admin(&h, false).await?;
     let data = p.db.read()?;
-    let (group, inspecting) = p.group_view(&h, &email)?;
+    let (_, inspecting) = p.group_view(&h, &email)?;
     ensure!(
         !inspecting,
         fault(403, "Inspection does not expose credentials.")
     );
     Ok(reply(
-        json!({"credentials":data.credentials.iter().filter(|(_,c)| (c.role=="publish"&&data.groups.app(&c.app)==group)||(c.role=="metadata-group"&&c.app==group)||(c.role=="metadata"&&data.groups.operator(&email))).map(|(id,c)|json!({"id":id,"app":c.app,"role":c.role,"label":c.label})).collect::<Vec<_>>()}),
+        json!({"credentials":data.credentials.iter().filter(|(_,c)| data.can_manage_credential(&email, c)).map(|(id,c)|json!({"id":id,"app":c.app,"role":c.role,"label":c.label})).collect::<Vec<_>>()}),
     ))
 }
 #[derive(Deserialize)]
@@ -986,9 +943,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
     p.db.edit(|d| {
         if let Some(c) = d.credentials.get(&id) {
             ensure!(
-                (c.role == "publish" && d.groups.allows(&email, &c.app))
-                    || (c.role == "metadata-group" && c.app == d.groups.member(&email))
-                    || (c.role == "metadata" && d.groups.operator(&email)),
+                d.can_manage_credential(&email, c),
                 fault(404, "Connection not found.")
             );
         }

@@ -23,7 +23,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 subtle = "2"
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache", "fallible_uint"] }
 tower = { version = "0.5", features = ["util", "limit"] }
 tower-http = { version = "0.6", features = ["fs"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "net", "signal", "sync", "io-util"] }
@@ -32,7 +32,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image-webp = { version = "0.2", default-features = false }
 infuser-native-protocol = { path = "native-protocol" }
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 tempfile = "3"
 
 [dev-dependencies]
