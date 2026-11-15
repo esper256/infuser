@@ -91,8 +91,9 @@ selectable theme. Check open dialogs survive a presentation change.
 
 Recently shows existing updates and reactions. Its dot means an event appeared
 since the panel was last viewed during this page visit; it is not a server-side
-unread count or a persistent inbox. Opening the panel clears the dot. Its brief
-hop is disabled by reduced-motion preferences.
+unread count or a persistent inbox. Opening the panel clears the unread state.
+Until then, a bold accent fill, larger dot, and repeating pulse/hop draw attention.
+Reduced-motion preferences disable the animation while keeping the highlight.
 
 Run `node --test tests/themes.mjs` for registry/preference checks. Browser checks
 must exercise the shared UI in both themes; screenshots alone do not demonstrate

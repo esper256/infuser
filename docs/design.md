@@ -39,8 +39,9 @@ Do not label cards Single player or Multiplayer; tags and launch options convey
 those choices. Keep unlisted games in the collapsed adult-only Hidden shelf.
 
 When creator portraits are available, use the game author’s portrait as the
-reaction entry point, without a separate reaction control. Hover and keyboard
-focus show a thought bubble: “React to {author}’s game.” Click, Enter, or a phone
+reaction entry point on cards, without a separate card control. The larger game
+view also exposes a prominent row of positive reaction buttons above feedback.
+Hover and keyboard focus on the portrait show a thought bubble: “React to {author}’s game.” Click, Enter, or a phone
 tap opens the picker directly; never require hover. Give the portrait the same
 accessible action name. Players open the account menu from their own portrait
 in the online-player list. A small gap, subtle halo, and online marker with a round top and pointed
@@ -75,7 +76,13 @@ tag-area hover or keyboard focus; a touch hold on an editable card opens the sam
 picker. Scrolling and multi-touch cancel the hold.
 
 Reactions begin with large positive emoji in a speech bubble. Selecting one
-reveals a short optional comment and Enter-to-send. Emoji-only is complete.
+gets a brief colorful burst and reveals a single-line, large-type optional comment
+with the prompt “Say something nice (optional).” Send or Enter submits it;
+emoji-only is complete. Do not send anything just for selecting an emoji.
+Recently uses a bright accent fill, bold label, unread dot, and a repeating gentle
+pulse/hop until opened. Reduced motion keeps the highlight without animation.
+Card hover scales evenly from the center with a deeper shadow; do not shift
+cards upward. Hover animation is mouse-only and respects reduced motion.
 Do not force a review after playing or imply a numerical rating.
 
 Reference: [Juice it or lose it, Martin Jonasson and Petri Purho](https://www.youtube.com/watch?v=Fy0aCDmgnxg)

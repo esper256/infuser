@@ -12,6 +12,8 @@ let seenEvents;
 let entryGame, detailGameId, detailReturnFocus, detailSignature;
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
+const reactionMotion=matchMedia('(prefers-reduced-motion: reduce)');
+reactionMotion.addEventListener('change',event=>{if(event.matches)document.querySelector('.reaction-burst')?.remove();});
 const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea']];
 function el(tag, text, cls) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(cls) node.className = cls; return node; }
 // Fit tag rows without scrolling or covering their text. Overflow keeps the same
@@ -228,11 +230,16 @@ function renderGameDetail(){
   const feedback=el('section',undefined,'game-feedback');feedback.id='game-feedback';feedback.tabIndex=-1;feedback.setAttribute('aria-labelledby','game-feedback-title');
   const heading=el('h3','Feedback');heading.id='game-feedback-title';feedback.append(heading);
   const reactions=[...(game.reactions||[])].sort((a,b)=>b.updated-a.updated);
-  if(!reactions.length)feedback.append(el('p','No reactions yet.','quiet'));
-  else {
-    const totals=el('div',undefined,'reaction-totals');
-    for(const[emoji,label]of emojis){const count=reactions.filter(r=>r.emoji===emoji).length;if(count){const total=el('span',emoji+' '+count);total.setAttribute('aria-label',label+': '+count);totals.append(total);}}
-    feedback.append(totals);
+  const choices=el('div',undefined,'detail-reactions');choices.setAttribute('role','group');choices.setAttribute('aria-label','React to this game');
+  for(const [emoji,label] of emojis){
+    const count=reactions.filter(r=>r.emoji===emoji).length,button=el('button',undefined,'reaction-choice'),face=el('span',emoji,'reaction-face');
+    face.setAttribute('aria-hidden','true');button.type='button';button.setAttribute('aria-label','React: '+label);button.setAttribute('aria-haspopup','dialog');
+    button.setAttribute('aria-pressed',String(reactions.some(r=>r.mine&&r.emoji===emoji)));button.title=label+(count?' · '+count:'');button.disabled=!!me.inspecting;
+    button.append(face);if(count){const total=el('span',String(count),'reaction-count');total.setAttribute('aria-hidden','true');button.append(total);button.setAttribute('aria-description',count+' reactions');}
+    button.onclick=()=>openReaction(game,emoji);choices.append(button);
+  }
+  feedback.append(choices);
+  if(reactions.length){
     for(const reaction of reactions){
       const row=el('article',undefined,'game-feedback-row');row.dataset.reaction=reactionKey(reaction);row.tabIndex=-1;
       const person=el('div',undefined,'feedback-author');person.title=reaction.name;person.append(profileAvatar(reaction.name,reaction.id||reaction.name,reaction.avatar));person.append(el('span',reaction.name));
@@ -358,9 +365,17 @@ function renderFeed() {
   for(const entry of entries.slice(0,12)){const row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');row.onclick=()=>{$('recent-menu').open=false;openGameDetail(entry.game,entry.reaction);};body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));mark.append(el('span',entry.emoji,'feed-emoji'));row.append(mark,body);feed.append(row);}
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.append(radio,el('span',emoji));$('emoji').append(l);}
-function openReaction(game){currentReaction=game;$('reaction-comment').hidden=true;$('reaction-title').textContent=game.title;const mine=game.reactions.find(r=>r.mine);$('reaction-form').reset();if(mine){$('reaction-comment').hidden=false;$('reaction-form').elements.emoji.value=mine.emoji;$('reaction-form').elements.text.value=mine.text;}$('remove-reaction').hidden=!mine;$('reaction-dialog').showModal();}
+function openReaction(game,selectedEmoji){
+  currentReaction=game;$('reaction-title').textContent=game.title;
+  const mine=game.reactions.find(r=>r.mine),emoji=selectedEmoji||mine?.emoji;
+  $('reaction-form').reset();$('reaction-comment').hidden=!emoji;
+  if(emoji)$('reaction-form').elements.emoji.value=emoji;
+  if(mine)$('reaction-form').elements.text.value=mine.text;
+  $('remove-reaction').hidden=!mine;$('reaction-dialog').showModal();
+  if(selectedEmoji){$('reaction-text').focus();reactionBurst(document.querySelector('#emoji input:checked+span'),selectedEmoji);}
+}
 $('close-reaction').onclick=()=>$('reaction-dialog').close();
-$('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text')})});$('reaction-dialog').close();celebrate(document.querySelector('.games'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
+$('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text')})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
 async function adminRefresh(){
   const [members,credentials]=await Promise.all([api('/api/admin/members'),api('/api/admin/credentials')]);
@@ -551,9 +566,26 @@ $('close-tags').onclick=()=>$('tags-dialog').close();
 $('new-tag-form').onsubmit=event=>{event.preventDefault();const id=$('new-tag').value.trim().toLowerCase().replace(/\s+/g,'-');if(!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(id)){$('new-tag').setCustomValidity('Use letters, numbers and dashes, up to 32 characters.');$('new-tag').reportValidity();return;}$('new-tag').setCustomValidity('');if(selectedTags.size<8){selectedTags.add(id);$('new-tag').value='';renderTagPicker();}};
 $('new-tag').oninput=()=>$('new-tag').setCustomValidity('');
 $('save-tags').onclick=async()=>{try{await api('/api/apps/'+editingTags.id+'/tags',{method:'PUT',body:JSON.stringify({tags:[...selectedTags]})});$('tags-dialog').close();notice('Tags updated.');await refresh();}catch(error){showError(error);}};
-$('emoji').addEventListener('change',()=>{$('reaction-comment').hidden=false;$('reaction-text').focus();const selected=$('emoji').querySelector('input:checked+span');if(selected&&!matchMedia('(prefers-reduced-motion: reduce)').matches)selected.animate([{transform:'scale(.85) rotate(-8deg)'},{transform:'scale(1.17) rotate(5deg)'},{transform:'scale(1) rotate(0)'}],{duration:260,easing:'ease-out'});});
-$('reaction-text').addEventListener('input',()=>{const selected=$('emoji').querySelector('input:checked+span');if(selected&&!matchMedia('(prefers-reduced-motion: reduce)').matches)selected.animate([{transform:'translateY(0)'},{transform:'translateY(-3px)'},{transform:'translateY(0)'}],{duration:130});});
-function celebrate(target,emoji='✦'){if(!target||matchMedia('(prefers-reduced-motion: reduce)').matches)return;const bounds=target.getBoundingClientRect();const burst=el('span',emoji,'mini-celebration');burst.style.left=Math.min(innerWidth-50,Math.max(24,bounds.left+bounds.width/2))+'px';burst.style.top=Math.min(innerHeight-80,Math.max(80,bounds.top+50))+'px';document.body.append(burst);burst.addEventListener('animationend',()=>burst.remove(),{once:true});}
+$('emoji').addEventListener('change',()=>{
+  $('reaction-comment').hidden=false;
+  reactionBurst(document.querySelector('#emoji input:checked+span'),$('reaction-form').elements.emoji.value);
+  $('reaction-text').focus();
+});
+function reactionBurst(target,emoji){
+  document.querySelector('.reaction-burst')?.remove();
+  if(!target||reactionMotion.matches)return;
+  const bounds=target.getBoundingClientRect(),x=Math.max(32,Math.min(innerWidth-32,bounds.left+bounds.width/2)),y=Math.max(32,Math.min(innerHeight-32,bounds.top+bounds.height/2));
+  // Non-interactive top-layer particles stay visible above the reaction dialog.
+  const burst=el('div',undefined,'reaction-burst');burst.setAttribute('popover','manual');burst.setAttribute('aria-hidden','true');document.body.append(burst);burst.showPopover();
+  for(let i=0;i<18;i++){
+    const spark=el('span',i%3?'✦':'●','reaction-spark');spark.style.left=x+'px';spark.style.top=y+'px';burst.append(spark);
+    const angle=i*Math.PI*2/18,distance=65+(i%4)*22,dx=Math.cos(angle)*distance,dy=Math.sin(angle)*distance;
+    spark.animate([{transform:'translate(-50%,-50%) scale(.3)',opacity:0},{offset:.15,opacity:1},{transform:`translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px)) scale(.2) rotate(140deg)`,opacity:0}],{duration:650+(i%4)*70,easing:'cubic-bezier(.15,.65,.3,1)',fill:'forwards'});
+  }
+  const hero=el('span',emoji,'reaction-burst-hero');hero.style.left=x+'px';hero.style.top=y+'px';burst.append(hero);
+  hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
+  setTimeout(()=>burst.remove(),950);
+}
 async function refreshNetworkHealth(){
   if(!me?.admin||!$('admin').querySelector('details')?.open)return;
   let box=$('network-health');if(!box){box=el('section');box.id='network-health';$('admin').querySelector('.admin-panel').append(box);}
