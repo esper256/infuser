@@ -339,6 +339,30 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         value(old(Method::GET, "/_infuser/context")).await?["build_id"],
         "old"
     );
+    // The single-letter slug "g" must not be parsed as the legacy g-ID prefix.
+    value(publisher(Method::PUT, "/api/publisher/apps/pond/slug").json(&json!({"slug":"g"})))
+        .await?;
+    let short =
+        value(member("adult", Method::POST, "/api/apps/pond/launch").json(&json!({"guest":true})))
+            .await?;
+    let short_url = reqwest::Url::parse(short["url"].as_str().unwrap())?;
+    let short_token = short_url
+        .fragment()
+        .unwrap()
+        .strip_prefix("infuser=")
+        .unwrap();
+    let short_call = |method: Method, path: &str| {
+        http.request(method, format!("{url}{path}"))
+            .header("host", short_url.host_str().unwrap())
+            .header(
+                "origin",
+                format!("https://{}", short_url.host_str().unwrap()),
+            )
+            .bearer_auth(short_token)
+    };
+    value(short_call(Method::POST, "/_infuser/session").json(&json!({"token":short_token})))
+        .await?;
+    assert_eq!(short_call(Method::GET, "/").send().await?.status(), 200);
     value(publisher(Method::DELETE, "/api/publisher/apps/pond")).await?;
     assert_eq!(
         member("adult", Method::GET, "/api/games/night-pond")
@@ -351,5 +375,51 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         infuser::game_urls::resolve(&db.read()?, "moon-pond"),
         Some("pond")
     );
+    // Existing-project onboarding: the kid supplies no title; the agent claims
+    // its one-use connection and publishes the project's actual name and SDK.
+    let setup = value(member("kid", Method::POST, "/api/my-games").json(&json!({}))).await?;
+    let app = setup["app_id"].as_str().unwrap();
+    assert!(
+        setup["supported_engines"]
+            .as_array()
+            .is_some_and(|engines| !engines.is_empty())
+    );
+    assert!(!db.read()?.game_urls.contains_key(app));
+    let code = setup["setup_code"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("infuser_setup_")
+        .unwrap();
+    let claim = || {
+        http.post(format!("{url}/api/publisher/claim"))
+            .header("host", HOST)
+            .json(&json!({"token":code,"app_id":app}))
+    };
+    let connection = value(claim()).await?;
+    assert_eq!(claim().send().await?.status(), 401);
+    let agent = |method: Method, path: &str| {
+        http.request(method, format!("{url}/api/publisher/apps/{app}{path}"))
+            .header("host", HOST)
+            .bearer_auth(connection["token"].as_str().unwrap())
+    };
+    for build in ["first", "update"] {
+        value(agent(Method::PUT,&format!("/builds/{build}")).json(&json!({"manifest":{"schema_version":1,"app_id":app,"title":"Lantern Woods","play_modes":["solo"],"solo_runtime":"client_only","sdk":{"major":1,"api_major":1,"required_capabilities":["identity.v1"]}}}))).await?;
+        value(agent(Method::PUT,&format!("/builds/{build}/files/index.html")).body("<!doctype html><title>Lantern Woods</title><script type=module src='/_infuser/sdk/v1.js'></script>")).await?;
+        let published =
+            value(agent(Method::POST, &format!("/builds/{build}/publish")).json(&json!({})))
+                .await?;
+        assert_eq!(published["slug"], "lantern-woods");
+        assert_eq!(published["app_id"], app);
+    }
+    let library = value(member("kid", Method::GET, "/api/library")).await?;
+    let games: Vec<_> = library["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|game| game["id"] == app)
+        .collect();
+    assert_eq!(games.len(), 1);
+    assert_eq!(games[0]["title"], "Lantern Woods");
+    assert_eq!(games[0]["build"], "update");
     Ok(())
 }

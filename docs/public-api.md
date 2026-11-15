@@ -92,8 +92,11 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
   Member updates preserve the selection; old records default to initials. The
   optional persisted member field requires no migration. Rolling back to an older
   binary can discard this cosmetic preference when it rewrites member records.
-- `POST /api/my-games` with `{"title":"My Game"}` — returns `app_id`, `api_url`,
-  `setup_code`, `expires_at` (Unix seconds), and `tag_catalog`; no permanent credential.
+- `POST /api/my-games` with `{}` — reserves a publishing connection for an existing
+  project without asking the child for a name. Returns `app_id`, `api_url`,
+  `setup_code`, `expires_at` (Unix seconds), `supported_engines`, and `tag_catalog`;
+  no permanent credential. The agent supplies the real title at publication,
+  which assigns the readable URL. Optional `title` retains the older workflow.
 - `POST /api/my-games/APP/setup` — owner/admin replaces an unclaimed setup code.
 - `PUT /api/apps/APP/tags` — owner/admin sets `{"tags":["chill","puzzle"]}`.
 - `POST /api/apps/APP/launch` with `{"guest":false}` — scoped launch URL; game owns

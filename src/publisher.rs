@@ -13,6 +13,10 @@ struct Connection {
     app_id: String,
     token: String,
 }
+/// Validated entry-point recipes, not every engine a browser could theoretically run.
+pub fn supported_engines() -> Value {
+    json!([{"id":"threejs-vite","label":"Three.js / Vite"},{"id":"web","label":"plain HTML/JavaScript"}])
+}
 async fn response(r: reqwest::Response) -> Result<Value> {
     let status = r.status();
     let value: Value = r
