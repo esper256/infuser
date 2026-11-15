@@ -19,6 +19,7 @@ pub const BUILD_SHA: &str = match option_env!("INFUSER_BUILD_SHA") {
     None => "development",
 };
 pub mod firewall;
+pub mod notifications;
 pub mod peers;
 pub mod platform;
 pub mod portal;

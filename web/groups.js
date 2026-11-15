@@ -7,6 +7,9 @@ try {
   else sessionStorage.removeItem(KEY);
 } catch { /* Home remains usable when session storage is unavailable. */ }
 function home(){sessionStorage.removeItem(KEY);location.assign('/library');}
+// Inspection starts at /library. Change the query too so this reloads the home
+// membership instead of only changing the current tab's fragment.
+export function openHomeChat(){sessionStorage.removeItem(KEY);location.assign('/library?chat#chat');}
 function inspect(group){sessionStorage.setItem(KEY,JSON.stringify({group,expires:Date.now()+15*60*1000}));location.assign('/library');}
 export function inspectionHeaders(){return inspection?{'X-Infuser-Inspect-Group':inspection.group}:{};}
 export function initGroups({me,api}) {
