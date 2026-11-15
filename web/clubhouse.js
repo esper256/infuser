@@ -46,6 +46,7 @@ function renderGames() {
     const card = el('article',undefined,'game');
     card.dataset.app=game.id;
     const art=el('div',undefined,'game-art game-mark');art.setAttribute('aria-hidden','true');
+    if(game.card_art_url){const image=el('img');image.alt='';image.loading='lazy';image.decoding='async';image.onload=()=>art.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=game.card_art_url;art.append(image);}
     const meta=el('div',undefined,'game-meta'),dock=el('div',undefined,'game-dock'),heading=el('div',undefined,'game-heading');
     const title=el('h2',game.title);title.title=game.title;heading.append(title);card.append(art,meta,dock);
     const modes = game.play_modes.map(m => m === 'solo' ? 'Single player' : 'Multiplayer').join(' + ');

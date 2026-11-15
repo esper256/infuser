@@ -1,0 +1,152 @@
+Use case: stylized-concept
+Asset type: Infuser Library card hero. Generate one square image, at least 1024 by 1024 pixels, opaque.
+Game title for context only: Lantern Lake. Do not put any text in the image.
+Factual game brief: This is a minimalist Godot drifting game. The player is an amber-gold circular light with a short horizontal glowing base, floating over a deep navy abstract lake. A second player is the same simple shape in bright cyan. Pale teal concentric curved ripple lines cross the water, and small scattered gold lights can be collected. There are no human characters, buildings, boats, forests or elaborate environments. Use the attached gameplay screenshot only as a reference for those defining shapes, colors and gameplay identity; exclude all interface text and controls.
+Create a polished, faithful cover illustration with luminous reflections and clear depth while keeping these recognizable geometric lights. Make them readable at thumbnail size. Follow the complete merged art guide below. The result is cover illustration, not a gameplay screenshot.
+
+# Infuser card hero art
+
+**Draft 0.2 — artwork preparation and review.** This guide specifies the image
+for a Library card. Automatic registration of game artwork is not implemented
+yet: preparing these files does not install them in the live Library. Do not add
+invented artwork fields to `infuser.game.json` or call an undocumented API.
+
+## What to make
+
+Create one compelling, full-bleed image that identifies **this game** at a glance.
+It sits behind Infuser's title, creator portrait, tags, and compact Play controls.
+The image is artwork, not a screenshot of a finished card.
+
+Start from the actual game: inspect its environments, characters, objects,
+mechanics, screenshots, and existing art. Pick one recognizable subject or moment.
+Keep its defining shapes and palette. An environment, vehicle, object, or abstract
+pattern can lead the image; a character is not required. Do not invent a mascot,
+mode, location, or feature to make the game appear more elaborate than it is.
+
+Make a **faithful cover illustration**: lighting, framing, and finish may be more
+polished than a gameplay frame, but recognizable characters, objects, environments,
+and the game's core identity must match the actual project. Do not substitute a
+generic attractive scene for the game's distinctive features. A different rendering
+technique is acceptable when those features remain recognizable; an exact screenshot
+look is not required. Use a strong silhouette, clear depth, and a few well-chosen
+highlights. Pixel art, low-poly, illustrated, graphic, and other deliberate styles
+are welcome.
+Infuser's dark interface is the frame, not a requirement to turn every game into
+a neon city. Bright, warm, or daylight scenes can work too.
+
+The audience includes young game makers. Be aspirational without being childish:
+no nursery-like mascot treatment, patronizing depictions of children, corporate
+stock illustration, motivational slogans, or sentimental decorative copy. Keep
+the image appropriate for roughly ages 10–16; no sexual imagery or graphic gore.
+
+## Canvas and delivery
+
+| Item | Requirement |
+| --- | --- |
+| Card image | `infuser-art/card-hero.webp`, exactly **1024 × 1024 px**, square |
+| Encoding | Static WebP, opaque RGB, sRGB; no transparency or animation |
+| File size | Aim for 100–200 KiB; maximum **250 KiB** |
+| Source | Retain the original editable or lossless artwork in the game's source project; do not upscale a small thumbnail |
+| Handoff note | `infuser-art/README.md`: game title, one-sentence factual description of the scene, source/provenance, and whether the image is final or a concept |
+
+These are preparation filenames, not an active manifest or upload contract. Keep
+the source master separate from the small delivery file. If the generator cannot
+produce the exact resolution, generate a square image at least 1024px wide and
+resize once for export. Do not stretch a non-square image or add letterboxing.
+Convert to sRGB, remove unnecessary metadata, and inspect the compressed export.
+If compression damages the subject, simplify noisy detail rather than shrinking
+below the required dimensions.
+
+A larger About-window illustration will be a separate asset with its own future
+layout. Do not submit one yet, and do not assume this square image can simply be
+stretched into a wide banner.
+
+## Compose for the real card
+
+Infuser will render the art edge to edge with **centered `cover` cropping**. The
+current cards are about 0.95:1 width-to-height; a narrow phone can reach about
+0.75:1 because of the card's minimum height. A square source can therefore lose
+roughly 13% from **each side**. Corners are rounded by the interface.
+
+**Choose the subject's position freely within the crop-safe area.** There is no
+required focal coordinate, pose, direction, or repeated composition. Wide vistas,
+asymmetric subjects, and object-led images should not all look like the same
+centered portrait. Keep the identifying feature visible through both cropping
+and the actual overlays described below.
+
+| Region | How to use it |
+| --- | --- |
+| Outer 15% on left and right of the source | Expendable scenery and atmosphere. No essential face, object, or defining feature here. |
+| Top of the rendered card | Quieter supporting scenery behind one mode line and one horizontally scrollable tag row. At the smallest card, allow roughly the top quarter for metadata and inset. |
+| Lower right of the rendered card | Supporting scenery behind the compact title/author/Play dock. The title is capped at two lines. On the smallest card, allow roughly the bottom 40% including the inset; the dock may span nearly its full width. |
+| Remaining visible artwork | Place the identifying feature wherever it reads best. Avoid a tiny subject lost in scenery. Judge the actual overlay preview rather than aiming at a fixed percentage coordinate. |
+
+Infuser limits the overlays rather than asking the artist to reserve ever more
+space: tags stay in one scrollable row, titles show at most two lines, and player
+names/reaction counts live in the existing dropdown. The dropdown also exposes
+the full title on touch devices; the full heading remains available to assistive
+technology. Expanded menus are temporary interactions, not permanent art masks.
+
+Use the rest of the canvas to establish the world. One strong subject, one clear
+direction of movement or depth, and restrained secondary detail usually work
+better than a collage. Separate the subject from the background through value,
+color, or silhouette so it survives a thumbnail view.
+
+**The quiet regions must still be part of the scene.** Continue water, sky,
+terrain, walls, or soft atmospheric shapes through them. Do not draw an empty
+black panel, a diagonal cutout, a heavy baked fade, or a blank text reservation.
+Infuser applies its own scrim and content-sized smoked-glass dock. Let the image
+remain a complete illustration when viewed without UI.
+
+Avoid a brilliant hotspot or sharp pattern beneath the lower-right controls.
+Use lighting to lead toward the subject, not toward an otherwise empty corner.
+Do not rely on a precise crop offset, per-game CSS, or a different mobile image
+to rescue the composition.
+
+## Leave interface elements out
+
+Do not bake in a game title, logo, tagline, author name, avatar, rating, counter,
+badge, button, border, rounded corner, screen bezel, or watermark. Infuser renders
+its own text and controls. Avoid tiny lettering inside the scene as well.
+
+Use original or appropriately licensed artwork. Preserve provenance in the
+handoff note; identify generated art as generated art. A real gameplay screenshot
+is acceptable if it meets the composition requirements and has its HUD removed.
+Do not describe an invented illustration as a gameplay capture.
+
+## Review before handing off
+
+1. Confirm the export's dimensions, color space, opacity, and file size.
+2. Inspect it at about **96 × 96 px**. The subject and game identity should still
+   be clear without reading a title. Remove visual noise that competes with them.
+3. Preview centered-cover crops at **368 × 388 px** and **284 × 380 px**, plus a
+   larger **600 × 632 px** card. Important content must survive all three.
+4. Place the actual Library overlay over each crop: top metadata and the
+   bottom-right title/author/Play dock. Check a long title and many tags too:
+   the title must remain capped at two lines and tags at one scrollable row.
+   If metadata grows over the subject, fix the UI bounds instead of adding a
+   larger permanent blank area to the image.
+5. Check the finished WebP, not only the source. Look for muddy edges, banding,
+   compression ringing, accidental text, malformed objects, or baked-in patterns.
+
+Keep the review captures separate from the submitted artwork. When reviewing a
+new composition, first test the image against the shared layout; do not change
+the card's crop or controls to hide an art problem.
+
+## Using this guide with an image generator
+
+Supply this complete document plus the game's title and a short factual brief
+derived from the project. Game screenshots may be supplied as identity references
+when available. Request **one square artwork image**, not a presentation sheet,
+diagram, card mockup, collection, or image containing this document's instructions.
+The agent handles WebP conversion and file verification after generation.
+
+For a **guide-only concept test**, supply this document and the game title only,
+without reference art or additional style instructions. If no gameplay facts are
+provided, infer one visual interpretation of the title and record the result as
+**unverified concept art**, not a production-ready depiction of that game. Keep
+the exact prompt with the review so another agent can reproduce the experiment.
+
+If the first render fails the crop or overlay checks, record the specific failure
+and improve this guide before rerunning a guide-only test. Do not silently add
+private corrective art direction that the next game-making agent will not see.

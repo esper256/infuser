@@ -1,9 +1,8 @@
 # Infuser card hero art
 
-**Draft 0.2 — artwork preparation and review.** This guide specifies the image
-for a Library card. Automatic registration of game artwork is not implemented
-yet: preparing these files does not install them in the live Library. Do not add
-invented artwork fields to `infuser.game.json` or call an undocumented API.
+**Draft 0.3 — artwork preparation, publishing, and review.** This guide specifies
+the image for a Library card. `infuser publish` automatically includes the
+delivery image described below. No artwork field in `infuser.game.json` is needed.
 
 ## What to make
 
@@ -43,13 +42,32 @@ the image appropriate for roughly ages 10–16; no sexual imagery or graphic gor
 | Source | Retain the original editable or lossless artwork in the game's source project; do not upscale a small thumbnail |
 | Handoff note | `infuser-art/README.md`: game title, one-sentence factual description of the scene, source/provenance, and whether the image is final or a concept |
 
-These are preparation filenames, not an active manifest or upload contract. Keep
-the source master separate from the small delivery file. If the generator cannot
+Keep the source master separate from the small delivery file. If the generator cannot
 produce the exact resolution, generate a square image at least 1024px wide and
 resize once for export. Do not stretch a non-square image or add letterboxing.
 Convert to sRGB, remove unnecessary metadata, and inspect the compressed export.
+Strip the embedded color profile after conversion; the server assumes sRGB.
 If compression damages the subject, simplify noisy detail rather than shrinking
 below the required dimensions.
+
+### Publish with the game
+
+Place the delivery WebP at `infuser-art/card-hero.webp` in the project supplied
+to `infuser publish`. The CLI also accepts it inside an already-built web export.
+It validates the image and attaches it to the build, including for Godot exports
+whose other resources are packed into a PCK. Exclude `infuser-art/*` from Godot's
+resource export: the CLI uploads the delivery image separately. It skips the
+other files in this reserved directory, keeping source masters and notes local.
+
+Check `GET /api/publisher/capabilities`: `card_art.path` advertises this convention.
+Custom publishers use the existing build file-upload route with that path. The
+server validates dimensions, format, opacity, static encoding, and size before
+publication. No new game SDK integration is involved.
+
+Artwork activates with its immutable game build; a queued update keeps the old
+cover until activation. Publish a new build to replace art. Missing art uses the
+Infuser fallback. The Library returns an optional `card_art_url`, accessible only
+to members who can see that game; hidden preview art is adult-only as well.
 
 A larger About-window illustration will be a separate asset with its own future
 layout. Do not submit one yet, and do not assume this square image can simply be
