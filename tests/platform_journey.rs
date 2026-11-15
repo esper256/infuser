@@ -34,9 +34,23 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
                 Some("member=adult") => "adult@example.com",
                 Some("member=kid") => "kid@example.com",
                 Some("member=outsider") => "outsider@example.com",
-                _ => return (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
+                _ => {
+                    return (
+                        StatusCode::UNAUTHORIZED,
+                        [("X-Auth-Request-Email", ""), ("Set-Cookie", "")],
+                    );
+                }
             };
-            (StatusCode::ACCEPTED, [("X-Auth-Request-Email", email)])
+            (
+                StatusCode::ACCEPTED,
+                [
+                    ("X-Auth-Request-Email", email),
+                    (
+                        "Set-Cookie",
+                        "__Host-infuser_session=refreshed; Secure; HttpOnly; Path=/",
+                    ),
+                ],
+            )
         }),
     );
     let (auth_url, _auth) = serve(auth).await?;
@@ -73,10 +87,19 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         http.get(format!("{url}/api/me"))
             .header("host", HOST)
             .header("X-Auth-Request-Email", "adult@example.com")
+            .header("X-Infuser-Verified-Email", "adult@example.com")
             .send()
             .await?
             .status(),
         401
+    );
+    let refreshed = adult(reqwest::Method::GET, "/api/me").send().await?;
+    assert_eq!(refreshed.status(), 200);
+    assert!(
+        refreshed.headers()["set-cookie"]
+            .to_str()?
+            .contains("__Host-infuser_session=refreshed"),
+        "Google session refresh cookie was lost"
     );
     assert_eq!(
         http.get(format!("{url}/api/me"))

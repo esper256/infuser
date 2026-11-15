@@ -127,23 +127,9 @@ impl Platform {
         if write {
             self.origin(h, self.domain())?;
         }
-        let cookie = h
-            .get("cookie")
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| fault(401, "Please sign in with Google."))?;
-        let response = self
-            .http
-            .get(&self.config().controller.auth_url)
-            .header("cookie", cookie)
-            .send()
-            .await?;
-        ensure!(
-            response.status().is_success(),
-            fault(401, "Please sign in with Google.")
-        );
-        let email = response
-            .headers()
-            .get("x-auth-request-email")
+        // This header is always removed and re-created by session_auth below.
+        let email = h
+            .get("x-infuser-verified-email")
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| fault(401, "Google session did not supply an email."))?
             .to_lowercase();
@@ -376,7 +362,62 @@ pub fn router(platform: Platform) -> Router {
         )
         .fallback(game_file)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .layer(axum::middleware::from_fn_with_state(platform.clone(),session_auth))
         .with_state(platform)
+}
+async fn session_auth(
+    State(p): State<Platform>,
+    mut request: Request,
+    next: axum::middleware::Next,
+) -> Response {
+    request.headers_mut().remove("x-infuser-verified-email");
+    let path = request.uri().path();
+    let player_api = path.starts_with("/api/")
+        && !path.starts_with("/api/publisher/")
+        && !path.starts_with("/api/server/");
+    if !player_api || host(request.headers()) != p.domain() {
+        return next.run(request).await;
+    }
+    let cookie = request.headers().get("cookie").cloned();
+    let verified: Result<_> = async {
+        let cookie = cookie.ok_or_else(|| fault(401, "Please sign in with Google."))?;
+        let response = p
+            .http
+            .get(&p.config().controller.auth_url)
+            .header("cookie", cookie)
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            fault(401, "Please sign in with Google.")
+        );
+        let email = response
+            .headers()
+            .get("x-auth-request-email")
+            .cloned()
+            .ok_or_else(|| fault(401, "Google session did not supply an email."))?;
+        let cookies: Vec<_> = response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .cloned()
+            .collect();
+        Ok((email, cookies))
+    }
+    .await;
+    match verified {
+        Err(error) => Error(error).into_response(),
+        Ok((email, cookies)) => {
+            request
+                .headers_mut()
+                .insert("x-infuser-verified-email", email);
+            let mut response = next.run(request).await;
+            for cookie in cookies {
+                response.headers_mut().append("set-cookie", cookie);
+            }
+            response
+        }
+    }
 }
 async fn page(State(p): State<Platform>, request: Request) -> Answer {
     if host(request.headers()) != p.domain() {
@@ -694,6 +735,22 @@ async fn create_build(
         cfg.games.clear();
         cfg.games.insert(app.clone(), server.clone());
         cfg.validate().map_err(|e| fault(400, &e.to_string()))?;
+        if let Some(m) = &body.manifest.multiplayer {
+            use crate::manifest::Transport;
+            let compatible = match m.transport {
+                Transport::Websocket => server.web,
+                Transport::Tcp => !server.web && server.protocols.iter().any(|p| p == "tcp"),
+                Transport::Udp => !server.web && server.protocols.iter().any(|p| p == "udp"),
+                Transport::Webrtc => false,
+            };
+            ensure!(
+                compatible,
+                fault(
+                    422,
+                    "server protocol must match the declared multiplayer transport"
+                )
+            );
+        }
     }
     let _guard = p.publishing.lock().unwrap();
     p.db.edit(|d| {
