@@ -101,13 +101,15 @@ function profileAvatar(name,id,picture,size=128) {
   const avatar=el('span',initials.toLocaleUpperCase()||'···','avatar tone-'+tone);avatar.setAttribute('aria-hidden','true');return avatar;
 }
 function renderPresence() {
-  const people=[...(library.friends||[])].sort((a,b)=>Number(b.id===me.player_id)-Number(a.id===me.player_id)),list=$('friends');list.replaceChildren();list.hidden=!people.length;
-  for(const person of people.slice(0,2)){
-    const nameLabel=person.name+(person.id===me.player_id?' · you':'');
-    const item=el('li',undefined,'presence-person');item.dataset.playerId=person.id;item.tabIndex=0;item.setAttribute('aria-label',nameLabel+' · online');
-    const name=el('span',nameLabel,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id,person.avatar),name);list.append(item);
+  const people=(library.friends||[]).filter(person=>person.id!==me.player_id),list=$('friends');
+  // The account badge stays mounted so polling cannot close its menu or lose focus.
+  for(const item of [...list.children])if(!item.classList.contains('presence-self'))item.remove();
+  list.hidden=false;
+  for(const person of people.slice(0,1)){
+    const item=el('li',undefined,'presence-person');item.dataset.playerId=person.id;item.tabIndex=0;item.setAttribute('aria-label',person.name+' · online');
+    const name=el('span',person.name,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id,person.avatar),name);list.append(item);
   }
-  if(people.length>2){const extra=people.slice(2),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
+  if(people.length>1){const extra=people.slice(1),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
 }
 function cancelTagHold(){if(tagHold)clearTimeout(tagHold.timer);tagHold=null;}
 $('games').addEventListener('focusin',event=>{
@@ -233,11 +235,24 @@ $('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object
 $('credential-form').onsubmit=async event=>{event.preventDefault();try{const data=Object.fromEntries(new FormData(event.target)),connection=await api('/api/admin/credentials',{method:'POST',body:JSON.stringify(data)});const blob=new Blob([JSON.stringify(connection,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=connection.app_id+'.credentials.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Connection file downloaded. Attach it in your game’s existing agent chat.');await adminRefresh();}catch(error){showError(error);}};
 function renderAccount(){
   $('greeting').textContent='Signed in as '+me.name+'.';$('account-trigger').setAttribute('aria-label',me.name+' · Profile menu');
-  $('account-trigger').replaceChildren(el('span',me.name));
+  const name=el('span',me.name+' · you','presence-name');name.setAttribute('aria-hidden','true');
+  $('account-trigger').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),name);
 }
 function setupAccount(){
   const menu=el('details',undefined,'header-menu profile-menu'),trigger=el('summary',undefined,'profile-button'),panel=el('div',undefined,'account-menu');
   trigger.id='account-trigger';
+  const self=el('li',undefined,'presence-person presence-self');self.dataset.playerId=me.player_id;
+  self.append(menu);$('friends').prepend(self);$('friends').hidden=false;
+  function positionMenu(){
+    const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
+    panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
+    const top=Math.max(16,bounds.bottom+10);
+    panel.style.top=top+'px';panel.style.maxHeight=Math.max(44,innerHeight-top-16)+'px';
+  }
+  trigger.addEventListener('click',positionMenu);
+  menu.addEventListener('toggle',positionMenu);
+  window.addEventListener('resize',positionMenu);
+  window.addEventListener('scroll',positionMenu,{passive:true});
   const profile=el('button','Change profile picture');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');
   profile.onclick=()=>{menu.open=false;openProfile();};
   const label=el('label','Theme'),select=el('select');select.id='theme-picker';
@@ -249,7 +264,7 @@ function setupAccount(){
   window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
   label.append(select);
   const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
-  panel.append(profile,label,out);menu.append(trigger,panel);$('account').append(menu);renderAccount();
+  panel.append(profile,label,out);menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;

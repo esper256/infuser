@@ -39,8 +39,11 @@ When creator portraits are available, use the game author’s portrait as the
 reaction entry point, without a separate reaction control. Hover and keyboard
 focus show a thought bubble: “React to {author}’s game.” Click, Enter, or a phone
 tap opens the picker directly; never require hover. Give the portrait the same
-accessible action name. Players choose a curated portrait by clicking their name
-in the header; the account choice appears on their creator and presence portraits.
+accessible action name. Players open the account menu from their own portrait
+in the online-player list. A small gap, subtle halo, and inset chevron distinguish
+this badge; the menu includes the portrait picker, theme choice, and sign out.
+Keep it mounted during presence refreshes. The chosen portrait appears on their
+creator and presence badges.
 Initials remain available. Never invent author identities. Cards use the Nightglass layout with
 a content-sized glass dock. Missing or unavailable game artwork uses a muted,
 abstract composition of overlapping colored loops, without logos, invented game imagery, or filler

@@ -29,14 +29,6 @@ h1, h2, h3 { overflow-wrap: anywhere; }
 header { display: flex; align-items: center; gap: 22px; position: relative; padding-block: 22px; border-bottom: 1px solid #b5ead614; }
 .brand { display: block; flex: none; line-height: 0; }
 .brand img { display: block; width: 200px; height: 50px; object-fit: contain; }
-#account { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 16px; margin-left: auto; font-size: 13px; color: #c2d0ce; overflow-wrap: anywhere; }
-#account a { padding: 10px 0; color: var(--quiet); font-size: 12px; text-decoration: none; }
-#account a:hover { color: var(--accent); }
-.profile-button { display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 230px; min-height: 44px; padding: 4px 8px 4px 4px; background: transparent; color: var(--ink); font-size: 13px; font-weight: 500; }
-.profile-button:hover { background: #b5ead610; }
-.profile-button:active:not(:disabled) { background: #b5ead620; }
-.profile-button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.profile-button .avatar { flex: none; }
 footer:empty { display: none; }
 
 /* Signed-out domain landing. Keep the official Google artwork untouched. */
@@ -243,7 +235,6 @@ img.avatar { object-fit: cover; }
   header, main, footer { padding-inline: 18px; }
   header { flex-wrap: wrap; gap: 8px 16px; padding-block: 17px; }
   .brand img { width: 152px; height: 38px; }
-  #account { max-width: calc(100% - 168px); gap: 2px 12px; font-size: 12px; }
   header .admin { margin-left: auto; }
   .intro { gap: 10px; margin: 7px 0 18px; }
   .intro h1 { font-size: 31px; }
@@ -291,7 +282,6 @@ img.avatar { object-fit: cover; }
 @media (max-width:950px) { .library-tools .search-label { flex-basis: 200px; } }
 @media (max-width:650px) {
   header { column-gap: 16px; }
-  #account { max-width: none; }
   header .admin { margin-left: 0; }
   .library-tools .tag-filters { flex-basis: 100%; }
   .library-tools .search-label { flex: 1 1 100%; max-width: none; }
@@ -326,12 +316,17 @@ img.avatar { object-fit: cover; }
 .header-menu > summary { display: flex; align-items: center; gap: 7px; list-style: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: #192d32; font-size: 12px; }
 .header-menu > summary::-webkit-details-marker { display: none; }
 #recent-menu { margin-left: auto; }
-#account { margin-left: 0; }
-.profile-menu > summary { padding: 10px 12px; background: var(--field); border-color: var(--line); border-radius: 9px; font-weight: 650; }
-.profile-menu > summary::after { content: '⌄'; margin-left: 2px; }
-.account-menu { position: absolute; top: calc(100% - 8px); right: 36px; z-index: 20; width: 260px; max-width: calc(100% - 36px); padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 16px 40px #0008; }
-.account-menu > button, #account .account-menu > a { display: block; width: 100%; min-height: 44px; padding: 12px; text-align: left; border-radius: 8px; color: var(--ink); background: transparent; font-size: 13px; }
-.account-menu > button:hover, #account .account-menu > a:hover { background: #aabbcc14; }
+.presence-self { width: 44px; height: 44px; margin: 3px 5px 3px 3px; border: 0; z-index: 3; }
+.presence-self + .presence-person { margin-left: 4px; }
+.presence-self .profile-menu > summary { position: relative; display: grid; place-items: center; width: 44px; height: 44px; padding: 3px; border: 1px solid var(--accent); border-radius: 50%; background: var(--page); box-shadow: 0 0 0 3px #b5ead612,0 0 12px #b5ead622; }
+.presence-self .profile-menu > summary:hover { box-shadow: 0 0 0 3px #b5ead626,0 0 14px #b5ead633; }
+.presence-self .profile-menu > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+.presence-self .profile-menu[open] .presence-name { visibility: hidden; }
+.presence-self summary:focus-visible .presence-name { visibility: visible; }
+.profile-menu > summary::after { content: '⌄'; position: absolute; right: 2px; bottom: 2px; display: grid; place-items: center; width: 14px; height: 14px; padding-bottom: 4px; border: 1px solid var(--page); border-radius: 50%; background: var(--page); color: var(--ink); font-size: 14px; line-height: 1; }
+.account-menu { position: fixed; z-index: 20; width: 260px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); overflow-y: auto; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 16px 40px #0008; }
+.account-menu > button, .account-menu > a { display: block; width: 100%; min-height: 44px; padding: 12px; text-align: left; border-radius: 8px; color: var(--ink); background: transparent; font-size: 13px; text-decoration: none; }
+.account-menu > button:hover, .account-menu > a:hover { background: #aabbcc14; }
 .account-menu label { margin: 4px 0; padding: 10px 12px; border-block: 1px solid var(--line); }
 .account-menu select { display: block; width: 100%; margin-top: 8px; padding: 10px 8px; min-height: 44px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--ink); font-size: 13px; }
 #activity.recent-panel { position: absolute; z-index: 18; top: calc(100% - 8px); right: 36px; width: min(420px,calc(100% - 72px)); margin: 0; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: 0 18px 45px #0008; max-height: min(580px,calc(100dvh - 160px)); overflow: auto; }
@@ -349,9 +344,6 @@ img.avatar { object-fit: cover; }
   .library-toolbar .tag-filters > * { flex: none; }
   .library-toolbar .search-label { grid-area: 3 / 1 / 4 / -1; width: 100%; max-width: none; }
   #recent-menu { margin-left: 0; }
-  #account { margin-left: auto; }
-  .profile-button { max-width: 180px; }
-  .account-menu { right: 18px; }
   #activity.recent-panel { right: 18px; width: calc(100% - 36px); max-height: calc(100dvh - 220px); }
 }
 
