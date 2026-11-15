@@ -132,3 +132,24 @@ $('save-tags').onclick=async()=>{try{await api('/api/apps/'+editingTags.id+'/tag
 $('emoji').addEventListener('change',()=>{$('reaction-comment').hidden=false;$('reaction-text').focus();const selected=$('emoji').querySelector('input:checked+span');if(selected&&!matchMedia('(prefers-reduced-motion: reduce)').matches)selected.animate([{transform:'scale(.85) rotate(-8deg)'},{transform:'scale(1.17) rotate(5deg)'},{transform:'scale(1) rotate(0)'}],{duration:260,easing:'ease-out'});});
 $('reaction-text').addEventListener('input',()=>{const selected=$('emoji').querySelector('input:checked+span');if(selected&&!matchMedia('(prefers-reduced-motion: reduce)').matches)selected.animate([{transform:'translateY(0)'},{transform:'translateY(-3px)'},{transform:'translateY(0)'}],{duration:130});});
 function celebrate(target,emoji='✦'){if(!target||matchMedia('(prefers-reduced-motion: reduce)').matches)return;const bounds=target.getBoundingClientRect();const burst=el('span',emoji,'mini-celebration');burst.style.left=Math.min(innerWidth-50,Math.max(24,bounds.left+bounds.width/2))+'px';burst.style.top=Math.min(innerHeight-80,Math.max(80,bounds.top+50))+'px';document.body.append(burst);burst.addEventListener('animationend',()=>burst.remove(),{once:true});}
+async function refreshNetworkHealth(){
+  if(!me?.admin||!$('admin').querySelector('details')?.open)return;
+  let box=$('network-health');if(!box){box=el('section');box.id='network-health';$('admin').querySelector('details').append(box);}
+  try{
+    const data=await api('/api/admin/peer-health');box.replaceChildren(el('h3','Network diagnostics'));
+    if(!data.sessions.length){box.append(el('p','No active peer sessions.','quiet'));return;}
+    const milliseconds=value=>typeof value==='number'&&Number.isFinite(value)?Math.round(value)+' ms':'measuring';
+    for(const session of data.sessions){
+      box.append(el('h4',session.app_id));
+      for(const peer of session.peers){
+        const connections=peer.health?.connections||[];const age=Date.now()/1000-peer.reported_at;
+        const prefix=peer.name+(peer.host?' · host':' · player');
+        if(!connections.length)box.append(el('p',prefix+' · waiting for a connection','quiet'));
+        for(const link of connections)box.append(el('p',prefix+' · '+(link.local||'?')+' ↔ '+(link.remote||'?')+' · round trip '+milliseconds(link.round_trip_ms)+(age>15?' · stale report':'')+' · '+Math.round((Number(link.bytesSent)||0)/1024)+' KiB sent / '+Math.round((Number(link.bytesReceived)||0)/1024)+' KiB received'));
+      }
+    }
+    box.append(el('p','Browser-reported network round trips. Rendering and game simulation can add delay.','quiet'));
+  }catch{box.replaceChildren(el('h3','Network diagnostics'),el('p','Diagnostics unavailable. Games can keep running.','quiet'));}
+}
+$('admin').querySelector('details').addEventListener('toggle',refreshNetworkHealth);
+setInterval(refreshNetworkHealth,5000);

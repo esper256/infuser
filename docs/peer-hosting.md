@@ -105,3 +105,21 @@ not configure TURN-over-TLS. Networks requiring TLS-only traversal are a future
 compatibility target. Setting `relayOnly: true` and seeing **relay ↔ relay** in
 selected-candidate stats with increasing byte counters is the acceptance test;
 merely gathering a relay candidate does not prove gameplay used it.
+
+## Connection status and adult diagnostics
+
+Players see only a small connection symbol in the existing title bar. It does
+not overlay the game, open dialogs, or change fullscreen. A green connection
+means the peer links are connected; it does not claim that device rendering or
+the game's simulation is fast. Games should not add numeric network overlays to
+the normal player experience.
+
+The SDK sends bounded browser connection reports every five seconds, stored only
+in memory for the active peer session. Adult accounts can inspect them under
+Admin tools → Network diagnostics. `GET /api/admin/peer-health` requires adult
+Google membership; the equivalent loopback-only `GET /v1/peer-health` uses the
+existing operator bearer credential. Reports include selected candidate types,
+byte counters, and the browser's current ICE round-trip estimate when available.
+These are diagnostic observations, not proof of device performance or blame for
+lag. Reporting failures never stop gameplay. The diagnostics contract remains
+experimental and is separate from game state and cloud saves.

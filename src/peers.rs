@@ -49,6 +49,8 @@ struct Peer {
     identity: Identity,
     expires: u64,
     signals: VecDeque<Value>,
+    health: Value,
+    health_seen: u64,
 }
 struct Room {
     epoch: String,
@@ -147,6 +149,8 @@ impl Rooms {
                 identity: who,
                 expires: time + 30,
                 signals: VecDeque::new(),
+                health: Value::Null,
+                health_seen: 0,
             })
             .expires = time + 30;
         Ok(view(room, &peer))
@@ -236,6 +240,36 @@ impl Rooms {
     }
     pub fn end(&self, app: &str) {
         self.rooms.lock().unwrap().remove(app);
+    }
+    pub fn health(
+        &self,
+        app: &str,
+        peer: &str,
+        launch: &str,
+        report: Value,
+        time: u64,
+    ) -> Result<()> {
+        ensure!(
+            report.to_string().len() <= 4096
+                && report["connections"]
+                    .as_array()
+                    .is_some_and(|v| v.len() <= 8),
+            fault(400, "invalid network report")
+        );
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let p = member(&mut rooms, app, peer, launch)?
+            .peers
+            .get_mut(peer)
+            .unwrap();
+        p.health = report;
+        p.health_seen = time;
+        Ok(())
+    }
+    pub fn diagnostics(&self, time: u64) -> Value {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        json!({"sessions":rooms.iter().map(|(app,r)|json!({"app_id":app,"build_id":r.build,"peers":r.peers.iter().map(|(id,p)|json!({"id":id,"name":p.identity.name,"host":*id==r.host,"reported_at":p.health_seen,"health":p.health})).collect::<Vec<_>>()})).collect::<Vec<_>>()})
     }
     pub fn leave_launch(&self, app: &str, launch: &str) {
         let mut rooms = self.rooms.lock().unwrap();

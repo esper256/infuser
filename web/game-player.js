@@ -24,3 +24,12 @@ try{
   game.addEventListener('load',()=>game.contentWindow.focus(),{once:true});
   game.src='/'+location.search;game.hidden=false;
 }catch(error){title.textContent='Game unavailable';message(error.message);}
+const connection=document.createElement('span');connection.id='connection';connection.hidden=true;
+connection.setAttribute('role','img');button.before(connection);
+window.addEventListener('message',event=>{
+  if(event.origin!==location.origin||event.source!==game.contentWindow||event.data?.type!=='infuser-network')return;
+  const descriptions={connected:'Connected',connecting:'Connecting',ended:'Multiplayer disconnected'};
+  const state=event.data.status;if(!descriptions[state])return;
+  connection.hidden=false;connection.textContent=state==='connected'?'●':state==='connecting'?'◌':'○';
+  connection.dataset.state=state;connection.title=descriptions[state];connection.setAttribute('aria-label',descriptions[state]);
+});

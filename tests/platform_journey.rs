@@ -117,6 +117,20 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .status(),
         403
     );
+    assert_eq!(
+        kid(reqwest::Method::GET, "/api/admin/peer-health")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        adult(reqwest::Method::GET, "/api/admin/peer-health")
+            .send()
+            .await?
+            .status(),
+        200
+    );
     let owned: Value = kid(reqwest::Method::POST, "/api/my-games")
         .json(&json!({"title":"My star adventure"}))
         .send()

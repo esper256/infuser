@@ -44,6 +44,19 @@ fn host_expiry_fences_old_session_and_signals() -> Result<()> {
     let aid = a["self_id"].as_str().unwrap();
     let bid = b["self_id"].as_str().unwrap();
     assert_eq!(a["epoch"], b["epoch"]);
+    assert!(
+        rooms
+            .health("pond", aid, "b", json!({"connections":[]}), 101)
+            .is_err()
+    );
+    rooms.health(
+        "pond",
+        aid,
+        "a",
+        json!({"connections":[{"round_trip_ms":40}]}),
+        101,
+    )?;
+    assert_eq!(rooms.diagnostics(101)["sessions"][0]["app_id"], "pond");
     assert_eq!(
         rooms.join(identity("a"), join("pond", "one"), 101)?["self_id"],
         a["self_id"]

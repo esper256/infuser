@@ -176,7 +176,8 @@ async fn main() -> Result<()> {
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     });
-    let app = api::router(controller, token).merge(infuser::portal::router(platform));
+    let app = api::router_with_peers(controller, token, Some(platform.peer_rooms()))
+        .merge(infuser::portal::router(platform));
     let server = axum::serve(listener, app).with_graceful_shutdown(async {
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())

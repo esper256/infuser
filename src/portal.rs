@@ -87,6 +87,9 @@ pub struct Platform {
     relay: Option<Arc<crate::peers::Relay>>,
 }
 impl Platform {
+    pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
+        self.peers.clone()
+    }
     pub fn open(controller: Arc<Controller>) -> Result<Self> {
         let db = Arc::new(Database::open(&controller.config.controller.state_dir)?);
         let relay = controller
@@ -377,6 +380,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/members", get(members).post(invite))
+        .route("/api/admin/peer-health", get(peer_health_admin))
         .route(
             "/api/admin/credentials",
             get(credentials).post(create_credential),
@@ -390,6 +394,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/peers/{peer}", get(peer_poll).delete(peer_leave))
         .route("/_infuser/peers/{peer}/signals", post(peer_signal))
         .route("/_infuser/peers/{peer}/ice", post(peer_ice))
+        .route("/_infuser/peers/{peer}/health", post(peer_health).layer(DefaultBodyLimit::max(4096)))
         .route("/_infuser/peers.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../sdk/peers.js")) }))
         .route("/_infuser/play", get(player))
         .route("/_infuser/player.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../web/game-player.js")) }))
@@ -1287,6 +1292,21 @@ async fn peer_ice(State(p): State<Platform>, Path(peer): Path<String>, h: Header
     Ok(reply(
         json!({"ice_servers":[relay.credentials(&peer, now())]}),
     ))
+}
+async fn peer_health(
+    State(p): State<Platform>,
+    Path(peer): Path<String>,
+    h: HeaderMap,
+    Json(body): Json<Value>,
+) -> Answer {
+    let (id, launch) = p.game(&h)?;
+    p.origin(&h, host(&h))?;
+    p.peers.health(&launch.app, &peer, &id, body, now())?;
+    Ok(reply(json!({"ok":true})))
+}
+async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.admin(&h, false).await?;
+    Ok(reply(p.peers.diagnostics(now())))
 }
 async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (_, l) = p.game(&h)?;

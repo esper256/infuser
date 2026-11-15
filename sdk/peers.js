@@ -12,16 +12,21 @@ async function request(path, body, method = 'POST') {
 export async function join({relayOnly = true, onState = () => {}, onMessage = () => {}, onEnd = () => {}} = {}) {
   const started = performance.now();
   const initial = await request('', {connection_id: crypto.randomUUID(), relay_only: relayOnly});
-  let state = initial, live = true, lastPoll = started, cursor = 0, refreshed = started, timer;
+  let state = initial, live = true, lastPoll = started, cursor = 0, refreshed = started, timer, healthTimer;
   let iceServers = initial.ice_servers;
   const links = new Map();
   const config = () => ({iceServers, iceTransportPolicy: initial.ice_transport_policy});
   const ownsLease = () => live && performance.now() - lastPoll < state.lease_ms;
-  const report = () => onState({...state, connected: [...links].filter(([, l]) => l.channel?.readyState === 'open').map(([id]) => id)});
+  const indicator = status => { if (window.parent !== window) window.parent.postMessage({type:'infuser-network',status}, location.origin); };
+  const report = () => {
+    const connected = [...links].filter(([, l]) => l.channel?.readyState === 'open').map(([id]) => id);
+    indicator(connected.length === state.peers.length - 1 ? 'connected' : 'connecting');
+    onState({...state, connected});
+  };
   function drop(id) { const link = links.get(id); if (!link) return; links.delete(id); link.pc.close(); }
   function end(reason) {
     if (!live) return;
-    live = false; clearTimeout(timer); clearInterval(watchdog);
+    live = false; clearTimeout(timer); clearInterval(watchdog); clearInterval(healthTimer); indicator('ended');
     for (const id of links.keys()) drop(id);
     request('/' + initial.self_id, undefined, 'DELETE').catch(() => {});
     onEnd(reason);
@@ -138,12 +143,17 @@ export async function join({relayOnly = true, onState = () => {}, onMessage = ()
         for (const report of reports.values()) {
           if (report.type !== 'transport' || !report.selectedCandidatePairId) continue;
           const pair = reports.get(report.selectedCandidatePairId);
-          result.push({peer:id, state:link.pc.connectionState, local:reports.get(pair.localCandidateId)?.candidateType, remote:reports.get(pair.remoteCandidateId)?.candidateType, bytesSent:pair.bytesSent, bytesReceived:pair.bytesReceived});
+          result.push({peer:id, state:link.pc.connectionState, local:reports.get(pair.localCandidateId)?.candidateType, remote:reports.get(pair.remoteCandidateId)?.candidateType, bytesSent:pair.bytesSent, bytesReceived:pair.bytesReceived, round_trip_ms:typeof pair.currentRoundTripTime === 'number' ? Math.round(pair.currentRoundTripTime * 1000) : null});
         }
       }
       return result;
     }
   };
+  // Operator diagnostics are separate from the player's quiet title-bar indicator.
+  healthTimer = setInterval(async () => {
+    if (!ownsLease()) return;
+    try { await request('/' + initial.self_id + '/health', {connections:await room.stats()}); } catch { /* Diagnostics cannot interrupt play. */ }
+  }, 5000);
   report(); timer = setTimeout(poll, 0);
   return room;
 }
