@@ -823,7 +823,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1066,6 +1066,7 @@ impl Platform {
             let script = crate::sdk_contract::script(&b.manifest);
             anyhow::ensure!(index.contains(script), fault(422,&format!("include <script type=module src=\"{script}\"></script> so the game maintains its session")));
             crate::game_urls::assign(d, app, &b.manifest.title);
+            for credential in d.credentials.values_mut().filter(|c|c.app==app && c.role=="publish" && c.label=="Existing game") { credential.label=b.manifest.title.clone(); }
             let changes_server = b.server.is_some() || d.apps.get(app).is_some_and(|a| d.builds[&build_key(app,&a.build)].server.is_some());
             let running = self.controller.snapshot().games.get(app).is_some_and(|i|i.reserved());
             if ((changes_server && running) || self.peers.active(app, now())) && !d.apps.get(app).is_some_and(|a|a.build==build) {
@@ -1551,12 +1552,11 @@ async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
     let valid_host = host(request.headers())
         .strip_suffix(&format!(".{}", p.domain()))
         .is_some_and(|label| {
-            let opaque = label.strip_prefix("g-").or_else(|| {
-                label
-                    .split_once("--g-")
-                    .filter(|(slug, _)| crate::game_urls::valid(slug))
-                    .map(|(_, id)| id)
-            });
+            let opaque = label
+                .split_once("--g-")
+                .filter(|(slug, _)| crate::game_urls::valid(slug))
+                .map(|(_, id)| id)
+                .or_else(|| label.strip_prefix("g-"));
             opaque.is_some_and(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
         });
     ensure!(valid_host, fault(404, "unknown game host"));
@@ -1646,16 +1646,19 @@ fn decode_path(path: &str) -> Result<String> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NewGame {
-    title: String,
+    title: Option<String>,
 }
 async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewGame>) -> Answer {
     let email = p.member(&h, true).await?;
     ensure!(
-        !body.title.trim().is_empty() && body.title.chars().count() <= 80,
+        body.title
+            .as_ref()
+            .is_none_or(|title| !title.trim().is_empty() && title.chars().count() <= 80),
         fault(400, "Give your game a short name.")
     );
-    let words: String = body
-        .title
+    let title = body.title.as_deref().map(str::trim);
+    let words: String = title
+        .unwrap_or("")
         .to_lowercase()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
@@ -1665,15 +1668,19 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    let app = format!(
-        "game-{}-{}",
-        prefix
-            .chars()
-            .take(28)
-            .collect::<String>()
-            .trim_end_matches('-'),
-        &secret()[..6]
-    );
+    let app = if title.is_none() {
+        format!("game-{}", &secret()[..12])
+    } else {
+        format!(
+            "game-{}-{}",
+            prefix
+                .chars()
+                .take(28)
+                .collect::<String>()
+                .trim_end_matches('-'),
+            &secret()[..6]
+        )
+    };
     let expires = now() + 3600;
     let token = secret();
     p.db.edit(|d| {
@@ -1688,17 +1695,19 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
             platform::SetupClaim {
                 app: app.clone(),
                 owner: email.clone(),
-                label: body.title.clone(),
+                label: title.unwrap_or("Existing game").into(),
                 expires,
             },
         );
         d.owners.insert(app.clone(), email);
-        crate::game_urls::assign(d, &app, &body.title);
+        if let Some(title) = title {
+            crate::game_urls::assign(d, &app, title);
+        }
         Ok(())
     })?;
     let code = format!("infuser_setup_{token}");
     Ok(reply(
-        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"tag_catalog":crate::tags::catalog(&p.db.read()?,false)}),
+        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog(&p.db.read()?,false)}),
     ))
 }
 #[derive(Deserialize)]
@@ -1775,7 +1784,7 @@ async fn renew_setup(State(p): State<Platform>, Path(app): Path<String>, h: Head
     })?;
     let code = format!("infuser_setup_{token}");
     Ok(reply(
-        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"tag_catalog":crate::tags::catalog(&p.db.read()?,false)}),
+        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog(&p.db.read()?,false)}),
     ))
 }
 #[derive(Deserialize)]

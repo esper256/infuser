@@ -13,7 +13,10 @@ Current development is focused on stabilizing Three.js/Vite. Existing Godot/Bevy
 notes are preliminary; do not expand those adapters while the first engine's
 publishing, saves, sessions, and SDK contract are still changing.
 
-1. Reuse existing credentials for this app if present. Otherwise the copied prompt
+1. Inspect this project for an existing integration with the target Infuser.
+   Reuse its game-scoped credentials and immutable app ID if present, even if the
+   new prompt offers a different reserved ID; leave that unused setup code alone.
+   Do not duplicate an already-connected game. Otherwise the copied prompt
    contains a one-time setup code, server origin, and app ID. Supply the code on
    stdin to `infuser connect --server HTTPS_ORIGIN --app APP`. The CLI exchanges it
    once and stores `.local/APP.credentials.json`. Do not echo secrets into logs or
@@ -37,7 +40,12 @@ publishing, saves, sessions, and SDK contract are still changing.
 5. Integrate saves, publish, then exercise a real player journey. An upload alone
    is not completion. Use `--preview` for admin-only dogfood/test games.
 
-The child copies this task from **Add a game** in the Library; no files to attach.
+The child opens **Add a game**, copies the prompt, and pastes it into the chat
+where they built their game. There is no name form or file management. Infer the
+existing title from the project and put it in `infuser.game.json`; do not rename
+the game or start a new project. First publication assigns its readable URL.
+The dialog shows the API-provided supported engine list; do not promise an
+unvalidated adapter for an engine outside that list.
 Only adult admins can invite or disable members. A disabled member's
 publisher credentials and player sessions stop working.
 

@@ -81,8 +81,11 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
   Library games include `author: {id, name}` from the existing owner/member records,
   or `null` for an unrecorded owner. `id` is the same opaque player ID used for
   presence; no email or profile-image URL is exposed.
-- `POST /api/my-games` with `{"title":"My Game"}` — returns `app_id`, `api_url`,
-  `setup_code`, `expires_at` (Unix seconds), and `tag_catalog`; no permanent credential.
+- `POST /api/my-games` with `{}` — reserves a publishing connection for an existing
+  project without asking the child for a name. Returns `app_id`, `api_url`,
+  `setup_code`, `expires_at` (Unix seconds), `supported_engines`, and `tag_catalog`;
+  no permanent credential. The agent supplies the real title at publication,
+  which assigns the readable URL. Optional `title` retains the older workflow.
 - `POST /api/my-games/APP/setup` — owner/admin replaces an unclaimed setup code.
 - `PUT /api/apps/APP/tags` — owner/admin sets `{"tags":["chill","puzzle"]}`.
 - `POST /api/apps/APP/launch` with `{"guest":false}` — scoped launch URL; game owns

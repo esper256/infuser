@@ -149,32 +149,57 @@ try {
   if(me.admin){$('admin').hidden=false;await adminRefresh();}
 } catch(error) {if(error.status!==401)$('login-message').textContent=error.message;}
 
-let newGameConnection, newGameTitle;
+let newGameConnection, setupPending=false;
 function showSetupPrompt() {
-  $('agent-prompt').value=`Publish the game in this existing project to Infuser. Continue this project; do not replace my game or create a new app.
+  const engines=(newGameConnection.supported_engines||[{label:'Three.js / Vite'},{label:'plain HTML/JavaScript'}]).map(engine=>engine.label);
+  $('engine-support').textContent='Supported now: '+engines.join(' and ')+'. More engines are coming.';
+  $('agent-prompt').value=`Publish the game in this existing project to Infuser. Continue this game; do not replace it or start a new project.
 
-Read https://github.com/esper256/infuser/blob/main/docs/agents.md and use the recipe for the engine already in this project. Preserve the gameplay, art, and project structure. My game is called “${newGameTitle}”, and its Infuser app ID is ${newGameConnection.app_id}.
+Read https://github.com/esper256/infuser/blob/main/docs/agents.md and use the recipe for the engine already in this project. Preserve the gameplay, art, and project structure. This game already exists in this project. Detect its current title and engine from the project; use that title in infuser.game.json. Do not ask me to rename it or rebuild it from scratch.
 
 ONE-TIME SETUP CODE (expires after one hour):
 ${newGameConnection.setup_code}
 
-Get the current Infuser CLI from the repository's release instructions. Feed the setup code to 'infuser connect --server ${newGameConnection.api_url} --app ${newGameConnection.app_id}' on stdin. It exchanges the code once and saves the permanent game-scoped credentials under .local/. Keep .local/ and *.credentials.json out of Git and game exports. Do not print or echo setup tokens or permanent credentials. If this project already has working credentials for this app ID, reuse them.
+First inspect this project for an existing Infuser integration and working credentials for this same game on ${newGameConnection.api_url}. If present, reuse that connection and its original app ID; ignore the provided setup code and update the existing game instead of creating a duplicate.
+
+Otherwise, use the reserved app ID ${newGameConnection.app_id}. Get the current Infuser CLI from the repository's release instructions. Feed the setup code to 'infuser connect --server ${newGameConnection.api_url} --app ${newGameConnection.app_id}' on stdin. It exchanges the code once and saves the permanent game-scoped credentials under .local/. Keep .local/ and *.credentials.json out of Git and game exports. Do not print or echo setup tokens or permanent credentials. If this project already has working credentials for this app ID, reuse them.
 
 Available tag IDs in this Infuser: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting default tags from the game’s design and code; prefer these existing IDs. Put them in infuser.game.json. Query the current tag catalog after connecting if needed.
 
 Inspect the engine and build scripts, declare the game's actual Single player / Multiplayer capabilities, integrate cloud saves and isolated guest play, build, publish, and verify the result. Handle routine setup yourself. Do not ask me to configure Docker, DNS, ports, or hosting. If the existing multiplayer transport is unsupported, explain the exact blocker instead of downgrading it.
 
 Future updates must reuse the saved connection and the same app ID. Tell me when the game is ready to play in my library.`;
-  $('add-game-title').textContent='Ready for your agent';
+  $('add-game-title').textContent='Bring your game';
+  $('refresh-setup').textContent='Refresh code';
   $('setup-expiry').textContent='One use · expires '+new Date(newGameConnection.expires_at*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+'.';
-  $('agent-kit').hidden=false;$('add-game-form').hidden=true;$('copy-prompt').textContent='Copy prompt';
+  $('agent-kit').hidden=false;$('copy-prompt').disabled=false;$('copy-prompt').textContent='Copy prompt';
 }
-$('add-game').onclick=()=>{$('add-game-dialog').showModal();};
+async function prepareGame() {
+  if(setupPending)return;setupPending=true;
+  $('agent-kit').hidden=false;$('agent-prompt').value='Getting your prompt ready…';$('setup-expiry').textContent='';
+  $('copy-prompt').disabled=true;$('refresh-setup').disabled=true;$('another-game').disabled=true;
+  try { newGameConnection=await api('/api/my-games',{method:'POST',body:'{}'});showSetupPrompt(); }
+  catch(error){$('agent-prompt').value=error.message;$('refresh-setup').textContent='Try again';}
+  finally {setupPending=false;$('refresh-setup').disabled=false;$('another-game').disabled=false;}
+}
+$('add-game').onclick=()=>{$('add-game-dialog').showModal();if(newGameConnection)showSetupPrompt();else prepareGame();};
 $('close-add-game').onclick=()=>$('add-game-dialog').close();
-$('add-game-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;try{newGameTitle=new FormData(event.target).get('title');newGameConnection=await api('/api/my-games',{method:'POST',body:JSON.stringify({title:newGameTitle})});showSetupPrompt();}catch(error){showError(error);}finally{button.disabled=false;}};
-$('copy-prompt').onclick=async()=>{try{if(Date.now()>=newGameConnection.expires_at*1000){newGameConnection=await api('/api/my-games/'+newGameConnection.app_id+'/setup',{method:'POST'});showSetupPrompt();}await navigator.clipboard.writeText($('agent-prompt').value);$('copy-prompt').textContent='Copied — paste it into your game’s chat';}catch{ $('agent-prompt').focus();$('agent-prompt').select();$('copy-prompt').textContent='Select and copy the prompt above';}};
-$('refresh-setup').onclick=async()=>{try{newGameConnection=await api('/api/my-games/'+newGameConnection.app_id+'/setup',{method:'POST'});showSetupPrompt();}catch(error){showError(error);}};
-$('another-game').onclick=()=>{newGameConnection=null;$('add-game-title').textContent='Add a game';$('agent-kit').hidden=true;$('add-game-form').hidden=false;$('add-game-form').reset();$('add-game-form').elements.title.focus();};
+async function refreshSetup() {
+  if(setupPending)return false;
+  if(!newGameConnection){await prepareGame();return !!newGameConnection;}
+  setupPending=true;$('copy-prompt').disabled=true;$('refresh-setup').disabled=true;$('another-game').disabled=true;
+  try {newGameConnection=await api('/api/my-games/'+newGameConnection.app_id+'/setup',{method:'POST'});showSetupPrompt();return true;}
+  catch(error){$('setup-expiry').textContent=error.message;return false;}
+  finally {setupPending=false;$('copy-prompt').disabled=false;$('refresh-setup').disabled=false;$('another-game').disabled=false;}
+}
+$('copy-prompt').onclick=async()=>{
+  if(!newGameConnection||setupPending)return;
+  if(Date.now()>=newGameConnection.expires_at*1000 && !await refreshSetup())return;
+  try {await navigator.clipboard.writeText($('agent-prompt').value);$('copy-prompt').textContent='Copied — paste it into your game’s chat';}
+  catch {$('agent-prompt').focus();$('agent-prompt').select();$('copy-prompt').textContent='Select and copy the prompt above';}
+};
+$('refresh-setup').onclick=refreshSetup;
+$('another-game').onclick=()=>{if(setupPending)return;newGameConnection=null;prepareGame();};
 function tagLabel(id){return library?.tags?.find(t=>t.id===id)?.label||id.split('-').map(w=>w[0]?.toUpperCase()+w.slice(1)).join(' ');}
 function renderFilters(){const nav=$('tag-filters');nav.replaceChildren();const all=el('button','All games','tag-filter'+(!activeTag?' selected':''));all.setAttribute('aria-pressed',String(!activeTag));all.onclick=()=>{activeTag='';renderFilters();renderGames();};nav.append(all);for(const tag of library.tags||[]){if(!tag.count&&activeTag!==tag.id)continue;const button=el('button',tag.label+' '+tag.count,'tag-filter'+(activeTag===tag.id?' selected':''));button.setAttribute('aria-pressed',String(activeTag===tag.id));button.onclick=()=>{activeTag=activeTag===tag.id?'':tag.id;renderFilters();renderGames();};nav.append(button);}nav.append(gameCount);}
 $('game-search').oninput=()=>{if(library)renderGames();};
