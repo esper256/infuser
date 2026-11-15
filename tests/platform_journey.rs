@@ -420,6 +420,18 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .await?
             .contains("Moon v1")
     );
+    let updated: Value = kid(reqwest::Method::POST, "/api/apps/moon/launch")
+        .json(&json!({"mode":"solo"}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let updated_url = reqwest::Url::parse(updated["url"].as_str().unwrap())?;
+    assert_ne!(
+        updated_url.host_str().unwrap(),
+        sessions[0].0,
+        "new build would overwrite the old build's browser cookie"
+    );
     assert_eq!(
         publisher(
             reqwest::Method::DELETE,

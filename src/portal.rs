@@ -511,7 +511,9 @@ async fn launch(
     let host_id = if body.guest {
         id.clone()
     } else {
-        hash(&format!("{email}/{app}"))[..32].into()
+        // A new build must not replace cookies/assets in an already-open old tab.
+        // Personal cloud saves keep the same player/app key across these origins.
+        hash(&format!("{email}/{app}/{}", selected.build))[..32].into()
     };
     let gamehost = format!("g-{host_id}.{}", p.domain());
     let l = Launch {

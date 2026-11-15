@@ -59,8 +59,10 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
 The launch URL contains a short-lived, single-use token in its fragment. A minimal
 bootstrap exchanges it for a secure, HttpOnly, host-only game cookie and removes
 the fragment before loading any game code. Portal Google cookies never go to
-untrusted game hosts. Normal player/app hosts are stable; every guest launch gets
-a fresh host. Existing sessions are pinned to their selected build.
+untrusted game hosts. Normal player/app/build hosts are stable; every guest launch
+gets a fresh host. A new build gets a different origin so it cannot replace the
+cookie or assets in an already-open old build. Cloud saves persist across builds;
+browser-local storage is not a cross-version save mechanism.
 
 The browser SDK is `/_infuser/sdk.js`.
 It exports `ready`, `saves.load(slot)`, `saves.save(slot,data,version)`, and `leave()`;
