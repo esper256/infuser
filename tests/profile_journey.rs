@@ -189,6 +189,90 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
             .as_deref(),
         Some(last_avatar)
     );
+    // Handles are adult-controlled, including attempts to rename oneself.
+    for target in ["one@example.com", "two@example.com"] {
+        assert_eq!(
+            request(Method::PUT, "/api/admin/members/handle", "member=one")
+                .json(&json!({"email":target,"name":"Not allowed"}))
+                .send()
+                .await?
+                .status(),
+            403
+        );
+        assert_eq!(
+            request(Method::POST, "/api/admin/members", "member=one")
+                .json(&json!({"email":target,"name":"Not allowed"}))
+                .send()
+                .await?
+                .status(),
+            403
+        );
+    }
+    assert_eq!(
+        request(Method::PUT, "/api/profile", "member=one")
+            .json(&json!({"avatar":"circuit-fox","name":"Not allowed"}))
+            .send()
+            .await?
+            .status(),
+        422
+    );
+    assert_eq!(
+        http.put(format!("{url}/api/admin/members/handle"))
+            .header("host", "games.example.com")
+            .header("cookie", "member=two")
+            .json(&json!({"email":"one@example.com","name":"No origin"}))
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    for name in [" ".into(), "x".repeat(41), "Bad\nHandle".into()] {
+        assert_eq!(
+            request(Method::PUT, "/api/admin/members/handle", "member=two")
+                .json(&json!({"email":"one@example.com","name":name}))
+                .send()
+                .await?
+                .status(),
+            400
+        );
+    }
+    assert_eq!(
+        request(Method::PUT, "/api/admin/members/handle", "member=two")
+            .json(&json!({"email":"absent@example.com","name":"Missing"}))
+            .send()
+            .await?
+            .status(),
+        404
+    );
+    assert_eq!(
+        request(Method::PUT, "/api/admin/members/handle", "member=two")
+            .json(&json!({"email":"one@example.com","name":"No promotion","admin":true}))
+            .send()
+            .await?
+            .status(),
+        422
+    );
+    let renamed: Value = request(Method::PUT, "/api/admin/members/handle", "member=two")
+        .json(&json!({"email":" ONE@example.com ","name":"  OrbitFox  "}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(renamed["player_id"], saved["player_id"]);
+    assert_eq!(renamed["name"], "OrbitFox");
+    let after = platform::Database::open(dir.path())?.read()?;
+    let member = &after.members["one@example.com"];
+    assert_eq!(member.name, "OrbitFox");
+    assert_eq!(member.avatar.as_deref(), Some(last_avatar));
+    assert!(!member.admin && member.enabled);
+    let identity: Value = request(Method::GET, "/api/me", "member=one")
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(identity["name"], "OrbitFox");
+    assert_eq!(identity["player_id"], saved["player_id"]);
     let changed = request(Method::POST, "/api/admin/members", "member=two")
         .json(&json!({"email":"one@example.com","name":"Renamed","admin":false,"enabled":false}))
         .send()

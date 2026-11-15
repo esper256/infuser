@@ -423,6 +423,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/members", get(members).post(invite))
+        .route("/api/admin/members/handle", put(rename_member).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/peer-health", get(peer_health_admin))
         .route(
             "/api/admin/credentials",
@@ -756,6 +757,37 @@ async fn unreact(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMa
 async fn members(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.admin(&h, false).await?;
     Ok(reply(json!({"members":p.db.read()?.members})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenameMember {
+    email: String,
+    name: String,
+}
+async fn rename_member(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<RenameMember>,
+) -> Answer {
+    p.admin(&h, true).await?;
+    let email = body.email.trim().to_lowercase();
+    let name = body.name.trim();
+    ensure!(
+        !name.is_empty() && name.chars().count() <= 40 && !name.chars().any(char::is_control),
+        fault(
+            400,
+            "Use a handle of 1–40 characters without control characters."
+        )
+    );
+    p.db.edit(|d| {
+        let member = d
+            .members
+            .get_mut(&email)
+            .ok_or_else(|| fault(404, "Member not found."))?;
+        member.name = name.into();
+        Ok(())
+    })?;
+    Ok(reply(json!({"player_id":hash(&email),"name":name})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -220,6 +220,13 @@ img.avatar { object-fit: cover; }
 #members > div, #credentials > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #30444a; color: #bacbc8; font-size: 12px; overflow-wrap: anywhere; }
 #members > div > span, #credentials > div > span { min-width: 0; }
 #members button, #credentials button { min-height: 36px; padding: 7px 10px; font-size: 11px; }
+#members > div { flex-wrap: wrap; }
+.member-actions { display: flex; flex: none; gap: 8px; }
+.member-handle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; width: 100%; }
+.member-handle label { flex: 1 1 160px; margin: 0; min-width: 0; }
+.member-handle input { margin: 0; }
+.member-error { flex-basis: 100%; margin: 0; color: #ffb7aa; line-height: 1.5; }
+.member-error:empty { display: none; }
 
 @media (hover:hover) { .game:hover { transform: translateY(-2px); border-color: #769f8b; box-shadow: 0 12px 30px #0005; } #emoji span:hover { transform: translateY(-3px) rotate(-4deg); background: #1b3735; } }
 @media (max-width:950px) { #feed { grid-template-columns: repeat(2,minmax(0,1fr)); } }
