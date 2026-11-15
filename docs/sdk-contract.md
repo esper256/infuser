@@ -12,6 +12,18 @@ interfaces, not an approval process for ordinary UI changes.
 
 ## Review before calling the SDK 1.0
 
+Approved product decisions:
+
+- Save conflicts preserve both candidates and let the game offer a choice; no
+  silent overwrite or generic merge. Games declare their save files so Infuser
+  can load and commit coherent cloud snapshots. See the concrete
+  [cloud-save design](cloud-save-design.md); those new endpoints are not shipped yet.
+- Multiplayer updates upload immediately and activate after the shared session
+  ends and its server shuts down. Queued publication is implemented; a force-restart
+  action is reserved for adult administration.
+- Online, game open, and joinable multiplayer are separate states. The game must
+  explicitly report joinability. A title screen does not create a multiplayer room.
+
 | Contract | Decisions to settle |
 | --- | --- |
 | Identity and guest play | Stable opaque player IDs; guest lifetime and identity; app scoping; which identity a game server may trust |

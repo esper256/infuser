@@ -165,11 +165,13 @@ async fn main() -> Result<()> {
     );
     let platform = infuser::portal::Platform::open(controller.clone())?;
     let runner = controller.clone();
+    let publications = platform.clone();
     let background = tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(config.controller.tick_seconds)).await;
             // Persistence failure is fatal: continuing would lose resource accounting.
             runner.reconcile(now()).await?;
+            publications.activate_pending()?;
         }
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())

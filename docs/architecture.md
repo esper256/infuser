@@ -101,15 +101,15 @@ the old host fenced out, or ending the session before a new host claims it.
 Never elect a second host just because a join attempt times out. Peer signaling,
 host migration, spectating and waiting-room behavior are planned features.
 
-Publishing should stage and verify a new build before moving a branch. The active
+Publishing stages and verifies a new build before moving the active pointer. The active
 multiplayer session stays on its build, and new arrivals must launch a compatible
 client for that same build. A promoted build takes effect after the session ends
 or during a coordinated restart; it must not spawn a parallel server. Hosted
 preview branches share this same app-level restriction; test locally while the
 shared session is occupied. Persistent worlds
 need explicit checkpoint/migration/restore support. Binary rollback is not a
-database rollback. The first slice instead requires stopping an app before
-changing its configured image or runtime settings.
+database rollback. Uploaded server updates are queued and activate automatically
+after confirmed shutdown, keeping the old client/server pair together until then.
 
 ## Cloud saves
 

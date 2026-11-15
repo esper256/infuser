@@ -13,6 +13,12 @@ Play opens the game's title screen. The game chooses gameplay modes; Infuser
 keeps the guest option for device sharing. Future Join friend shortcuts require
 explicit game support, with the contract reviewed before SDK 1.0.
 
+The fullscreen control belongs in the slim title bar **above** the game. Reserve
+that space outside the game's viewport; never float controls over its canvas.
+The player frame keeps fixed-position and full-height game layouts below the bar.
+Opening a game means "game open," not "joinable multiplayer." Online presence,
+an open game, and an explicitly joinable session are distinct states.
+
 Use a dark, game-like visual style and small, responsive feedback throughout
 player flows: pressed controls, subtle card movement, clear launch progress,
 and a brief acknowledgement when an action succeeds. Respect reduced motion.

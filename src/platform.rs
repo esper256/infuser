@@ -53,6 +53,12 @@ pub struct App {
     #[serde(default = "listed")]
     pub listed: bool,
 }
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PendingPromotion {
+    pub build: String,
+    pub listed: bool,
+    pub queued_at: u64,
+}
 fn listed() -> bool {
     true
 }
@@ -79,6 +85,8 @@ pub struct Reaction {
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Data {
+    #[serde(default)]
+    pub pending_promotions: BTreeMap<String, PendingPromotion>,
     #[serde(default)]
     pub tags: BTreeMap<String, Vec<String>>,
     #[serde(default)]

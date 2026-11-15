@@ -290,3 +290,157 @@ async fn publishing_registers_one_server_and_defers_updates_until_sleep() -> Res
     assert_eq!(c.snapshot().games["moon"].spec, newer);
     Ok(())
 }
+
+#[tokio::test]
+async fn published_server_updates_wait_survive_restart_and_activate_after_confirmed_stop()
+-> Result<()> {
+    use infuser::{platform, portal};
+    let dir = TempDir::new()?;
+    let mut cfg = config(&dir);
+    let server_spec = cfg.games["moon"].clone();
+    cfg.games.clear();
+    cfg.controller.disk_reserve_mb = 64;
+    let runtime = Arc::new(Runtime::default());
+    let controller = Arc::new(Controller::open(cfg, runtime.clone())?);
+    let p = portal::Platform::open(controller.clone())?;
+    let (_, token) =
+        p.db.edit(|d| platform::credential(d, "world", "publish", "test publisher"))?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}", listener.local_addr()?);
+    let router = portal::router(p.clone());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let http = reqwest::Client::new();
+    let request = |method, path: &str| {
+        http.request(method, format!("{url}/api/publisher/apps/world{path}"))
+            .header("host", "games.example.com")
+            .bearer_auth(&token)
+    };
+    for (build, image) in [
+        ("b-one", 'a'),
+        ("b-two", 'b'),
+        ("b-three", 'c'),
+        ("b-four", 'd'),
+    ] {
+        let mut spec = server_spec.clone();
+        spec.image = format!("sha256:{}", image.to_string().repeat(64));
+        let draft = json!({"manifest":{"schema_version":1,"app_id":"world","title":"World","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","multiplayer":{"mode":"dedicated","transport":"tcp","max_players":8,"join_policy":"anytime"}},"server":spec,"spa":false,"cross_origin_isolation":false});
+        assert_eq!(
+            request(reqwest::Method::PUT, &format!("/builds/{build}"))
+                .json(&draft)
+                .send()
+                .await?
+                .status(),
+            200
+        );
+        assert_eq!(
+            request(
+                reqwest::Method::PUT,
+                &format!("/builds/{build}/files/index.html")
+            )
+            .body("<script type=module src=\"/_infuser/sdk.js\"></script>World")
+            .send()
+            .await?
+            .status(),
+            200
+        );
+    }
+    assert_eq!(
+        request(reqwest::Method::POST, "/builds/b-one/publish")
+            .send()
+            .await?
+            .status(),
+        200
+    );
+    let t = now();
+    controller.acquire("world", "player", t)?;
+    controller.reconcile(t).await?;
+    for build in ["b-two", "b-three"] {
+        let response = request(reqwest::Method::POST, &format!("/builds/{build}/publish"))
+            .send()
+            .await?;
+        assert_eq!(response.status(), 202);
+        assert_eq!(response.json::<Value>().await?["state"], "queued");
+        assert_eq!(p.db.read()?.apps["world"].build, "b-one");
+    }
+    assert_eq!(
+        request(reqwest::Method::DELETE, "/builds/b-three")
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    assert_eq!(
+        request(reqwest::Method::PUT, "/builds/b-three/files/index.html")
+            .body("changed")
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    assert_eq!(
+        request(reqwest::Method::DELETE, "/builds/b-two")
+            .send()
+            .await?
+            .status(),
+        200,
+        "a superseded queue entry should be removable"
+    );
+    let status: Value = request(reqwest::Method::GET, "/builds/b-three")
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(status["publication_state"], "queued");
+    let reopened = portal::Platform::open(controller.clone())?;
+    reopened.activate_pending()?;
+    assert_eq!(
+        reopened.db.read()?.pending_promotions["world"].build,
+        "b-three"
+    );
+    runtime.fail_remove.store(true, Ordering::SeqCst);
+    controller.reconcile(t + 30).await?;
+    reopened.activate_pending()?;
+    assert_eq!(
+        reopened.db.read()?.apps["world"].build,
+        "b-one",
+        "unconfirmed Docker removal must not activate a new client"
+    );
+    runtime.fail_remove.store(false, Ordering::SeqCst);
+    controller.reconcile(t + 31).await?;
+    reopened.activate_pending()?;
+    assert_eq!(reopened.db.read()?.apps["world"].build, "b-three");
+    assert!(reopened.db.read()?.pending_promotions.is_empty());
+    assert_eq!(
+        controller.snapshot().games["world"].spec.image,
+        format!("sha256:{}", "c".repeat(64))
+    );
+    assert_eq!(
+        runtime.starts.load(Ordering::SeqCst),
+        1,
+        "promotion should not wake an empty server"
+    );
+    controller.acquire("world", "player", t + 32)?;
+    controller.reconcile(t + 32).await?;
+    assert_eq!(
+        request(reqwest::Method::POST, "/builds/b-four/publish")
+            .send()
+            .await?
+            .status(),
+        202
+    );
+    assert_eq!(
+        request(reqwest::Method::DELETE, "").send().await?.status(),
+        200
+    );
+    controller.reconcile(t + 33).await?;
+    reopened.activate_pending()?;
+    assert!(
+        !reopened.db.read()?.apps.contains_key("world"),
+        "unpublish must cancel the queued update"
+    );
+    assert!(reopened.db.read()?.pending_promotions.is_empty());
+    task.abort();
+    Ok(())
+}

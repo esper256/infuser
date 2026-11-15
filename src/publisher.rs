@@ -283,7 +283,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         .await
         .with_context(|| format!("upload {name}"))?;
     }
-    response(
+    let promotion = response(
         http.post(format!("{build_url}/publish"))
             .bearer_auth(&connection.token)
             .json(&json!({"listed":!has(args,"--preview")}))
@@ -299,14 +299,20 @@ pub async fn run(args: &[String]) -> Result<()> {
     {
         let _ = std::fs::remove_dir_all(export);
     }
-    println!(
-        "Published {title} ({build}). {}",
-        if has(args, "--preview") {
-            "Admin-only preview: hidden from players."
-        } else {
-            "Ready in the Library."
-        }
-    );
+    if promotion["state"] == "queued" {
+        println!(
+            "Uploaded {title} ({build}). Update queued; it will activate automatically after the shared session ends and its server sleeps."
+        );
+    } else {
+        println!(
+            "Published {title} ({build}). {}",
+            if has(args, "--preview") {
+                "Admin-only preview: hidden from players."
+            } else {
+                "Ready in the Library."
+            }
+        );
+    }
     Ok(())
 }
 

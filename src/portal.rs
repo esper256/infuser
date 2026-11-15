@@ -245,6 +245,9 @@ impl Platform {
                 .ok_or_else(|| fault(410, "game session expired"))?;
             l.seen = now();
             l.expires = now() + 300;
+            if !l.guest {
+                d.presence.insert(l.email.clone(), now());
+            }
             Ok(())
         })?;
         Ok(status)
@@ -357,6 +360,9 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/session", post(exchange))
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
+        .route("/_infuser/play", get(player))
+        .route("/_infuser/player.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../web/game-player.js")) }))
+        .route("/_infuser/player.css", get(|| async { ([(header::CONTENT_TYPE,"text/css")],include_str!("../web/game-player.css")) }))
         .route("/_infuser/proxy-auth", get(proxy_auth))
         .route("/_infuser/heartbeat", post(heartbeat).delete(leave))
         .route("/_infuser/saves/{slot}", get(save_get).put(save_put))
@@ -820,7 +826,21 @@ async fn build_status(
         .builds
         .get(&build_key(&app, &build))
         .ok_or_else(|| fault(404, "unknown build"))?;
-    Ok(reply(json!(b)))
+    let mut result = json!(b);
+    result["publication_state"] = json!(if d
+        .pending_promotions
+        .get(&app)
+        .is_some_and(|p| p.build == build)
+    {
+        "queued"
+    } else if d.apps.get(&app).is_some_and(|a| a.build == build) {
+        "published"
+    } else if b.ready {
+        "retained"
+    } else {
+        "uploading"
+    });
+    Ok(reply(result))
 }
 async fn upload(
     State(p): State<Platform>,
@@ -897,38 +917,78 @@ async fn publish(
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
     let _guard = p.publishing.lock().unwrap();
-    let key = build_key(&app, &build);
-    p.db.edit(|d|{
-        let b=d.builds.get(&key).ok_or_else(||fault(404,"unknown build"))?.clone();
-        ensure!(b.files.contains_key("index.html"),fault(422,"web build needs index.html"));
-        let index=std::fs::read_to_string(p.root().join(&key).join("index.html"))?;
-        ensure!(index.contains("/_infuser/sdk.js"),fault(422,"include <script type=module src=\"/_infuser/sdk.js\"></script> so the game maintains its session"));
-        if b.server.is_some() || d.apps.get(&app).is_some_and(|a|d.builds[&build_key(&app,&a.build)].server.is_some()) {
-            let active=p.controller.snapshot().games.get(&app).is_some_and(|i|i.reserved());
-            ensure!(!active||d.apps.get(&app).is_some_and(|a|a.build==build),fault(409,"shared server is still running; publish after it sleeps to keep clients and server compatible"));
+    let state = p.promote(&app, &build, body.as_ref().is_none_or(|b| b.listed))?;
+    let mut response =
+        reply(json!({"app_id":app,"build_id":build,"branch":"default","state":state}));
+    if state == "queued" {
+        *response.status_mut() = StatusCode::ACCEPTED;
+    }
+    Ok(response)
+}
+impl Platform {
+    // Callers hold the publication lock, also used by player launches. Never switch
+    // the client pointer while its shared server is still on the previous build.
+    fn promote(&self, app: &str, build: &str, listed: bool) -> Result<&'static str> {
+        let key = build_key(app, build);
+        self.db.edit(|d| {
+            let b = d.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?.clone();
+            anyhow::ensure!(b.files.contains_key("index.html"), fault(422,"web build needs index.html"));
+            let index = std::fs::read_to_string(self.root().join(&key).join("index.html"))?;
+            anyhow::ensure!(index.contains("/_infuser/sdk.js"), fault(422,"include <script type=module src=\"/_infuser/sdk.js\"></script> so the game maintains its session"));
+            let changes_server = b.server.is_some() || d.apps.get(app).is_some_and(|a| d.builds[&build_key(app,&a.build)].server.is_some());
+            let running = self.controller.snapshot().games.get(app).is_some_and(|i|i.reserved());
+            if changes_server && running && !d.apps.get(app).is_some_and(|a|a.build==build) {
+                d.builds.get_mut(&key).unwrap().ready = true;
+                d.pending_promotions.insert(app.into(),platform::PendingPromotion { build:build.into(),listed,queued_at:now() });
+                return Ok("queued");
+            }
+            if let Some(server) = b.server {
+                let keys = self.config().controller.state_dir.join("server-keys");
+                std::fs::create_dir_all(&keys)?;
+                let path = keys.join(app);
+                let token = if path.exists() { std::fs::read_to_string(&path)? } else {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    use std::io::Write;
+                    let token = secret();
+                    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+                    f.write_all(token.as_bytes())?; f.sync_all()?; token
+                };
+                d.credentials.insert(format!("server-{app}"),platform::Credential {app:app.into(),role:"server".into(),label:"container admission".into(),hash:hash(&token),owner:None});
+                self.controller.register(app,server)?;
+            }
+            d.builds.get_mut(&key).unwrap().ready = true;
+            d.tags.entry(app.into()).or_insert(b.manifest.tags);
+            d.apps.insert(app.into(),App {build:build.into(),updated:now(),listed});
+            d.pending_promotions.remove(app);
+            Ok("published")
+        })
+    }
+    pub fn activate_pending(&self) -> Result<()> {
+        let _guard = self.publishing.lock().unwrap();
+        let pending = self.db.read()?.pending_promotions;
+        for (app, promotion) in pending {
+            if self
+                .controller
+                .snapshot()
+                .games
+                .get(&app)
+                .is_some_and(|i| i.reserved())
+            {
+                continue;
+            }
+            // Persisted requests survive restarts; failed activation remains queued.
+            match self.promote(&app, &promotion.build, promotion.listed) {
+                Ok("published") => {
+                    tracing::info!(app, build = promotion.build, "Activated queued game update")
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(app,error=%error,"Queued game update could not activate")
+                }
+            }
         }
-        if let Some(server)=b.server {
-            let keys=p.config().controller.state_dir.join("server-keys");
-            std::fs::create_dir_all(&keys)?;
-            let path=keys.join(&app);
-            let token=if path.exists() { std::fs::read_to_string(&path)? } else {
-                use std::os::unix::fs::OpenOptionsExt;
-                use std::io::Write;
-                let token=secret();
-                let mut f=std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
-                f.write_all(token.as_bytes())?; f.sync_all()?;
-                token
-            };
-            d.credentials.insert(format!("server-{app}"),platform::Credential {app:app.clone(),role:"server".into(),label:"container admission".into(),hash:hash(&token),owner:None});
-            p.controller.register(&app,server)?;
-        }
-        d.builds.get_mut(&key).unwrap().ready=true;
-        d.tags.entry(app.clone()).or_insert(b.manifest.tags);
-        d.apps.insert(app.clone(),App {build:build.clone(),updated:now(),listed:body.as_ref().is_none_or(|b|b.listed)});Ok(())
-    })?;
-    Ok(reply(
-        json!({"app_id":app,"build_id":build,"branch":"default","state":"published"}),
-    ))
+        Ok(())
+    }
 }
 async fn unpublish(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMap) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
@@ -938,6 +998,7 @@ async fn unpublish(State(p): State<Platform>, Path(app): Path<String>, h: Header
     }
     p.db.edit(|d| {
         d.apps.remove(&app);
+        d.pending_promotions.remove(&app);
         for l in d.launches.values_mut().filter(|l| l.app == app) {
             l.expires = 0;
         }
@@ -957,10 +1018,14 @@ async fn remove_build(
         ensure!(
             !d.apps.get(&app).is_some_and(|a| a.build == build)
                 && !d
+                    .pending_promotions
+                    .get(&app)
+                    .is_some_and(|p| p.build == build)
+                && !d
                     .launches
                     .values()
                     .any(|l| l.app == app && l.build == build && l.expires > now()),
-            fault(409, "build is published or in use")
+            fault(409, "build is published, queued or in use")
         );
         d.builds.remove(&build_key(&app, &build));
         Ok(())
@@ -1020,6 +1085,31 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
     Ok(reply(
         json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"runtime":p.refresh(&id,&l)?}),
     ))
+}
+async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let (_, launch) = p.game(&h)?;
+    let data = p.db.read()?;
+    let build = &data.builds[&build_key(&launch.app, &launch.build)];
+    let mut response = (
+        [
+            ("Cache-Control", "no-store"),
+            ("Referrer-Policy", "no-referrer"),
+            ("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
+        ],
+        Html(include_str!("../web/game-player.html")),
+    ).into_response();
+    // Threaded web exports require isolation on the enclosing document as well.
+    if build.cross_origin_isolation {
+        response.headers_mut().insert(
+            "cross-origin-opener-policy",
+            header::HeaderValue::from_static("same-origin"),
+        );
+        response.headers_mut().insert(
+            "cross-origin-embedder-policy",
+            header::HeaderValue::from_static("require-corp"),
+        );
+    }
+    Ok(response)
 }
 async fn heartbeat(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (id, l) = p.game(&h)?;

@@ -380,6 +380,32 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .bearer_auth(&sessions[n].1)
             .header("origin", format!("https://{}", sessions[n].0))
     };
+    db.edit(|d| {
+        d.presence.remove("kid@example.com");
+        Ok(())
+    })?;
+    assert_eq!(
+        game(1, reqwest::Method::POST, "/_infuser/heartbeat")
+            .send()
+            .await?
+            .status(),
+        200
+    );
+    assert!(
+        !db.read()?.presence.contains_key("kid@example.com"),
+        "a guest is not the account owner's presence"
+    );
+    assert_eq!(
+        game(0, reqwest::Method::POST, "/_infuser/heartbeat")
+            .send()
+            .await?
+            .status(),
+        200
+    );
+    assert!(
+        db.read()?.presence.contains_key("kid@example.com"),
+        "playing with the Library closed should still count as online"
+    );
     let page = game(0, reqwest::Method::GET, "/").send().await?;
     assert_eq!(page.status(), 200);
     assert_eq!(
@@ -387,6 +413,28 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         "require-corp"
     );
     assert!(page.text().await?.contains("Moon v1"));
+    let player = game(0, reqwest::Method::GET, "/_infuser/play")
+        .send()
+        .await?;
+    assert_eq!(player.status(), 200);
+    assert_eq!(
+        player.headers()["cross-origin-embedder-policy"],
+        "require-corp"
+    );
+    assert!(
+        player.headers()["content-security-policy"]
+            .to_str()?
+            .contains("frame-src 'self'")
+    );
+    assert!(player.text().await?.contains("<iframe"));
+    assert_eq!(
+        http.get(format!("{url}/_infuser/play"))
+            .header("host", &sessions[0].0)
+            .send()
+            .await?
+            .status(),
+        401
+    );
     let wasm = game(0, reqwest::Method::GET, "/game.wasm").send().await?;
     assert_eq!(wasm.headers()["content-type"], "application/wasm");
     let range = game(0, reqwest::Method::GET, "/game.wasm")

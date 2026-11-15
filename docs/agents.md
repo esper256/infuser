@@ -52,7 +52,9 @@ example `"tags":["3d","arcade","chill"]`. Later publishes preserve author edits.
   new empty namespace **and a new browser origin**. Never copy local progress
   into guest saves or fall back to the owner's identity.
 - Immutable builds. Existing browser sessions keep their selected build. Server
-  updates return `409` while the shared server is active; retry after it sleeps.
+  updates are queued while the shared server is active and activate automatically
+  after it sleeps. Check `publication_state` on the build to distinguish an upload
+  from an activated update; the CLI reports this distinction.
 - One shared server per game. A second player joins it; never create a parallel
   lobby/world merely because a connection fails.
 

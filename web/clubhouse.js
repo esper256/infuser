@@ -38,7 +38,7 @@ function renderGames() {
     card.append(el('p',(game.preview ? 'ADMIN PREVIEW · ' : '') + modes,'quiet'));
     const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}card.append(tags);
     const names = [...new Set(game.players.map(p => p.name + (p.guest ? '’s guest' : '')))];
-    card.append(el('p',names.length ? names.join(', ') + ' playing now' : 'Ready to launch','players'));
+    card.append(el('p',names.length ? names.join(', ') + ' · game open' : 'Ready to launch','players'));
     const actions=el('div',undefined,'actions'), play=el('button','Play'), select=el('select'); select.dataset.app=game.id;select.setAttribute('aria-label','Play options for '+game.title);
     for(const guest of [false,true]) {const option=el('option',guest ? 'Play in guest mode' : 'My progress');option.value=guest?'guest':'player';select.append(option);}
     if(choices.has(game.id))select.value=choices.get(game.id);

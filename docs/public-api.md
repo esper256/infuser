@@ -54,8 +54,14 @@ pinned to a digest; image upload/build/pull automation is not yet provided.
 For `web:true`, the player endpoint is its game origin plus `/_infuser/server`;
 Caddy authenticates and strips this prefix before proxying HTTP/WebSockets. Native
 TCP/UDP endpoints use expiring IP admission plus game-validated launch tickets.
-Changing a server build returns 409 while its shared server is active. Retry after
-it sleeps; do not force a second server or silently give players mismatched clients.
+Changing a server build returns 202 with `state:"queued"` while its shared server
+is active. The immutable upload activates automatically after confirmed shutdown;
+the current client/server pair remains available until then. Build inspection
+returns `publication_state` (`uploading`, `queued`, `published`, or `retained`).
+A newer publication request replaces the pending one. Pending builds cannot be
+changed or deleted; unpublishing the app also cancels its pending update. The queue
+survives controller restarts. Never force a second server or give players mismatched
+clients. An adult force-restart UI is not implemented yet.
 
 ## Player website
 
@@ -89,7 +95,10 @@ browser-local storage is not a cross-version save mechanism.
 The browser SDK is `/_infuser/sdk.js`.
 It exports `ready`, `saves.load(slot)`, `saves.save(slot,data,version)`, and `leave()`;
 it also exposes `window.Infuser`. See the Three.js recipe for usage.
-It provides a small fullscreen/return-to-Library control without a title strip.
+Launches open `/_infuser/play`, with fullscreen and return-to-Library controls in a
+slim title bar above a same-origin game frame. The game still loads at `/` with its
+own viewport, so fixed canvases and root-relative assets work without rewriting.
+The SDK maintains the game session; it adds no controls over the game content.
 
 - `GET /_infuser/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.
