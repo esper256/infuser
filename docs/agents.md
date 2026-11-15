@@ -63,7 +63,11 @@ For Library card artwork, follow the draft [card hero art guide](card-art-guide.
 Keep `infuser-art/card-hero.webp` in the project; `infuser publish` validates and
 attaches it automatically when the server advertises `card_art`. Review the art
 in the Library after publication. No artwork manifest field or game SDK call is
-needed; source masters and notes stay in the project.
+needed; source masters and notes stay in the project. For a cover-only or Library
+title-only change to an existing game, use the [metadata API](game-metadata.md)
+with its existing connection file. Do not rebuild or republish the game just to
+replace its cover. Explicit artwork overrides take precedence over build art
+until cleared; keep the source copy in the project as well.
 
 ## What Infuser handles
 

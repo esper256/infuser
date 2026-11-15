@@ -10,6 +10,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
+mod metadata;
+pub use metadata::GameMetadata;
 
 pub fn hash(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))
@@ -90,6 +92,8 @@ pub struct Reaction {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Data {
     #[serde(skip)]
+    pub metadata: BTreeMap<String, GameMetadata>,
+    #[serde(skip)]
     pub game_urls: BTreeMap<String, crate::game_urls::GameUrl>,
     #[serde(default)]
     pub pending_promotions: BTreeMap<String, PendingPromotion>,
@@ -111,6 +115,7 @@ pub struct Data {
 // live separately so an old binary rewriting that catalog cannot erase them.
 fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     let mut data: Data = serde_json::from_str(raw)?;
+    data.metadata = metadata::read(c)?;
     let mut statement = c.prepare("SELECT app,declaration FROM game_urls")?;
     for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
         let (app, declaration) = row?;
@@ -238,6 +243,7 @@ impl Database {
         crate::cloud::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS native_v1 (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
             INSERT OR IGNORE INTO native_v1(id,data) VALUES(1,'{\"pairs\":{},\"devices\":{},\"requests\":{}}');")?;
+        metadata::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;

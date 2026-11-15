@@ -33,6 +33,7 @@ use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
 mod avatars;
 mod card_art;
+mod metadata;
 mod native;
 mod presence;
 mod runtime;
@@ -355,6 +356,18 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/publisher/tags", get(publisher_tags))
         .route("/api/publisher/apps/{app}/tags", put(publisher_set_tags))
         .route(
+            "/api/publisher/apps/{app}/metadata",
+            get(metadata::get_metadata)
+                .patch(metadata::patch_metadata)
+                .layer(DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/api/publisher/apps/{app}/card-art",
+            put(metadata::put_art)
+                .delete(metadata::delete_art)
+                .layer(DefaultBodyLimit::max(crate::card_art::MAX_BYTES)),
+        )
+        .route(
             "/api/publisher/apps/{app}/slug",
             put(urls::publisher_rename),
         )
@@ -402,6 +415,9 @@ pub fn router(platform: Platform) -> Router {
                 )
             }),
         )
+        .route("/assets/themes.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript")], include_str!("../web/themes.js")) }))
+        .route("/assets/themes/nightglass.css", get(|| async { ([(header::CONTENT_TYPE, "text/css")], include_str!("../web/themes/nightglass.css")) }))
+        .route("/assets/themes/cartridge-club.css", get(|| async { ([(header::CONTENT_TYPE, "text/css")], include_str!("../web/themes/cartridge-club.css")) }))
         .route(
             "/assets/google-signin.png",
             get(|| async {
@@ -425,6 +441,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/members", get(members).post(invite))
+        .route("/api/admin/members/handle", put(rename_member).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/peer-health", get(peer_health_admin))
         .route(
             "/api/admin/credentials",
@@ -559,7 +576,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
         } else { vec![] };
         let desktop = native::bundle(&p, id, &a.build, b).ok().flatten();
         let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name,"avatar":member.avatar})));
-        json!({"native_platforms":desktop.as_ref().map(|m|m.platforms.keys().collect::<Vec<_>>()).unwrap_or_default(),"native_only":desktop.as_ref().is_some_and(|m|m.native_only),"card_art_url":card_art::url(id,&a.build,b),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        json!({"native_platforms":desktop.as_ref().map(|m|m.platforms.keys().collect::<Vec<_>>()).unwrap_or_default(),"native_only":desktop.as_ref().is_some_and(|m|m.native_only),"card_art_url":card_art::url(id,&a.build,b,data.metadata.get(id)),"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":metadata::title(&data,id,&b.manifest.title),"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence
@@ -762,6 +779,37 @@ async fn members(State(p): State<Platform>, h: HeaderMap) -> Answer {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RenameMember {
+    email: String,
+    name: String,
+}
+async fn rename_member(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<RenameMember>,
+) -> Answer {
+    p.admin(&h, true).await?;
+    let email = body.email.trim().to_lowercase();
+    let name = body.name.trim();
+    ensure!(
+        !name.is_empty() && name.chars().count() <= 40 && !name.chars().any(char::is_control),
+        fault(
+            400,
+            "Use a handle of 1–40 characters without control characters."
+        )
+    );
+    p.db.edit(|d| {
+        let member = d
+            .members
+            .get_mut(&email)
+            .ok_or_else(|| fault(404, "Member not found."))?;
+        member.name = name.into();
+        Ok(())
+    })?;
+    Ok(reply(json!({"player_id":hash(&email),"name":name})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Invite {
     email: String,
     name: String,
@@ -831,7 +879,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"game_metadata":{"version":1,"title_max_chars":80,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1013,6 +1061,11 @@ async fn upload(
             .values()
             .flat_map(|b| b.files.values())
             .sum::<u64>()
+            + data
+                .metadata
+                .values()
+                .map(|m| m.card_art_bytes)
+                .sum::<u64>()
             - prior
             + size
             <= p.config().controller.content_budget_mb * 1024 * 1024,

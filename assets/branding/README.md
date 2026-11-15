@@ -43,9 +43,8 @@ the script. It does not change masters. The signed-out domain landing page embed
 asset route. If regenerating that file, update its embedded copy too. The signed-in
 Library header similarly embeds `header-light.webp`, the horizontal lockup.
 Update both data URLs if regenerating those WebP exports. The Library favicon
-embeds `favicon-32.png`. Its card-art fallback embeds a quality-84 WebP conversion
-of `icon-512.png` in `web/clubhouse.css`; this is shared Infuser artwork, not
-game-specific hero art. Neither fallback requires a new server asset route.
+embeds `favicon-32.png`. Cards without game artwork use overlapping abstract color loops drawn in CSS. Keep the Infuser identity in the site branding, not as a stand-in for
+game artwork. The fallback requires no asset request.
 
 ## Pixel and transparency review
 

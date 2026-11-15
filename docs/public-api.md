@@ -26,6 +26,8 @@ or control the host. Admin revocation and member disabling take effect immediate
 | GET | `/api/publisher/tags` | Current tag catalog |
 | PUT | `/api/publisher/apps/APP/slug` | Rename the durable URL; preserve old aliases |
 | PUT | `/api/publisher/apps/APP/tags` | Set this game's tags |
+| GET / PATCH | `/api/publisher/apps/APP/metadata` | Inspect presentation or set/reset its display title |
+| PUT / DELETE | `/api/publisher/apps/APP/card-art` | Upload/clear a cover override without a build |
 | PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
 | GET | same | Inspect metadata and uploaded file inventory |
 | PUT | `/api/publisher/apps/APP/builds/BUILD/files/PATH` | Upload raw file body |
@@ -59,8 +61,13 @@ No arbitrary remote URLs are fetched and no build scripts execute on the host.
 Optional card art uses the ordinary file upload at `infuser-art/card-hero.webp`.
 `capabilities.card_art` advertises `path`, `width`, `height`, `max_bytes`, and
 `format`. See the [card art guide](card-art-guide.md) for the image constraints;
-invalid images return 422. Art belongs to the immutable build and activates with
-it. There is no separate manifest field or art mutation endpoint.
+invalid images return 422. Bundled art belongs to the immutable build and activates
+with it. For artwork-only or title-only changes, use the [metadata API](game-metadata.md),
+advertised by `capabilities.game_metadata.version = 1`. A raw WebP PUT to the
+app-level `card-art` endpoint applies immediately without touching builds or
+sessions. DELETE clears that override. Metadata PATCH accepts `{"title":"Name"}`
+or `{"title":null}` to restore the build title. Independent overrides survive later
+publications. There is no artwork manifest field.
 
 An optional advanced `server` object uses the validated game settings documented
 in `deploy/infuser.example.toml`. Images must already be staged on the host and
@@ -118,6 +125,12 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
 - Adult-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
   DELETE `/api/admin/credentials/ID` revokes a credential.
+- Adult-only `PUT /api/admin/members/handle` with `{"email":"player@example.com","name":"New handle"}`
+  renames an existing member. Requires the exact HTTPS Origin. Handles are trimmed,
+  1–40 characters, without control characters. Returns `{player_id, name}`; preserves
+  identity, permissions, enabled status, avatar, and saves. Unknown members return 404.
+  Ordinary players cannot rename themselves or anyone else; `/api/profile` accepts
+  avatar selection only. The adult uses **Admin tools → Members → Rename**.
 
 ## Game SDK and saves
 
