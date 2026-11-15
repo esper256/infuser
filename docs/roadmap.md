@@ -10,8 +10,11 @@
   forced TURN, two autoplay clients, host departure/rejoin, connection recovery,
   and queued updates. Keep multiplayer protocol changes experimental until review.
   Fast SDK lifecycle journeys now cover recovery, delayed negotiation after
-  leaving, obsolete channels, and lease expiry. Next: a live queued Firefly update,
-  then SDK major/capability declarations and the frozen old-client journey.
+  leaving, obsolete channels, and lease expiry. Live Firefly verified that two
+  relay-only players keep the old build while an update queues, host departure
+  activates the update, and old clients must reopen before multiplayer. A fresh
+  launch receives the new build. Next: SDK major/capability declarations and the
+  frozen old-client journey.
 - Dogfood the implemented [declared save-file snapshot model](cloud-save-design.md),
   including durable conflict candidates and game-owned resolution. The legacy
   slot API retains its original behavior; new checkpoints use separate v1 routes.
