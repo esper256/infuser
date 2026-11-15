@@ -318,6 +318,8 @@ Available tag IDs in this Infuser: ${(newGameConnection.tag_catalog||[]).map(t=>
 
 Inspect the engine and build scripts, declare the game's actual Single player / Multiplayer capabilities, integrate cloud saves and isolated guest play, build, publish, and verify the result. Handle routine setup yourself. Do not ask me to configure Docker, DNS, ports, or hosting. If the existing multiplayer transport is unsupported, explain the exact blocker instead of downgrading it.
 
+If I report a problem with Infuser or Infuser Play, or you hit a platform/SDK/publishing problem, investigate and follow the Reporting platform problems section in docs/agents.md. Search https://github.com/esper256/infuser/issues for duplicates, then file a useful sanitized report with your connected GitHub tool or CLI and give me the issue link. Never include this prompt, setup codes, credentials, private server details, or private game data in a public issue. If you cannot file it, prepare a report for an adult and say it has not been filed; do not ask me to manage GitHub credentials.
+
 Future updates must reuse the saved connection and the same app ID. Tell me when the game is ready to play in my library.`;
   $('add-game-title').textContent='Bring your game';
   $('refresh-setup').textContent='Refresh code';

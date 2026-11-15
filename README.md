@@ -37,6 +37,7 @@ An existing Vite project needs its usual Node tooling on the game-making machine
 not on the Infuser host. Godot exports likewise use the creator's Godot toolchain.
 
 - [Agent instructions and engine recipes](docs/agents.md)
+- [Reporting platform problems](docs/agents.md#reporting-platform-problems)
 - [Public publishing, player and cloud-save API](docs/public-api.md)
 - [SDK 1.0 design review](docs/sdk-contract.md) — current game contract is experimental
 - [Player experience](docs/design.md) and [next steps](docs/roadmap.md)

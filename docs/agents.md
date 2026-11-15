@@ -42,6 +42,10 @@ features explicitly. Bevy remains paused while these contracts settle.
    Infuser Play installers are player applications, not a Windows publishing CLI.
 5. Integrate saves, publish, then exercise a real player journey. An upload alone
    is not completion. Use `--preview` for admin-only dogfood/test games.
+6. If the child reports a platform problem or you hit one while integrating,
+   follow [Reporting platform problems](#reporting-platform-problems) below.
+   Handle the investigation and GitHub report; the child should not need to
+   diagnose the SDK or manage a GitHub account.
 
 The child opens **Add a game**, copies the prompt, and pastes it into the chat
 where they built their game. There is no name form or file management. Infer the
@@ -147,3 +151,52 @@ builds and personal saves. Unused builds can then be deleted to reclaim disk.
 The low-level [public API](public-api.md) is the escape hatch for custom pipelines,
 not the starting point. Never give a game the operator control token or its
 publishing credential. Keep individual game secrets out of container images.
+
+## Reporting platform problems
+
+Report problems with **Infuser** (the website), **Infuser Play** (the native app),
+publishing, the SDK, saves or multiplayer infrastructure in
+[esper256/infuser issues](https://github.com/esper256/infuser/issues). This applies
+both when a child says something is broken and when the developing agent hits a
+platform error, unclear instructions or a missing capability.
+
+1. Reproduce the problem and check the current recipe/capabilities. Fix ordinary
+   game-code mistakes in the game project. If the evidence points to Infuser, or
+   documented behavior still fails and the cause is uncertain, report what you
+   observed. Describe an unsupported capability as a request, not a proven bug.
+2. Search existing open **and closed** issues for the same symptom. Add useful
+   new evidence to a matching open issue instead of filing a duplicate. If a
+   closed issue has regressed, open a new report and link it.
+3. File a concise issue using the agent's connected GitHub tool or authenticated
+   GitHub CLI. Include the affected component, reproduction steps, expected and
+   actual behavior, relevant versions, and a small sanitized error/log excerpt.
+   Note how often it happens, whether it blocks play or publishing, and any
+   workaround tried. A child's description is useful context; translate it into
+   reproducible steps without requiring the child to supply technical details.
+4. Give the child the issue link and a short explanation of what still works.
+   Continue with a safe workaround when possible. Keep their game, connection,
+   builds and saves intact; never hide a platform failure by wiping progress,
+   weakening authentication or quietly dropping multiplayer.
+
+Reports are **public**. Do not paste the Add Game prompt, setup codes, credential
+files, cookies, authorization headers, launch URLs/tickets or TURN credentials.
+Replace private server domains/IPs, account details and local paths with examples
+such as `games.example.com` and `/path/to/project`. Share only a minimal sanitized
+reproduction, not the child's private source tree, saves or an unreviewed log
+bundle. Review screenshots too. If a suspected security vulnerability or sensitive
+report cannot be safely described publicly, bring it to the adult admin privately.
+
+For the CLI, write the reviewed report to an ignored local file, then use:
+
+```sh
+gh issue list --repo esper256/infuser --state all --search "brief symptom"
+gh issue create --repo esper256/infuser --title "[SDK] Brief concrete symptom" \
+  --body-file .local/infuser-issue.md
+```
+
+Use the GitHub account already available to the agent. Infuser publishing tokens
+are **not** GitHub credentials. If GitHub access is unavailable, keep the sanitized
+report in `.local/infuser-issue.md` for an adult to submit, provide the issue-page
+link, and clearly say it has **not** been filed. Do not ask the child to create an
+account, paste a token, or do the debugging. Never claim an issue was filed without
+a confirmed issue URL.
