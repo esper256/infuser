@@ -153,6 +153,9 @@ pub async fn run(args: &[String]) -> Result<()> {
     if let Some(start) = settings.get("server_start") {
         manifest["server_start"] = start.clone();
     }
+    if let Some(intents) = settings.get("launch_intents") {
+        manifest["launch_intents"] = intents.clone();
+    }
     let parsed: crate::manifest::Manifest = serde_json::from_value(manifest.clone())?;
     parsed.validate()?;
     let capabilities = response(
@@ -175,6 +178,12 @@ pub async fn run(args: &[String]) -> Result<()> {
         );
     }
     if let Some(m) = &parsed.multiplayer {
+        if !parsed.launch_intents.is_empty() {
+            ensure!(
+                capabilities["launch_intents"]["version"] == 1,
+                "this Infuser does not support Join friend launch intents yet"
+            );
+        }
         let mode = serde_json::to_value(&m.mode)?;
         ensure!(
             capabilities["multiplayer"][mode.as_str().unwrap()] == true,

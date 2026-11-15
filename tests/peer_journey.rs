@@ -24,6 +24,7 @@ fn join<'a>(app: &'a str, build: &'a str) -> Join<'a> {
         connection: "connection-123456",
         max_players: 2,
         expected_epoch: None,
+        expected_player: None,
         joinable: None,
     }
 }
@@ -166,6 +167,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
             d.launches.insert(
                 id.into(),
                 Launch {
+                    intent: None,
                     app: "pond".into(),
                     build: "one".into(),
                     email: "adult@example.com".into(),

@@ -9,11 +9,12 @@ async function request(path, body, method = 'POST') {
   if (!response.ok) throw Object.assign(new Error(result.error || 'Peer session unavailable'), {status:response.status});
   return result;
 }
-export async function join({relayOnly = true, sessionId, joinable, onState = () => {}, onMessage = () => {}, onEnd = () => {}} = {}) {
+export async function join({relayOnly = true, sessionId, playerId, joinable, onState = () => {}, onMessage = () => {}, onEnd = () => {}} = {}) {
   if (sessionId !== undefined && (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId))) throw new TypeError('sessionId must be an observed session ID');
   if (joinable !== undefined && typeof joinable !== 'boolean') throw new TypeError('joinable must be a boolean');
+  if (playerId !== undefined && (sessionId === undefined || typeof playerId !== 'string' || !/^[a-zA-Z0-9-]{1,96}$/.test(playerId))) throw new TypeError('playerId requires a sessionId and an opaque player ID');
   const started = performance.now();
-  const initial = await request('', {connection_id: crypto.randomUUID(), relay_only: relayOnly, expected_epoch:sessionId, joinable});
+  const initial = await request('', {connection_id: crypto.randomUUID(), relay_only: relayOnly, expected_epoch:sessionId, expected_player:playerId, joinable});
   let state = initial, live = true, lastPoll = started, cursor = 0, refreshed = started, timer, healthTimer;
   let iceServers = initial.ice_servers;
   const links = new Map();

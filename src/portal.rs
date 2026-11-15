@@ -416,6 +416,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
         .route("/_infuser/presence/v1", get(presence::snapshot))
+        .route("/_infuser/launch-intent/v1/consume", post(consume_intent))
         .route("/_infuser/runtime/v1", get(runtime::status).post(runtime::acquire))
         .route("/_infuser/runtime/v1/{session}", delete(runtime::release))
         .route("/_infuser/peers", post(peer_join))
@@ -530,7 +531,13 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
         let b=&data.builds[&build_key(id,&a.build)];
         let players:Vec<_>=data.launches.values().filter(|l|l.app==*id&&l.seen+90>now()).map(|l|json!({"id":hash(&l.email),"name":data.members.get(&l.email).map(|m|m.name.as_str()).unwrap_or("Friend"),"guest":l.guest})).collect();
         let reactions:Vec<_>=data.reactions.get(id).into_iter().flat_map(|r|r.iter()).map(|(who,r)|json!({"name":data.members.get(who).map(|m|m.name.as_str()).unwrap_or("Friend"),"mine":*who==email,"emoji":r.emoji,"text":r.text,"updated":r.updated})).collect();
-        json!({"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        p.peers.retain_launches(id, &presence::live_launches(&data,id,now()),now());
+        let room = p.peers.discovery(id, &a.build, now());
+        let targets: Vec<_> = if b.manifest.launch_intents.contains(&crate::launch_intent::Kind::JoinFriend) && room["joinable"] == true {
+            room["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(&email))
+                .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
+        } else { vec![] };
+        json!({"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence
@@ -538,7 +545,12 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .filter(|(email, t)| {
             **t + 90 > now() && data.members.get(*email).is_some_and(|m| m.enabled)
         })
-        .map(|(email, _)| json!({"id":hash(email),"name":data.members[email].name}))
+        .map(|(email, _)| {
+            let targets: Vec<_> = apps.iter().flat_map(|app| app["join_targets"].as_array().unwrap().iter()
+                .filter(|target| target["player_id"] == hash(email))
+                .map(|target| json!({"app_id":app["id"],"title":app["title"],"session_id":target["session_id"],"player_id":target["player_id"]})).collect::<Vec<_>>()).collect();
+            json!({"id":hash(email),"name":data.members[email].name,"join_targets":targets})
+        })
         .collect();
     Ok(reply(
         json!({"apps":apps,"friends":friends,"server":p.controller.list(now()),"tags":crate::tags::catalog(&data,data.members[&email].admin)}),
@@ -551,6 +563,8 @@ struct LaunchRequest {
     guest: bool,
     #[serde(default)]
     mode: Option<String>,
+    #[serde(default)]
+    intent: Option<crate::launch_intent::Intent>,
 }
 async fn launch(
     State(p): State<Platform>,
@@ -571,6 +585,13 @@ async fn launch(
         fault(404, "unknown game")
     );
     let b = &data.builds[&build_key(&app, &selected.build)];
+    if let Some(intent) = &body.intent {
+        intent.validate(&b.manifest)?;
+        ensure!(
+            body.mode.is_none(),
+            fault(400, "use a launch intent or a legacy mode, not both")
+        );
+    }
     let mode = serde_json::to_value(&b.manifest.play_modes).unwrap();
     if let Some(requested) = &body.mode {
         ensure!(
@@ -604,7 +625,7 @@ async fn launch(
     } else {
         None
     };
-    let host_id = if body.guest {
+    let host_id = if body.guest || body.intent.is_some() {
         id.clone()
     } else {
         // A new build must not replace cookies/assets in an already-open old tab.
@@ -613,6 +634,7 @@ async fn launch(
     };
     let gamehost = format!("g-{host_id}.{}", p.domain());
     let l = Launch {
+        intent: body.intent,
         app,
         build: selected.build.clone(),
         email,
@@ -783,7 +805,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1166,8 +1188,21 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
+}
+async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (id, _) = p.game(&h)?;
+    let intent = p.db.edit(|d| {
+        let launch = d
+            .launches
+            .get_mut(&id)
+            .filter(|l| l.expires > now())
+            .ok_or_else(|| fault(410, "game session expired"))?;
+        Ok(launch.intent.take())
+    })?;
+    Ok(reply(json!({"intent":intent})))
 }
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (_, launch) = p.game(&h)?;
@@ -1208,6 +1243,8 @@ struct PeerJoin {
     relay_only: bool,
     #[serde(default)]
     expected_epoch: Option<String>,
+    #[serde(default)]
+    expected_player: Option<String>,
     #[serde(default)]
     joinable: Option<bool>,
 }
@@ -1266,6 +1303,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
             connection: &body.connection_id,
             max_players: multiplayer.max_players,
             expected_epoch: body.expected_epoch.as_deref(),
+            expected_player: body.expected_player.as_deref(),
             joinable: body.joinable,
         },
         now(),

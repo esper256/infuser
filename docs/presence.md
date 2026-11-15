@@ -119,8 +119,8 @@ The wire field is `expected_epoch` on `POST /_infuser/peers`. If the room ended 
 was replaced, return 410 without creating a room or appointing a host. Closed/full
 rooms return 409. A stale build also returns 409 and must reopen from the Library.
 Do not silently retry without the session ID: that would change the player's
-intent. A future launcher Join friend intent will use this same guard, but no
-launcher intent or UI is implemented by this feature.
+intent. [Launcher Join friend intents](launch-intents.md) use this same guard,
+plus a target player ID so a friend leaving also causes a visible failure.
 
 An ordinary Multiplayer choice with no observed session may call `peers.join()`
 without `sessionId`: it starts the one shared room, or joins a concurrently created

@@ -33,7 +33,19 @@ async fn main() -> Result<()> {
             .create_new(true)
             .mode(0o600)
             .open(output)?;
-        let launch = infuser::platform::preview(&config, app, email)?;
+        let intent = if args.len() == 5 {
+            None
+        } else {
+            ensure!(
+                args.len() == 9 && args[5] == "--join-session" && args[7] == "--join-player",
+                "optional preview intent: --join-session SESSION --join-player PLAYER"
+            );
+            Some(infuser::launch_intent::Intent::JoinFriend {
+                session_id: args[6].clone(),
+                player_id: args[8].clone(),
+            })
+        };
+        let launch = infuser::platform::preview(&config, app, email, intent)?;
         file.write_all(serde_json::to_string_pretty(&launch)?.as_bytes())?;
         file.sync_all()?;
         println!("Single-use guest preview written; open within two minutes.");

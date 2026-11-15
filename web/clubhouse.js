@@ -21,8 +21,7 @@ async function refresh() {
 function renderGames() {
   const games = $('games');
   // Preserve ongoing launch controls and selections during presence polling.
-  if (games.querySelector('[data-launching]')) return;
-  const choices = new Map([...games.querySelectorAll('select')].map(s => [s.dataset.app,s.value]));
+  if (games.querySelector('[data-launching], .play-menu[open]')) return;
   games.replaceChildren();
   if(!library.apps.length) {
     const empty = el('div',undefined,'empty'); empty.append(el('h2','Your library starts here.'),el('p',me.admin ? 'Hit Add a game, then give your existing game-making agent the setup prompt. Your published game will appear here.' : 'Already making a game? Hit Add a game and bring it over.')); games.append(empty);
@@ -39,24 +38,28 @@ function renderGames() {
     const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}card.append(tags);
     const names = [...new Set(game.players.map(p => p.name + (p.guest ? '’s guest' : '')))];
     card.append(el('p',names.length ? names.join(', ') + ' · game open' : 'Ready to launch','players'));
-    const actions=el('div',undefined,'actions'), play=el('button','Play'), select=el('select'); select.dataset.app=game.id;select.setAttribute('aria-label','Play options for '+game.title);
-    for(const guest of [false,true]) {const option=el('option',guest ? 'Play in guest mode' : 'My progress');option.value=guest?'guest':'player';select.append(option);}
-    if(choices.has(game.id))select.value=choices.get(game.id);
-    play.onclick=()=>start(game,play,select,card);actions.append(play,select);card.append(actions);
+    const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
+    const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
+    const items=el('div',undefined,'play-menu-items');
+    const guest=el('button','Play in guest mode');guest.onclick=()=>{menu.open=false;start(game,play,card,{guest:true});};items.append(guest);
+    for(const target of game.join_targets||[]){
+      const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
+    }
+    menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
+    play.onclick=()=>start(game,play,card);actions.append(play,menu);card.append(actions);
     const react=el('button','React to this game','react-button');react.onclick=()=>openReaction(game);card.append(react);
     if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}card.append(chips);}
     games.append(card);
   }
 }
-async function start(game,button,select,card) {
-  const guest=select.value==='guest';
+async function start(game,button,card,{guest=false,intent}={}) {
   // Open synchronously in the click event so browser popup blockers allow Play.
   const tab = window.open('about:blank','_blank');
   if(!tab){notice('Allow this site to open a game tab, then press Play again.');return;}
   tab.document.title='Opening '+game.title;tab.document.body.textContent='Getting '+game.title+' ready…';
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
   try {
-    const launch=await api(`/api/apps/${game.id}/launch`,{method:'POST',body:JSON.stringify({guest})});
+    const launch=await api(`/api/apps/${game.id}/launch`,{method:'POST',body:JSON.stringify({guest,intent})});
     const deadline=Date.now()+120000;let state=launch.state;
     while(state!=='ready') {
       if(tab.closed)throw Error('Game launch cancelled.');
@@ -68,6 +71,8 @@ async function start(game,button,select,card) {
     tab.opener=null;tab.location.replace(launch.url);
   } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent='Play';}
 }
+document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open]'))if(!menu.contains(event.target))menu.open=false;});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open]'))menu.open=false;});
 function renderFeed() {
   const feed=$('feed');feed.replaceChildren();const entries=[];
   for(const game of library.apps){entries.push({at:game.updated,emoji:'↗',title:game.title+' updated',text:'A new build is ready to play.'});for(const r of game.reactions)entries.push({at:r.updated,emoji:r.emoji,title:r.name+' reacted to '+game.title,text:r.text});}

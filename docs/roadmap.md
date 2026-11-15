@@ -16,8 +16,10 @@
   contract; see [runtime sessions](runtime-sessions.md). Legacy builds still warm
   on launch. [In-game presence and explicit peer joinability](presence.md) are
   implemented; dogfood title-screen discovery, host admission controls and stale
-  targeted joins in Firefly. Next: opt-in Join friend launch intents, then a
-  separate review of server-authenticated joinability for managed backends.
+  targeted joins in Firefly. [Join friend launch intents](launch-intents.md) are
+  implemented behind the card dropdown; online-player data also supports future
+  avatar actions. Review server-authenticated joinability separately for managed
+  backends. Keep secondary actions off the future game hero art.
 - Give games a readable, unique URL slug. Preserve guest origin isolation and
   build isolation; a friendly entry address may differ from its actual play
   origin. Account for renames, collisions, reserved names, and old links.

@@ -13,6 +13,8 @@ pub struct Manifest {
     pub play_modes: Vec<PlayMode>,
     pub solo_runtime: Option<SoloRuntime>,
     pub multiplayer: Option<Multiplayer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub launch_intents: Vec<crate::launch_intent::Kind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_start: Option<ServerStart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,6 +84,14 @@ pub struct Multiplayer {
 
 impl Manifest {
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.launch_intents.len() <= 1
+                && (self.launch_intents.is_empty()
+                    || self.multiplayer.as_ref().is_some_and(
+                        |m| m.mode == Mode::PeerHosted && m.transport == Transport::Webrtc
+                    )),
+            "join_friend currently requires peer-hosted WebRTC; declare it at most once"
+        );
         ensure!(
             self.server_start.is_none()
                 || matches!(self.solo_runtime, Some(SoloRuntime::SharedServer))

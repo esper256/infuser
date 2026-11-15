@@ -48,7 +48,12 @@ export const presence = {
   // A snapshot only: no backend acquisition, peer lease, or presence spoofing.
   get: () => request('presence/v1', {signal:AbortSignal.timeout(5000)})
 };
-export const Infuser = { ready, saves, leave, peers, cloud, runtime, presence };
+export const launchIntent = {
+  // Consume in the game after loading its state, never in the embedding player.
+  // At most once: refresh and lost-response retries cannot silently replay a join.
+  consume: () => request('launch-intent/v1/consume', {method:'POST',signal:AbortSignal.timeout(5000)})
+};
+export const Infuser = { ready, saves, leave, peers, cloud, runtime, presence, launchIntent };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.

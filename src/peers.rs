@@ -45,6 +45,7 @@ pub struct Join<'a> {
     pub connection: &'a str,
     pub max_players: u32,
     pub expected_epoch: Option<&'a str>,
+    pub expected_player: Option<&'a str>,
     pub joinable: Option<bool>,
 }
 struct Peer {
@@ -179,6 +180,21 @@ impl Rooms {
             ensure!(
                 rooms.get(request.app).is_some_and(|r| r.epoch == epoch),
                 fault(410, "that shared session ended; return to the title screen")
+            );
+        }
+        if let Some(player) = request.expected_player {
+            ensure!(
+                request.expected_epoch.is_some(),
+                fault(400, "a friend target requires a session ID")
+            );
+            ensure!(
+                rooms
+                    .get(request.app)
+                    .is_some_and(|r| r.peers.values().any(|p| p.identity.player == player)),
+                fault(
+                    410,
+                    "that friend left the session; return to the title screen"
+                )
             );
         }
         let existing = rooms

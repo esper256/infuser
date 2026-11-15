@@ -4,6 +4,7 @@ pub mod cloud;
 pub mod config;
 pub mod controller;
 pub mod docker;
+pub mod launch_intent;
 pub mod manifest;
 pub mod store;
 pub mod tags;

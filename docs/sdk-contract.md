@@ -61,8 +61,9 @@ retain launch-time warming and explicit-mode launch requests remain accepted.
 Peer-hosted games already enter multiplayer explicitly through `peers.join()`.
 [In-game presence and explicit peer joinability](presence.md) are implemented
 experimentally. A targeted peer join binds to the observed session ID; it never
-creates a replacement world. Launcher Join friend intents and dedicated-server
-joinability reports are not implemented yet.
+creates a replacement world. [Join friend launch intents](launch-intents.md) are
+opt-in and consumed once by the game, with guarded friend/session admission.
+Dedicated-server joinability reports are not implemented yet.
 
 ## Compatibility promise to implement before 1.0
 
