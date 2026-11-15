@@ -1,11 +1,14 @@
 # Next steps
 
-- Stay focused on Three.js/Vite until its complete journey is solid: publishing,
-  updates, saves, guest isolation, sessions, and the SDK contract. Firefly remains
-  a disposable preview during this period. Do not expand engine compatibility
-  while these contracts are still changing.
-- Review and stabilize the [game SDK 1.0 contract](sdk-contract.md) before real
-  games depend on it. Then consider Godot and Bevy; their implementation is paused.
+- Before freezing SDK 1.0, exercise [Godot web](engines/godot-web.md) with the
+  hidden Lantern Lake test game: real GDScript saves, guest isolation, and Godot
+  RPCs over forced TURN. This study now passes in Chromium. Next validate on
+  actual Windows and Bazzite browsers, plus threaded exports and session recovery.
+  Then study native Windows/Linux launch authentication, save directories and
+  artifact delivery; Bazzite is a required target. Bevy remains paused.
+- Review the [game SDK 1.0 contract](sdk-contract.md) after these engine studies
+  expose browser-specific assumptions. Major 1 remains preview. Firefly is now
+  listed by the operator's request; preserve its active build.
 - Dogfood experimental [peer-hosted WebRTC](peer-hosting.md) in Firefly first:
   forced TURN, two autoplay clients, host departure/rejoin, connection recovery,
   and queued updates. Keep multiplayer protocol changes experimental until review.

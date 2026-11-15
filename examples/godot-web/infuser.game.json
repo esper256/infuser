@@ -1,0 +1,27 @@
+{
+  "title": "Lantern Lake",
+  "tags": ["adventure", "co-op"],
+  "sdk": {
+    "major": 1,
+    "api_major": 1,
+    "required_capabilities": ["identity.v1", "cloud_checkpoints.v1", "peers.webrtc.v1"]
+  },
+  "play_modes": ["solo", "multiplayer"],
+  "solo_runtime": "client_only",
+  "multiplayer": {
+    "mode": "peer_hosted",
+    "transport": "webrtc",
+    "max_players": 2,
+    "join_policy": "anytime",
+    "direct_connect": "optional",
+    "relay_fallback": "required"
+  },
+  "cross_origin_isolation": false,
+  "cloud_saves": {
+    "groups": [{
+      "id": "progress",
+      "label": "Lanterns collected",
+      "files": [{"path": "progress.json", "format": "json"}]
+    }]
+  }
+}

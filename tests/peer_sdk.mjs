@@ -49,12 +49,22 @@ function setup(t, role = 'host') {
     close() { this.connectionState='closed'; this.closed=true; if(this.dc)this.dc.readyState='closed'; }
   });
   return {snapshot,requests,connections,endings,states,messages,indicators,
-    start:()=>join({onEnd:r=>endings.push(r),onState:s=>states.push(s),onMessage:(...m)=>messages.push(m)}),
+    start:(options={})=>join({...options,onEnd:r=>endings.push(r),onState:s=>states.push(s),onMessage:(...m)=>messages.push(m)}),
     poll:promise=>{nextPoll=promise;}, offer:promise=>{offerGate=promise;}, answer:promise=>{answerGate=promise;},
     async advance(ms=0) { clock+=ms; t.mock.timers.tick(ms); await setImmediate(); },
     open(pc) { pc.connectionState='connected'; pc.dc.readyState='open'; pc.dc.onopen(); },
   };
 }
+
+test('connection preference permits direct paths in v1; explicit relay tests stay relay-only', async t => {
+  const h=setup(t);
+  const room=await h.start();
+  assert.equal(h.requests[0].body.relay_only,variant==='legacy');
+  room.close();
+  const forced=await h.start({relayOnly:true});
+  assert.equal(h.requests.filter(r=>r.path.endsWith('/peers')).at(-1).body.relay_only,true);
+  forced.close();
+});
 
 test('leaving while a poll is in flight cannot reopen connections or the indicator', async t => {
   const h=setup(t), pending=deferred();

@@ -9,6 +9,11 @@ Declare both supported play modes in `infuser.game.json`:
 
 ```json
 {
+  "sdk": {
+    "major": 1,
+    "api_major": 1,
+    "required_capabilities": ["peers.webrtc.v1"]
+  },
   "play_modes": ["solo", "multiplayer"],
   "solo_runtime": "client_only",
   "multiplayer": {
@@ -16,7 +21,7 @@ Declare both supported play modes in `infuser.game.json`:
     "transport": "webrtc",
     "max_players": 4,
     "join_policy": "anytime",
-    "direct_connect": "disabled",
+    "direct_connect": "optional",
     "relay_fallback": "required"
   }
 }
@@ -31,9 +36,9 @@ Closing admission does not remove existing players. See [presence and
 joinability](presence.md) for title-screen discovery and safe targeted joins.
 
 ```js
-import { peers } from '/_infuser/sdk.js';
+import { peers } from '/_infuser/sdk/v1.js';
 const room = await peers.join({
-  relayOnly: true,
+  relayOnly: false, // Normal play: allow direct paths, retain TURN fallback.
   joinable: false, // Keep new players out until the host's game state is ready.
   onState(state) { /* state.peers, state.connected, state.role */ },
   onMessage(from, data) { /* validate game messages before applying */ },
@@ -47,6 +52,19 @@ room.broadcast({ type: 'snapshot', tick: 1 });
 console.log(await room.stats()); // selected local/remote candidate types + bytes
 room.close();
 ```
+
+Normal peer-hosted play prefers LAN host candidates, then direct public-address
+paths, then TURN. ICE prioritizes and checks candidate pairs; it does not impose
+three long sequential timeouts, and the selected working path depends on the
+browser and network. UPnP is not required. SDK major 1 defaults to allowing direct
+paths; the legacy SDK retains its old default. `direct_connect: disabled` in the
+published manifest still enforces relay-only behavior, regardless of the client
+option. Use `relayOnly: true` for a forced-fallback acceptance run, and prove the
+selected pair is relay/relay with traffic in both directions.
+
+The [Godot web study](engines/godot-web.md) uses the same coordinator and relay,
+but Godot owns its `WebRTCMultiplayerPeer` channels and RPCs. The JSON messaging
+API below describes the browser helper, not Godot's wire protocol.
 
 To join the session shown on a title screen, pass `sessionId: snapshot.session.id`
 to `peers.join()`. This must fail if that session ended or stopped accepting
