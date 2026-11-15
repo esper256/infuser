@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nightglass · card option</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#080e14;color:#edf4f3}
+*{box-sizing:border-box}
+body{margin:0;padding:32px 18px}
+main{max-width:440px;margin:auto}
+h1{font-size:20px;font-weight:600;margin:0 0 8px}
+.note,#status{font-size:12px;line-height:1.5;color:#91a4af;margin:0 0 24px}
+.card{position:relative;isolation:isolate;aspect-ratio:.95;container-type:inline-size;overflow:hidden;border-radius:22px;border:1px solid #ffffff19;background:#102d32;box-shadow:0 18px 50px #0004;transition:transform .3s ease,box-shadow .3s ease;--mx:60%}
+.art{position:absolute;z-index:-3;inset:0;width:100%;height:100%;object-fit:cover;object-position:32% 50%;transition:transform .7s cubic-bezier(.2,.8,.2,1)}
+.card:before{content:"";position:absolute;inset:0;z-index:-2;background:linear-gradient(transparent 62%,#001b2655);pointer-events:none}
+/* Content-sized, bottom-right; never stretched between two horizontal insets. */
+.dock{position:absolute;right:16px;bottom:16px;width:max-content;max-width:calc(100% - 32px);padding:12px;display:flex;align-items:center;gap:12px;border:1px solid #b9f5ee35;border-top-color:#d8fff45c;border-radius:16px;background:linear-gradient(125deg,#173e4080,#071e2be8);backdrop-filter:blur(16px) saturate(.8);box-shadow:0 8px 30px #00101855,inset 0 1px #fff1}
+.dock:before{content:"";position:absolute;inset:0;border-radius:inherit;background:radial-gradient(ellipse at var(--mx) 0,#b5f5d41c,transparent 65%);pointer-events:none}
+.row{display:flex;justify-content:flex-end;align-items:center;gap:7px;min-width:0}
+.title{font-size:clamp(22px,5.5cqw,27px);letter-spacing:-.045em;text-align:right;line-height:1.05;margin:0;overflow-wrap:anywhere}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid #b9b0ff;outline-offset:3px}
+.creator{position:relative;border:0;display:grid;place-items:center;background:transparent;width:44px;height:44px;padding:4px;border-radius:50%;flex:none}
+.creator img{width:36px;height:36px;object-fit:cover;object-position:25% 25%;border:1px solid #a5dac2;box-shadow:0 2px 8px #0006;border-radius:50%}
+.tooltip{visibility:hidden;opacity:0;position:absolute;bottom:calc(100% + 8px);right:0;white-space:nowrap;padding:7px 10px;border:1px solid #40505c;background:#101a23;border-radius:7px;font-size:12px;color:#f3f7f7;pointer-events:none}
+.creator:hover .tooltip,.creator:focus .tooltip{visibility:visible;opacity:1}
+.play{display:flex;width:max-content;flex:none}
+.play button{height:42px;border:0;background:#b8edda;color:#172c2d;font-weight:750}
+.launch{padding:0 16px;border-radius:10px 0 0 10px;font-size:14px}
+.play .options{width:28px;border-radius:0 10px 10px 0;border-left:1px solid #172c2d33;font-size:13px}
+.play button:hover{filter:brightness(1.1)}
+.play button:active{filter:brightness(.9)}
+#status{margin-top:18px;min-height:18px}
+@container(max-width:390px){.dock{display:block}.title{font-size:25px}.play{margin:7px 0 0 auto}}
+@media(hover:hover){.card:hover{transform:translateY(-4px);box-shadow:0 24px 55px #0007}.card:hover .art{transform:scale(1.035)}.card:hover .dock{border-color:#d0fff378}}
+.card:focus-within .art{transform:scale(1.025)}
+@media(pointer:coarse){.play button{height:44px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}.card:hover,.card:hover .art,.card:focus-within .art{transform:none}}
+</style>
+</head>
+<body>
+<main>
+<h1>Nightglass</h1>
+<p class="note">Design option · concept art and placeholder avatar · preview controls</p>
+<article class="card">
+<img class="art" src="hero.webp" alt="">
+<div class="dock">
+<div class="row"><h2 class="title">Firefly Drift</h2><button class="creator" aria-label="Sample creator (placeholder avatar)"><img src="hero.webp" alt=""><span class="tooltip">Sample creator</span></button></div>
+<div class="play"><button class="launch">Play</button><button class="options" aria-label="Play options">⌄</button></div>
+</div>
+</article>
+<p id="status" role="status"></p>
+</main>
+<script>
+const card=document.querySelector('.card'), reduced=matchMedia('(prefers-reduced-motion: reduce)');
+card.addEventListener('pointermove',event=>{if(reduced.matches||event.pointerType==='touch')return;const bounds=card.getBoundingClientRect();card.style.setProperty('--mx',100*(event.clientX-bounds.left)/bounds.width+'%')});
+document.querySelectorAll('.play button').forEach(button=>button.onclick=()=>{document.getElementById('status').textContent='Preview only — no game launched.'});
+</script>
+</body>
+</html>
