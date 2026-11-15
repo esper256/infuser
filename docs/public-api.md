@@ -7,6 +7,8 @@ New integrations should use [versioned SDK/API routes](sdk-versioning.md).
 The legacy game routes below remain supported; major 1 uses the same feature
 paths under `/_infuser/api/v1`.
 Public traffic goes through HTTPS/Caddy; `/v1/*` is still private to the host.
+Member-only [Library chat and client update detection](library-chat.md) are
+separate from the game SDK and publisher credentials.
 
 ## Publisher credentials
 

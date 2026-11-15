@@ -1,3 +1,5 @@
+import { initChat } from '/assets/chat.js';
+import { initClientUpdates } from '/assets/client-updates.js';
 const $ = id => document.getElementById(id);
 const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
@@ -102,7 +104,7 @@ function renderPresence() {
   const people=[...(library.friends||[])].sort((a,b)=>Number(b.id===me.player_id)-Number(a.id===me.player_id)),list=$('friends');list.replaceChildren();list.hidden=!people.length;
   for(const person of people.slice(0,2)){
     const nameLabel=person.name+(person.id===me.player_id?' · you':'');
-    const item=el('li',undefined,'presence-person');item.tabIndex=0;item.setAttribute('aria-label',nameLabel+' · online');
+    const item=el('li',undefined,'presence-person');item.dataset.playerId=person.id;item.tabIndex=0;item.setAttribute('aria-label',nameLabel+' · online');
     const name=el('span',nameLabel,'presence-name');name.setAttribute('aria-hidden','true');item.append(profileAvatar(person.name,person.id,person.avatar),name);list.append(item);
   }
   if(people.length>2){const extra=people.slice(2),item=el('li','+'+extra.length,'presence-person presence-more');item.tabIndex=0;item.setAttribute('aria-label',extra.map(p=>p.name).join(', ')+' · online');const names=el('span',extra.map(p=>p.name).join(' · '),'presence-name');names.setAttribute('aria-hidden','true');item.append(names);list.append(item);}
@@ -295,6 +297,8 @@ $('profile-form').onsubmit=async event=>{
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();$('recent-menu').hidden=false;
+  initChat({me, api, profileAvatar});
+  initClientUpdates({api});
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
   if(me.admin){$('admin').hidden=false;await adminRefresh();}
 } catch(error) {if(error.status!==401)$('login-message').textContent=error.message;}

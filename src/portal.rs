@@ -33,6 +33,8 @@ use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
 mod avatars;
 mod card_art;
+mod chat;
+mod client;
 mod metadata;
 mod native;
 mod presence;
@@ -401,7 +403,7 @@ pub fn router(platform: Platform) -> Router {
             "/assets/clubhouse.js",
             get(|| async {
                 (
-                    [(header::CONTENT_TYPE, "text/javascript")],
+                    [(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")],
                     include_str!("../web/clubhouse.js"),
                 )
             }),
@@ -410,14 +412,14 @@ pub fn router(platform: Platform) -> Router {
             "/assets/clubhouse.css",
             get(|| async {
                 (
-                    [(header::CONTENT_TYPE, "text/css")],
+                    [(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")],
                     include_str!("../web/clubhouse.css"),
                 )
             }),
         )
-        .route("/assets/themes.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript")], include_str!("../web/themes.js")) }))
-        .route("/assets/themes/nightglass.css", get(|| async { ([(header::CONTENT_TYPE, "text/css")], include_str!("../web/themes/nightglass.css")) }))
-        .route("/assets/themes/cartridge-club.css", get(|| async { ([(header::CONTENT_TYPE, "text/css")], include_str!("../web/themes/cartridge-club.css")) }))
+        .route("/assets/themes.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes.js")) }))
+        .route("/assets/themes/nightglass.css", get(|| async { ([(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes/nightglass.css")) }))
+        .route("/assets/themes/cartridge-club.css", get(|| async { ([(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes/cartridge-club.css")) }))
         .route(
             "/assets/google-signin.png",
             get(|| async {
@@ -431,6 +433,11 @@ pub fn router(platform: Platform) -> Router {
         .route("/assets/avatars/{id}/{size}", get(avatars::image))
         .route("/api/profile", put(avatars::update).layer(DefaultBodyLimit::max(1024)))
         .route("/api/library", get(library))
+        .route("/api/client-state", get(client::state))
+        .route("/assets/client-updates.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/client-updates.js")) }))
+        .route("/api/chat", get(chat::list).post(chat::send).layer(DefaultBodyLimit::max(4096)))
+        .route("/api/chat/{id}", delete(chat::remove))
+        .route("/assets/chat.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/chat.js")) }))
         .route("/api/games/{slug}", get(urls::resolve))
         .route("/api/apps/{app}/slug", put(urls::owner_rename))
         .route("/api/apps/{app}/tags",put(set_tags))
@@ -546,7 +553,14 @@ async fn page(State(p): State<Platform>, request: Request) -> Answer {
     if host(request.headers()) != p.domain() {
         return game_file(State(p), request).await;
     }
-    Ok(([("Cache-Control","no-store"),("Content-Security-Policy","default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/index.html"))).into_response())
+    let html = include_str!("../web/index.html").replace(
+        "</head>",
+        &format!(
+            "<meta name=\"infuser-client-version\" content=\"{}\"></head>",
+            client::version()
+        ),
+    );
+    Ok(([("Cache-Control","no-store"),("Content-Security-Policy","default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")],Html(html)).into_response())
 }
 async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
