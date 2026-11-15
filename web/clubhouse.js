@@ -159,7 +159,7 @@ async function startDesktop(game,button,card,{guest=false}={}){
     const install=el('a','Install Infuser','button secondary');
     install.href='https://github.com/esper256/infuser/releases/latest/download/'+(platform==='windows-x86_64'?'Infuser-Setup.exe':'Infuser.flatpak');
     const close=el('button','Done','secondary');close.onclick=()=>dialog.close();
-    const actions=el('div',undefined,'actions');actions.append(open,install,close);dialog.append(heading,text,actions);document.body.append(dialog);dialog.showModal();
+    const actions=el('div',undefined,'desktop-actions');actions.append(open,install,close);dialog.append(heading,text,actions);document.body.append(dialog);dialog.showModal();
     // Keep a real link available if the browser requires a fresh user gesture.
     open.click();
   }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent='Play';}
