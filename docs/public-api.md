@@ -3,6 +3,9 @@
 The engine recipes are the preferred entry point. These are **pre-1.0** low-level
 building blocks for custom agents; see the [SDK compatibility review](sdk-contract.md).
 All bodies/responses are JSON unless noted.
+New integrations should use [versioned SDK/API routes](sdk-versioning.md).
+The legacy game routes below remain supported; major 1 uses the same feature
+paths under `/_infuser/api/v1`.
 Public traffic goes through HTTPS/Caddy; `/v1/*` is still private to the host.
 
 ## Publisher credentials
@@ -21,6 +24,7 @@ or control the host. Admin revocation and member disabling take effect immediate
 | GET | `/api/publisher/capabilities` | Supported runtimes, architecture, limits |
 | POST | `/api/publisher/claim` | Exchange a setup code for permanent app-scoped credentials |
 | GET | `/api/publisher/tags` | Current tag catalog |
+| PUT | `/api/publisher/apps/APP/slug` | Rename the durable URL; preserve old aliases |
 | PUT | `/api/publisher/apps/APP/tags` | Set this game's tags |
 | PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
 | GET | same | Inspect metadata and uploaded file inventory |
@@ -40,9 +44,13 @@ numbers or dashes, without leading/trailing dashes. Prefer the catalog; custom
 tags are allowed. Manifest `tags` initializes the game's tags at first publication;
 later builds preserve author edits. Use the tags endpoint to change them explicitly.
 
+See [readable game URLs](game-urls.md) for authenticated resolution and naming.
+Publishing responses include the canonical `slug` and `url`.
+
 The manifest follows `examples/game-manifest.json`. IDs are lowercase slug strings,
 up to 48 characters, beginning with a letter. Upload a UTF-8 `index.html` including
-`<script type="module" src="/_infuser/sdk.js"></script>`; the CLI adds it for you.
+`<script type="module" src="/_infuser/sdk/v1.js"></script>` for a major-1
+declaration, or `/_infuser/sdk.js` for legacy builds; the CLI adds it for you.
 Files are limited to 64 MiB, builds to 256 MiB/4096 files, and each app to 12 builds.
 The installation also has an aggregate content budget and a free-disk reserve.
 Drafts can be resumed by checking the file inventory. Published files are immutable.

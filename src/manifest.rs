@@ -8,6 +8,8 @@ pub struct Manifest {
     pub schema_version: u32,
     pub app_id: String,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sdk: Option<crate::sdk_contract::Requirement>,
     #[serde(default)]
     pub tags: Vec<String>,
     pub play_modes: Vec<PlayMode>,
@@ -84,6 +86,9 @@ pub struct Multiplayer {
 
 impl Manifest {
     pub fn validate(&self) -> Result<()> {
+        if let Some(sdk) = &self.sdk {
+            sdk.validate()?;
+        }
         ensure!(
             self.launch_intents.len() <= 1
                 && (self.launch_intents.is_empty()

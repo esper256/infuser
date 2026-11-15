@@ -34,6 +34,8 @@ use tower_http::services::ServeFile;
 mod avatars;
 mod presence;
 mod runtime;
+mod sdk_v1;
+mod urls;
 
 pub fn fault(status: u16, message: &str) -> anyhow::Error {
     Fault {
@@ -350,6 +352,10 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/publisher/capabilities", get(capabilities))
         .route("/api/publisher/tags", get(publisher_tags))
         .route("/api/publisher/apps/{app}/tags", put(publisher_set_tags))
+        .route(
+            "/api/publisher/apps/{app}/slug",
+            put(urls::publisher_rename),
+        )
         .route("/api/publisher/apps/{app}", delete(unpublish))
         .route(
             "/api/publisher/apps/{app}/builds/{build}",
@@ -367,7 +373,12 @@ pub fn router(platform: Platform) -> Router {
         .layer(ConcurrencyLimitLayer::new(1));
     Router::new()
         .merge(publishing)
+        .nest("/_infuser/api/v1", sdk_v1::routes())
+        .route("/_infuser/sdk/v1.js", get(sdk_v1::core))
+        .route("/_infuser/sdk/v1/peers.js", get(sdk_v1::peers))
+        .route("/_infuser/sdk/v1/cloud.js", get(sdk_v1::cloud))
         .route("/", get(page))
+        .route("/games/{slug}", get(page))
         .route("/clubhouse", get(page))
         .route("/library", get(page))
         .route(
@@ -401,6 +412,8 @@ pub fn router(platform: Platform) -> Router {
         .route("/assets/avatars/{id}/{size}", get(avatars::image))
         .route("/api/profile", put(avatars::update).layer(DefaultBodyLimit::max(1024)))
         .route("/api/library", get(library))
+        .route("/api/games/{slug}", get(urls::resolve))
+        .route("/api/apps/{app}/slug", put(urls::owner_rename))
         .route("/api/apps/{app}/tags",put(set_tags))
         .route("/api/my-games", post(new_game))
         .route("/api/my-games/{app}/setup",post(renew_setup))
@@ -541,7 +554,7 @@ async fn library(State(p): State<Platform>, h: HeaderMap) -> Answer {
                 .map(|player|json!({"session_id":room["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]})).collect()
         } else { vec![] };
         let author = data.owners.get(id).and_then(|owner| data.members.get(owner).map(|member|json!({"id":hash(owner),"name":member.name,"avatar":member.avatar})));
-        json!({"author":author,"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
+        json!({"author":author,"slug":data.game_urls.get(id).map(|u|&u.slug),"url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),"join_targets":targets,"id":id,"title":b.manifest.title,"play_modes":b.manifest.play_modes,"multiplayer":b.manifest.multiplayer,"build":a.build,"updated":a.updated,"preview":!a.listed,"players":players,"reactions":reactions,"tags":data.tags.get(id).cloned().unwrap_or_default(),"can_edit_tags":data.members[&email].admin||data.owners.get(id)==Some(&email)})
     }).collect();
     let friends: Vec<_> = data
         .presence
@@ -589,6 +602,10 @@ async fn launch(
         fault(404, "unknown game")
     );
     let b = &data.builds[&build_key(&app, &selected.build)];
+    if let Some(sdk) = &b.manifest.sdk {
+        sdk.admit(&crate::sdk_contract::capabilities(p.relay.is_some()))
+            .map_err(|e| fault(422, &e.to_string()))?;
+    }
     if let Some(intent) = &body.intent {
         intent.validate(&b.manifest)?;
         ensure!(
@@ -636,7 +653,7 @@ async fn launch(
         // Personal cloud saves keep the same player/app key across these origins.
         hash(&format!("{email}/{app}/{}", selected.build))[..32].into()
     };
-    let gamehost = format!("g-{host_id}.{}", p.domain());
+    let gamehost = crate::game_urls::host(&data, &app, &host_id, p.domain());
     let l = Launch {
         intent: body.intent,
         app,
@@ -809,7 +826,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -836,6 +853,10 @@ async fn create_build(
     body.manifest
         .validate()
         .map_err(|e| fault(400, &e.to_string()))?;
+    if let Some(sdk) = &body.manifest.sdk {
+        sdk.admit(&crate::sdk_contract::capabilities(p.relay.is_some()))
+            .map_err(|e| fault(422, &e.to_string()))?;
+    }
     if let Some(m) = &body.manifest.multiplayer {
         ensure!(
             matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld)
@@ -1026,8 +1047,10 @@ async fn publish(
     p.publisher(&h, Some(&app), "publish")?;
     let _guard = p.publishing.lock().unwrap();
     let state = p.promote(&app, &build, body.as_ref().is_none_or(|b| b.listed))?;
-    let mut response =
-        reply(json!({"app_id":app,"build_id":build,"branch":"default","state":state}));
+    let slug = p.db.read()?.game_urls[&app].slug.clone();
+    let mut response = reply(
+        json!({"app_id":app,"build_id":build,"branch":"default","state":state,"slug":slug,"url":format!("https://{}/games/{slug}",p.domain())}),
+    );
     if state == "queued" {
         *response.status_mut() = StatusCode::ACCEPTED;
     }
@@ -1042,7 +1065,10 @@ impl Platform {
             let b = d.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?.clone();
             anyhow::ensure!(b.files.contains_key("index.html"), fault(422,"web build needs index.html"));
             let index = std::fs::read_to_string(self.root().join(&key).join("index.html"))?;
-            anyhow::ensure!(index.contains("/_infuser/sdk.js"), fault(422,"include <script type=module src=\"/_infuser/sdk.js\"></script> so the game maintains its session"));
+            if let Some(sdk) = &b.manifest.sdk { sdk.admit(&crate::sdk_contract::capabilities(self.relay.is_some())).map_err(|e|fault(422,&e.to_string()))?; }
+            let script = crate::sdk_contract::script(&b.manifest);
+            anyhow::ensure!(index.contains(script), fault(422,&format!("include <script type=module src=\"{script}\"></script> so the game maintains its session")));
+            crate::game_urls::assign(d, app, &b.manifest.title);
             let changes_server = b.server.is_some() || d.apps.get(app).is_some_and(|a| d.builds[&build_key(app,&a.build)].server.is_some());
             let running = self.controller.snapshot().games.get(app).is_some_and(|i|i.reserved());
             if ((changes_server && running) || self.peers.active(app, now())) && !d.apps.get(app).is_some_and(|a|a.build==build) {
@@ -1192,7 +1218,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sdk":crate::sdk_contract::capabilities(p.relay.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1518,15 +1544,23 @@ async fn verify_ticket(
     ))
 }
 async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
+    ensure!(
+        !request.uri().path().starts_with("/_infuser/"),
+        fault(404, "unsupported Infuser route")
+    );
     if host(request.headers()) == p.domain() {
         return Err(fault(404, "not found").into());
     }
     let valid_host = host(request.headers())
         .strip_suffix(&format!(".{}", p.domain()))
         .is_some_and(|label| {
-            label.starts_with("g-")
-                && label.len() == 34
-                && label[2..].bytes().all(|b| b.is_ascii_hexdigit())
+            let opaque = label.strip_prefix("g-").or_else(|| {
+                label
+                    .split_once("--g-")
+                    .filter(|(slug, _)| crate::game_urls::valid(slug))
+                    .map(|(_, id)| id)
+            });
+            opaque.is_some_and(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
         });
     ensure!(valid_host, fault(404, "unknown game host"));
     let h = request.headers();
@@ -1662,6 +1696,7 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
             },
         );
         d.owners.insert(app.clone(), email);
+        crate::game_urls::assign(d, &app, &body.title);
         Ok(())
     })?;
     let code = format!("infuser_setup_{token}");

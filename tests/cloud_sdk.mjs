@@ -1,7 +1,10 @@
 // Run with Node's built-in runner; no npm dependencies or browser installation.
-import test from 'node:test';
+import baseTest from 'node:test';
 import assert from 'node:assert/strict';
-import { cloud } from '../sdk/cloud-v1.js';
+import { cloud as legacyCloud } from '../sdk/cloud-v1.js';
+import { cloud as versionedCloud } from '../sdk/v1/cloud.js';
+for(const [variant,cloud] of [['legacy',legacyCloud],['v1',versionedCloud]]) {
+const test=(name,fn)=>baseTest(variant+': '+name,fn);
 
 test('lost acknowledgement retries the identical checkpoint; conflicts and quota failures stay explicit', async()=>{
   const original=globalThis.fetch;
@@ -22,3 +25,5 @@ test('lost acknowledgement retries the identical checkpoint; conflicts and quota
     await assert.rejects(cloud.commit('campaign',{commitId:'test-checkpoint-0004',files}),error=>error.code==='invalid_checkpoint');
   }finally{globalThis.fetch=original;}
 });
+
+}

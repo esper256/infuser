@@ -65,7 +65,7 @@ creates a replacement world. [Join friend launch intents](launch-intents.md) are
 opt-in and consumed once by the game, with guarded friend/session admission.
 Dedicated-server joinability reports are not implemented yet.
 
-## Compatibility promise to implement before 1.0
+## Compatibility foundation and promise for 1.0
 
 - Version the game SDK and wire protocol independently of daemon releases.
   Uploaded builds declare their required major; never silently bind them to a
@@ -81,11 +81,11 @@ Dedicated-server joinability reports are not implemented yet.
   guest isolation, and session renewal against the new daemon. Add cases when
   a durable new contract ships; keep the checks fast.
 
-The current `/_infuser/sdk.js` and unversioned game routes do **not** provide this
-promise yet. Do not advertise them as stable or start a second engine adapter
-while the first is still changing. Settle and exercise the contract with
-Three.js/Vite before expanding compatibility. During review, consider whether
-the wire format is usable from other engines without implementing their adapters.
+The [versioning foundation](sdk-versioning.md) is implemented: explicit SDK/API
+majors, capability admission, separate v1 imports/routes, and a frozen old-client
+journey. Legacy imports/routes remain available. Major 1 is still a preview, not
+a declaration that the full SDK contract is frozen. Review the durable semantics
+above before calling it stable or starting a second engine adapter.
 
 ## Later features: achievements as an example
 

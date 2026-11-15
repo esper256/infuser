@@ -26,7 +26,9 @@ publishing, saves, sessions, and SDK contract are still changing.
    - **[Godot web export](engines/godot-web.md)** — export and adapter path.
    - **[Godot multiplayer](engines/godot-multiplayer.md)** — explicit transport choices; recipe in progress.
    - **[Bevy](engines/bevy.md)** — browser export first; recipe in progress.
-3. Query `GET /api/publisher/capabilities` with the pass's bearer token before
+3. Declare the [SDK/API major and required capabilities](sdk-versioning.md) for
+   new integrations; use the matching versioned runtime import. Query
+   `GET /api/publisher/capabilities` with the pass's bearer token before
    choosing a multiplayer integration. Engine choice does **not** tell you the
    game's topology. Solo and multiplayer may both be supported.
 4. Use the Infuser CLI matching this server's current release. Linux AMD64/ARM64
@@ -102,6 +104,9 @@ connection is an optional optimization. Experimental [WebRTC peer hosting](peer-
 is available on installations configured with TURN; check capabilities first.
 The separate datagram/WebSocket relay mode is not implemented. There is no
 LAN-only/direct-only fallback.
+
+A [readable game link](game-urls.md) is assigned automatically. Keep the immutable
+app ID for updates. A slug rename preserves old entry links and cloud saves.
 
 ## Updates and cleanup
 

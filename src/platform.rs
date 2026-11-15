@@ -89,6 +89,8 @@ pub struct Reaction {
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Data {
+    #[serde(skip)]
+    pub game_urls: BTreeMap<String, crate::game_urls::GameUrl>,
     #[serde(default)]
     pub pending_promotions: BTreeMap<String, PendingPromotion>,
     #[serde(default)]
@@ -109,6 +111,19 @@ pub struct Data {
 // live separately so an old binary rewriting that catalog cannot erase them.
 fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     let mut data: Data = serde_json::from_str(raw)?;
+    let mut statement = c.prepare("SELECT app,declaration FROM game_urls")?;
+    for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (app, declaration) = row?;
+        data.game_urls
+            .insert(app, serde_json::from_str(&declaration)?);
+    }
+    let mut statement = c.prepare("SELECT build_key,declaration FROM sdk_manifests")?;
+    for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (key, declaration) = row?;
+        if let Some(build) = data.builds.get_mut(&key) {
+            build.manifest.sdk = Some(serde_json::from_str(&declaration)?);
+        }
+    }
     let mut statement = c.prepare("SELECT build_key,declaration FROM cloud_manifests")?;
     for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
         let (key, declaration) = row?;
@@ -134,7 +149,17 @@ fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
 }
 fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
     let mut value = serde_json::to_value(data)?;
+    for (app, url) in &data.game_urls {
+        tx.execute("INSERT INTO game_urls(app,declaration) VALUES(?1,?2) ON CONFLICT(app) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![app,serde_json::to_string(url)?])?;
+    }
     for (key, build) in &data.builds {
+        if let Some(sdk) = &build.manifest.sdk {
+            tx.execute("INSERT INTO sdk_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(sdk)?])?;
+        }
+        value["builds"][key]["manifest"]
+            .as_object_mut()
+            .unwrap()
+            .remove("sdk");
         if !build.manifest.launch_intents.is_empty() {
             tx.execute("INSERT INTO intent_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(&build.manifest.launch_intents)?])?;
         }
@@ -187,6 +212,16 @@ fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
             tx.execute("DELETE FROM intent_manifests WHERE build_key=?1", [key])?;
         }
     }
+    let keys = {
+        let mut stmt = tx.prepare("SELECT build_key FROM sdk_manifests")?;
+        stmt.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for key in keys {
+        if !data.builds.contains_key(&key) {
+            tx.execute("DELETE FROM sdk_manifests WHERE build_key=?1", [key])?;
+        }
+    }
     Ok(serde_json::to_string(&value)?)
 }
 pub struct Database {
@@ -201,15 +236,37 @@ impl Database {
           CREATE TABLE IF NOT EXISTS platform (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS saves (owner TEXT, app TEXT, slot TEXT, version INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner,app,slot));")?;
         crate::cloud::initialize(&c)?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS runtime_manifests(build_key TEXT PRIMARY KEY, server_start TEXT NOT NULL);")?;
         c.execute(
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
             [serde_json::to_string(&Data::default())?],
         )?;
-        Ok(Self {
+        let db = Self {
             connection: Mutex::new(c),
-        })
+        };
+        db.edit(|d| {
+            let games: Vec<_> = d
+                .apps
+                .iter()
+                .map(|(app, a)| {
+                    (
+                        app.clone(),
+                        d.builds[&format!("{app}/{}", a.build)]
+                            .manifest
+                            .title
+                            .clone(),
+                    )
+                })
+                .collect();
+            for (app, title) in games {
+                crate::game_urls::assign(d, &app, &title);
+            }
+            Ok(())
+        })?;
+        Ok(db)
     }
     pub fn read(&self) -> Result<Data> {
         let mut c = self.connection.lock().unwrap();
@@ -385,10 +442,11 @@ pub fn preview(
         let selected=d.apps.get(app).context("unknown app")?;
         ensure!(!selected.listed,"operator preview only accepts hidden test games");
         let build=d.builds.get(&format!("{app}/{}",selected.build)).context("missing build")?;
+        if let Some(sdk) = &build.manifest.sdk { sdk.admit(&crate::sdk_contract::capabilities(config.controller.turn.is_some()))?; }
         ensure!(build.server.is_none() || build.manifest.server_start.is_some(),"operator preview requires a client-only or on-demand web game");
         if let Some(intent) = &intent { intent.validate(&build.manifest)?; }
         let id=secret()[..32].to_string();let token=secret();
-        let host=format!("g-{id}.{}",config.controller.domain);
+        let host=crate::game_urls::host(d, app, &id, &config.controller.domain);
         d.launches.insert(id.clone(),Launch {intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
         Ok(serde_json::json!({"launch_id":id,"url":format!("https://{host}/_infuser/launch#infuser={token}")}))
     })

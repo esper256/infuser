@@ -1,9 +1,12 @@
 // Fast lifecycle journeys through the shipped SDK, with a deterministic clock and
 // controllable signaling/WebRTC boundaries. No browser install or real-time sleeps.
-import test from 'node:test';
+import baseTest from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
-import { join } from '../sdk/peers.js';
+import { join as legacyJoin } from '../sdk/peers.js';
+import { join as versionedJoin } from '../sdk/v1/peers.js';
+for(const [variant,join] of [['legacy',legacyJoin],['v1',versionedJoin]]) {
+const test=(name,fn)=>baseTest(variant+': '+name,fn);
 
 const deferred = () => {
   let resolve;
@@ -112,7 +115,7 @@ test('brief signaling failure recovers in place; expired lease fences packets an
   pc.dc.onmessage({data:'{"tick":3}'}); assert.deepEqual(h.messages,[]);
   pending.resolve(Response.json(h.snapshot)); await h.advance();
   assert.equal(h.endings.length,1); assert.equal(h.indicators.at(-1),'ended');
-  assert.equal(h.requests.filter(r=>r.method==='POST'&&r.path==='/_infuser/peers').length,1);
+  assert.equal(h.requests.filter(r=>r.method==='POST'&&r.path.endsWith('/peers')).length,1);
 });
 
 test('failed peer link reconnects within the same room and ignores obsolete channel events', async t => {
@@ -134,3 +137,5 @@ test('a data channel closing during send returns false instead of breaking the g
   pc.dc.send=()=>{throw new DOMException('Channel is closing','InvalidStateError');};
   assert.equal(room.send('friend',{tick:1}),false); room.close();
 });
+
+}
