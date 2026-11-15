@@ -17,6 +17,25 @@ async fn main() -> Result<()> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "preview-game") {
+        use std::{io::Write, os::unix::fs::OpenOptionsExt};
+        let config = Config::load(Path::new(
+            args.get(1).context("configuration path required")?,
+        ))?;
+        let app = args.get(2).context("preview app ID required")?;
+        let email = args.get(3).context("existing adult admin email required")?;
+        let output = args.get(4).context("private output path required")?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(output)?;
+        let launch = infuser::platform::preview(&config, app, email)?;
+        file.write_all(serde_json::to_string_pretty(&launch)?.as_bytes())?;
+        file.sync_all()?;
+        println!("Single-use guest preview written; open within two minutes.");
+        return Ok(());
+    }
     if args
         .first()
         .is_some_and(|s| s == "publish" || s == "unpublish")
@@ -32,15 +51,15 @@ async fn main() -> Result<()> {
         let output = args
             .get(3)
             .context("output .credentials.json path required")?;
-        let db = infuser::platform::Database::open(&config.controller.state_dir)?;
-        let (id, token) = db.edit(|d| {
-            infuser::platform::credential(d, app, "publish", "operator-issued game pass")
-        })?;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(output)?;
+        let db = infuser::platform::Database::open(&config.controller.state_dir)?;
+        let (id, token) = db.edit(|d| {
+            infuser::platform::credential(d, app, "publish", "operator-issued game pass")
+        })?;
         let connection = serde_json::json!({"id":id,"app_id":app,"api_url":format!("https://{}",config.controller.domain),"token":token});
         file.write_all(serde_json::to_string_pretty(&connection)?.as_bytes())?;
         file.sync_all()?;

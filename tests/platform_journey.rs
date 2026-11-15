@@ -94,6 +94,27 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .status(),
         403
     );
+    let owned: Value = kid(reqwest::Method::POST, "/api/my-games")
+        .json(&json!({"title":"My star adventure"}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(
+        owned["app_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("game-my-star-adventure-")
+    );
+    assert_eq!(
+        http.get(format!("{url}/api/publisher/capabilities"))
+            .header("host", HOST)
+            .bearer_auth(owned["token"].as_str().unwrap())
+            .send()
+            .await?
+            .status(),
+        200
+    );
     let connection: Value = adult(reqwest::Method::POST, "/api/admin/credentials")
         .json(&json!({"app":"moon","label":"Journey publisher"}))
         .send()
@@ -396,6 +417,15 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         403
     );
     assert_eq!(
+        http.get(format!("{url}/api/publisher/capabilities"))
+            .header("host", HOST)
+            .bearer_auth(owned["token"].as_str().unwrap())
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
         kid(reqwest::Method::GET, "/api/library")
             .send()
             .await?
@@ -426,5 +456,74 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .1["stars"],
         7
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn only_authenticated_members_reach_the_ip_admission_helper() -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let dir = tempfile::tempdir()?;
+    let socket = dir.path().join("admit.sock");
+    let listener = tokio::net::UnixListener::bind(&socket)?;
+    let (sent, received) = tokio::sync::oneshot::channel();
+    let helper = Running(tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut ip = String::new();
+        stream.read_to_string(&mut ip).await.unwrap();
+        stream.write_all(b"ok\n").await.unwrap();
+        sent.send(ip).unwrap();
+    }));
+    let auth = Router::new().route(
+        "/oauth2/auth",
+        get(|h: HeaderMap| async move {
+            if h.get("cookie").is_some_and(|c| c == "member=adult") {
+                (
+                    StatusCode::ACCEPTED,
+                    [("X-Auth-Request-Email", "adult@example.com")],
+                )
+            } else {
+                (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")])
+            }
+        }),
+    );
+    let (auth_url, _auth) = serve(auth).await?;
+    let cfg: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}\nauth_url={:?}\nfirewall_socket={:?}",
+        dir.path().display().to_string(),
+        format!("{auth_url}/oauth2/auth"),
+        socket.display().to_string()
+    ))?;
+    platform::member(&cfg, "adult@example.com", "Adult", true, true)?;
+    let c = Arc::new(Controller::open(
+        cfg.clone(),
+        Arc::new(Docker {
+            settings: cfg.controller.clone(),
+        }),
+    )?);
+    let (url, _server) = serve(portal::router(portal::Platform::open(c)?)).await?;
+    let http = reqwest::Client::new();
+    let request = || {
+        http.get(format!("{url}/api/me"))
+            .header("host", HOST)
+            .header("x-infuser-client-ip", "192.0.2.10")
+    };
+    assert_eq!(request().send().await?.status(), 401);
+    let me: Value = request()
+        .header("cookie", "member=adult")
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(me["game_ports_admitted"], true);
+    assert_eq!(received.await?, "192.0.2.10\n");
+    drop(helper);
+    // The rate-limit cache avoids a subprocess/helper operation on every asset/request.
+    let me: Value = request()
+        .header("cookie", "member=adult")
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(me["game_ports_admitted"], true);
     Ok(())
 }

@@ -253,3 +253,40 @@ async fn simultaneous_launches_share_one_instance_and_reserve_once() -> Result<(
     assert_eq!(c.list(100)["reserved_memory_mb"], 256);
     Ok(())
 }
+
+#[tokio::test]
+async fn publishing_registers_one_server_and_defers_updates_until_sleep() -> Result<()> {
+    let dir = TempDir::new()?;
+    let mut cfg = config(&dir);
+    let game = cfg.games.remove("moon").unwrap();
+    cfg.games.clear();
+    let runtime = Arc::new(Runtime::default());
+    let c = Controller::open(cfg.clone(), runtime.clone())?;
+    c.register("moon", game.clone())?;
+    let lease = c.acquire("moon", "player", 100)?;
+    c.reconcile(100).await?;
+    let mut newer = game.clone();
+    newer.image = format!("sha256:{}", "c".repeat(64));
+    assert!(
+        c.register("moon", newer.clone()).is_err(),
+        "replaced a live server"
+    );
+    c.register("moon", game)?;
+    assert_eq!(runtime.starts.load(Ordering::SeqCst), 1);
+    drop(c);
+    let c = Controller::open(cfg, runtime.clone())?;
+    assert_eq!(
+        c.lease(
+            "moon",
+            lease["lease_id"].as_str().unwrap(),
+            lease["lease_token"].as_str().unwrap(),
+            "get",
+            101
+        )?["state"],
+        "ready"
+    );
+    c.reconcile(120).await?;
+    c.register("moon", newer.clone())?;
+    assert_eq!(c.snapshot().games["moon"].spec, newer);
+    Ok(())
+}

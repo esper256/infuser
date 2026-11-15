@@ -5,7 +5,7 @@ use crate::{
     manifest::Manifest,
     store::secret,
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -243,4 +243,21 @@ pub fn credential(data: &mut Data, app: &str, role: &str, label: &str) -> Result
         },
     );
     Ok((id, token))
+}
+
+/// Local operator-only dogfood entry point. Produces a single-use guest launch,
+/// scoped to one hidden preview, without handing automation a Google session.
+pub fn preview(config: &Config, app: &str, email: &str) -> Result<serde_json::Value> {
+    let email = email.to_lowercase();
+    Database::open(&config.controller.state_dir)?.edit(|d| {
+        ensure!(d.members.get(&email).is_some_and(|m|m.enabled&&m.admin),"preview requires an existing enabled adult admin");
+        let selected=d.apps.get(app).context("unknown app")?;
+        ensure!(!selected.listed,"operator preview only accepts hidden test games");
+        let build=d.builds.get(&format!("{app}/{}",selected.build)).context("missing build")?;
+        ensure!(build.server.is_none(),"operator preview currently supports client-only web games");
+        let id=secret()[..32].to_string();let token=secret();
+        let host=format!("g-{id}.{}",config.controller.domain);
+        d.launches.insert(id.clone(),Launch {app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
+        Ok(serde_json::json!({"launch_id":id,"url":format!("https://{host}/_infuser/launch#infuser={token}")}))
+    })
 }
