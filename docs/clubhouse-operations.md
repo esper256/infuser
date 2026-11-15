@@ -77,3 +77,13 @@ Unpublished builds are retained intentionally so an operator can recover or
 republish them. Remove unused builds through the API to reclaim disk. Guest-save
 cleanup runs during library refresh; personal saves survive unpublish and updates.
 Admin-only preview means hidden from ordinary members, not a separate server.
+
+To create a game pass without opening the website:
+
+```sh
+sudo -u infuser infuser publisher-pass /etc/infuser/infuser.toml my-game /var/lib/infuser/my-game.credentials.json
+```
+
+The CLI creates a mode-0600 file, never prints its token, and refuses to overwrite
+an existing file. Transfer it privately to the game-making agent; revoke it in
+the admin UI when finished. Normal kids use Add a game instead.

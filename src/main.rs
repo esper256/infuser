@@ -23,6 +23,30 @@ async fn main() -> Result<()> {
     {
         return infuser::publisher::run(&args).await;
     }
+    if args.first().is_some_and(|s| s == "publisher-pass") {
+        use std::{io::Write, os::unix::fs::OpenOptionsExt};
+        let config = Config::load(Path::new(
+            args.get(1).context("configuration path required")?,
+        ))?;
+        let app = args.get(2).context("app ID required")?;
+        let output = args
+            .get(3)
+            .context("output .credentials.json path required")?;
+        let db = infuser::platform::Database::open(&config.controller.state_dir)?;
+        let (id, token) = db.edit(|d| {
+            infuser::platform::credential(d, app, "publish", "operator-issued game pass")
+        })?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(output)?;
+        let connection = serde_json::json!({"id":id,"app_id":app,"api_url":format!("https://{}",config.controller.domain),"token":token});
+        file.write_all(serde_json::to_string_pretty(&connection)?.as_bytes())?;
+        file.sync_all()?;
+        println!("Private game pass written. Keep it out of source control.");
+        return Ok(());
+    }
     if args.first().is_some_and(|s| s == "firewall-serve") {
         return infuser::firewall::serve(Path::new(args.get(1).context("socket path required")?))
             .await;

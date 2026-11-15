@@ -33,7 +33,8 @@ progress means in your game. Load the SDK at runtime so Vite does not try to
 bundle the server-provided file:
 
 ```js
-const infuser = await import(/* @vite-ignore */ '/_infuser/sdk.js');
+const sdkUrl = new URL('/_infuser/sdk.js', location.origin).href;
+const infuser = await import(/* @vite-ignore */ sdkUrl);
 const session = await infuser.ready;
 let save = await infuser.saves.load('progress');
 const progress = save.data ?? { level: 1, stars: 0 };
