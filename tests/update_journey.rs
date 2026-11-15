@@ -64,7 +64,10 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
             "linux-amd64".into(),
             Artifact {
                 file: "infuser-linux-amd64".into(),
-                sha256: format!("{:x}", Sha256::digest(CANDIDATE)),
+                sha256: Sha256::digest(CANDIDATE)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect(),
             },
         )]),
     }));
@@ -96,6 +99,34 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
         restarts: Mutex::new(0),
     };
     let http = reqwest::Client::new();
+    // A checksum mismatch must fail before activation or service restart.
+    let expected = manifest.lock().unwrap().artifacts["linux-amd64"]
+        .sha256
+        .clone();
+    manifest
+        .lock()
+        .unwrap()
+        .artifacts
+        .get_mut("linux-amd64")
+        .unwrap()
+        .sha256 = "0".repeat(64);
+    let error = updater::update(&config, &source, "linux-amd64", &http, &service)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("checksum mismatch"));
+    assert_eq!(
+        fs::read_link(install.join("current"))?.file_name().unwrap(),
+        initial.as_str()
+    );
+    assert_eq!(*service.restarts.lock().unwrap(), 0);
+    assert!(!install.join("releases").join(&good).exists());
+    manifest
+        .lock()
+        .unwrap()
+        .artifacts
+        .get_mut("linux-amd64")
+        .unwrap()
+        .sha256 = expected;
     updater::update(&config, &source, "linux-amd64", &http, &service).await?;
     assert_eq!(
         fs::read_link(install.join("current"))?.file_name().unwrap(),

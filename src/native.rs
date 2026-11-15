@@ -56,7 +56,7 @@ pub fn sha256(path: &Path) -> Result<String> {
         }
         hash.update(&bytes[..len]);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 pub fn validate(root: &Path, files: &BTreeMap<String, u64>) -> Result<()> {
     if let Some(manifest) = read(root)? {

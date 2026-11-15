@@ -2,7 +2,7 @@
 use crate::{config::Turn, platform::hash, portal::fault, store::secret};
 use anyhow::{Result, ensure};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Value, json};
 use sha1::Sha1;
 use std::{

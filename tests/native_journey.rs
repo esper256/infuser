@@ -36,7 +36,10 @@ async fn ok(r: reqwest::RequestBuilder) -> Result<Value> {
     Ok(body)
 }
 fn hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 #[tokio::test]
 async fn native_pairing_delivery_and_guest_identity() -> Result<()> {

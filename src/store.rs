@@ -1,6 +1,6 @@
 use crate::config::Game;
 use anyhow::{Context, Result, ensure};
-use rand::{RngCore, rngs::OsRng};
+use rand::{TryRng, rngs::SysRng};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -11,7 +11,9 @@ use std::{
 
 pub fn secret() -> String {
     let mut bytes = [0; 32];
-    OsRng.fill_bytes(&mut bytes);
+    SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("system randomness unavailable");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
