@@ -51,7 +51,9 @@ creator and presence badges.
 Initials remain available. Never invent author identities. Cards use the Nightglass layout with
 a content-sized glass dock. Missing or unavailable game artwork uses a muted,
 abstract composition of overlapping colored loops, without logos, invented game imagery, or filler
-copy. Keep it static and subordinate to the real game covers. Fictional art stays
+copy. Keep it static and subordinate to the real game covers. A game with no
+cover and a pending art brief uses the approved “Generating...” variant; never
+substitute it for a real cover or publish it into the game metadata. Fictional art stays
 in mockups. The [card hero art guide](card-art-guide.md) defines composition,
 export, and publishing requirements. Publish artwork with a build or through the
 [metadata API](game-metadata.md); committing an image alone does not publish it.
@@ -71,7 +73,12 @@ feedback positive and qualitative. The shared dialog stacks on phones, retains
 scroll and focus during refresh, and uses the active theme's materials.
 
 Online players appear as overlapping avatars beside the logo. Filters and search
-share a row, with the game count after the final filter. Tag editing appears on
+share a row, with the game count after the final filter. Search matches game
+titles, tags, and author handles, case-insensitively. A small bottom-left stack
+shows reactions updated in the last 28 days: `min(n, 6, ceil(sqrt(2*n)))` faces.
+Prefer varied recent emoji, then fill with repeats. Show none for zero recent
+reactions; retain older feedback in the game view. Keep the stack clear of the
+title and Play controls; clicking it opens the newest recent feedback. Tag editing appears on
 tag-area hover or keyboard focus; a touch hold on an editable card opens the same
 picker. Scrolling and multi-touch cancel the hold.
 

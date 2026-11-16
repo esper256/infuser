@@ -572,6 +572,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         let app = d.apps["pond"].clone();
         let mut build = d.builds[&format!("pond/{}", app.build)].clone();
         build.manifest.app_id = "second".into();
+        build.files.remove(infuser::card_art::PATH);
         d.builds.insert(format!("second/{}", app.build), build);
         d.apps.insert("second".into(), app);
         platform::credential(d, "all-games", "metadata", "Infuser art agent")
@@ -632,12 +633,54 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         assert!(app.get("art_prompt").is_none());
         assert!(app.get("art_prompt_revision").is_none());
         assert!(app.get("art_prompt_pending").is_none());
+        assert_eq!(app["card_art_pending"], false);
     }
     json_ok(
         request(&service_token, Method::PATCH, "/api/metadata/apps/second")
             .json(&json!({"description":"Second game", "art_prompt":"Another brief"})),
     )
     .await?;
+    let library = json_ok(member("/api/library", "adult")).await?;
+    let pending = library["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == "second")
+        .unwrap();
+    assert_eq!(pending["card_art_pending"], true);
+    assert!(pending["card_art_url"].is_null());
+    assert!(pending.get("art_prompt").is_none());
+    json_ok(
+        request(&service_token, Method::PATCH, "/api/metadata/apps/second")
+            .json(&json!({"art_prompt":null})),
+    )
+    .await?;
+    let library = json_ok(member("/api/library", "adult")).await?;
+    assert_eq!(
+        library["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == "second")
+            .unwrap()["card_art_pending"],
+        false
+    );
+    json_ok(
+        request(&service_token, Method::PATCH, "/api/metadata/apps/second")
+            .json(&json!({"art_prompt":"Another brief"})),
+    )
+    .await?;
+    let placeholder = http
+        .get(format!("{url}/assets/card-generating.webp"))
+        .header("host", "games.example.com")
+        .send()
+        .await?;
+    assert_eq!(placeholder.status(), 200);
+    assert_eq!(placeholder.headers()["content-type"], "image/webp");
+    assert_eq!(
+        placeholder.bytes().await?.as_ref(),
+        include_bytes!("../assets/card-fallback/generating.webp")
+    );
     // A newer request wins over an image generated from an obsolete prompt.
     json_ok(
         request(&game_token, Method::PATCH, metadata_path)
@@ -718,6 +761,31 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .body(bytes.clone()),
     )
     .await?;
+    let library = json_ok(member("/api/library", "adult")).await?;
+    let complete = library["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == "second")
+        .unwrap();
+    assert_eq!(complete["card_art_pending"], false);
+    assert!(complete["card_art_url"].is_string());
+    // Removing a finished cover must not imply that its old prompt is queued again.
+    json_ok(request(
+        &service_token,
+        Method::DELETE,
+        "/api/metadata/apps/second/card-art",
+    ))
+    .await?;
+    let library = json_ok(member("/api/library", "adult")).await?;
+    let complete = library["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == "second")
+        .unwrap();
+    assert_eq!(complete["card_art_pending"], false);
+    assert!(complete["card_art_url"].is_null());
     for (method, path) in [
         (Method::GET, "/api/publisher/apps/pond/builds/with-art"),
         (Method::PUT, "/api/publisher/apps/pond/builds/forbidden"),

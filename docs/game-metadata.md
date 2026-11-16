@@ -129,3 +129,7 @@ override URLs return 404. Library refresh picks up the change.
 These edits do not change the game's title screen, manifest, ownership, gameplay
 modes, build selection, or visibility. Metadata is stored separately from the
 build catalog so older catalog writers do not erase it.
+
+The member Library exposes only `card_art_pending`, true when the game has no
+active cover and an unfulfilled prompt. The UI uses a shared “Generating...”
+placeholder; private prompt text and revisions remain restricted to metadata APIs.

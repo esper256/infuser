@@ -572,3 +572,15 @@ button.feed-row:hover { border-color: var(--accent); }
 .presence-person:has(.friend-menu[open]) { z-index: 21; }
 .friend-name { margin: 10px 12px 2px; font-weight: 600; overflow-wrap: anywhere; }
 .friend-status { margin: 4px 12px 12px; font-size: 13px; }
+
+/* Recent reactions share the bottom row with the dock, never cover Play/title. */
+.game-bottom { position: relative; margin-top: auto; width: 100%; min-width: 0; }
+.game-bottom .game-dock { margin-top: 0; margin-left: auto; min-width: 0; }
+.game-buzz { position: absolute; z-index: 2; left: 0; bottom: 0; display: flex; align-items: center; flex: none; min-height: 44px; padding: 5px 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink); }
+.game-buzz:hover { background: transparent; }
+.game-buzz span { display: grid; place-items: center; position: relative; width: 28px; height: 28px; font-size: 23px; line-height: 1; border-radius: 50%; background: #0b1c248c; text-shadow: 0 1px 3px #000a; filter: drop-shadow(0 2px 3px #0006); }
+.game-buzz span + span { margin-left: -15px; }
+.hidden-game .game-bottom { display: block; }
+.hidden-game .game-buzz { position: absolute; left: 10px; bottom: 8px; }
+.hidden-game .game-buzz span { width: 24px; height: 24px; font-size: 20px; }
+@media (forced-colors:active) { .game-buzz span { background: Canvas; filter: none; text-shadow: none; } }

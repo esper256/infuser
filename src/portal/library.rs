@@ -109,6 +109,7 @@ impl View<'_> {
             "author":author,
             "slug":data.game_urls.get(id).map(|u|&u.slug),
             "url":data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug)),
+            "card_art_pending":card_art_url.is_none() && metadata::art_pending(data,id),
             "card_art_url":card_art_url,
             "native_platforms":desktop.as_ref().map(|m|m.platforms.keys().collect::<Vec<_>>()).unwrap_or_default(),
             "native_only":desktop.as_ref().is_some_and(|m|m.native_only),
