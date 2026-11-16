@@ -379,6 +379,9 @@ img.avatar { object-fit: cover; }
 /* Shared chat: little comic panels, with tails pointing at the speaker. */
 /* Minimum: your badge, one friend/overflow badge, gaps, and Chat. */
 .presence-chat { display: flex; align-items: center; gap: 8px; flex: 1 1 146px; min-width: 146px; }
+.presence-chat:has(#chat-toggle[aria-expanded="true"]) { min-width: min(180px,100%); }
+.presence-ghost { position: fixed; display: grid; place-items: center; pointer-events: none; z-index: 31; }
+.presence-ghost .avatar { width: 34px; height: 34px; }
 #library-chat { position: fixed; z-index: 30; width: 437px; max-width: calc(100vw - 24px); }
 #chat-toggle { position: relative; display: flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; padding: 9px; border: 1px solid var(--line); border-radius: 13px 13px 4px 13px; background: var(--panel); color: var(--ink); }
 #chat-toggle[aria-expanded="true"] { border-color: var(--accent); background: var(--surface); }
@@ -390,7 +393,7 @@ img.avatar { object-fit: cover; }
 #chat-toggle.has-unread[aria-expanded="false"] { animation: chat-unread-wiggle 8s ease-in-out infinite; transform-origin: 50% 75%; }
 #chat-panel { display: flex; flex-direction: column; height: var(--chat-height,672px); overflow: hidden; border: 1px solid var(--line); border-top-color: var(--accent); border-radius: 18px 18px 24px 24px; background: var(--page); box-shadow: 0 5px 0 #030912,0 20px 70px #0009; }
 #chat-pointers { pointer-events: none; }
-.chat-pointer { position: absolute; top: calc(-1 * var(--tail-height)); width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: var(--tail-height) solid var(--accent); transform: translateX(-50%); }
+.chat-pointer { position: absolute; top: calc(-1 * var(--tail-height)); width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: var(--tail-height) solid var(--accent); transform: translateX(-50%); transform-origin: bottom center; }
 .chat-pointer::after { content: ''; position: absolute; top: 2px; left: -9px; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: calc(var(--tail-height) - 1px) solid var(--panel); }
 .chat-heading { display: flex; align-items: center; justify-content: space-between; flex: none; padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .chat-heading h2 { margin: 0 0 3px; font-size: 20px; letter-spacing: -.035em; }
