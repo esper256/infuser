@@ -18,7 +18,13 @@ export function initChat({me, api, profileAvatar}) {
   if(me.inspecting)$('form').hidden=true;
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
-  let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0;
+  let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,positionFrame,positionSignature;
+  const setText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
+  const setHidden=(node,hidden)=>{if(node.hidden!==hidden)node.hidden=hidden;};
+  function schedulePosition(){
+    if(positionFrame||!isOpen())return;
+    positionFrame=requestAnimationFrame(()=>{positionFrame=null;position();});
+  }
   // Only allow rounding error, not a "near bottom" zone that traps small gestures.
   const bottom=()=>log.scrollHeight-log.scrollTop-log.clientHeight<=1;
   const isOpen=()=>!$('panel').hidden;
@@ -31,30 +37,37 @@ export function initChat({me, api, profileAvatar}) {
     const width=Math.min(437,document.documentElement.clientWidth-24);
     const left=Math.max(12,Math.min(anchor.left-16,document.documentElement.clientWidth-width-12));
     const top=Math.max(viewTop+12,Math.min(anchor.bottom+18,viewBottom-260));
-    root.style.left=left+'px';root.style.top=top+'px';
-    root.style.setProperty('--chat-height',Math.min(672,viewBottom-top-12)+'px');
+    const panelHeight=Math.min(672,viewBottom-top-12);
     const recent=new Set([...messages].reverse().slice(0,12).filter(m=>Date.now()/1000-m.created<300).map(m=>m.author.id));
     const pointers=[];
     for(const badge of badges){
       const bounds=badge.getBoundingClientRect(), center=bounds.left+bounds.width/2;
       if(!recent.has(badge.dataset.playerId)||bounds.top<viewTop||bounds.bottom+4>=top)continue;
-      const pointer=document.createElement('span');pointer.className='chat-pointer';pointer.dataset.playerId=badge.dataset.playerId;
-      pointer.style.left=(center-left)+'px';pointer.style.setProperty('--tail-height',(top-bounds.bottom-4)+'px');pointers.push(pointer);
+      pointers.push([badge.dataset.playerId,center-left,top-bounds.bottom-4]);
     }
-    $('pointers').replaceChildren(...pointers);
+    const signature=JSON.stringify([left,top,panelHeight,pointers]);
+    if(signature!==positionSignature){
+      positionSignature=signature;root.style.left=left+'px';root.style.top=top+'px';
+      root.style.setProperty('--chat-height',panelHeight+'px');
+      $('pointers').replaceChildren(...pointers.map(([id,x,height])=>{
+        const pointer=document.createElement('span');pointer.className='chat-pointer';pointer.dataset.playerId=id;
+        pointer.style.left=x+'px';pointer.style.setProperty('--tail-height',height+'px');return pointer;
+      }));
+    }
     if(stick&&(log.clientHeight!==height||log.clientWidth!==widthBefore))log.scrollTop=log.scrollHeight;
   }
   // Follow badge replacement, theme changes, wrapping and the mobile keyboard.
-  new ResizeObserver(position).observe(document.querySelector('body > header'));
-  new MutationObserver(position).observe(presence,{childList:true});
-  new MutationObserver(position).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
-  window.addEventListener('resize',position);window.addEventListener('scroll',position,{passive:true});
-  window.visualViewport?.addEventListener('resize',position);window.visualViewport?.addEventListener('scroll',position);
-  const markRead=()=>{lastRead=Math.max(lastRead,...messages.map(m=>m.id));$('new').hidden=true;updateToggle();};
+  new ResizeObserver(schedulePosition).observe(document.querySelector('body > header'));
+  new MutationObserver(schedulePosition).observe(presence,{childList:true});
+  new MutationObserver(schedulePosition).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+  window.addEventListener('resize',schedulePosition);window.addEventListener('scroll',schedulePosition,{passive:true});
+  window.visualViewport?.addEventListener('resize',schedulePosition);window.visualViewport?.addEventListener('scroll',schedulePosition);
+  const markRead=()=>{lastRead=Math.max(lastRead,...messages.map(m=>m.id));setHidden($('new'),true);updateToggle();};
   function updateToggle() {
     const unread=messages.filter(m=>m.id>lastRead&&m.author.id!==me.player_id).length;
-    $('unread').textContent=String(unread);$('unread').hidden=!unread;
-    $('toggle').setAttribute('aria-label',(isOpen()?'Hide chat':'Show chat')+(unread?`, ${unread} unread messages`:''));
+    setText($('unread'),String(unread));setHidden($('unread'),!unread);
+    const label=(isOpen()?'Hide chat':'Show chat')+(unread?`, ${unread} unread messages`:'');
+    if($('toggle').getAttribute('aria-label')!==label)$('toggle').setAttribute('aria-label',label);
     $('toggle').classList.toggle('has-unread',unread>0);
     // This runs during scrolling. Updating the unread badge must never scroll the log.
   }
@@ -111,8 +124,8 @@ export function initChat({me, api, profileAvatar}) {
       if(node){node.replaceWith(replacement);nodes.delete(message.id);}else log.append(replacement);
     }
     for(const node of nodes.values())node.remove();
-    log.querySelector('.chat-empty')?.remove();
-    if(!next.length){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent='No messages yet.';log.append(empty);}
+    if(next.length)log.querySelector('.chat-empty')?.remove();
+    if(!next.length&&!log.querySelector('.chat-empty')){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent='No messages yet.';log.append(empty);}
     messages=next;
     if(!initialized){lastRead=Math.max(0,...next.map(m=>m.id));initialized=true;}
     if(isOpen()&&stick&&changed&&!document.hidden)scrollLatest();
@@ -125,7 +138,7 @@ export function initChat({me, api, profileAvatar}) {
     clearTimeout(timer);
     if(busy||document.hidden)return;
     busy=true;
-    try{const data=await request('/api/chat');render(data.messages);$('connection').textContent='';}
+    try{const data=await request('/api/chat');render(data.messages);setText($('connection'),'');}
     catch(error){$('connection').textContent=error.status===401||error.status===403?'Sign in again to chat.':'Reconnecting…';}
     finally{busy=false;timer=setTimeout(poll,isOpen()?3000:10000);}
   }
