@@ -149,8 +149,8 @@ async fn offline_package_runs_two_players_sleeps_and_restarts_fresh() -> Result<
                     ))
                     .await?;
             }
-            let a = snapshot(&mut first, 2).await?;
-            let b = snapshot(&mut second, 2).await?;
+            let a = snapshot(&mut first, 2).await.context("first player sees shared room")?;
+            let b = snapshot(&mut second, 2).await.context("second player sees shared room")?;
             assert_eq!(
                 a["players"]
                     .as_array()
@@ -166,8 +166,13 @@ async fn offline_package_runs_two_players_sleeps_and_restarts_fresh() -> Result<
                     .collect::<Vec<_>>()
             );
             first.close(None).await?;
-            snapshot(&mut second, 1).await?;
+            // Closing queues a WebSocket close handshake. Dropping the stream
+            // also ends TCP; an unpolled test client otherwise leaves ws waiting
+            // for its 30-second close timeout instead of behaving like a browser.
+            drop(first);
+            snapshot(&mut second, 1).await.context("remaining player sees departure")?;
             second.close(None).await?;
+            drop(second);
             controller.lease(
                 "fixture",
                 lease["lease_id"].as_str().unwrap(),
