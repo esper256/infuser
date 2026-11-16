@@ -23,13 +23,20 @@ introduce a new CI or approval process for ordinary development.
 
 The durable decisions are:
 
+- [Temporary visits](proposals/temporary-visits.md) separate permanent home
+  membership from temporary play authorization. Only the operator arranges visits
+  and selects individual visitors and brought games. A borrowed deployment starts
+  fresh once, then always resumes the same host-group/game progress on later visits.
+  Games created by visitors remain home-owned and become temporarily available to
+  the visit automatically. Residents keep chat history; visitors receive only their
+  active admission window. These decisions are accepted but not implemented.
 - Player, guest, launch, backend lease, runtime instance, gameplay session and
   connection are distinct identities. Existing IDs and save namespaces retain
   their meanings. All authority is scoped to the authenticated game/private group.
 - Infuser verifies identity and platform access. The game owns its simulation,
   room creation and final atomic admission. Presence is a discovery hint, not a
   seat reservation or an invitation.
-- A game may host multiple sessions inside its one server. Encourage joining
+- A game deployment may host multiple sessions inside its one server. Encourage joining
   friends through UX while allowing an explicit independent run. Where supported,
   the game's title screen can highlight Join friends and Play on my own. The
   Library's primary Play still opens the game; its artwork remains uncluttered.

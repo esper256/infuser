@@ -2,7 +2,13 @@
 
 Audience: Infuser developers.
 
-- Next: follow the [SDK 1.0 stabilization plan](proposals/sdk-1.0-stabilization.md).
+- Next: implement the accepted [temporary-visit design](proposals/temporary-visits.md)
+  before freezing SDK ownership and access semantics. Separate source games from
+  deployments, preserve home saves, and add operator-selected visitors and games.
+  Brought games start fresh once and always resume; visitor-created games stay
+  home-owned. Verify chat windows and active-connection expiry across transports.
+
+- Continue the [SDK 1.0 stabilization plan](proposals/sdk-1.0-stabilization.md).
   Record the candidate contract and freeze versioned clients before declaring any
   capability stable. The public binary-save helper exports are fixed and verified
   through the main SDK import. SDK major 1

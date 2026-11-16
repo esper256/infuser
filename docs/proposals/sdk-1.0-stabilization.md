@@ -6,6 +6,11 @@ Status: proposed release boundary and implementation order, following the
 [accepted decisions](../sdk-1.0-decisions.md). No capability becomes stable by
 merging this document. The shipped SDK still advertises `preview`.
 
+Review prerequisite: the accepted [temporary-visit design](temporary-visits.md)
+adds deployment-scoped progress and expiring play authorization. Implement and
+verify those boundaries before freezing the affected identity/save/session APIs.
+Existing home deployments and their saves must retain their behavior.
+
 Infuser should be able to update without asking every game author to republish.
 Freeze the behavior games depend on, then keep improving its implementation.
 Do not freeze the website, daemon internals, or every experimental adapter together.
@@ -48,7 +53,8 @@ silent substitution of a new contract or save namespace.
 | --- | --- |
 | Player | Opaque authenticated identity; names and emails are not save keys |
 | Guest | Separate identity and temporary personal progress for one launch; refresh preserves it, a new launch starts empty |
-| Launch | One authorized play context; it can exist at the title screen without a server or multiplayer room |
+| Deployment | One source game hosted in one group, with independent mutable state; visit deployments start fresh once and always resume |
+| Launch | One authorized play context bound to its deployment and access grant; it can exist without a server or multiplayer room |
 | Runtime lease | Demand for a managed backend; the existing `runtime.session_id` is a lease ID, not a gameplay session |
 | Process instance | One incarnation of the game's managed server, bound to its build and private group |
 | Gameplay session | One run inside a peer room or managed process; an ended session ID must not identify a replacement run |
@@ -57,7 +63,8 @@ silent substitution of a new contract or save namespace.
 Authorization always includes the authenticated installation/group/game context.
 Do not promise that IDs can correlate accounts across installations, or alter
 existing save keys to implement that idea. Cross-group presence and game access
-remain forbidden; operator inspection does not create a participating player.
+require explicit authorization; temporary visits provide bounded grants without
+moving home membership. Operator inspection does not create a participating player.
 
 Separate personal slots/checkpoints from persistent server worlds. A personal save
 survives releases. A persistent world belongs to the deployment, not the container
