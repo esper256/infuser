@@ -1,6 +1,6 @@
 # Infuser
 
-A private game library for groups. Users make games with their agents, publish
+A private library for family-friendly games. Users make games with their agents, publish
 them, and press Play together. Google sign-in and admin-managed invitations keep
 each private group's games, players, and chat together.
 

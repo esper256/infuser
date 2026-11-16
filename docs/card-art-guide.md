@@ -43,9 +43,10 @@ are welcome.
 Infuser's dark interface is the frame, not a requirement to turn every game into
 a neon city. Bright, warm, or daylight scenes can work too.
 
-Make the artwork compelling and respectful of its players. Avoid patronizing
-depictions, corporate stock illustration, motivational slogans, and sentimental
-decorative copy. No sexual imagery or graphic gore.
+Infuser hosts family-friendly content. Make the artwork compelling and respectful
+of its players. Avoid patronizing depictions, corporate stock illustration,
+motivational slogans, and sentimental decorative copy. No sexual imagery,
+graphic gore, harassment, or targeted humiliation.
 
 ## Canvas and delivery
 

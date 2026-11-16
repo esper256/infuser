@@ -101,6 +101,10 @@ pulse/hop until opened. Reduced motion keeps the highlight without animation.
 Card hover scales evenly from the center with a deeper shadow; do not shift
 cards upward. Hover animation is mouse-only and respects reduced motion.
 Do not force a review after playing or imply a numerical rating.
+Keep the tone welcoming and family-friendly. Nudge players toward honest
+encouragement and specific, constructive comments; do not reward insults,
+trolling, or humiliating another creator. These are product choices, independent
+of a user's age or role.
 
 Reference: [Juice it or lose it, Martin Jonasson and Petri Purho](https://www.youtube.com/watch?v=Fy0aCDmgnxg)
 and the authors' [Juicy Breakout demo](https://github.com/grapefrukt/juicy-breakout).
