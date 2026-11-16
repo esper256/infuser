@@ -217,6 +217,28 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
         "<html><head></head><body>Game</body></html>",
     )?;
     std::fs::write(export.join("assets/level one@2.js"), b"first version")?;
+    // A Unity source project must use an explicit export; never upload Library.
+    std::fs::create_dir_all(project.join("ProjectSettings"))?;
+    std::fs::create_dir_all(project.join("Library"))?;
+    std::fs::write(
+        project.join("ProjectSettings/ProjectVersion.txt"),
+        "m_EditorVersion: 6000.3.0f1",
+    )?;
+    std::fs::write(project.join("Library/private-cache"), "not a web asset")?;
+    let missing_export = cli(
+        root,
+        &[
+            "publish",
+            connection,
+            "Already made game",
+            "--ca-cert",
+            "test-ca.pem",
+        ],
+        None,
+    )
+    .await?;
+    assert!(!missing_export.status.success());
+    assert!(String::from_utf8_lossy(&missing_export.stderr).contains("Unity project detected"));
     let publish = [
         "publish",
         connection,
@@ -226,6 +248,14 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
         "--ca-cert",
         "test-ca.pem",
     ];
+    std::fs::create_dir_all(project.join("Assets/Infuser"))?;
+    let missing_bridge = cli(root, &publish, None).await?;
+    assert!(!missing_bridge.status.success());
+    assert!(String::from_utf8_lossy(&missing_bridge.stderr).contains("infuser-unity.mjs"));
+    std::fs::write(
+        export.join("infuser-unity.mjs"),
+        include_str!("../sdk/unity/Assets/Infuser/Web/bridge.mjs"),
+    )?;
     assert!(succeeded(cli(root, &publish, None).await?)?.contains("Ready in the Library"));
     let first = db.read()?.apps["existing-game"].build.clone();
     let content = cfg.controller.state_dir.join("content/existing-game");
@@ -238,6 +268,8 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
         b"first version"
     );
     assert!(!std::fs::read_to_string(export.join("index.html"))?.contains("/_infuser"));
+    assert!(!content.join(&first).join("Library").exists());
+    assert!(!content.join(&first).join("ProjectSettings").exists());
     std::fs::write(export.join("assets/level one@2.js"), b"second version")?;
     succeeded(cli(root, &publish, None).await?)?;
     let data = db.read()?;

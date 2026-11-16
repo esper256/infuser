@@ -6,6 +6,41 @@ Start with [development setup](development.md). Run commands from the repository
 root. These harnesses test the platform. Historical results below record what was
 exercised, not certification of every game or device.
 
+## Unity Web foundation
+
+`node --test tests/unity_sdk.mjs` tests the JavaScript bridge and ES5 interop
+boundary: hosted/standalone selection, cloud retries/conflicts, exact Join Friend
+targets, late admission, disconnects, binary/text WebSockets and congestion.
+These run in the existing fast SDK lane without a Unity installation.
+
+`cargo test --test publisher_journey --test compatibility_journey` checks explicit
+Unity exports, missing bridge diagnostics, authenticated gzip/Brotli asset headers,
+`.unityweb` fallback handling, byte ranges, HEAD, and legacy precompression.
+With existing Playwright and Chromium installations, add:
+
+```sh
+INFUSER_UNITY_BROWSER_NODE=/path/to/node \
+INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs \
+INFUSER_CHROMIUM=/path/to/chromium \
+cargo test --test compatibility_journey
+```
+
+That optional journey uses a disposable controller and real local HTTPS proxy.
+Chromium loads the actual bridge/SDK, streams gzip and Brotli WASM, runs cloud
+save/conflict/resolution/reload flows, isolates guest saves, verifies cross-origin
+isolation, and rejects expired authentication. The WASM fixture is a minimal module,
+**not Unity**. No production account, Editor, network relay or game is used.
+
+Before advertising a validated Unity integration, build Beacon Garden with the
+target Editor and Web module. Verify IL2CPP compilation, stripping and callbacks;
+publish it unlisted; run the save and guest journeys in the actual player. Then
+test two clients (including forced TURN and actual traffic in both directions),
+Join Friend, host departure, background/resume and the dedicated socket bridge
+against a real server. Repeat gzip/Brotli/fallback exports and any threaded export
+the supported Unity version can produce. Test Bazzite/Windows browsers and a
+real existing game; record exact Editor/package versions. Do not infer Unity
+package compatibility from the bridge's mock transport tests.
+
 ## Unattended operation
 
 `node tests/reboot_journey.mjs` runs the actual reboot scripts against a local

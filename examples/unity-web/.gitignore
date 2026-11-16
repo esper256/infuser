@@ -1,0 +1,11 @@
+/Assets/Infuser/
+/Assets/BeaconGarden.unity*
+*.meta
+/Library/
+/Temp/
+/Logs/
+/UserSettings/
+/Obj/
+/export/
+/ProjectSettings/
+/Packages/packages-lock.json

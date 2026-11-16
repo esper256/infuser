@@ -16,6 +16,10 @@ Keep individual deployments' configuration and status in private operator record
 - Finish [Godot web](engines/godot-web.md) checks on Windows browsers, physical
   laptop sleep and full-duration TURN renewal. Accelerated recovery tests do not
   replace these checks.
+- Compile and play the [Unity Web reference project](../examples/unity-web/README.md)
+  with Unity 6.3 LTS. Verify C#/IL2CPP callbacks, stripping, guest saves, two-client
+  forced relay, and a real user's export before upgrading its experimental status.
+  Repeat with Brotli/fallback and any threaded export actually used by a game.
 - Finish [Infuser Play](engines/godot-native.md) acceptance on physical Windows,
   including installation, browser-login handoff, cache cleanup and guest saves.
   Keep native support limited to the documented single-player preview meanwhile.
