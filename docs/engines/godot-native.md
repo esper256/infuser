@@ -1,5 +1,7 @@
 # Native Godot preview
 
+Audience: game authors and their agents.
+
 Windows x86-64 and Linux x86-64 (including Bazzite) use **Infuser Play**, the native app for the Infuser website.
 The child installs **Infuser-Play-Setup.exe** or opens **Infuser-Play.flatpak** in their
 software center, then presses Play in the website. No manual unzip, copying game
@@ -12,8 +14,8 @@ Native multiplayer, ARM desktop clients and macOS are not included. Game updates
 and [Infuser Play updates](../play-updates.md) are automatic. Installations from before
 companion updates were added need the current installer once. Account data and saves
 are retained.
-The unsigned Windows preview may show a Windows security prompt. An actual Windows
-user must complete the acceptance checklist before broad distribution.
+The unsigned Windows preview may show a Windows security prompt. The complete
+login-and-play flow has not yet been verified on a physical Windows device.
 
 ## Adapt an existing project
 
@@ -65,30 +67,3 @@ symlinks and undeclared files, and atomically installs a complete version. Each
 run gets its own copy, so a new update cannot replace a running game's files.
 Corruption leaves the old cached version intact and reports an error. A failed
 update never silently substitutes a different version or player identity.
-
-## Windows handoff checklist
-
-1. Open the normal installer under a non-admin Windows account. No unzip step.
-2. Press Play on a native preview in the Library; allow the Infuser Play link handler.
-3. Approve the browser login handoff; confirm the game opens under the right player.
-4. Save, close and reopen. Then use guest mode: blank progress, owner preserved.
-5. Publish an update. Next Play downloads it; saves remain. A running older game
-   stays intact. Try a disconnected launch and confirm the error is understandable.
-6. Close the game and confirm Infuser Play exits. Uninstall/reinstall the companion and
-   confirm personal saves remain. Check a laptop with scaling enabled too.
-
-Actual Windows testing is pending; Linux results do not substitute for it.
-
-The opt-in `tests/godot_native_journey.mjs` uses a loopback TLS fixture and an
-export of the adapted Dodge project. On the Bazzite laptop it passed verified
-download, real native Godot startup, cloud checkpoint/reload, persistent owner
-user://, blank guest user://, guest cleanup and unchanged owner progress. Its test
-certificate and acceptance autoload belong only in that disposable project.
-`desktop/examples/acceptance.rs` supplies that CA to a test client; the installed
-companion has no test-certificate override. Archive corruption/update isolation
-and device-pairing/claim/revocation are also covered by fast Rust journeys.
-The CI-built Flatpak was installed and started on Bazzite with the standard
-Freedesktop 25.08 runtime, and its `infuser://` handler was registered. The Windows
-installer compiled successfully and desktop unit journeys passed on the Windows
-CI runner. Google login plus a full installed-app play session still needs a
-human account acceptance pass; mock login tests do not certify that interaction.

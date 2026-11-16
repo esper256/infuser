@@ -1,51 +1,51 @@
-# Godot multiplayer: web preview
+# Godot web multiplayer
 
-Determine whether the existing game uses WebRTC, WebSocket or ENet. Single-player
-support is independent of multiplayer topology. Preserve the game's architecture
-unless adapting it is an explicit integration decision.
+Audience: game authors and their agents.
 
-The [Lantern Lake example](../../examples/godot-web/README.md) exercises two Godot
-web clients through Infuser signaling and TURN. Its addon creates an actual
-`WebRTCMultiplayerPeer`; Godot creates reliable/unreliable/ordered channels and
-exchanges `Vector2` movement using GDScript RPCs. Game packets do not go through
-Firefly's JSON messaging helper.
+This preview supports two-player Godot web games using WebRTC. First follow the
+[web export guide](godot-web.md). Keep the game's simulation and RPCs in GDScript;
+the [example addon](../../examples/godot-web/addons/infuser) provides Infuser
+connection setup and creates a Godot `WebRTCMultiplayerPeer`.
 
-- Normal play: `direct_connect: optional`, `peers.join(false)`. ICE prioritizes
-  LAN host candidates, direct internet candidates, then relays, using connectivity
-  checks. TURN remains mandatory and available. No UPnP required.
-- Lantern Lake fixture only: `?autoplay=1&multiplayer=1&relay=1`. The client explicitly
-  requests relay-only ICE. Deterministic movement generates real RPC traffic
-  without a model or tokens.
-- One shared session: the first arrival hosts; the other joins the same epoch.
-  Host departure ends the session. The addon fences RPCs when its lease expires.
-  Brief signaling interruptions retry within the lease; a failed transport is
-  rebuilt within the same room. Godot's member MultiplayerPeer is recreated when
-  reconnecting to the host so polling and RPCs resume. Expiry ends the room.
-- `tests/godot_relay_journey.mjs` verifies relay/relay selected candidate pairs,
-  traffic and real RPC reception in both directions, plus host departure. A second
-  automatic-mode run verified a direct connection. Test-only instrumentation
-  collects stats; the game has no numeric network overlay.
+Check whether the existing game uses WebRTC, WebSocket, or ENet before adapting
+it. These transports are not interchangeable. Do not claim support for an existing
+networking stack merely because the game exports to the web.
 
-This is a two-player prototype, not the stable Godot SDK. Join Friend is explicit
-and targeted; consuming an intent never silently creates a replacement room.
-The web addon renews TURN ahead of its advertised deadline, retries transient
-failures and refreshes connections. The recovery journey passed on Bazzite's
-Flatpak Chrome with both threaded and single-threaded exports. It accelerates the
-renewal deadline while using real TURN credentials; it does not claim a full-hour
-soak or physical suspend test. Native multiplayer remains a separate study.
+## Connect and leave
 
-The following paths are not validated Godot integrations:
+Use the peer-hosted WebRTC declaration in the
+[example manifest](../../examples/godot-web/infuser.game.json), keeping only the
+play modes the game actually supports. The installation must advertise
+`peers.webrtc.v1`.
 
-- **WebSocket + dedicated Godot server:** the controller and authenticated proxy
-  exist; ARM64 headless packaging, readiness, admission and shutdown need a real
-  Godot journey. Supply a managed recipe rather than asking children for Docker
-  configuration.
-- **ENet/UDP:** native clients only. A gated UDP port does not make peer-hosted
-  ENet relay-capable. Add a deliberate relay adapter or use a dedicated server.
-- **Native WebRTC:** bundle Godot's WebRTC extension for each OS/architecture,
-  then test it with the web game. The desktop preview currently permits only
-  client-only single-player games.
-  Windows and Bazzite Linux are required acceptance platforms.
+Use `direct_connect: "optional"` and `peers.join(false)` for normal play.
+WebRTC checks local-network and direct internet paths as well as TURN relay paths;
+relay fallback is required even when direct connections work. UPnP is not needed.
+Use `peers.join(true)` to force relay during a test.
+
+The first player hosts; the second joins the same session. Host departure or an
+expired connection lease ends the room. The addon retries brief interruptions,
+refreshes TURN credentials, and reconnects within the same live room. After a room
+ends, offer an explicit return to the title screen or a new join; do not resume an
+old simulation automatically.
+
+For Join Friend, follow the [web guide](godot-web.md): consume the launch intent
+once and pass it to `peers.join(false, intent)`. If that session or friend is
+gone, show the title screen with an explanation. Never create a replacement room.
+
+Use the game's existing checks and the [publication checks](../agents.md#publish-and-verify).
+With an authorized player session, check actual RPC traffic in both directions,
+forced relay, reconnects, guest isolation, and host departure. If no such session
+is available, report live checks as untested and hand the published game to its player.
+Physical laptop sleep and Windows browser checks remain unverified for this preview.
+
+## Unsupported paths
+
+Dedicated Godot WebSocket servers, ENet/UDP, and native WebRTC do not yet have
+supported Infuser integration recipes. Native Godot currently supports only
+client-only single player. Report a missing integration through the
+[agent guide](../agents.md#reporting-platform-problems); do not remove multiplayer
+just to make publication succeed.
 
 References: [Godot WebRTC](https://docs.godotengine.org/en/stable/tutorials/networking/webrtc.html),
 [WebRTCMultiplayerPeer](https://docs.godotengine.org/en/stable/classes/class_webrtcmultiplayerpeer.html).

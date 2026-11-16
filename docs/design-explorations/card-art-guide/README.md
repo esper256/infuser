@@ -1,5 +1,7 @@
 # Card hero guide: Firefly Drift trial
 
+Audience: Infuser developers.
+
 This is the first test of version 0.1 of [the draft guide](../../card-art-guide.md). It is a
 review fixture, not the artwork of a published game.
 

@@ -1,5 +1,7 @@
 # Nightglass card option
 
+Audience: Infuser developers.
+
 Saved for comparison during the Library redesign. This is a standalone visual
 prototype, not production UI or an agreed game-art contract.
 

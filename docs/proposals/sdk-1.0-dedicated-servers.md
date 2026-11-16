@@ -1,5 +1,7 @@
 # Infuser SDK 1.0 and dedicated game servers
 
+Audience: Infuser developers.
+
 **Direction accepted; detailed interfaces remain a proposal.** See the [SDK decisions](../sdk-1.0-decisions.md). This does not declare the existing SDK stable or change production behavior. It builds on the implementation at `11a24df` and the supplied Lanternfall feature request. Names in proposed API examples are illustrative until the wire contract is reviewed.
 
 **Implementation update:** [managed Node packaging and hosting](../engines/node-server.md)

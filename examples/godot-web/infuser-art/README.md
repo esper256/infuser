@@ -1,5 +1,7 @@
 # Lantern Lake card art
 
+Audience: Infuser developers.
+
 **Final cover illustration.** Amber and cyan player lights drift across a dark
 abstract lake, surrounded by teal ripples and small gold collectibles.
 

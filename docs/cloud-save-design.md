@@ -1,5 +1,7 @@
 # Declared cloud checkpoints
 
+Audience: game authors and their agents.
+
 **Implemented preview; the overall SDK 1.0 contract is not frozen.** Query
 `capabilities.cloud_checkpoints.version` before adopting this API. The existing
 `saves.load/save` slot API remains available with its original behavior; the new
@@ -138,16 +140,14 @@ reusing it with another payload is an error. A timeout is not evidence that the
 write failed, so the SDK retries with the same ID. Concurrent retries must not
 create duplicate branches or move the head twice.
 
-## Boundaries to preserve
+## Save handling requirements
 
-- Derive player/app/guest identity from the session, never request-body IDs.
-  A guest gets empty groups and temporary revisions, with no merge into the owner.
-- Declare capabilities and negotiate storage limits; avoid baking installation
-  limits into every game. Bound group size, files, retained history, unresolved
-  conflicts, and aggregate installation usage. Advertise the effective limits.
-- Never evict an unresolved conflict or current head to accept another write.
-  If space is unavailable, reject without acknowledgement and keep the game's
-  pending state intact. The game shows an unsaved state and offers retry.
+- Use the identity provided by the SDK. A guest gets empty groups and temporary
+  revisions; never merge these into the owner's progress.
+- Declare required capabilities and read the advertised storage limits. Different
+  installations may have different budgets; do not hardcode their limits.
+- If storage is full, Infuser rejects the write without removing current saves
+  or unresolved conflicts. Keep pending progress, show it as unsaved, and offer retry.
 - Do not promise offline durability in 1.0. Network failure or full storage must
   remain visible; the game must not report success or discard its pending data.
 - Upgrading or rolling back a game does not rewrite cloud history. An older build
@@ -190,25 +190,16 @@ const result = await cloud.resolve('campaign', {
 // Another change may have won during the choice. Handle result.status again.
 ```
 
-Limits are advertised: up to eight groups, sixteen JSON files per group, 1 MiB
-of JSON file contents per checkpoint, sixteen recent revisions as a retention
-target, and eight unresolved conflicts per group. Pending candidates, their
-comparison heads/bases, recent resolution alternatives, and the current head are protected. Older unprotected
-history may be trimmed to fit the 16 MiB group limit or installation budget.
+Limits are advertised: up to eight groups, sixteen files per group, 1 MiB
+of serialized `files` JSON per checkpoint (including encoded binary files),
+sixteen recent revisions as a retention target, and eight unresolved conflicts
+per group. Current saves and versions needed to resolve conflicts are protected.
+Older unprotected history may be trimmed to fit the 16 MiB group limit or
+installation budget.
 Missing retained revisions return `revision_unavailable`; list history before
 offering rollback choices. No generic schema migration runs on the server.
 
-The installation defaults to a 512 MiB logical checkpoint/receipt budget,
-configurable as `controller.cloud_save_budget_mb`. Logical bytes include bounded
-metadata allowances; this is not a cap on SQLite's physical file or WAL size.
-Disk-reserve checks and transactional write failures protect against running
-out of disk. Retry receipts remain for the namespace's lifetime and count toward
-the installation budget, even after their snapshots are retired. An old receipt
-replays the original outcome; it does not assert that its revision is still the
-head or retained. The SDK retries transient failures with the same serialized
-payload; caller retries must reuse both the commit ID and content.
-
-Guest rows and receipts are removed transactionally when their launch expires.
-New tables preserve checkpoint history and declarations across a rollback to an
-older daemon; that daemon can still operate its legacy APIs but cannot serve the
-new checkpoint endpoints. Restoring the newer daemon restores their availability.
+Retry records count toward the installation budget even after their snapshots
+are removed. Retrying an old commit returns its original outcome; that revision
+may no longer be current or retained. Reuse both the commit ID and content when
+retrying. Guest checkpoints are removed when their launch expires.

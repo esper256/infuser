@@ -1,29 +1,19 @@
-# Fast development, automatic deployment
+# Automatic server updates
 
-Development does not wait for CI. Push changes normally; one small workflow runs
-the journey tests and builds Linux ARM64/AMD64 controllers, macOS ARM64/AMD64
-publishers, and Windows/Linux Infuser Play installers.
-Passing runs publish an immutable `build-COMMIT` GitHub release. A failed run
-publishes nothing, so the live server keeps its working version while development
-continues. New pushes cancel obsolete runs. There are no added PR approval gates,
-release meetings, or manually assigned version numbers.
+Audience: server operators.
 
-The server pulls releases instead of receiving SSH connections from CI. Its IP,
-provider, SSH keys, Google credentials and admin identity are not needed in GitHub
-Actions. The public repository contains only generic deployment templates.
+Infuser can download and install published releases automatically. The updater
+runs on your server; no external service needs SSH access or your Google credentials.
 
 ## Release path
 
-1. Tests and builds pass across the release matrix.
-2. CI uploads the artifacts and SHA-256 manifest to a draft release.
-3. It checks that the commit is still the main-branch head before publishing.
-4. A host timer checks the latest published manifest approximately once a minute.
-5. The updater downloads the host's binary, checks its digest and validates the
+1. A host timer checks the latest published manifest approximately once a minute.
+2. The updater downloads the host's binary, checks its digest and validates the
    installed configuration with the candidate executable.
-6. It atomically switches `current`, restarts the controller, and checks `/healthz`
+3. It atomically switches `current`, restarts the controller, and checks `/healthz`
    for the exact new build ID. Game containers continue running; peer rooms end
    when the controller restarts, so their players must rejoin.
-7. If activation fails, it restores the previous binary and verifies its health.
+4. If activation fails, it restores the previous binary and verifies its health.
    The failed release is held until a newer build arrives or an operator clears
    the local `failed-release` file to retry it.
 
@@ -69,8 +59,7 @@ sudo systemctl disable --now infuser-update.timer
 `.local/` is ignored by Git and excluded from Docker builds. Use it for private
 deployment configuration, OAuth credentials, publisher connection files and
 local state. Files named `*.credentials.json` and `*.secret` are ignored too.
-Only sanitized examples belong in `deploy/`. Do not force-add private files.
+Keep all real credentials and private deployment settings out of Git.
 
-This workflow releases Infuser itself. Game agents publish immutable builds
-independently through the publishing API. Hidden previews are a visibility
-setting, not separate branches. Game updates do not require a daemon rebuild.
+This updates Infuser itself. Games are published separately through the publishing
+API and do not require a server software update.

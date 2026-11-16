@@ -1,5 +1,7 @@
 # Dedicated SDK implementation plan
 
+Audience: Infuser developers.
+
 Accepted direction following [issue #33](https://github.com/esper256/infuser/issues/33).
 SDK 1.0 remains a candidate. Existing games keep their current routes and behavior.
 

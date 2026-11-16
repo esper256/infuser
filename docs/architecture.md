@@ -1,5 +1,7 @@
 # Product boundaries
 
+Audience: Infuser developers.
+
 Infuser borrows familiar Steam concepts without implementing Steamworks.
 **Infuser** is the website and hosting platform; **Infuser Play** is the native
 player application. The game SDK is [pre-1.0](sdk-contract.md).

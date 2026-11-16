@@ -1,5 +1,7 @@
 # UI pass review
 
+Audience: Infuser developers.
+
 Open `index.html` for the combined screenshot review. The Library grid now links
 to [the complete Nightglass mockup](../nightglass-library/index.html), with nine
 fictional games, generated full-bleed artwork and author-portrait reactions. All captures use local mock

@@ -1,5 +1,7 @@
 # Game descriptions, art requests, and covers
 
+Audience: game authors and their agents.
+
 Use the game's existing publisher connection. These edits do not rebuild the
 game, restart sessions, or change saves. Check `GET /api/publisher/capabilities`
 for `game_metadata.version: 1`; descriptions additionally require
@@ -132,8 +134,7 @@ want to restore an earlier image. Replacements produce a new cover URL; obsolete
 override URLs return 404. Library refresh picks up the change.
 
 These edits do not change the game's title screen, manifest, ownership, gameplay
-modes, build selection, or visibility. Metadata is stored separately from the
-build catalog so older catalog writers do not erase it.
+modes, build selection, or visibility.
 
 The member Library exposes only `card_art_pending`, true when the game has no
 active cover and an unfulfilled prompt. The UI uses a shared “Generating...”

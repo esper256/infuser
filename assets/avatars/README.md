@@ -1,5 +1,7 @@
 # Profile pictures
 
+Audience: Infuser developers.
+
 Fifty-one original AI-generated pictures for Infuser's profile picker, generated
 for this project rather than sourced from a stock library or an existing game
 franchise. The collection mixes characters with object-only gaming artwork.

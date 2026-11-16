@@ -1,5 +1,7 @@
 # Put an existing game on Infuser
 
+Audience: game authors and their agents.
+
 Keep the game's name, engine, gameplay, and build workflow. The child supplies the
 Add a game prompt; you handle integration and publishing. They should not need to
 configure hosting, manage credentials, or create a GitHub account.
@@ -37,15 +39,15 @@ Godot and PeerJS adapters are previews with the limitations in their recipes.
 Managed Node hosting and dedicated sessions are implemented and tested. Check this
 installation's `server_packaging` capability for source packaging, and
 `sessions.v1` plus `connections.websocket.v1` for the dedicated-session adapter.
-Older installations may offer hosting without the social adapter; check live
-capabilities rather than treating an old proposal as the current support list.
+Older installations may offer hosting without these session features; check live
+capabilities before using them.
 [Bevy](engines/bevy.md) has no validated integration yet. Do not promise support
 based only on an engine's ability to export a web page.
 
 For new integrations, declare [SDK/API major 1 and required capabilities](sdk-versioning.md)
 in `infuser.game.json`; import `/_infuser/sdk/v1.js`. Major 1 is still a preview,
 not a frozen SDK 1.0. Existing games keep their declared version unless deliberately
-migrated. [Achievements are not implemented](sdk-contract.md).
+migrated. Achievements are not implemented.
 
 ## Explicit play modes
 
@@ -135,11 +137,9 @@ complete publication and check its result. Only adult admins can play `--preview
 publications; do not hide a child's game from them by using it. Queued updates wait
 for the active session to end; do not describe them as live yet.
 
-Run the game's available local checks. Infuser's Cargo test harnesses and repository
-browser journeys are contributor tools, not publishing prerequisites. Do not
-install Rust, Docker, WSL, or a new browser-test stack merely to run them. Use
-prebuilt tools or the HTTP API; do not build Infuser from source to work around a
-missing download. If an authorized game test session is already
+Run the game's available local checks. Use the prebuilt publisher or HTTP API;
+do not install a compiler, Docker, WSL, or a browser-test framework just to publish
+or verify a game on Infuser. If an authorized game test session is already
 available, also check launch, save/reload, guest isolation, and declared multiplayer
 modes. Otherwise, report those live checks as untested and finish the handoff.
 Publisher credentials are not a player login. **Do not ask the child to log in
@@ -187,4 +187,3 @@ weakening authentication, or quietly dropping multiplayer.
 The publishing connection assigns the game to its creator’s private group. Do
 not ask the child for a group ID or add one to the manifest. Games, players,
 presence, and saves are scoped by Infuser; the SDK integration stays the same.
-See [private groups](private-groups.md) for operator setup.

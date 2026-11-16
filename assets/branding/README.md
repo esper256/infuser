@@ -1,5 +1,7 @@
 # Infuser identity
 
+Audience: Infuser developers.
+
 ## Product names
 
 - **Infuser** is the website: browse the Library, find friends and publish games.

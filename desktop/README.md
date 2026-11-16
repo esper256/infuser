@@ -1,5 +1,7 @@
 # Infuser Play
 
+Audience: Infuser developers.
+
 The native companion connects an account, downloads and opens games, then stays
 minimized while a game runs. The Library remains in the browser.
 

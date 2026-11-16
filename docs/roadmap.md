@@ -1,5 +1,7 @@
 # Remaining work
 
+Audience: Infuser developers.
+
 - Make game-author tools portable: add a Windows publisher executable and provide
   optional integration checks that use prebuilt tools or the project's existing
   runtime. Keep the Cargo/Playwright contributor harness out of the publishing

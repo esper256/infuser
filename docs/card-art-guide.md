@@ -1,5 +1,7 @@
 # Infuser card hero art
 
+Audience: game authors and their agents.
+
 This guide applies to **all games**, regardless of engine, web/native delivery,
 or multiplayer mode. It specifies the image for a Library card. `infuser publish` automatically includes the
 delivery image described below. No artwork field in `infuser.game.json` is needed.
@@ -153,8 +155,8 @@ Do not describe an invented illustration as a gameplay capture.
 4. Place the actual Library overlay over each crop: top metadata and the
    bottom-right title/author/Play dock. Check a long title and many tags too:
    the title must remain capped at two lines and tags at one scrollable row.
-   If metadata grows over the subject, fix the UI bounds instead of adding a
-   larger permanent blank area to the image.
+   If the standard controls obscure the subject, adjust the composition. Report
+   overflowing Infuser controls as a platform issue; do not edit Infuser's UI.
 5. Check the finished WebP, not only the source. Look for muddy edges, banding,
    compression ringing, accidental text, malformed objects, or baked-in patterns.
 

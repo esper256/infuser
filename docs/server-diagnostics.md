@@ -1,5 +1,7 @@
 # Debug a dedicated server
 
+Audience: game authors and their agents.
+
 Use the game's existing publishing credential. No SSH or new setup code is needed.
 Check `server_diagnostics.version === 1` in `/api/publisher/capabilities` before
 using the runtime endpoint. These reports are private to that game's publisher;
@@ -59,15 +61,3 @@ a public issue.
 A healthy server with a failed browser connection can still indicate a client,
 authentication or proxy problem. Include the failing URL path and HTTP status;
 do not include its query, launch fragment or authorization headers.
-
-## Operator checks
-
-`journalctl -u infuser --since "15 minutes ago"` includes app/attempt lifecycle
-transitions and packaging job IDs. Runtime reports live under
-`STATE_DIR/runtime-diagnostics/APP.json`, with private file permissions. A capture
-failure is logged but does not prevent container cleanup or hold CPU/RAM forever.
-Use the [private publication archive](publication-capture.md) for importer problems;
-it records publishing inputs, not game WebSocket traffic.
-For proxy errors, inspect the Caddy container's error log as well
-(`docker logs --since 15m CADDY_CONTAINER`). This endpoint does not collect Caddy
-or browser logs, and no packet-by-packet gameplay tracing is enabled.

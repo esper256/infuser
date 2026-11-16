@@ -1,20 +1,17 @@
 # Godot web: export, upload, play
 
+Audience: game authors and their agents.
+
 Start with the [agent guide](../agents.md). Prefer an art-generation prompt if
 you cannot produce high-quality cover art; do not spend time staging screenshots.
 After publishing, verify build state and metadata using the publisher API.
 No Google login is needed to finish: report unavailable live checks as untested
 and link the player to their Infuser website. Do not ask for Google account access.
 
-This adapter is a preview. The real Godot/WASM
-[Lantern Lake journey](../../examples/godot-web/README.md) covers cloud saves,
-guest refresh/isolation, conflicts, save retries, and forced-relay multiplayer.
-Tested: Godot 4.7.2 standard/GDScript, Compatibility renderer, both single-threaded
-and threaded web exports. Bazzite's installed Flatpak Chrome passed real Godot
-RPCs through TURN, brief outages, connection replacement, background operation,
-credential refresh with a transient failure, and renderer suspension beyond the
-room lease. Tests used headless Chrome; physical laptop sleep and actual Windows
-browsers remain acceptance items. This is not an SDK 1.0 declaration.
+This preview supports Godot 4.7.2 standard/GDScript with the Compatibility
+renderer, using single-threaded or threaded web exports. Physical laptop sleep
+and Windows browser testing remain unverified. The [example project](../../examples/godot-web/README.md)
+shows saves, guest play, and two-player multiplayer.
 
 For an existing project with a **Web** export preset and matching Godot export
 templates installed on the game-making machine:
@@ -62,8 +59,7 @@ schema, and explicitly choose one. Both remain preserved until resolution succee
 Cancel leaves the conflict pending; retry uses the same resolution commit ID.
 
 For an existing-project walkthrough, see [Dodge the Creeps](../../examples/godot-existing/README.md).
-The study retained its title, scenes, assets and gameplay, adding a best-score
-checkpoint at game-over. Real gameplay, save/reload and guest isolation passed.
+It adds a best-score checkpoint at game-over while keeping the original gameplay.
 
 Declare `launch_intents: ["join_friend"]` for supported peer-hosted games. Consume
 the intent once at startup and pass it to the Godot peer adapter as

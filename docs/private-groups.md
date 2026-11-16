@@ -1,5 +1,7 @@
 # Private groups
 
+Audience: server operators.
+
 One Infuser installation can host separate families. Each account belongs to one
 private group. Members see that group’s games, players, chat, reactions, and tags.
 A family’s adult admins manage only its invitations, game visibility, and agent
@@ -67,7 +69,7 @@ Operator routes use the normal Google session and Origin checks:
 publishing pass in that group. Omitting `--group` selects Home. Normal Add Game
 prompts already do this correctly without additional choices for kids or agents.
 
-[Art-agent keys](art-agent.md) default to Home; use `--group GROUP_ID` for another
+[Art-agent keys](art-agent-operations.md) default to Home; use `--group GROUP_ID` for another
 group or explicit `--all-groups` for installation-wide artwork maintenance.
 Existing all-games keys retain their access. Never give an installation-wide
 key to a game-making agent. The controller’s host control token also remains an
@@ -81,8 +83,7 @@ There are no new per-group CPU, RAM, or storage budgets. Private groups enforce
 application access boundaries; they do not provide separate machines or separate
 network firewalls. Dedicated game servers must still validate Infuser tickets.
 
-Back up the state directory with the usual deployment backup. Group policy lives
-in SQLite alongside the catalog; legacy chat rows belong to Home. Keep
+Back up the complete state directory. Keep
 `private_groups = true` once another group exists. Infuser refuses to serve a
 multi-group database with it disabled. Older binaries reject the new config
 field, preventing an automatic rollback from silently exposing other groups.

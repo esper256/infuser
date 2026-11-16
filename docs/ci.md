@@ -1,5 +1,7 @@
 # CI and dependency maintenance
 
+Audience: Infuser developers.
+
 PR checks are advisory: fast Rust journeys (`cargo test --locked`), Node 24 SDK
 and theme tests (`node --test tests/*_sdk.mjs tests/themes.mjs`), Rust formatting
 (`cargo fmt --all -- --check`), and Clippy
@@ -12,7 +14,7 @@ The **Docker and Caddy integration (manual)** workflow runs only via Actions →
 Run workflow, once this workflow exists on the default branch. It builds the demo
 image, runs the ignored Docker lifecycle journey, and runs the ignored Caddy web
 journey with Caddy 2.10.2. It does not deploy or publish an image. See
-[local integration commands](operations.md#verification) for the same test entry points.
+[local integration commands](developer-testing.md#docker-and-caddy) for the same test entry points.
 
 Dependabot checks Cargo, GitHub Actions and the demo Dockerfile every Monday.
 Version updates are grouped into one PR per ecosystem, with at most one open
@@ -34,3 +36,16 @@ settings separately. See [GitHub's security-update guidance](https://docs.github
 Actions in the new workflows are pinned to full commit SHAs, with readable version
 comments. The Rust installer action is pinned while the installed stable Rust
 channel intentionally follows stable. Dependabot maintains action pins.
+
+## Release builds
+
+Development does not wait for CI. Push changes normally; one small workflow runs
+the journey tests and builds Linux ARM64/AMD64 controllers, macOS ARM64/AMD64
+publishers, and Windows/Linux Infuser Play installers.
+Passing runs publish an immutable `build-COMMIT` GitHub release. A failed run
+publishes nothing, so the live server keeps its working version while development
+continues. New pushes cancel obsolete runs. There are no added PR approval gates,
+release meetings, or manually assigned version numbers.
+CI uploads artifacts and the SHA-256 manifest to a draft release, then checks
+that the commit is still the main-branch head before publishing it. Server
+operators enable [automatic updates](deployment.md) separately.

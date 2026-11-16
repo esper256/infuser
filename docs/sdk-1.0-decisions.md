@@ -1,5 +1,7 @@
 # SDK 1.0 decisions
 
+Audience: Infuser developers.
+
 **Accepted direction; SDK 1.0 is still a candidate.** Keep publishing and learning
 from real games. A small catalog makes coordinated migrations possible, but does
 not justify silently changing identities, save ownership or session semantics.

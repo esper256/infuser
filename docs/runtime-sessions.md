@@ -1,5 +1,7 @@
 # On-demand managed server sessions
 
+Audience: game authors and their agents.
+
 **Experimental v1; not an SDK 1.0 guarantee.** This contract covers dedicated and
 persistent-world backends, plus single-player modes that use a shared server.
 WebRTC peer hosting uses its adapter's join method and `room.close()`; see
@@ -32,12 +34,6 @@ The game checks `(await ready).capabilities.runtime_sessions?.version === 1`
 before using this experimental API. Its initial `runtime.state` is `ready` (the
 browser can play); `runtime.server.state` is independently `idle`. An unrelated
 game consuming the server's resource budget does not block this title screen.
-
-The declaration lives beside the legacy catalog, so an older daemon can still
-read/rewrite that catalog without deleting it. Rolling back to a daemon without
-runtime v1 restores its old warm-on-launch behavior; a new game's capability
-check must show that this feature requires a newer Infuser. Binary rollback does
-not provide missing SDK methods. Upgrading again restores the declaration.
 
 ## Game integration
 

@@ -1,5 +1,7 @@
 # Pending artwork fallback
 
+Audience: Infuser developers.
+
 `generating-master.png` is the approved image generated with OpenAI image generation
 from a rendered reference of Infuser's existing abstract loop fallback. It is a
 shared Library status image, not game-specific art and not a published cover.

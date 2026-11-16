@@ -1,5 +1,7 @@
 # Install the player platform
 
+Audience: server operators.
+
 The `infuser` daemon serves the Library, public publishing API, static games,
 and player services on its existing loopback port. Front it with Caddy using
 [`deploy/Caddyfile.example`](../deploy/Caddyfile.example). Do not expose the daemon
@@ -80,8 +82,7 @@ Back up the controller state directory, including `platform.sqlite` with its WAL
 volumes. Do not copy only the main SQLite file while writes are active. Stop the
 service briefly for a simple filesystem backup.
 
-Platform rows are additive and the new daemon reads old controller state. Once
-publishing-managed servers exist, do not roll back to pre-platform binaries that
+Once publishing-managed servers exist, do not roll back to pre-platform binaries that
 cannot read their catalog. Keep a pre-upgrade backup for such a manual rollback.
 The current auto-updater still checks health and retains the previous binary.
 
@@ -100,13 +101,13 @@ The CLI creates a mode-0600 file, never prints its token, and refuses to overwri
 an existing file. Transfer it privately to the game-making agent; revoke it in
 the admin UI when finished. Normal kids use Add a game instead.
 
-For an Infuser-side art agent, create a separate [all-games metadata key](art-agent.md).
+For an Infuser-side art agent, create a separate [all-games metadata key](art-agent-operations.md).
 It can read private art prompts and edit presentation across games, without
 publishing builds or accessing player saves.
 
-For automated dogfooding without sharing a Google session, a local operator can
+For a test launch without sharing a Google session, a local operator can
 run `infuser preview-game CONFIG APP EXISTING_ADMIN_EMAIL PRIVATE_OUTPUT_FILE`.
-This only accepts a hidden, client-only preview and creates a single-use,
+This accepts hidden client-only or on-demand web games and creates a single-use,
 two-minute launch link with a **fresh guest** save namespace. It grants no portal,
 publishing or admin access. Treat the output as private and close the test game
 when done. Normal player launches still require Google and enabled membership.
@@ -117,3 +118,25 @@ Use [private groups](private-groups.md) to invite a separate family. Ordinary
 admin invites always belong to the inviting adult’s group. The local `member`
 command adds new accounts to Home; it is not the way to invite another family.
 For a manual publisher pass outside Home, append `--group GROUP_ID`.
+
+## Chat notifications
+
+The daemon sends standard VAPID-authenticated Web Push to the browser's push
+service. It generates `web-push.key` in the private state directory automatically;
+back it up with the database. No Firebase project, Apple developer account or
+extra process is needed. The key survives updates. Replacing it requires devices
+to turn notifications off and on again.
+
+
+## Cloud save capacity
+
+`controller.cloud_save_budget_mb` defaults to 512 MiB for checkpoint contents and
+retry records. This is a logical storage budget, not a cap on the SQLite database
+or its WAL. Monitor disk space and keep the configured free-disk reserve.
+
+## Test launch links
+
+For disposable hidden previews, the operator helper supports:
+`infuser preview-game CONFIG APP ADMIN_EMAIL OUTPUT --join-session SESSION --join-player PLAYER`.
+It retains the existing enabled-adult/hidden-game checks and writes a private,
+single-use guest launch. No Google session is granted to the test agent.

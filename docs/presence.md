@@ -1,5 +1,7 @@
 # In-game presence and joinability
 
+Audience: game authors and their agents.
+
 **Experimental v1; the overall SDK is still pre-1.0.** Capabilities advertise
 `presence.version = 1` and `presence.joinability` includes `peer_hosted_webrtc`
 and `dedicated_websocket`. Presence is readable by any authenticated game launch.
@@ -74,7 +76,7 @@ All invited members are the current social circle; no separate friend list exist
 can be created for this published build and topology; reading it reserves nothing.
 Its availability is a hint, not a promise that the later join cannot fail.
 `unavailable_reason` is null or `unsupported_topology`, `relay_unavailable`,
-`newer_build`, or `coordinator_restarting`. The startup restart fence still applies.
+`newer_build`, or `coordinator_restarting`. After a controller restart, new peer sessions wait for old connections to expire.
 
 Session `reason` is null when joinable, otherwise `different_build`, `full`,
 `closed`, or `not_advertised`. Occupancy counts peer connections, matching admission
@@ -98,7 +100,8 @@ if (room.role === 'host') await room.setJoinable(false);
 The only report is a boolean: whether this session accepts new participants.
 Names, identities, occupancy and capacity come from authenticated launches and
 the manifest. Only the verified host connection can update admission, with its
-matching session epoch. Members cannot update it; stale epochs are rejected.
+matching session ID (`epoch` in the peer API). Members cannot update it; IDs from
+ended sessions are rejected.
 Closing admission leaves everyone already in the room connected, and an existing
 connection can retry its join without being rejected. Full rooms stay unjoinable
 even if the host's `acceptingPlayers` preference is true. A departing member frees
@@ -145,5 +148,5 @@ explicit host method to change it. Old games still work without presence calls.
 
 Presence reads do not renew browser or peer leases, start servers, reserve seats,
 or alter fullscreen. The normal SDK heartbeat remains required. Cache only briefly,
-handle fetch failures, and render a small social affordance in the game's own
+handle fetch failures, and show a small player list or Join action in the game's own
 title screen. Numeric network diagnostics remain in adult tools.

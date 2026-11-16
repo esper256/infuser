@@ -1,5 +1,7 @@
 # Automatic merging of owner PRs
 
+Audience: Infuser developers.
+
 `Merge owner PRs` implements automatic merging without requiring approvals or
 branch protection. Native GitHub auto-merge alone does not do this: enabling the
 repository feature only allows individual PRs to opt in, and its waiting behavior

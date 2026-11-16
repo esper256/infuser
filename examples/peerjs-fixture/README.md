@@ -1,5 +1,7 @@
 # PeerJS Flight Test
 
+Audience: Infuser developers.
+
 Small disposable networking fixture, not Event Horizon. It reuses one real
 PeerJS DataConnection handler for hosted and standalone play, including binary
 messages and automatic motion without AI. Keep it an admin-only preview.

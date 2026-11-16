@@ -1,6 +1,9 @@
 # Private publication capture
 
-Infuser can preserve publication requests as fixtures for future importer changes.
+Audience: server operators.
+
+Infuser can preserve publication requests for diagnosing problems and testing
+future importer changes.
 This is an opt-in diagnostic archive, not an audit log, a game backup, or a queue
 that replays against production.
 
@@ -78,15 +81,3 @@ containers, activate builds or clear the archive. Keep it outside the repository
 To resume after the cap is reached, export and raise the configured cap within the
 host's available storage, or archive/reset the capture directory during a planned
 controller stop. Do not move a live SQLite archive underneath a running writer.
-
-A future replay tool should consume this versioned format, require fresh test-only
-credentials, remap app/build identifiers as needed, and run against a disposable
-controller and storage namespace. It must report missing predecessors, skipped
-requests and unknown outcomes. Prefer importer/validation comparisons before any
-runtime execution; archived JavaScript, native files and server inputs are still
-untrusted code. Production must never be the implicit replay target.
-
-The fast capture journey already reconstructs a published game and update from
-exported bodies against a separate local controller with new credentials, checks
-that rejected JSON is preserved byte-for-byte, and verifies redaction, deduplication,
-budget gaps and unknown outcomes.

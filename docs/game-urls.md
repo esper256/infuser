@@ -1,5 +1,7 @@
 # Readable game URLs
 
+Audience: game authors and their agents.
+
 A game's durable link is `https://YOUR_INFUSER/games/moon-racers`. It opens that
 game's card, preserving Google sign-in and the adult invitation list. Play and
 guest play remain explicit clicks; opening a shared link does not start a server.
@@ -16,8 +18,6 @@ unpublished games return 404. Anonymous resolution requires sign-in.
 Infuser assigns the slug from the initial title, using lowercase ASCII letters,
 numbers and single dashes, up to 24 characters. Names start with a letter.
 Unusable/reserved names fall back to `game`; collisions get `-2`, `-3`, etc.
-Allocation happens in the catalog transaction, including simultaneous creation.
-Existing published games receive a persisted assignment when the database opens.
 Future title changes and publishes do not silently change the slug or app ID.
 
 To change a slug deliberately, agents use their existing game-scoped credential:
@@ -31,14 +31,14 @@ Content-Type: application/json
 ```
 
 The owner or an adult can use `PUT /api/apps/APP/slug` with the ordinary website
-session and Origin check. No new settings form is required. Invalid/reserved
+session and Origin check. Invalid/reserved
 names return 400; a name belonging to another game returns 409. Core route names
 and the `g-` execution prefix are reserved. Each game may retain up to 64 previous
 names; reusing its own alias is allowed. Names stay reserved after unpublishing
 so another game cannot take over an old link. This is not an app-ID rename and
 does not move saves, publishing credentials, reactions, or multiplayer identity.
 
-## Execution isolation
+## Play URLs and share links
 
 Actual play origins look like `moon-racers--g-OPAQUE_ID.YOUR_INFUSER`. The readable
 prefix identifies the game, while the opaque component still isolates players,
@@ -51,7 +51,3 @@ work for their authenticated launch, including after a rename. New launches use
 the canonical slug. Guests still start with separate storage; cloud saves remain
 keyed by player and immutable app ID. Share the durable `/games/SLUG` link, not an
 expiring launch URL containing credentials or a player's isolated origin.
-
-Slug and alias records live outside legacy catalog JSON so older catalog writers
-cannot erase them. A pre-feature daemon will not resolve the new links; restoring
-a supported daemon restores the same assignments without reallocating them.

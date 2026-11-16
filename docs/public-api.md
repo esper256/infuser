@@ -1,13 +1,15 @@
 # Public platform API
 
+Audience: game authors and API tool authors.
+
 The engine recipes are the preferred entry point. These are **pre-1.0** low-level
-building blocks for custom agents; see the [SDK compatibility review](sdk-contract.md).
+building blocks for custom publishing tools and game integrations.
 All bodies/responses are JSON unless noted.
 New integrations should use [versioned SDK/API routes](sdk-versioning.md).
 Game routes below use major 1 under `/_infuser/api/v1`; older unversioned routes
 remain available for existing builds.
 Public traffic goes through HTTPS/Caddy; `/v1/*` is still private to the host.
-Member-only [Library chat and client update detection](library-chat.md) are
+Member-only [chat and notification APIs](chat-api.md) are
 separate from the game SDK and publisher credentials.
 
 ## Publisher credentials
@@ -93,7 +95,7 @@ later publications; none requires a manifest field.
 Publishing keys inherit their creator’s [private group](private-groups.md).
 Manifests cannot choose or change a group.
 
-An operator can provision a [group or all-games metadata key](art-agent.md). It can list
+An operator can provision a [group or all-games metadata key](art-agent-operations.md). It can list
 `GET /api/metadata/apps`, read/PATCH `/api/metadata/apps/APP`, and PUT/DELETE
 `/api/metadata/apps/APP/card-art` across games within the key’s scope. It cannot publish builds, access
 saves, or administer members. Ordinary game keys cannot enumerate other games.
@@ -116,9 +118,9 @@ clients. An adult force-restart UI is not implemented yet.
 
 ## Player website
 
-Google sessions are validated against the loopback OAuth2 Proxy, then checked
-against Infuser's own invitation list. Unsafe browser requests require the exact
-HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection IP.
+These routes require a signed-in, invited Google account. Requests that change
+data also require the exact website HTTPS Origin. A publisher credential cannot
+be used as a player login.
 
 - `GET /api/me`, `GET /api/library` — identity, games, friends, reactions.
   Library games include `author: {id, name, avatar}` from the existing owner/member records,
@@ -137,9 +139,7 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
   Authentication, active membership, and the exact HTTPS Origin are required.
   There is no target-user field, file upload, or remote image URL.
   `GET /assets/avatars/ID/128.webp` and `256.webp` serve embedded public artwork.
-  Member updates preserve the selection; old records default to initials. The
-  optional persisted member field requires no migration. Rolling back to an older
-  binary can discard this cosmetic preference when it rewrites member records.
+  Member updates preserve the selection; accounts without one show initials.
 - `POST /api/my-games` with `{}` — reserves a publishing connection for an existing
   project without asking the child for a name. Returns `app_id`, `api_url`,
   `setup_code`, `expires_at` (Unix seconds), `supported_engines`, and `tag_catalog`;
@@ -151,7 +151,7 @@ HTTPS Origin. The proxy must overwrite `X-Infuser-Client-IP` with the connection
   mode selection. Legacy explicit `mode` is still accepted. Managed builds with
   `manifest.server_start:"on_demand"` start at their title screen without a server;
   builds without that declaration retain launch-time warming.
-  Opted-in peer games also accept an optional [Join friend intent](launch-intents.md).
+  Opted-in peer and dedicated games also accept an optional [Join friend intent](launch-intents.md).
 - `GET /api/launches/ID` — owner-only startup polling/renewal.
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
 - Adult-only `PUT /api/admin/apps/APP/visibility` with `{"listed":true}` or
@@ -234,7 +234,7 @@ fallback is mandatory. The [PeerJS adapter](peerjs.md) additionally requires the
 `peers.peerjs.v1` capability and shared PeerServer service.
 The [native Godot preview](engines/godot-native.md) adds verified client delivery
 through the desktop companion. It currently accepts client-only single-player
-games on Windows/Linux x86-64; native multiplayer remains a separate study.
+games on Windows/Linux x86-64; native multiplayer is not supported.
 
 Native pairing uses `/api/native/v1/device/start`, explicit signed-in
 `/api/native/v1/device/approve`, and verifier-protected `/api/native/v1/device/token`.

@@ -1,15 +1,15 @@
 # Join friend launch intents
 
+Audience: game authors and their agents.
+
 **Experimental v1, for peer-hosted WebRTC and managed dedicated WebSocket games.** Ordinary Play opens the
 game's title screen. Join friend is an explicit request to join a specific person
 in a specific existing session. It never means creating a replacement world.
 
 ## Entry points
 
-Keep the primary Play button and hero artwork clear. Join actions belong
-in the game card's arrow dropdown alongside guest play. The same action can be
-used beside online-player avatars near the logo; the avatar strip's visual design
-is separate from this API. Do not add permanent Join buttons over game art.
+The Library offers Join Friend in the game-card dropdown and beside online-player
+avatars. Both send the same request to the game.
 
 `GET /api/library` adds `apps[].join_targets` for visible, opted-in games with an
 explicitly joinable room. Each target has `session_id`, `player_id`, `name`, and
@@ -90,9 +90,9 @@ Personal save ownership remains player/app-scoped across both origins.
 
 Library information can go stale. A valid intent can still launch the game after
 the room closes or the friend leaves, allowing its title-screen fallback. Actual
-admission rechecks the session epoch, target membership, build, capacity and host's
-joinability atomically. The peer wire fields are `expected_epoch` and
-`expected_player`. A friend target requires an epoch.
+joining rechecks the session ID, target membership, build, capacity and host's
+joinability together. The peer wire fields are `expected_epoch` and
+`expected_player`. Here, `epoch` means the observed session ID. A friend target requires it.
 
 For peer-hosted games, room replacement/ending or the friend leaving returns 410; closed/full rooms or
 build mismatch return 409. Do not drop either target field and retry. A failed
@@ -103,18 +103,3 @@ Dedicated sessions use typed `error.code` values such as `session_ended`,
 `friend_left` and `session_full`, normally with HTTP 409. Their Node helper and
 browser SDK handle admission together; do not use peer signaling fields or
 require TURN for this transport. See [dedicated sessions](dedicated-sessions.md).
-
-Manifest opt-in is stored beside the legacy catalog so older daemons can read and
-rewrite that catalog without losing the declaration. Pending intents are short-
-lived launch metadata: restart on the same version preserves them, while rollback
-to an older binary may discard them. Falling back to a title screen is intentional;
-there is no promise to replay an intent across a downgrade. Saves are unaffected.
-
-For disposable hidden previews, the operator helper supports:
-`infuser preview-game CONFIG APP ADMIN_EMAIL OUTPUT --join-session SESSION --join-player PLAYER`.
-It retains the existing enabled-adult/hidden-game checks and writes a private,
-single-use guest launch. No Google session is granted to the test agent.
-
-The Library avatar strip offers Join for each friend’s joinable game. Its overflow
-menu includes the remaining friends. Both use the same targeted launch intent as
-the game-card menu; an ended session shows an error rather than creating a new room.

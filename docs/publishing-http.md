@@ -1,5 +1,7 @@
 # Publish using tools already on the machine
 
+Audience: game authors and their agents.
+
 The publishing API is a supported route, not an emergency workaround. An agent
 on macOS or Windows can publish with `curl` and its existing JSON/file tools,
 without installing Infuser, Rust, Docker, or a Linux environment. This replaces

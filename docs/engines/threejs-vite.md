@@ -1,5 +1,7 @@
 # Three.js / Vite: first-class browser publishing
 
+Audience: game authors and their agents.
+
 Use this recipe for existing Three.js/Vite or plain HTML/JavaScript games. Other
 browser engines may produce compatible exports, but their adapters have not been
 validated by this recipe. Start with the [agent guide](../agents.md).

@@ -1,5 +1,7 @@
 # Browser game with a Node server
 
+Audience: game authors and their agents.
+
 **Implemented and tested; SDK 1.0 remains a preview.** Use this recipe for plain JavaScript servers using HTTP/WebSocket, including
 Three.js games using `ws`. Keep the game's networking messages and room logic.
 The publisher uploads the client and server together; the author needs no Docker.
@@ -24,7 +26,7 @@ exist in the static export. Do not copy the entire server dependency tree there.
 The server listens on `process.env.PORT` on `0.0.0.0`. Its health endpoint returns
 HTTP 200 once it can accept connections. It must start without platform credentials
 for the isolated readiness probe and normal standalone development. Handle SIGTERM
-and keep temporary files under `/tmp`; this first recipe has no persistent world
+and keep temporary files under `/tmp`; this recipe has no persistent world
 volume. Personal cloud saves remain a separate game integration.
 
 Example `infuser.game.json` additions:
@@ -94,8 +96,7 @@ room membership. Use the dedicated-session helper for those features; do not
 declare peer-hosted capabilities for a dedicated game. Both routes preserve the
 game's own message protocol.
 
-Read the [dedicated fixture](../../examples/dedicated-node) as a complete integration
-example. Its Cargo/Playwright acceptance harness is for Infuser contributors;
-running it is not a requirement for adapting or publishing your game. Use your
-project's existing tests and the [publication checks](../agents.md#publish-and-verify).
+The [Node/WebSocket example](../../examples/dedicated-node/README.md) shows a complete
+integration. Use your project's existing tests and the
+[publication checks](../agents.md#publish-and-verify).
 Report platform failures using [the agent issue instructions](../agents.md#reporting-platform-problems).

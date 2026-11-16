@@ -1,4 +1,6 @@
-# Network admission
+# Restrict access to native game ports
+
+Audience: server operators.
 
 Published native game ports are closed by default. After an invited player logs
 in, the platform grants their observed source IP temporary access, renewed
@@ -33,10 +35,9 @@ sudo nft add element inet infuser_ingress members4 '{ 192.0.2.123 timeout 60s }'
 
 The kernel expires grants even if the platform crashes. Restarting the firewall
 atomically clears grants; it never flushes unrelated firewall tables. The
-login integration must obtain the address from the actual connection or the
-explicitly trusted reverse proxy, never an arbitrary client-supplied header or
-request field. Multiple sessions sharing an IP need combined expiry tracking;
-one logout must not revoke another active player's access.
+reverse proxy must overwrite `X-Infuser-Client-IP` with the connection address,
+as shown in the Caddy template. Do not trust a client-supplied value. Logging out
+does not immediately remove a shared IP; its grant expires unless refreshed.
 
 References: [Docker packet filtering](https://docs.docker.com/engine/network/firewall-iptables/)
 and [Docker with nftables](https://docs.docker.com/engine/network/firewall-nftables/).

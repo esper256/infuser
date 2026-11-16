@@ -1,5 +1,7 @@
 # Lifecycle API
 
+Audience: server operators.
+
 The Rust daemon binds to `127.0.0.1:7777` by default. A trusted website backend
 authenticates the player, enforces membership, and requests a lease on their
 behalf. Never give a browser or game the control token. These routes are versioned

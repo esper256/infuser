@@ -1,5 +1,7 @@
 # Library themes
 
+Audience: Infuser developers.
+
 Themes change presentation, not the application's features or identity. The
 profile dropdown contains **Change profile picture**, **Theme**, and **Sign out**.
 Theme choices apply immediately, persist in this browser, and sync across its open

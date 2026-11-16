@@ -1,5 +1,7 @@
 # Development checks
 
+Audience: Infuser developers.
+
 This page is for changing Infuser itself. Game-making agents should use the
 [integration instructions](agents.md), their game's existing checks and the
 publisher's results. Do not install these development tools or run this test
@@ -43,7 +45,7 @@ INFUSER_GROUP_BROWSER_NODE="$(command -v node)" \
 
 The test covers inspection, read-only chat, covers, returning home, group creation,
 and mobile layout against the real Rust API. Browser setup is a one-time step.
-Docker and Caddy journeys are opt-in; see [operations](operations.md#verification).
+Docker and Caddy journeys are opt-in; see [operations](developer-testing.md#docker-and-caddy).
 Engine/hardware acceptance is tracked in the [roadmap](roadmap.md).
 
 The avatar-strip browser journey uses mocked API responses and real browser
@@ -87,7 +89,18 @@ maintenance update; replacing the GUI stack is outside this cleanup.
 - `src/platform/groups.rs`: group ownership and credential-management policy.
 - `src/private_file.rs`: private output reservations and durable file replacement.
 - `native-protocol`: the shared native-delivery format and path validation.
-- `docs/sdk-contract.md`: game-facing compatibility boundaries.
+- `docs/sdk-contract.md`: design review for game-facing compatibility boundaries.
 
 Infuser code is [MIT licensed](../LICENSE). Third-party dependencies and imported
 assets keep their own notices and licenses.
+
+## Documentation audiences
+
+Keep each guide for one audience: players, game authors/agents, server operators,
+or Infuser developers. Put platform build commands, test harnesses, implementation
+notes, and future design work in developer guides. User guides describe available
+features and the steps needed to use them. Keep exact API names, explain unfamiliar
+terms, and link to the implemented contract rather than a proposal. Start at the
+[documentation index](README.md). Feature-specific tests live in
+[developer testing](developer-testing.md); storage and compatibility details live
+in [implementation notes](implementation-notes.md).

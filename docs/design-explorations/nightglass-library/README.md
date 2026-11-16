@@ -1,5 +1,7 @@
 # Nightglass Library mockup
 
+Audience: Infuser developers.
+
 Open `index.html` with a local static server rooted at the repository. This is the
 whole Library review with Nightglass on all nine cards, not an isolated card study.
 

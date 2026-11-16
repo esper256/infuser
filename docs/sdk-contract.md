@@ -1,5 +1,7 @@
 # Game SDK: path to 1.0
 
+Audience: Infuser developers.
+
 **Status: pre-1.0, experimental.** The current browser SDK and game-facing HTTP
 API are a dogfood contract, not a stable SDK release. Manifest `schema_version: 1`
 describes a document format; it does not mean SDK 1.0. Preserve published games

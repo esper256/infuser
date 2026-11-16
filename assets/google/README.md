@@ -1,5 +1,7 @@
 # Sign in with Google button
 
+Audience: Infuser developers.
+
 `sign-in-with-google-pill.png` is the selected sign-in button: Google's unmodified
 pre-approved Android/Web light pill button at 2× resolution (360 × 80).
 `sign-in-with-google.png` is the rectangular alternative. Both are downloaded from

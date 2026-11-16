@@ -1,5 +1,7 @@
 # Player experience
 
+Audience: Infuser developers.
+
 Infuser is a private game library. Use **Library**, **Single player**, and
 **Multiplayer** in player-facing copy. Keep internal protocol names distinct from
 UI wording. Adult invitations and administration belong in a quiet admin area.

@@ -1,12 +1,14 @@
 # Existing PeerJS games
 
+Audience: game authors and their agents.
+
 **Preview: tested with PeerJS 1.5.5 and PeerServer 1.0.2.** Keep the game's PeerJS
 dependency, simulation, and message formats. Infuser supplies private connection
 setup and admission; PeerJS still creates the real WebRTC DataConnections.
 JSON and binary serialization are supported. Audio/video calls, mesh topologies,
 multiple rooms per game, and seamless host migration are outside this adapter.
 
-PeerJS is a library, not a new multiplayer modality. Declare `peer_hosted` and
+PeerJS is a library, not a separate multiplayer mode. Declare `peer_hosted` and
 `webrtc`, and set `adapter:"peerjs"` to select this adapter. Query publisher
 capabilities for `sdk.capabilities` containing `peers.peerjs.v1` before editing or
 publishing an integration. A host without the private PeerServer service rejects
@@ -26,8 +28,8 @@ the declaration; do not relabel the game as single-player to publish it.
 }
 ```
 
-Keep both play modes only if the game actually supports both. Admission is one
-host with up to seven members; the first participant hosts and everyone else
+Keep both play modes only if the game actually supports both. Each session has one
+host with up to seven other players; the first participant hosts and everyone else
 joins that session. A game with an existing host selection or room-code UI must
 use Infuser's chosen host in its hosted path. Preserve its existing standalone
 flow in the other path. This is connection setup work, not a promise of zero
@@ -93,7 +95,7 @@ The callback's `player.id` is the underlying coordinator peer ID;
 `player.player_id` is the opaque account/guest identity used by presence.
 Use the latter for identity, not a PeerJS connection ID. `room.peers` retains the
 coordinator IDs and adds `peerjs_id` for matching DataConnections. Each connection accepts
-the game's original message types. The adapter fences stale incoming data and
+the game's original message types. The adapter ignores data from expired connections and
 returns `false` from `send()` if closed, expired, or congested; a successful send
 is not an application-level acknowledgement. Validate messages in the game.
 
@@ -116,16 +118,20 @@ as `playerId` to `infuser.peerjs.join`. A stale/full/closed target fails visibly
 don't retry without the target and accidentally create another world. Use
 `infuser.presence.get()` for the title screen; it does not join a room.
 
-## Recovery and acceptance
+## Reconnects and testing your game
 
 Normal play permits direct WebRTC paths and retains mandatory TURN fallback.
-`relayOnly:true` forces TURN for acceptance; the manifest can also prohibit direct
+`relayOnly:true` forces TURN for testing; the manifest can also prohibit direct
 connections. The adapter renews short-lived TURN credentials, updates ICE config,
 and recreates member data connections. Temporary signaling failures retry within
 the coordinator lease. Expired leases, host departure, and account revocation
 end the session; a resumed laptop cannot revive an old host. Rejoin explicitly.
 
-Before calling a migrated game done, verify:
+Follow the [publication checks](agents.md#publish-and-verify) first. If an
+authorized game test session is available, also check the following. Otherwise,
+mark live checks as untested and hand the published game to its player. Do not
+request Google account access to run these checks.
+
 
 - Hosted and standalone play using the same source project; standalone startup
   makes no Infuser requests and keeps its original matchmaking/saves.
@@ -136,46 +142,5 @@ Before calling a migrated game done, verify:
   leaving/sleeping past the lease without a second host appearing.
 - Guest isolation, Join friend, and the game's own save/UI behavior.
 
-The platform fixture covers networking; it does not certify an unseen game's
-simulation or save integration. File issues using the [agent reporting instructions](agents.md#reporting-platform-problems)
+File issues using the [agent reporting instructions](agents.md#reporting-platform-problems)
 with a sanitized repro and PeerJS version.
-
-## Operator setup
-
-One shared private PeerServer stays running for the installation; it does not
-start per game. Games declare the adapter, and rooms form when they enter
-multiplayer. PeerServer handles signaling only. The Rust gateway verifies
-the game launch, origin, session epoch, host/member edge, and current membership
-on signaling messages, and checks idle sockets regularly. TURN carries relayed
-game traffic. Neither Google cookies nor player tickets are forwarded upstream.
-Public PeerServer discovery and its ID-generation endpoint are not exposed.
-
-With TURN already installed, build the pinned sidecar and bind it **only to
-loopback**. Use a checkout matching the daemon release:
-
-```sh
-docker build -t infuser-peerjs services/peerjs
-# Pin the resulting local image ID, not a mutable tag, for the running container.
-image=$(docker image inspect --format '{{.Id}}' infuser-peerjs)
-docker run -d --name infuser-peerjs --restart unless-stopped \
-  --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --memory 128m --cpus 0.25 --pids-limit 64 \
-  --tmpfs /tmp:rw,noexec,nosuid,size=16m \
-  --log-opt max-size=5m --log-opt max-file=2 \
-  -p 127.0.0.1:7780:9000 "$image"
-```
-
-Add `peerjs_port = 7780` inside `[controller]` in the private server config, then
-restart the daemon. Requires a daemon release with PeerJS support. The existing
-Caddy routing covers `/_infuser/peerjs/peerjs`; no new public ports or DNS records
-are needed. Leave the PeerServer port outside game/TURN allocations. A missing
-sidecar fails closed; there is no public-server fallback. Existing Infuser and
-Godot peer games keep their original adapters and require no changes.
-
-The regression suite checks gateway authorization and fast adapter recovery.
-For a full local browser run, `npm ci --prefix services/peerjs`, install its
-Playwright Chromium if needed, build `cargo build --example peerjs_fixture`, then
-run `node tests/peerjs_journey.mjs`. The fixture binds only loopback and uses fake
-accounts; it is never compiled into the production daemon. A private file with
-two preview launch URLs can instead drive `node tests/peerjs_journey.mjs FILE recovery`
-against real TURN. Never commit or print those launch URLs.

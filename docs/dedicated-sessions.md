@@ -1,5 +1,7 @@
 # Dedicated multiplayer sessions
 
+Audience: game authors and their agents.
+
 SDK v1 candidate for browser games using Node `ws`. One managed process can host
 one shared multiplayer run or several explicitly created runs. Infuser handles
 verified player identity, discovery, cold start and connection lifetime. The game
@@ -132,10 +134,7 @@ if (!hosting) installStandaloneUpgradeHandler(httpServer, sockets);
 ```
 
 The sketch uses game-owned functions. A complete runnable example is
-[Dedicated Server Lab](../examples/dedicated-node). Its platform acceptance harness
-requires Infuser's development environment; game authors only need the example
-code and their own project tools. Do not install Rust or Playwright to satisfy a
-publishing check. Each descriptor is
+[Dedicated Server Lab](../examples/dedicated-node/README.md). Each descriptor is
 `{id,label,activity,joinable,max_players}`. Generate a new `sessionId()` for each
 run; never reuse an ended run's ID. Use `solo` or `multiplayer` as the activity.
 Only multiplayer runs should be joinable. Keep the label short and useful.
