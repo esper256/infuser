@@ -63,11 +63,19 @@ async fn tail(mut reader: impl AsyncRead + Unpin) -> Result<(String, bool)> {
         bytes.drain(..discard);
         bytes.extend(&buffer[..n]);
     }
-    let text = String::from_utf8_lossy(bytes.make_contiguous())
+    let mut text: String = String::from_utf8_lossy(bytes.make_contiguous())
         .chars()
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
         .collect();
-    Ok((text, total > LOG_BYTES))
+    let expanded = text.len() > LOG_BYTES;
+    if expanded {
+        let mut start = text.len() - LOG_BYTES;
+        while !text.is_char_boundary(start) {
+            start += 1;
+        }
+        text.drain(..start);
+    }
+    Ok((text, total > LOG_BYTES || expanded))
 }
 
 impl Docker {
@@ -135,6 +143,13 @@ mod tests {
         assert!(truncated);
         assert!(output.ends_with("last useful error\n"));
         assert!(output.len() <= LOG_BYTES);
+        let invalid = vec![0xff; LOG_BYTES];
+        let (output, truncated) = tail(invalid.as_slice()).await?;
+        assert!(truncated);
+        assert!(
+            output.len() <= LOG_BYTES,
+            "UTF-8 replacement must not expand past the byte cap"
+        );
         let root = tempfile::tempdir()?;
         let settings = Settings {
             state_dir: root.path().into(),
