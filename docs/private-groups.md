@@ -48,8 +48,16 @@ tabs continue normally.
 
 ## Visits
 
-After deploying a version with visit support, add `visits = true` under the same
-`[controller]` section and restart Infuser. Keep both flags enabled afterward;
+After deploying a version with visit support, refresh the separate updater if
+automatic server updates are installed:
+
+```sh
+sudo install -m 0755 /opt/infuser/current/infuser /usr/local/libexec/infuser-updater
+```
+
+The updater reads the controller configuration too; an older copy cannot parse
+the new setting. Then add `visits = true` under the same `[controller]` section
+and restart Infuser. Keep both flags enabled afterward;
 older binaries must not serve a database with visits. Back up the full state
 directory before upgrading. Do not remove the flags to bypass a rollback failure.
 
