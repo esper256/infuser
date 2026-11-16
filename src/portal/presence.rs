@@ -10,11 +10,11 @@ pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTre
     data.launches
         .iter()
         .filter(|(_, l)| {
-            l.app == app
+            l.runtime_id() == app
                 && l.exchanged
                 && l.expires > time
                 && data.members.get(&l.email).is_some_and(|m| m.enabled)
-                && data.groups.allows(&l.email, &l.app)
+                && data.launch_allowed(l,time)
         })
         .map(|(id, _)| id.clone())
         .collect()
@@ -39,7 +39,7 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     };
     let mut players = BTreeMap::new();
     for (email, seen) in &data.presence {
-        if seen + 90 <= time || data.groups.member(email) != data.groups.app(&launch.app) {
+        if seen + 90 <= time || !data.group_participant(email,data.deployment_group(launch.runtime_id()),time) {
             continue;
         }
         if let Some(member) = data.members.get(email).filter(|m| m.enabled) {
@@ -51,7 +51,7 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
             );
         }
     }
-    let live = live_launches(&data, &launch.app, time);
+    let live = live_launches(&data, launch.runtime_id(), time);
     for id in &live {
         let l = &data.launches[id];
         if l.seen + 90 <= time {
@@ -73,8 +73,8 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
             "is_self":player==own_id,"online":true,"game_open":true,"multiplayer":false}),
         );
     }
-    p.peers.retain_launches(&launch.app, &live, time);
-    let session = p.peers.discovery(&launch.app, &launch.build, time);
+    p.peers.retain_launches(launch.runtime_id(), &live, time);
+    let session = p.peers.discovery(launch.runtime_id(), &launch.build, time);
     if let Some(members) = session["players"].as_array() {
         for member in members {
             let player = member["player_id"].as_str().unwrap();
@@ -87,7 +87,7 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     }
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
     let dedicated = build.manifest.dedicated_sessions();
-    let sessions = if dedicated {super::dedicated::live_sessions(&p,&data,&launch.app,&launch.build,time)} else {vec![]};
+    let sessions = if dedicated {super::dedicated::live_sessions(&p,&data,launch.runtime_id(),&launch.build,time)} else {vec![]};
     for room in &sessions {
         for member in room["players"].as_array().unwrap() {
             let player = member["player_id"].as_str().unwrap();
@@ -103,12 +103,11 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     } else if !dedicated && p.relay.is_none() {
         Some("relay_unavailable")
     } else if !data
-        .apps
-        .get(&launch.app)
+        .deployed(launch.runtime_id())
         .is_some_and(|a| a.build == launch.build)
     {
         Some("newer_build")
-    } else if dedicated && data.pending_promotions.contains_key(&launch.app) {
+    } else if dedicated && data.pending_promotions.contains_key(launch.runtime_id()) {
         Some("server_draining")
     } else if !dedicated && !p.peers.available(time) {
         Some("coordinator_restarting")
@@ -138,7 +137,7 @@ pub(super) async fn set_joinable(
     p.origin(&h, host(&h))?;
     let (id, launch) = p.game(&h)?;
     Ok(reply(p.peers.set_joinable(
-        &launch.app,
+        launch.runtime_id(),
         &peer,
         &id,
         &body.epoch,

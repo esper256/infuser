@@ -1,10 +1,17 @@
 use super::*;
 use anyhow::Context;
 pub(super) const INSPECT: &str = "x-infuser-inspect-group";
+pub(super) const VISIT: &str = "x-infuser-visit";
 
 impl Platform {
     pub(super) fn group_view(&self, h: &HeaderMap, email: &str) -> Result<(String, bool)> {
         let d = self.db.read()?;
+        if let Some(value) = h.get(VISIT) {
+            ensure!(!h.contains_key(INSPECT) && h.get_all(VISIT).iter().count()==1, fault(400,"Choose one play context."));
+            let id=value.to_str().map_err(|_|fault(400,"Invalid visit."))?;
+            let visit=d.visit_access(id,email,now()).ok_or_else(||fault(403,"This visit has ended or is unavailable."))?;
+            return Ok((visit.host.clone(),false));
+        }
         let Some(value) = h.get(INSPECT) else {
             return Ok((d.groups.member(email).into(), false));
         };
@@ -23,15 +30,15 @@ impl Platform {
         let (group, inspecting) = self.group_view(h, email)?;
         let d = self.db.read()?;
         ensure!(
-            d.groups.app(app) == group
+            (d.groups.app(app) == group || d.active_visit(&group,now()).is_some_and(|(_,v)|v.games.contains(app)))
                 && d.apps
                     .get(app)
-                    .is_some_and(|a| a.listed || inspecting || d.members[email].admin),
+                    .is_some_and(|a| a.listed || inspecting || (d.groups.app(app)==group && d.groups.member(email)==group && d.members[email].admin)),
             fault(404, "Game not found.")
         );
         Ok(())
     }
-    async fn operator(&self, h: &HeaderMap, write: bool) -> Result<String> {
+    pub(super) async fn operator(&self, h: &HeaderMap, write: bool) -> Result<String> {
         let email = self.member(h, write).await?;
         ensure!(
             self.db.read()?.groups.operator(&email),

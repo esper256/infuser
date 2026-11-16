@@ -33,6 +33,21 @@ in that fixture. Production acceptance additionally needs an ARM64 memory
 measurement, a destination-specific test notification and an external uptime
 probe. Never restart the production Docker engine to exercise a test scenario.
 
+## Visits
+
+`cargo test --locked --test visits_journey --test connections_journey --test peer_journey --test native_journey`
+checks visit grants, isolated deployments, chat windows, queued notifications,
+live dedicated cutoff, peer rooms and native client capability admission.
+The companion suite additionally starts a real process and stops it after an
+authorization denial. `node --test tests/peer_sdk.mjs tests/peerjs_sdk.mjs` covers
+lost signaling, late responses and sleep where only the wall clock advances.
+
+With Playwright installed, set `INFUSER_VISITS_BROWSER_NODE=/path/to/node` when
+running `visits_journey` to include the real operator/visitor website journey.
+`INFUSER_PLAYWRIGHT` and `INFUSER_CHROMIUM` select existing browser installations.
+All accounts, visits and games in these fixtures are disposable; no Google login
+or production membership is used.
+
 ## Library refresh performance
 
 Run the mocked browser journey with Playwright and Chromium:

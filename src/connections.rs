@@ -17,6 +17,8 @@ pub const MAX_PER_LAUNCH: usize = 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Identity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployment_id: Option<String>,
     pub iss: String,
     pub aud: String,
     pub iat: u64,
@@ -35,6 +37,9 @@ pub struct Identity {
 }
 
 pub struct Signer(Ed25519KeyPair);
+impl Identity {
+    pub fn runtime_id(&self) -> &str {self.deployment_id.as_deref().unwrap_or(&self.app_id)}
+}
 impl Signer {
     pub fn open(directory: &Path) -> Result<Self> {
         let bootstrap = directory.join("server-bootstrap.key");
@@ -193,7 +198,7 @@ mod tests {
     use std::{collections::BTreeSet, os::unix::fs::PermissionsExt};
 
     fn identity() -> Identity {
-        Identity {
+        Identity { deployment_id: None,
             iss: "https://games.example.test".into(),
             aud: "infuser-server-connection".into(),
             iat: 100,

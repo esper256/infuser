@@ -158,6 +158,8 @@ impl Session {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Scope {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployment_id: Option<String>,
     pub app_id: String,
     pub build_id: String,
     pub instance_id: String,
@@ -171,6 +173,9 @@ pub struct Report {
     pub seen: u64,
     pub sessions: BTreeMap<String, Session>,
     pub retired: BTreeSet<String>,
+}
+impl Scope {
+    pub fn runtime_id(&self) -> &str {self.deployment_id.as_deref().unwrap_or(&self.app_id)}
 }
 #[derive(Default)]
 pub struct Directory(pub BTreeMap<String, Report>);

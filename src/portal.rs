@@ -53,6 +53,7 @@ mod sdk_v1;
 mod server_builds;
 mod server_diagnostics;
 mod urls;
+mod visits;
 
 pub fn fault(status: u16, message: &str) -> anyhow::Error {
     Fault {
@@ -141,6 +142,8 @@ impl Platform {
         // these disposable files after process recovery.
         if staging.exists() {std::fs::remove_dir_all(staging)?;}
         let db = Arc::new(Database::open(&controller.config.controller.state_dir)?);
+        anyhow::ensure!(db.read()?.visits.is_empty() || controller.config.controller.visits,
+            "keep controller.visits enabled after creating visits");
         anyhow::ensure!(
             db.read()?.groups.names.len() <= 1 || controller.config.controller.private_groups,
             "enable controller.private_groups before serving multiple groups"
@@ -251,6 +254,7 @@ impl Platform {
     }
     async fn admin(&self, h: &HeaderMap, write: bool) -> Result<String> {
         let email = self.member(h, write).await?;
+        ensure!(!h.contains_key(groups::VISIT),fault(403,"Return home for administration."));
         ensure!(
             self.db.read()?.members[&email].admin
                 || (!write
@@ -324,7 +328,7 @@ impl Platform {
             data.members.get(&l.email).is_some_and(|m| m.enabled),
             fault(403, "Membership is disabled.")
         );
-        data.require_app_group(&l.email, &l.app)?;
+        ensure!(data.launch_allowed(l,now()), fault(403,"Game authorization ended."));
         Ok((id.clone(), l.clone()))
     }
     fn refresh(&self, id: &str) -> Result<Value> {
@@ -339,7 +343,7 @@ impl Platform {
             .filter(|l| l.expires > now())
             .ok_or_else(|| fault(410, "game session expired"))?;
         ensure!(data.members.get(&launch.email).is_some_and(|m|m.enabled)
-            && data.groups.allows(&launch.email,&launch.app),fault(401,"Game authorization ended."));
+            && data.launch_allowed(launch,now()),fault(401,"Game authorization ended."));
         let mut status = json!({"state":"ready","endpoint":null});
         let on_demand = data.builds[&build_key(&launch.app, &launch.build)]
             .manifest
@@ -350,7 +354,7 @@ impl Platform {
         } else if let (Some(lease), Some(token)) = (&launch.lease_id, &launch.lease_token) {
             status = self
                 .controller
-                .lease(&launch.app, lease, token, "renew", now())?;
+                .lease(launch.runtime_id(), lease, token, "renew", now())?;
         }
         if !on_demand
             && launch.lease_id.is_some()
@@ -359,12 +363,15 @@ impl Platform {
                 .controller
                 .snapshot()
                 .games
-                .get(&launch.app)
+                .get(launch.runtime_id())
                 .is_some_and(|i| i.spec.web)
         {
             status["endpoint"] = json!({"url":format!("https://{}/_infuser/server",launch.host)});
         }
         self.db.renew_launch(id, now())?;
+        if let Some(visit)=launch.visit.as_ref().and_then(|id|data.visits.get(id)) {
+            status["visit"]=json!({"expires_at":visit.expires,"authorization_seconds":30});
+        }
         Ok(status)
     }
 }
@@ -473,6 +480,8 @@ pub fn router(platform: Platform) -> Router {
         .merge(publishing)
         .merge(native::routes())
         .merge(groups::routes())
+        .merge(visits::routes())
+        .route("/assets/visits.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/visits.js")) }))
         .merge(feedback::routes())
         .merge(pwa::routes())
         .route("/assets/groups.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/groups.js")) }))
@@ -670,7 +679,7 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let data = p.db.read()?;
     let member = &data.members[&email];
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin&&!inspecting,"operator":data.groups.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":hash(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
+        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.groups.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":hash(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
     ))
 }
 #[derive(Deserialize)]
@@ -690,19 +699,29 @@ async fn launch(
     Json(body): Json<LaunchRequest>,
 ) -> Answer {
     let email = p.member(&h, true).await?;
+    let (group,_) = p.group_view(&h,&email)?;
     p.admit(&h).await;
+    if !p.db.read()?.visits.is_empty() {p.reconcile_publications()?;}
     let _publishing = p.publishing.lock().unwrap();
     let data = p.db.read()?;
-    data.require_app_group(&email, &app)?;
-    let selected = data
-        .apps
-        .get(&app)
+    p.visible_app(&h,&email,&app)?;
+    let borrowed=data.groups.app(&app)!=group;
+    let visit=if borrowed || data.groups.member(&email)!=group {
+        Some(data.active_visit(&group,now()).filter(|(id,v)|data.visit_access(id,&email,now()).is_some() && (!borrowed||v.games.contains(&app)))
+            .ok_or_else(||fault(403,"Visit access ended."))?.0.clone())
+    }else{None};
+    let deployment=if borrowed {Some(data.deployments.iter().find(|(_,d)|d.app==app&&d.group==group).ok_or_else(||fault(503,"Visit game is preparing. Try again."))?.0.clone())}else{None};
+    let runtime_id=deployment.as_deref().unwrap_or(&app);
+    let selected = data.deployed(runtime_id)
         .ok_or_else(|| fault(404, "unknown game"))?;
     ensure!(
-        selected.listed || data.members[&email].admin,
+        data.apps.get(&app).is_some_and(|a|a.listed) || (!borrowed && data.groups.member(&email)==group && data.members[&email].admin),
         fault(404, "unknown game")
     );
     let b = &data.builds[&build_key(&app, &selected.build)];
+    if visit.is_some() && let Some(reason) = b.visit_unavailable() {
+        return Err(fault(422,reason).into());
+    }
     if let Some(sdk) = &b.manifest.sdk {
         sdk.admit(&crate::sdk_contract::with_peerjs(
             p.relay.is_some(),
@@ -746,11 +765,11 @@ async fn launch(
     let id = secret()[..32].to_string();
     let token = secret();
     let lease = if needs_server {
-        Some(p.controller.acquire(&app, &id, now())?)
+        Some(p.controller.acquire(runtime_id, &id, now())?)
     } else {
         None
     };
-    let host_id = if body.guest || body.intent.is_some() {
+    let host_id = if body.guest || body.intent.is_some() || visit.is_some() {
         id.clone()
     } else {
         // A new build must not replace cookies/assets in an already-open old tab.
@@ -758,7 +777,7 @@ async fn launch(
         hash(&format!("{email}/{app}/{}", selected.build))[..32].into()
     };
     let gamehost = crate::game_urls::host(&data, &app, &host_id, p.domain());
-    let l = Launch {
+    let l = Launch { deployment, visit,
         intent: body.intent,
         app,
         build: selected.build.clone(),
@@ -802,7 +821,7 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
         l.email == email && l.expires > now(),
         fault(403, "not your active launch")
     );
-    data.require_app_group(&email, &l.app)?;
+    ensure!(data.launch_allowed(l,now()),fault(403,"Game authorization ended."));
     // Startup may take longer than the initial grant window. Only the authenticated
     // launcher can extend the unused, single-use exchange token.
     p.db.edit(|d| {
@@ -829,6 +848,8 @@ async fn react(
 ) -> Answer {
     let email = p.member(&h, true).await?;
     p.visible_app(&h, &email, &app)?;
+    let (group,_)=p.group_view(&h,&email)?;
+    let app=p.db.read()?.deployment_for(&app,&group).ok_or_else(||fault(404,"Game not found."))?.to_owned();
     ensure!(
         ["⭐", "👍", "🚀", "❤️", "👏", "💡"].contains(&body.emoji.as_str())
             && body.text.chars().count() <= 140,
@@ -838,7 +859,7 @@ async fn react(
         )
     );
     p.db.edit(|d| {
-        ensure!(d.apps.contains_key(&app), fault(404, "unknown game"));
+        ensure!(d.deployed(&app).is_some(), fault(404, "unknown game"));
         d.reactions.entry(app).or_default().insert(
             email,
             Reaction {
@@ -1350,10 +1371,21 @@ impl Platform {
     /// The catalog is publication intent; controller state is recoverable runtime
     /// accounting. Repair either side of an interrupted promotion or retirement.
     pub fn reconcile_publications(&self) -> Result<()> {
+        self.expire_visits()?;
+        self.sync_deployments()?;
         let _guard = self.publishing.lock().unwrap();
         let data = self.db.read()?;
-        let desired: BTreeMap<_,_> = data.apps.iter().filter_map(|(id,app)|
+        let mut desired: BTreeMap<_,_> = data.apps.iter().filter_map(|(id,app)|
             data.builds.get(&build_key(id,&app.build)).and_then(|b|b.server.clone()).map(|s|(id.clone(),s))).collect();
+        for (id,dep) in &data.deployments {
+            if let Some(server)=data.builds.get(&build_key(&dep.app,&dep.active.build)).and_then(|b|b.server.clone()) {
+                let directory=self.config().controller.state_dir.join("server-sources");
+                std::fs::create_dir_all(&directory)?;
+                let path=directory.join(id);
+                if std::fs::read_to_string(&path).ok().as_deref()!=Some(&dep.app) {crate::private_file::replace(&path,dep.app.as_bytes())?;}
+                desired.insert(id.clone(),server);
+            }
+        }
         let state = self.controller.snapshot();
         for id in state.published_games.keys() {
             if !desired.contains_key(id) {
@@ -1371,6 +1403,7 @@ impl Platform {
     pub fn activate_pending(&self) -> Result<()> {
         let pending = self.db.read()?.pending_promotions;
         for (app, promotion) in pending {
+            if self.db.read()?.deployments.contains_key(&app) {continue;}
             let Ok(_app) = self.app_lock(&app).try_lock_owned() else { continue; };
             if self
                 .controller
@@ -1434,6 +1467,7 @@ async fn remove_build(
     p.db.edit(|d| {
         ensure!(
             !d.apps.get(&app).is_some_and(|a| a.build == build)
+                && !d.deployments.values().any(|dep|dep.app==app && dep.active.build==build)
                 && !d
                     .pending_promotions
                     .get(&app)
@@ -1470,7 +1504,7 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
     p.origin(&h, host(&h))?;
     let digest = hash(&body.token);
     p.db.edit(|d| {
-        let policy = d.groups.clone();
+        let policy = d.clone();
         let l = d
             .launches
             .values_mut()
@@ -1486,7 +1520,7 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
             fault(403, "membership disabled")
         );
         ensure!(
-            policy.allows(&l.email, &l.app),
+            policy.launch_allowed(l,now()),
             fault(403, "Game membership changed.")
         );
         l.exchanged = true;
@@ -1514,7 +1548,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1584,14 +1618,13 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
     let (id, launch) = p.game(&h)?;
     let data = p.db.read()?;
     ensure!(
-        data.apps
-            .get(&launch.app)
+        data.deployed(launch.runtime_id())
             .is_some_and(|a| a.build == launch.build),
         fault(409, "a newer build is available; reopen the game")
     );
     p.peers.retain_launches(
-        &launch.app,
-        &presence::live_launches(&data, &launch.app, now()),
+        launch.runtime_id(),
+        &presence::live_launches(&data, launch.runtime_id(), now()),
         now(),
     );
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
@@ -1634,7 +1667,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
     let mut result = p.peers.join(
         who,
         crate::peers::Join {
-            app: &launch.app,
+            app: launch.runtime_id(),
             build: &launch.build,
             connection: &body.connection_id,
             max_players: multiplayer.max_players,
@@ -1679,7 +1712,7 @@ async fn peer_poll(
         fault(403, "poll from the game origin")
     );
     Ok(reply(p.peers.poll(
-        &launch.app,
+        launch.runtime_id(),
         &peer,
         &id,
         cursor.after,
@@ -1694,19 +1727,19 @@ async fn peer_signal(
 ) -> Answer {
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
-    p.peers.signal(&launch.app, &peer, &id, &body, now())?;
+    p.peers.signal(launch.runtime_id(), &peer, &id, &body, now())?;
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_leave(State(p): State<Platform>, Path(peer): Path<String>, h: HeaderMap) -> Answer {
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
-    p.peers.leave(&launch.app, &peer, &id, now())?;
+    p.peers.leave(launch.runtime_id(), &peer, &id, now())?;
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_ice(State(p): State<Platform>, Path(peer): Path<String>, h: HeaderMap) -> Answer {
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
-    p.peers.poll(&launch.app, &peer, &id, 0, now())?;
+    p.peers.poll(launch.runtime_id(), &peer, &id, 0, now())?;
     let relay = p
         .relay
         .as_ref()
@@ -1723,7 +1756,7 @@ async fn peer_health(
 ) -> Answer {
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
-    p.peers.health(&launch.app, &peer, &id, body, now())?;
+    p.peers.health(launch.runtime_id(), &peer, &id, body, now())?;
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1735,7 +1768,7 @@ async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
         sessions.retain(|s| {
             s["app_id"]
                 .as_str()
-                .is_some_and(|app| data.groups.app(app) == group)
+                .is_some_and(|app| data.deployment_group(app) == group)
         });
     }
     Ok(reply(report))
@@ -1748,7 +1781,7 @@ async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let state = p.controller.snapshot();
     let i = state
         .games
-        .get(&l.app)
+        .get(l.runtime_id())
         .ok_or_else(|| fault(404, "no server for this game"))?;
     ensure!(
         i.spec.web && i.phase == crate::store::Phase::Ready,
@@ -1759,13 +1792,13 @@ async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
         fault(403, "this is a solo client-only session")
     );
     p.controller.lease(
-        &l.app,
+        l.runtime_id(),
         l.lease_id.as_ref().unwrap(),
         l.lease_token.as_ref().unwrap(),
         "get",
         now(),
     )?;
-    let upstream = p.controller.web_address(&l.app, &i.attempt)?;
+    let upstream = p.controller.web_address(l.runtime_id(), &i.attempt)?;
     Ok((
         [
             ("X-Infuser-Port", i.port.to_string()),
@@ -1780,9 +1813,9 @@ async fn leave(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.origin(&h, host(&h))?;
     let _guard = p.publishing.lock().unwrap();
     let (id, l) = p.game(&h)?;
-    p.peers.leave_launch(&l.app, &id);
+    p.peers.leave_launch(l.runtime_id(), &id);
     if let (Some(lease), Some(token)) = (&l.lease_id, &l.lease_token) {
-        let _ = p.controller.lease(&l.app, lease, token, "delete", now());
+        let _ = p.controller.lease(l.runtime_id(), lease, token, "delete", now());
     }
     p.db.edit(|d| {
         if let Some(l) = d.launches.get_mut(&id) {
@@ -1801,7 +1834,7 @@ async fn save_get(State(p): State<Platform>, Path(slot): Path<String>, h: Header
     } else {
         hash(&l.email)
     };
-    let (version, data) = p.db.save_read(&owner, &l.app, &slot)?;
+    let (version, data) = p.db.save_read(&owner, l.runtime_id(), &slot)?;
     Ok(reply(json!({"version":version,"data":data})))
 }
 #[derive(Deserialize)]
@@ -1825,7 +1858,7 @@ async fn save_put(
         hash(&l.email)
     };
     let version =
-        p.db.save_write(&owner, &l.app, &slot, body.version, &body.data)?;
+        p.db.save_write(&owner, l.runtime_id(), &slot, body.version, &body.data)?;
     Ok(reply(json!({"version":version})))
 }
 #[derive(Deserialize)]
@@ -1843,9 +1876,9 @@ async fn verify_ticket(
     let (id, l) = data
         .launches
         .iter()
-        .find(|(_, l)| l.app == app && l.token_hash == digest && l.exchanged && l.expires > now())
+        .find(|(_, l)| l.runtime_id() == app && l.token_hash == digest && l.exchanged && l.expires > now())
         .ok_or_else(|| fault(401, "invalid game ticket"))?;
-    data.require_app_group(&l.email, &l.app)?;
+    ensure!(data.launch_allowed(l,now()), fault(403,"Game authorization ended."));
     ensure!(
         data.members.get(&l.email).is_some_and(|m| m.enabled),
         fault(403, "membership disabled")
@@ -2026,6 +2059,7 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
             },
         );
         d.owners.insert(app.clone(), email.clone());
+        for visit in d.visits.values_mut().filter(|v|v.active(now()) && v.participant(&email)) {visit.games.insert(app.clone());}
         if let Some(title) = title {
             crate::game_urls::assign(d, &app, title);
         }
@@ -2199,7 +2233,7 @@ async fn cloud_load(State(p): State<Platform>, Path(group): Path<String>, h: Hea
     Ok(reply(p.db.cloud_load(
         crate::cloud::Scope {
             owner: &owner,
-            app: &launch.app,
+            app: launch.runtime_id(),
             group: &group,
         },
         None,
@@ -2214,7 +2248,7 @@ async fn cloud_revision(
     Ok(reply(p.db.cloud_load(
         crate::cloud::Scope {
             owner: &owner,
-            app: &launch.app,
+            app: launch.runtime_id(),
             group: &group,
         },
         Some(&revision),
@@ -2228,7 +2262,7 @@ async fn cloud_history(
     let (owner, launch, _) = p.cloud_group(&h, &group)?;
     Ok(reply(p.db.cloud_history(crate::cloud::Scope {
         owner: &owner,
-        app: &launch.app,
+        app: launch.runtime_id(),
         group: &group,
     })?))
 }
@@ -2250,7 +2284,7 @@ async fn cloud_commit(
     let result = p.db.cloud_commit(
         crate::cloud::Scope {
             owner: &owner,
-            app: &launch.app,
+            app: launch.runtime_id(),
             group: &group,
         },
         &declaration,

@@ -13,6 +13,8 @@ use std::{collections::BTreeMap, path::Path, sync::Mutex};
 mod activity;
 mod chat;
 pub mod groups;
+pub mod deployments;
+pub mod visits;
 mod metadata;
 pub use metadata::{GameMetadata, MetadataUpdate};
 
@@ -75,6 +77,10 @@ fn listed() -> bool {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Launch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intent: Option<crate::launch_intent::Intent>,
     pub app: String,
     pub build: String,
@@ -97,6 +103,10 @@ pub struct Reaction {
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Data {
+    #[serde(skip)]
+    pub deployments: BTreeMap<String, deployments::Deployment>,
+    #[serde(skip)]
+    pub visits: BTreeMap<String, visits::Visit>,
     #[serde(skip)]
     pub server_builds: BTreeMap<String, crate::server_package::Job>,
     #[serde(skip)]
@@ -136,6 +146,10 @@ pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
         r.get(0)
     })?;
     data.groups = serde_json::from_str(&policy)?;
+    let raw: String = c.query_row("SELECT data FROM deployments WHERE id=1", [], |r| r.get(0))?;
+    data.deployments = serde_json::from_str(&raw)?;
+    let raw: String = c.query_row("SELECT data FROM visits WHERE id=1", [], |r| r.get(0))?;
+    data.visits = serde_json::from_str(&raw)?;
     let mut statement = c.prepare("SELECT app,declaration FROM game_urls")?;
     for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
         let (app, declaration) = row?;
@@ -182,6 +196,8 @@ pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     Ok(data)
 }
 fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
+    tx.execute("UPDATE deployments SET data=?1 WHERE id=1", [serde_json::to_string(&data.deployments)?])?;
+    tx.execute("UPDATE visits SET data=?1 WHERE id=1", [serde_json::to_string(&data.visits)?])?;
     for (key, job) in &data.server_builds {
         tx.execute("INSERT INTO server_builds(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(job)?])?;
     }
@@ -306,6 +322,8 @@ impl Database {
             [serde_json::to_string(&groups::Groups::default())?],
         )?;
         metadata::initialize(&c)?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS deployments(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO deployments VALUES(1,'{}');")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO visits VALUES(1,'{}');")?;
         chat::initialize(&c)?;
         crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
@@ -362,11 +380,14 @@ impl Database {
         Ok(cached.as_ref().unwrap().1.clone())
     }
     pub fn edit<T>(&self, f: impl FnOnce(&mut Data) -> Result<T>) -> Result<T> {
+        self.edit_transaction(|data,_| f(data))
+    }
+    pub(crate) fn edit_transaction<T>(&self, f: impl FnOnce(&mut Data, &Transaction<'_>) -> Result<T>) -> Result<T> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
         let mut data = decode_catalog(&tx, &raw)?;
-        let result = f(&mut data)?;
+        let result = f(&mut data, &tx)?;
         tx.execute(
             "UPDATE platform SET data=?1 WHERE id=1",
             [encode_catalog(&tx, &data)?],
@@ -557,7 +578,7 @@ pub fn preview(
         if let Some(intent) = &intent { intent.validate(&build.manifest)?; }
         let id=secret()[..32].to_string();let token=secret();
         let host=crate::game_urls::host(d, app, &id, &config.controller.domain);
-        d.launches.insert(id.clone(),Launch {intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
+        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
         Ok(serde_json::json!({"launch_id":id,"url":format!("https://{host}/_infuser/launch#infuser={token}")}))
     })
 }

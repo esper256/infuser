@@ -7,17 +7,16 @@ use subtle::ConstantTimeEq;
 fn current(p: &Platform, scope: &Scope) -> Result<Build> {
     let data = p.db.read()?;
     let app = data
-        .apps
-        .get(&scope.app_id)
+        .deployed(scope.runtime_id())
         .ok_or_else(|| fault(401, "server retired"))?;
     ensure!(
-        app.build == scope.build_id && data.groups.app(&scope.app_id) == scope.group_id,
+        app.build == scope.build_id && data.deployment_group(scope.runtime_id()) == scope.group_id && data.source_app(scope.runtime_id())==scope.app_id,
         fault(401, "server scope changed")
     );
     let state = p.controller.snapshot();
     let instance = state
         .games
-        .get(&scope.app_id)
+        .get(scope.runtime_id())
         .ok_or_else(|| fault(401, "server retired"))?;
     ensure!(
         instance.reserved() && instance.attempt == scope.instance_id,
@@ -59,9 +58,9 @@ pub(super) async fn register(
     p.main_host(&h)?;
     let _guard = p.publishing.lock().unwrap();
     let state = p.controller.snapshot();
-    let instance = state
-        .games
-        .get(&body.app_id)
+    let data = p.db.read()?;
+    let (runtime_id, instance) = state.games.iter()
+        .find(|(id,i)| i.attempt == body.instance_id && data.source_app(id) == body.app_id)
         .ok_or_else(|| fault(401, "unknown server"))?;
     ensure!(
         instance.reserved() && instance.attempt == body.instance_id,
@@ -70,7 +69,7 @@ pub(super) async fn register(
     let expected = crate::connections::instance_token(
         &p.config().controller.state_dir,
         &state.owner,
-        &body.app_id,
+        runtime_id,
         &body.instance_id,
     )?;
     ensure!(
@@ -78,16 +77,15 @@ pub(super) async fn register(
         fault(401, "invalid instance credential")
     );
     let data = p.db.read()?;
-    let scope = Scope {
+    let scope = Scope { deployment_id: (runtime_id != &body.app_id).then(|| runtime_id.clone()),
         app_id: body.app_id.clone(),
         build_id: data
-            .apps
-            .get(&body.app_id)
+            .deployed(runtime_id)
             .ok_or_else(|| fault(401, "server retired"))?
             .build
             .clone(),
         instance_id: body.instance_id,
-        group_id: data.groups.app(&body.app_id).into(),
+        group_id: data.deployment_group(runtime_id).into(),
         exp: now() + 120,
     };
     let build = current(&p, &scope)?;
@@ -95,7 +93,7 @@ pub(super) async fn register(
         json!({"token":p.connection_signer.access_token(&scope)?,"expires_at":scope.exp,
         "scope":scope,"coordinator":p.connection_epoch,"sessions":build.manifest.sessions,
         "connection":build.manifest.server_connection.unwrap_or_default(),"limits":model::capabilities(),
-        "draining":data.pending_promotions.contains_key(&body.app_id)}),
+        "draining":data.pending_promotions.contains_key(runtime_id)}),
     ))
 }
 
@@ -132,7 +130,7 @@ pub(super) async fn report(
         .lock()
         .unwrap()
         .0
-        .get(&scope.app_id)
+        .get(scope.runtime_id())
         .filter(|r| r.scope.instance_id == scope.instance_id && body.seq <= r.seq)
     {
         return Ok(reply(
@@ -160,7 +158,7 @@ pub(super) async fn report(
             // Unknown/retired handles are ignored after restart; they never become
             // user-supplied player identities. An admitted handle cannot move rooms.
             if let Some(a) = attempts.0.get(id).filter(|a| {
-                a.identity.app_id == scope.app_id
+                a.identity.runtime_id() == scope.runtime_id()
                     && a.identity.instance_id == scope.instance_id
                     && !a.state.terminal()
             }) {
@@ -191,7 +189,7 @@ pub(super) async fn report(
     let mut directory = p.dedicated.lock().unwrap();
     let previous = directory
         .0
-        .get(&scope.app_id)
+        .get(scope.runtime_id())
         .filter(|r| r.scope.instance_id == scope.instance_id);
     if previous.is_some_and(|r| body.seq <= r.seq) {
         return Ok(reply(
@@ -216,7 +214,7 @@ pub(super) async fn report(
         fault(409, "retired session IDs cannot be reused")
     );
     directory.0.insert(
-        scope.app_id.clone(),
+        scope.runtime_id().to_owned(),
         Report {
             scope: scope.clone(),
             seq: body.seq,
@@ -250,7 +248,7 @@ pub(super) fn live_sessions(
     let Some(report) = directory.0.get(app).filter(|r| {
         r.scope.build_id == build
             && r.scope.instance_id == instance.attempt
-            && r.scope.group_id == data.groups.app(app)
+            && r.scope.group_id == data.deployment_group(app)
             && r.seen + model::REPORT_SECONDS > time
     }) else {
         return vec![];
@@ -306,7 +304,7 @@ pub(super) fn check_request(p: &Platform, launch: &Launch, request: &model::Requ
             "Choose single player or multiplayer in the game."
         )
     );
-    if data.pending_promotions.contains_key(&launch.app) && request.action != Action::Resume {
+    if data.pending_promotions.contains_key(launch.runtime_id()) && request.action != Action::Resume {
         return Err(model::fault(
             409,
             "server_draining",
@@ -327,7 +325,7 @@ pub(super) fn check_request(p: &Platform, launch: &Launch, request: &model::Requ
         if request.action == Action::Resume {
             return Ok(());
         }
-        let sessions = live_sessions(p, &data, &launch.app, &launch.build, now());
+        let sessions = live_sessions(p, &data, launch.runtime_id(), &launch.build, now());
         let session = sessions
             .iter()
             .find(|s| s["id"] == target.session_id)
@@ -383,7 +381,7 @@ pub(super) async fn admission(
         .0
         .get(&id)
         .filter(|a| {
-            a.identity.app_id == scope.app_id
+            a.identity.runtime_id() == scope.runtime_id()
                 && a.identity.instance_id == scope.instance_id
                 && a.identity.build_id == scope.build_id
         })
@@ -443,7 +441,7 @@ pub(super) async fn admission(
                     attempts
                         .0
                         .values()
-                        .any(|a| a.identity.app_id == scope.app_id
+                        .any(|a| a.identity.runtime_id() == scope.runtime_id()
                             && a.identity.instance_id == scope.instance_id
                             && a.state == ConnectionState::Connected
                             && a.identity.player_id == *friend
@@ -472,7 +470,7 @@ pub(super) async fn admission(
             );
         }
         ensure!(
-            !data.pending_promotions.contains_key(&scope.app_id)
+            !data.pending_promotions.contains_key(scope.runtime_id())
                 || attempt.identity.request.action == Action::Resume,
             model::fault(
                 409,
@@ -484,7 +482,7 @@ pub(super) async fn admission(
             .0
             .values()
             .filter(|a| {
-                a.identity.app_id == scope.app_id
+                a.identity.runtime_id() == scope.runtime_id()
                     && a.identity.instance_id == scope.instance_id
                     && !a.state.terminal()
                     && a.session.as_ref().is_some_and(|s| s.id == session.id)
@@ -499,7 +497,7 @@ pub(super) async fn admission(
         let mut directory = p.dedicated.lock().unwrap();
         let report = directory
             .0
-            .entry(scope.app_id.clone())
+            .entry(scope.runtime_id().to_owned())
             .or_insert_with(|| Report {
                 scope: scope.clone(),
                 seq: 0,
@@ -586,11 +584,11 @@ pub(super) async fn admission(
 }
 
 fn finish_drain(p: &Platform, scope: &Scope) -> Result<()> {
-    if !p.db.read()?.pending_promotions.contains_key(&scope.app_id) {
+    if !p.db.read()?.pending_promotions.contains_key(scope.runtime_id()) {
         return Ok(());
     }
     let active = p.connections.lock().unwrap().0.values().any(|a| {
-        a.identity.app_id == scope.app_id
+        a.identity.runtime_id() == scope.runtime_id()
             && a.identity.instance_id == scope.instance_id
             && !a.state.terminal()
     });
@@ -599,10 +597,10 @@ fn finish_drain(p: &Platform, scope: &Scope) -> Result<()> {
         .lock()
         .unwrap()
         .0
-        .get(&scope.app_id)
+        .get(scope.runtime_id())
         .is_some_and(|r| r.scope.instance_id == scope.instance_id && r.sessions.is_empty());
     if !active && empty {
-        p.controller.stop(&scope.app_id)?;
+        p.controller.stop(scope.runtime_id())?;
     }
     Ok(())
 }
@@ -612,8 +610,8 @@ pub(super) async fn control(State(p): State<Platform>, h: HeaderMap) -> Answer {
     finish_drain(&p, &scope)?;
     let data = p.db.read()?;
     let state = p.controller.snapshot();
-    let instance = &state.games[&scope.app_id];
-    let draining = data.pending_promotions.get(&scope.app_id);
+    let instance = &state.games[scope.runtime_id()];
+    let draining = data.pending_promotions.get(scope.runtime_id());
     Ok(reply(
         json!({"coordinator":p.connection_epoch,"instance_id":scope.instance_id,
         "state":if instance.phase == crate::store::Phase::Stopping {"stopping"} else if draining.is_some() {"draining"} else {"running"},

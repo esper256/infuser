@@ -62,7 +62,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
     ))
     .await?;
     let cfg: Config = toml::from_str(&format!(
-        "[controller]\nstate_dir={:?}\nauth_url={:?}\ndisk_reserve_mb=64",
+        "[controller]\nstate_dir={:?}\nauth_url={:?}\ndisk_reserve_mb=64\nprivate_groups=true\nvisits=true",
         dir.path().display().to_string(),
         format!("{auth}/auth")
     ))?;
@@ -76,7 +76,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
     )?))?;
     let publisher =
         p.db.edit(|d| Ok(platform::credential(d, "native-pond", "publish", "Pond")?.1))?;
-    let (url, _server) = serve(portal::router(p)).await?;
+    let (url, _server) = serve(portal::router(p.clone())).await?;
     let http = Client::new();
     let req = |method, path: &str| {
         http.request(method, format!("{url}{path}"))
@@ -280,6 +280,35 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
             .as_ref(),
         bytes.as_slice()
     );
+    // A visit requires an updated companion; an old client must not put borrowed
+    // progress into its home save directory or keep running after expiry.
+    let deployment = p.db.edit(|d| {
+        use infuser::platform::visits::{Participant, Visit};
+        d.groups.names.insert("away".into(), "Away".into());
+        d.apps.get_mut("native-pond").unwrap().listed = true;
+        d.visits.insert("native-visit".into(), Visit {
+            name:"Native visit".into(),host:"away".into(),
+            participants:std::collections::BTreeMap::from([("admin@example.com".into(),Participant{after_message:0,ended:false})]),
+            games:["native-pond".into()].into(),expires:infuser::controller::now()+3600,ended:false,
+        });
+        d.ensure_deployment("native-pond","away")
+    })?;
+    let visiting = ok(member(Method::POST,"/api/native/v1/play/native-pond","admin")
+        .header("x-infuser-visit","native-visit").json(&play_body)).await?;
+    let link=reqwest::Url::parse(visiting["url"].as_str().unwrap())?;
+    let nonce=link.query_pairs().find(|(k,_)|k=="request").unwrap().1.to_string();
+    let visit_claim=json!({"request_id":nonce,"platform":"windows-x86_64"});
+    assert_eq!(req(Method::POST,"/api/native/v1/claim").bearer_auth(key).json(&visit_claim).send().await?.status(),409);
+    let visiting=ok(req(Method::POST,"/api/native/v1/claim").bearer_auth(key).header("x-infuser-play-capabilities","visits.v1").json(&visit_claim)).await?;
+    assert_eq!(visiting["app_id"],"native-pond");
+    assert_eq!(visiting["deployment_id"],deployment);
+    assert_eq!(visiting["visit"]["authorization_seconds"],30);
+    let visiting_host=visiting["game_origin"].as_str().unwrap().strip_prefix("https://").unwrap();
+    let visiting_context=||http.get(format!("{url}/_infuser/api/v1/context")).header("host",visiting_host).bearer_auth(visiting["token"].as_str().unwrap());
+    ok(visiting_context()).await?;
+    p.db.edit(|d|{d.visits.get_mut("native-visit").unwrap().ended=true;Ok(())})?;
+    assert_eq!(visiting_context().send().await?.status(),403);
+    ok(game("/_infuser/api/v1/context")).await?;
     let devices = ok(member(Method::GET, "/api/native/v1/devices", "admin")).await?;
     let path = format!(
         "/api/native/v1/devices/{}",

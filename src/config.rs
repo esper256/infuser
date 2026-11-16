@@ -47,6 +47,8 @@ pub struct Settings {
     pub peerjs_port: Option<u16>,
     /// Required before creating groups; older binaries reject this configuration.
     pub private_groups: bool,
+    /// Prevent older daemons from serving visit deployments without their access rules.
+    pub visits: bool,
     /// Optional managed Node source packaging; older daemons reject this setting.
     pub node_packaging: Option<crate::server_package::Settings>,
 }
@@ -86,6 +88,7 @@ impl Default for Settings {
             turn: None,
             peerjs_port: None,
             private_groups: false,
+            visits: false,
             node_packaging: None,
         }
     }
@@ -199,6 +202,7 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
+        ensure!(!s.visits || s.private_groups, "visits require private_groups");
         if let Some(packaging) = &s.node_packaging {
             packaging.validate()?;
             ensure!(

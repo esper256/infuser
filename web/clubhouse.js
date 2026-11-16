@@ -1,4 +1,5 @@
 import { initFeedback } from '/assets/feedback.js';
+import { selectedVisit, visitHeaders, initVisits, updateVisit, returnHome } from '/assets/visits.js';
 import { setupPwa } from '/assets/pwa.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
@@ -12,6 +13,7 @@ let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
 let entryGame, detailGameId, detailReturnFocus, detailSignature;
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
+const entryApp=new URLSearchParams(location.search).get('app');
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const reactionMotion=matchMedia('(prefers-reduced-motion: reduce)');
 reactionMotion.addEventListener('change',event=>{if(event.matches)document.querySelector('.reaction-burst')?.remove();});
@@ -103,9 +105,9 @@ function notice(message) {
 }
 async function api(path, options = {}) {
   if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
-  const r = await fetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...inspectionHeaders() } });
+  const r = await fetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });
   const result = await r.json();
-  if(!r.ok) { const error = new Error(result.error || 'Please try again.'); error.status = r.status; throw error; }
+  if(!r.ok) { if(selectedVisit && r.status===403 && String(result.error).includes('visit has ended'))returnHome(); const error = new Error(result.error || 'Please try again.'); error.status = r.status; throw error; }
   return result;
 }
 function showError(error) { notice(error.message); }
@@ -113,6 +115,7 @@ async function refresh() {
   if (refreshing) return; refreshing = true;
   try {
     library = await api('/api/library',{signal:AbortSignal.timeout(12000)});
+    updateVisit(library.visit);
     const self=(library.friends||[]).find(person=>person.id===me.player_id);
     if(self&&self.name!==me.name){me.name=self.name;renderAccount();}
     if(entrySlug && !entryGame){entryGame=await api('/api/games/'+encodeURIComponent(entrySlug));history.replaceState(null,'',new URL(entryGame.url).pathname);document.title=entryGame.title+' · Infuser';}
@@ -155,7 +158,7 @@ function renderGames() {
   }
   if(!library.apps.length)nextCards.push(emptyState('No games yet','Add a game to get started.'));
   const query=$('game-search').value.trim().toLowerCase();
-  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?g.author?.id===selectedAuthor:!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?g.author?.id===selectedAuthor:!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   // Stable sort keeps equal timestamps in catalog order across refreshes.
   matching.sort((a,b)=>(b.updated||0)-(a.updated||0));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
@@ -232,7 +235,7 @@ function gameActions(game,card){
       const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
     }
     if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
-    if(me.admin){
+    if(me.admin&&!game.borrowed){
       const visibility=el('button',game.preview?'Make visible':'Make invisible');visibility.type='button';
       visibility.onclick=async()=>{
         if(visibility.disabled)return;visibility.disabled=true;
@@ -246,7 +249,8 @@ function gameActions(game,card){
     }
     if(names.length)items.append(el('p',names.join(', ')+' · game open','players'));
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
-    play.disabled=!!me.inspecting;guest.disabled=!!me.inspecting;
+    play.disabled=!!me.inspecting||!!game.play_unavailable;guest.disabled=play.disabled;
+    if(game.play_unavailable){play.title=game.play_unavailable;items.prepend(el('p',game.play_unavailable));for(const b of items.querySelectorAll('button'))if(b.textContent.startsWith('Join ')||b.textContent==='Open in Infuser Play')b.disabled=true;}
     if(me.inspecting)for(const button of items.querySelectorAll('button')){if(button.textContent!=='Copy game link')button.disabled=true;}
     play.onclick=()=>start(game,play,card);actions.append(play,menu);
     if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}items.append(chips);}
@@ -654,7 +658,7 @@ $('profile-form').onsubmit=async event=>{
 
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
-  setupAccount();initGroups({me,api});$('recent-menu').hidden=false;
+  setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));

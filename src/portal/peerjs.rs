@@ -38,8 +38,8 @@ fn authorize(p: &Platform, h: &HeaderMap, wire: &str, target: Option<&str>) -> R
         fault(422, "this game does not declare PeerJS")
     );
     p.peers.retain_launches(
-        &launch.app,
-        &presence::live_launches(&data, &launch.app, now()),
+        launch.runtime_id(),
+        &presence::live_launches(&data, launch.runtime_id(), now()),
         now(),
     );
     let to = if let Some(wire) = target {
@@ -53,7 +53,7 @@ fn authorize(p: &Platform, h: &HeaderMap, wire: &str, target: Option<&str>) -> R
         None
     };
     p.peers
-        .authorize(&launch.app, peer, &launch_id, epoch, to, now())
+        .authorize(launch.runtime_id(), peer, &launch_id, epoch, to, now())
 }
 struct Reservation(Arc<Mutex<BTreeSet<String>>>, String);
 impl Drop for Reservation {

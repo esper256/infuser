@@ -252,7 +252,7 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
     p.db.edit(|d| {
         d.launches.insert(
             "test".into(),
-            platform::Launch {
+            platform::Launch { deployment: None, visit: None,
                 intent: None,
                 app: "test".into(),
                 build: "one".into(),

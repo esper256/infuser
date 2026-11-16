@@ -52,12 +52,13 @@ impl Database {
             if inspecting {
                 data.groups.operator(email)
             } else {
-                data.groups.member(email) == group
+                data.chat_boundary(email,group,now()).is_some()
             },
             fault(403, "Group access denied.")
         );
-        let mut statement = tx.prepare("SELECT id,author,text,created FROM library_chat WHERE private_group=?2 AND text IS NOT NULL AND created>?1 ORDER BY id")?;
-        let rows = statement.query_map(params![now().saturating_sub(RETENTION), group], |r| {
+        let floor=if inspecting {0}else{data.chat_boundary(email,group,now()).ok_or_else(||fault(403,"Visit access ended."))?};
+        let mut statement = tx.prepare("SELECT id,author,text,created FROM library_chat WHERE private_group=?2 AND text IS NOT NULL AND created>?1 AND id>?3 ORDER BY id")?;
+        let rows = statement.query_map(params![now().saturating_sub(RETENTION), group,floor], |r| {
             Ok((
                 r.get::<_, u64>(0)?,
                 r.get::<_, String>(1)?,
@@ -71,17 +72,21 @@ impl Database {
             if let Some(member) = data
                 .members
                 .get(&author)
-                .filter(|m| m.enabled && data.groups.member(&author) == group)
+                .filter(|m| m.enabled)
             {
                 messages.push(json!({"id":id,"text":text,"created":created,
                     "author":{"id":hash(&author),"name":member.name,"avatar":member.avatar},
-                    "can_delete":!inspecting&&(author==email||data.members[email].admin)}));
+                    "can_delete":!inspecting&&(author==email||(data.groups.member(email)==group&&data.members[email].admin))}));
             }
         }
         Ok(json!({"messages":messages}))
     }
 
     pub fn chat_send(&self, email: &str, client_id: &str, text: &str) -> Result<Value> {
+        let group=self.read()?.groups.member(email).to_owned();
+        self.chat_send_group(email,&group,client_id,text)
+    }
+    pub fn chat_send_group(&self, email: &str, group:&str, client_id: &str, text: &str) -> Result<Value> {
         let text = text.trim();
         ensure!(
             !text.is_empty()
@@ -99,23 +104,23 @@ impl Database {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let data = members(self, &tx, email)?;
-        let group = data.groups.member(email);
+        let floor=data.chat_boundary(email,group,now()).ok_or_else(||fault(403,"Group access ended."))?;
         let time = now();
         tx.execute(
             "DELETE FROM library_chat WHERE private_group=?2 AND created<=?1",
             params![time.saturating_sub(RETENTION), group],
         )?;
         // Retrying a lost response must not create a duplicate or resurrect a removed message.
-        if let Some((id, original)) = tx
+        if let Some((id, original, original_group)) = tx
             .query_row(
-                "SELECT id,text FROM library_chat WHERE author=?1 AND client_id=?2",
+                "SELECT id,text,private_group FROM library_chat WHERE author=?1 AND client_id=?2",
                 params![email, client_id],
-                |r| Ok((r.get::<_, u64>(0)?, r.get::<_, Option<String>>(1)?)),
+                |r| Ok((r.get::<_, u64>(0)?, r.get::<_, Option<String>>(1)?,r.get::<_,String>(2)?)),
             )
             .optional()?
         {
             ensure!(
-                original.as_deref().is_none_or(|s| s == text),
+                original_group==group && id>floor && original.as_deref().is_none_or(|s| s == text),
                 fault(409, "Message ID already used.")
             );
             return Ok(json!({"id":id}));
@@ -141,19 +146,25 @@ impl Database {
     }
 
     pub fn chat_remove(&self, email: &str, id: u64) -> Result<()> {
+        let group=self.read()?.groups.member(email).to_owned();
+        self.chat_remove_group(email,&group,id)
+    }
+    pub fn chat_remove_group(&self, email: &str, group:&str,id: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let data = members(self, &tx, email)?;
+        let floor=data.chat_boundary(email,group,now()).ok_or_else(||fault(403,"Group access ended."))?;
+        ensure!(id>floor,fault(404,"Message not found."));
         let author: String = tx
             .query_row(
                 "SELECT author FROM library_chat WHERE id=?1 AND private_group=?2",
-                params![id, data.groups.member(email)],
+                params![id, group],
                 |r| r.get(0),
             )
             .optional()?
             .ok_or_else(|| fault(404, "Message not found."))?;
         ensure!(
-            author == email || data.members[email].admin,
+            author == email || (data.groups.member(email)==group&&data.members[email].admin),
             fault(403, "Only the sender or an admin can remove this message.")
         );
         // Keep a bounded tombstone for retries and rate limiting.

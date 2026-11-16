@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
         for id in ["a", "b", "c"] {
             d.launches.insert(
                 id.into(),
-                Launch {
+                Launch { deployment: None, visit: None,
                     intent: None,
                     app: "peerjs-fixture".into(),
                     build: "test".into(),

@@ -13,13 +13,16 @@ export async function join({relayOnly = false, sessionId, playerId, joinable, on
   if (sessionId !== undefined && (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId))) throw new TypeError('sessionId must be an observed session ID');
   if (joinable !== undefined && typeof joinable !== 'boolean') throw new TypeError('joinable must be a boolean');
   if (playerId !== undefined && (sessionId === undefined || typeof playerId !== 'string' || !/^[a-zA-Z0-9-]{1,96}$/.test(playerId))) throw new TypeError('playerId requires a sessionId and an opaque player ID');
-  const started = performance.now();
+  const started = performance.now(), startedWall = Date.now();
   const initial = await request('', {connection_id: crypto.randomUUID(), relay_only: relayOnly, expected_epoch:sessionId, expected_player:playerId, joinable});
   let state = initial, live = true, lastPoll = started, cursor = 0, refreshed = started, timer, healthTimer;
+  let lastPollWall = startedWall;
   let iceServers = initial.ice_servers;
   const links = new Map();
   const config = () => ({iceServers, iceTransportPolicy: initial.ice_transport_policy});
-  const ownsLease = () => live && performance.now() - lastPoll < state.lease_ms;
+  // Some browsers pause the monotonic clock during system sleep. Either clock
+  // expiring must fence packets before a delayed timer or poll can renew access.
+  const ownsLease = () => live && Math.max(performance.now() - lastPoll, Date.now() - lastPollWall) < state.lease_ms;
   const current = (id, link) => ownsLease() && links.get(id) === link;
   const indicator = status => { if (window.parent !== window) window.parent.postMessage({type:'infuser-network',status}, location.origin); };
   const report = () => {
@@ -116,12 +119,12 @@ export async function join({relayOnly = false, sessionId, playerId, joinable, on
   }
   async function poll() {
     if (!live) return;
-    const sent = performance.now();
+    const sent = performance.now(), sentWall = Date.now();
     try {
       const next = await request('/' + initial.self_id + '?after=' + cursor, undefined, 'GET');
       if (!ownsLease()) { end('Session expired. Join again.'); return; }
       if (next.epoch !== initial.epoch) { end('Shared session ended.'); return; }
-      lastPoll = sent; state = next;
+      lastPoll = sent; lastPollWall = sentWall; state = next;
       for (const id of links.keys()) if (!state.peers.some(p => p.id === id)) drop(id);
       for (const message of next.signals) {
         try { await receive(message); } catch { /* A malformed or obsolete offer cannot stop the polling lease. */ }

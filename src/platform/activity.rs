@@ -44,6 +44,8 @@ pub(super) fn initialize(c: &mut Connection) -> Result<()> {
     for (table, column) in [
         ("platform_catalog", "data"),
         ("private_groups", "data"),
+        ("deployments", "data"),
+        ("visits", "data"),
         ("server_builds", "declaration"),
         ("game_urls", "declaration"),
         ("sdk_manifests", "declaration"),
@@ -102,6 +104,7 @@ impl Database {
             launch.expires > time,
             crate::portal::fault(410, "game session expired")
         );
+        ensure!(self.cached_catalog(&tx)?.launch_allowed(&launch,time), crate::portal::fault(403,"Game authorization ended."));
         launch.seen = time;
         launch.expires = time + 300;
         tx.execute(
