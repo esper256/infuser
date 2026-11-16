@@ -164,6 +164,10 @@ img.avatar { object-fit: cover; }
 .profile-option input { position: absolute; width: 1px; height: 1px; padding: 0; margin: 0; opacity: 0; }
 .profile-tile { display: flex; flex-direction: column; align-items: center; gap: 9px; height: 100%; padding: 10px 4px; border: 2px solid transparent; border-radius: 14px; background: #07131b70; }
 .profile-tile .avatar { width: 88px; height: auto; max-width: 100%; aspect-ratio: 1; font-size: 26px; border-color: #68867d; }
+.profile-portrait { position: relative; display: block; width: 88px; max-width: 100%; }
+.profile-portrait > .avatar { display: grid; }
+.profile-usage { position: absolute; right: -4px; bottom: -4px; display: flex; }
+.profile-usage-badge { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 3px; margin-left: -3px; border: 2px solid var(--panel); border-radius: 50%; background: var(--accent); color: var(--button-ink); font-size: 10px; font-weight: 700; line-height: 1; }
 .profile-caption { font-size: 11px; text-align: center; color: var(--quiet); }
 .profile-option:hover .profile-tile { background: #b5ead610; }
 .profile-option input:checked + .profile-tile { border-color: var(--accent); background: #b5ead614; }
@@ -419,11 +423,26 @@ img.avatar { object-fit: cover; }
 #chat-error:empty, #chat-connection:empty { display: none; }
 #chat-new { align-self: center; flex: none; padding: 6px 14px; min-height: 34px; margin: 5px; border-radius: 20px; font-size: 12px; }
 @keyframes chat-unread-wiggle { 0%,10%,100% { transform: rotate(0); } 2%,6% { transform: rotate(-7deg); } 4%,8% { transform: rotate(6deg); } }
+@media (max-width: 650px), (pointer: coarse) and (max-height: 500px) {
+  .chat-heading { padding: 8px 12px; }
+  .chat-heading h2 { font-size: 18px; }
+  #chat-form { padding: 8px 12px; }
+  #chat-text { height: 44px; padding: 8px 12px; }
+  #chat-send { min-height: 44px; }
+}
 @media (max-width: 520px) {
   #chat-log { padding: 16px 12px; }
   .chat-meta { gap: 5px; }
   .chat-remove { min-height: 32px; width: 30px; }
 }
+/* A landscape keyboard can leave less height than the layout viewport reports. */
+#library-chat[data-short] .chat-audience, #library-chat[data-short] #chat-limit { display: none; }
+#library-chat[data-short] .chat-heading { padding: 2px 12px; }
+#library-chat[data-short] #chat-log { padding: 8px 12px; }
+#library-chat[data-short] #chat-form { display: flex; align-items: center; gap: 8px; }
+#library-chat[data-short] #chat-text { flex: 1; min-width: 0; }
+#library-chat[data-short] .chat-compose-actions { flex: none; margin: 0; }
+#library-chat[data-short] #chat-error, #library-chat[data-short] #chat-connection { flex: none; padding: 3px 12px; }
 @media (prefers-reduced-motion: reduce) { #chat-toggle.has-unread[aria-expanded="false"] { animation: none; } }
 @media (forced-colors: active) { .chat-bubble::before { background: Canvas; border-color: CanvasText; } .chat-pointer { border-bottom-color: CanvasText; } .chat-pointer::after { border-bottom-color: Canvas; } #chat-toggle { border: 1px solid ButtonText; } }
 

@@ -109,6 +109,21 @@ pub(super) struct Profile {
     avatar: String,
 }
 
+pub(super) async fn usage(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let email = p.member(&h, false).await?;
+    let (group, _) = p.group_view(&h, &email)?;
+    let data = p.db.read()?;
+    let users: Vec<_> = data
+        .members
+        .iter()
+        .filter(|(email, member)| {
+            member.enabled && member.avatar.is_some() && data.groups.member(email) == group
+        })
+        .map(|(_, member)| json!({"name":member.name,"avatar":member.avatar}))
+        .collect();
+    Ok(reply(json!({"users":users})))
+}
+
 pub(super) async fn update(
     State(p): State<Platform>,
     h: HeaderMap,

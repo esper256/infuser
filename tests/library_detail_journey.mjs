@@ -27,6 +27,7 @@ try {
   else if(path==='/api/admin/members')data={members:{}};
   else if(path==='/api/admin/credentials')data={credentials:[]};
   else if(path==='/api/admin/peer-health')data={sessions:[]};
+  else if(path==='/api/profile'&&method==='GET')data={users:[]};
   else if(path==='/api/profile'){me.avatar=request.postDataJSON().avatar;author.avatar=me.avatar;data={avatar:me.avatar};}
   else if(path.endsWith('/launch')){launches.push(request.postDataJSON());data={state:'ready',url:'https://library.test/game-fixture'};}
   else if(path.endsWith('/visibility')){const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}

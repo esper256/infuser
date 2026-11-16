@@ -23,6 +23,7 @@ await context.route('https://library.test/**',async route=>{
  if(path==='/api/library')return route.fulfill({json:{apps:[game],friends,tags:tagCatalog}});
  if(path==='/api/chat')return route.fulfill({json:{messages:[]}});
  if(path==='/api/client-state')return route.fulfill({json:{game_open:true,version:'test'}});
+ if(path==='/api/profile'&&route.request().method()==='GET')return route.fulfill({json:{users:[]}});
  if(path==='/api/profile'){me.avatar=route.request().postDataJSON().avatar;return route.fulfill({json:{avatar:me.avatar}});}
  let file=path==='/library'?'web/index.html':path==='/art'?'docs/design-explorations/card-art-guide/firefly-drift.webp':path.startsWith('/assets/')?'web/'+path.slice(8):null;
  const avatar=/^\/assets\/avatars\/([^/]+)\/(\d+)\.webp$/.exec(path);if(avatar)file=`assets/avatars/${avatar[1]}-${avatar[2]}.webp`;

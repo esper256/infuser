@@ -628,20 +628,44 @@ document.addEventListener('keydown',event=>{
 });
 $('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();});
 $('close-recent').onclick=()=>{$('recent-menu').open=false;$('recent-toggle').focus();};
-function openProfile(){
+let profileUsageRequest;
+async function openProfile(){
+  profileUsageRequest?.abort();
+  const request=new AbortController();profileUsageRequest=request;
   $('profile-error').textContent='';
   const picker=$('profile-options');picker.replaceChildren();
   const selected=(me.avatars||[]).some(a=>a.id===me.avatar)?me.avatar:'';
   for(const option of [{id:'',name:'Initials'},...(me.avatars||[])]){
     const label=el('label',undefined,'profile-option'),radio=el('input'),tile=el('span',undefined,'profile-tile');
     radio.type='radio';radio.name='avatar';radio.value=option.id;radio.checked=option.id===selected;radio.required=true;
-    tile.append(profileAvatar(me.name,me.player_id,option.id,256),el('span',option.name,'profile-caption'));
+    const portrait=el('span',undefined,'profile-portrait');portrait.append(profileAvatar(me.name,me.player_id,option.id,256));
+    radio.setAttribute('aria-label',option.name);
+    tile.append(portrait,el('span',option.name,'profile-caption'));
     label.append(radio,tile);picker.append(label);
   }
   $('profile-dialog').showModal();picker.querySelector('input:checked').focus();
+  try{
+    const data=await api('/api/profile',{signal:AbortSignal.any([request.signal,AbortSignal.timeout(10000)])});
+    if(request.signal.aborted)return;
+    for(const radio of picker.querySelectorAll('input')){
+      if(!radio.value)continue; // Initials are personalized, not a shared picture.
+      const users=data.users.filter(user=>user.avatar===radio.value).sort((a,b)=>a.name.localeCompare(b.name));
+      if(!users.length)continue;
+      const badges=el('span',undefined,'profile-usage'),description=el('span','Used by '+users.map(user=>user.name).join(', '),'sr-only');
+      description.id='profile-usage-'+radio.value;radio.setAttribute('aria-describedby',description.id);
+      badges.setAttribute('aria-hidden','true');
+      for(const user of users.slice(0,3)){
+        const initial=Array.from(user.name.trim())[0]||'?';
+        const badge=el('span',Array.from(initial.toLocaleUpperCase())[0],'profile-usage-badge');badge.title=user.name;badges.append(badge);
+      }
+      if(users.length>3){const more=el('span','+'+(users.length-3),'profile-usage-badge');more.title=users.slice(3).map(user=>user.name).join(', ');badges.append(more);}
+      radio.nextElementSibling.querySelector('.profile-portrait').append(badges);
+      radio.closest('label').append(description);
+    }
+  }catch(error){if(!request.signal.aborted)$('profile-error').textContent='Could not load who uses each picture. You can still choose one.';}
 }
 $('close-profile').onclick=()=>$('profile-dialog').close();
-$('profile-dialog').addEventListener('close',()=>$('account-trigger').focus());
+$('profile-dialog').addEventListener('close',()=>{profileUsageRequest?.abort();$('account-trigger').focus();});
 $('profile-dialog').addEventListener('cancel',event=>{if($('save-profile').disabled)event.preventDefault();});
 $('profile-form').onsubmit=async event=>{
   event.preventDefault();if($('save-profile').disabled)return;
