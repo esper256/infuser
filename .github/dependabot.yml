@@ -16,6 +16,39 @@ updates:
       cargo-security:
         applies-to: security-updates
         patterns: ['*']
+  # Separate manifests/lockfiles; these entries do not change release workflows.
+  - package-ecosystem: cargo
+    directory: /desktop
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    groups:
+      desktop-versions:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      desktop-security:
+        applies-to: security-updates
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /services/peerjs
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    groups:
+      peerjs-versions:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      peerjs-security:
+        applies-to: security-updates
+        patterns: ['*']
   - package-ecosystem: github-actions
     directory: /
     schedule:

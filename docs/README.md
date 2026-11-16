@@ -31,12 +31,15 @@ or [HTTP publishing](publishing-http.md); no Infuser build toolchain is required
 
 ## Server operators
 
-- [Install and run Infuser](operations.md), then [Google login and invitations](clubhouse-operations.md)
+- Start with [Install and run Infuser](operations.md); it gives the setup order
+  and links to each service's instructions.
+- [Website, Google login and invitations](clubhouse-operations.md)
 - [Automatic updates](deployment.md) and [game-port firewall](network-admission.md)
 - [Encrypted backups and recovery](backup-operations.md), [host monitoring and alerts](monitoring-operations.md)
 - [TURN and PeerJS services](relay-operations.md), [managed Node hosting](server-packaging-operations.md)
 - [Private groups](private-groups.md), [feedback posting](feedback-operations.md), [art-agent keys](art-agent-operations.md)
 - [Publication capture](publication-capture.md) and [private lifecycle API](api.md)
+- [Shared domains, host maintenance and service images](host-maintenance.md)
 
 ## Infuser developers
 

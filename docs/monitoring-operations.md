@@ -8,8 +8,11 @@ view is available only to installation operators, not group admins or players.
 
 ## Install
 
-First deploy an Infuser release that includes `/v1/operations`. The independent
-collector needs that endpoint; do not enable recovery against an older daemon.
+First complete [controller and updater setup](operations.md#installation-order),
+which creates `/opt/infuser/current`. The daemon must provide `/v1/operations`;
+do not enable recovery against an older daemon. For an existing monitoring
+installation, read [the upgrade notes](#upgrading-an-existing-installation)
+before copying files.
 
 1. Copy `deploy/operations.example.toml` to `/etc/infuser/operations.toml`. Adjust
    shared container names and paths. Leave `backup_work_dir` commented until
@@ -85,13 +88,7 @@ stops sending, Healthchecks alerts independently of the VM.
    ```
 
 5. Restart only Grafana using the same Compose command and password-file setting
-   as installation, with `restart grafana` instead of `up -d`. For an existing
-   installation, also copy the current `prometheus.yml`, `compose.yaml` and
-   `scrape.d/` example and recreate only
-   Prometheus with `up -d --no-deps --force-recreate prometheus`. This adds the
-   project labels and the scrape-directory mount. Keep your private `targets.json`
-   and other projects' files. See the upgrade note below before replacing older
-   alert provisioning.
+   as installation, with `restart grafana` instead of `up -d`.
 6. In Grafana **Alerting → Contact points**, test **infuser-operator**. Confirm
    receipt on the phone. In Healthchecks, confirm recurring pings and a healthy
    check. Test its notification integration too; provider acceptance alone does
@@ -104,10 +101,26 @@ Edit the private input and render again to change destinations; provisioned
 settings are managed by files. Preserve those files in your private host backup.
 An empty `heartbeat_url` disables the watchdog rule, leaving ordinary alerts.
 
-### Upgrade from the original dedicated monitoring setup
+## Upgrading an existing installation
 
-Back up private provisioning and export the current notification policy tree
-before changing it. The new generated `notifications.json` includes the health
+Compare the release templates with your installed configuration. Preserve private
+`targets.json`, credentials, other projects' scrape files and dashboard providers.
+Back up the installed files and export Grafana's notification policy tree before
+making changes.
+Validate the combined Prometheus configuration before reloading it. A changed
+Compose mount requires recreating the affected service; a binary update does
+not apply these files.
+
+### One-time migration from the original dedicated monitoring setup
+
+Skip this section if project labels, the Host/Infuser folders and direct alert
+contacts are already installed. Copy the current `prometheus.yml`, `compose.yaml`
+and inactive `scrape.d/` example into your private configuration, preserving any
+local additions. Recreate only Prometheus with the installation Compose command
+and `up -d --no-deps --force-recreate prometheus`. This adds project labels and
+the scrape-directory mount.
+
+The new generated `notifications.json` includes the health
 rules as well as contacts: remove the old deployed `alerting/infuser.json` after
 rendering, so the same rules are not provisioned twice. Keep all unrelated files.
 Install the new dashboard subdirectories/provider file too; dashboard UIDs and
