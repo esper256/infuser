@@ -4,7 +4,7 @@ Audience: Infuser developers.
 
 Infuser is a private game library. Use **Library**, **Single player**, and
 **Multiplayer** in player-facing copy. Keep internal protocol names distinct from
-UI wording. Adult invitations and administration belong in a quiet admin area.
+UI wording. Admin invitations and administration belong in a quiet admin area.
 
 One heading per task. Avoid stacking a slogan, title, explanation, and field
 question that all say the same thing. Cut redundant text aggressively; let the
@@ -20,8 +20,8 @@ prominent with secondary options behind its adjacent dropdown, and preserve
 comfortable touch targets and reduced-motion support.
 
 Add a game supplies a copyable prompt for the existing game-making agent. The
-agent detects the existing title; do not ask the child to name their game again.
-No credential file chores for kids.
+agent detects the existing title; do not ask the user to name their game again.
+No credential file chores for users.
 
 Play opens the game's title screen. The game chooses gameplay modes; Infuser
 keeps the guest option for device sharing. Join friend shortcuts require
@@ -36,9 +36,9 @@ an open game, and an explicitly joinable session are distinct states.
 Use a dark, game-like visual style and small, responsive feedback throughout
 player flows: pressed controls, subtle card movement, clear launch progress,
 and a brief acknowledgement when an action succeeds. Respect reduced motion.
-The games get the spotlight. Keep adult tools straightforward.
+The games get the spotlight. Keep admin tools straightforward.
 Do not label cards Single player or Multiplayer; tags and launch options convey
-those choices. Keep unlisted games in the collapsed adult-only Hidden shelf.
+those choices. Keep unlisted games in the collapsed admin-only Hidden shelf.
 
 When creator portraits are available, use the game author’s portrait as the
 reaction entry point on cards, without a separate card control. The larger game
@@ -76,7 +76,7 @@ scroll and focus during refresh, and uses the active theme's materials.
 
 Online players appear as overlapping avatars beside the logo. Use all available
 header space before replacing players with a +N overflow badge; reserve room for
-Chat, Recently, and adult tools. The overflow badge aligns with other players.
+Chat, Recently, and admin tools. The overflow badge aligns with other players.
 Filters and search share a row, with the game count after the final filter. Search matches game
 titles, tags, and author handles, case-insensitively. The “Find a game…” combobox
 suggests games and gamers as you type; focusing an empty field previews up to

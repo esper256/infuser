@@ -27,7 +27,7 @@ const proxy=https.createServer({key:await fs.readFile('.local/godot/native-key.p
 await new Promise((resolve,reject)=>{proxy.once('error',reject);proxy.listen(17878,'127.0.0.1',resolve);});
 async function api(route,body,member=false){
   return new Promise((resolve,reject)=>{
-    const r=https.request(server+route,{ca,method:'POST',headers:{'Content-Type':'application/json',...(member?{cookie:'member=adult',Origin:server}:{})}},r=>{
+    const r=https.request(server+route,{ca,method:'POST',headers:{'Content-Type':'application/json',...(member?{cookie:'member=admin',Origin:server}:{})}},r=>{
       const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',()=>{try{assert.equal(r.statusCode,200,Buffer.concat(chunks).toString());resolve(JSON.parse(Buffer.concat(chunks)));}catch(e){reject(e);}});
     });r.on('error',reject);r.end(JSON.stringify(body));
   });

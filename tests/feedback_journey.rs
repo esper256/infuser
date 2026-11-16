@@ -27,7 +27,7 @@ async fn serve(router: Router) -> Result<(String, Running)> {
 }
 
 #[tokio::test]
-async fn private_queue_enforces_adult_group_boundaries_consent_and_retention() -> Result<()> {
+async fn private_queue_enforces_admin_group_boundaries_consent_and_retention() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let auth = Router::new().route(
         "/oauth2/auth",
@@ -76,7 +76,7 @@ async fn private_queue_enforces_adult_group_boundaries_consent_and_retention() -
             .header("cookie", cookie)
             .header("origin", "https://games.example.com")
     };
-    let report = json!({"kind":"feature","title":"Idea","description":"Private details for adult review","diagnostics":null});
+    let report = json!({"kind":"feature","title":"Idea","description":"Private details for admin review","diagnostics":null});
     let intake = json!({"request_id":"request-0000000001","report":report});
     assert_eq!(
         request(Method::GET, "/api/feedback", "member=one")
@@ -84,7 +84,7 @@ async fn private_queue_enforces_adult_group_boundaries_consent_and_retention() -
             .await?
             .json::<Value>()
             .await?,
-        json!({"adult":false})
+        json!({"admin":false})
     );
     let queued = request(Method::POST, "/api/feedback", "member=one")
         .json(&intake)

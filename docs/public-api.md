@@ -17,7 +17,7 @@ separate from the game SDK and publisher credentials.
 For a complete upload using existing tools, see [Publishing over HTTP](publishing-http.md).
 This is a supported alternative to the CLI, including on Mac and Windows.
 
-An adult admin can create an app-scoped connection file. An invited player can
+An admin can create an app-scoped connection file. An invited player can
 create a new game through **Add a game**, then copy a prompt containing an opaque,
 single-use setup code valid for three hours. The agent runs `infuser connect --server
 HTTPS_ORIGIN --app APP`, supplying the code on stdin. The CLI exchanges it once
@@ -41,7 +41,7 @@ or control the host. Admin revocation and member disabling take effect immediate
 | PUT | `/api/publisher/apps/APP/builds/BUILD/server/files/PATH` | Upload private managed-server source |
 | POST / GET | `/api/publisher/apps/APP/builds/BUILD/server-build` | Seal/queue server packaging, or inspect its state/logs |
 | GET | `/api/publisher/apps/APP/server-diagnostics` | Private live/recent runtime logs, health, exit status and build correlation |
-| POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for adult-only preview |
+| POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for admin-only preview |
 | DELETE | `/api/publisher/apps/APP/builds/BUILD` | Remove an unused build |
 | DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |
 
@@ -114,7 +114,7 @@ returns `publication_state` (`uploading`, `queued`, `published`, or `retained`).
 A newer publication request replaces the pending one. Pending builds cannot be
 changed or deleted; unpublishing the app also cancels its pending update. The queue
 survives controller restarts. Never force a second server or give players mismatched
-clients. An adult force-restart UI is not implemented yet.
+clients. An admin force-restart UI is not implemented yet.
 
 ## Player website
 
@@ -141,7 +141,7 @@ be used as a player login.
   `GET /assets/avatars/ID/128.webp` and `256.webp` serve embedded public artwork.
   Member updates preserve the selection; accounts without one show initials.
 - `POST /api/my-games` with `{}` — reserves a publishing connection for an existing
-  project without asking the child for a name. Returns `app_id`, `api_url`,
+  project without asking the user for a name. Returns `app_id`, `api_url`,
   `setup_code`, `expires_at` (Unix seconds), `supported_engines`, and `tag_catalog`;
   no permanent credential. The agent supplies the real title at publication,
   which assigns the readable URL. Optional `title` retains the older workflow.
@@ -154,20 +154,20 @@ be used as a player login.
   Opted-in peer and dedicated games also accept an optional [Join friend intent](launch-intents.md).
 - `GET /api/launches/ID` — owner-only startup polling/renewal.
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
-- Adult-only `PUT /api/admin/apps/APP/visibility` with `{"listed":true}` or
+- Admin-only `PUT /api/admin/apps/APP/visibility` with `{"listed":true}` or
   `{"listed":false}` changes the active game's visibility without publishing a build.
   Requires the exact HTTPS Origin. In the game's Play dropdown, choose **Make visible**
   or **Make invisible**. Invisible games remain available to admins but are omitted
   from player Libraries and reject new player launches. Existing sessions continue.
   Pending/future build publications retain their own explicit visibility settings.
-- Adult-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
+- Admin-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
   DELETE `/api/admin/credentials/ID` revokes a credential.
-- Adult-only `PUT /api/admin/members/handle` with `{"email":"player@example.com","name":"New handle"}`
+- Admin-only `PUT /api/admin/members/handle` with `{"email":"player@example.com","name":"New handle"}`
   renames an existing member. Requires the exact HTTPS Origin. Handles are trimmed,
   1–40 characters, without control characters. Returns `{player_id, name}`; preserves
   identity, permissions, enabled status, avatar, and saves. Unknown members return 404.
   Ordinary players cannot rename themselves or anyone else; `/api/profile` accepts
-  avatar selection only. The adult uses **Admin tools → Members → Rename**.
+  avatar selection only. The admin uses **Admin tools → Members → Rename**.
 
 ## Game SDK and saves
 

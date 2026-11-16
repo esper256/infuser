@@ -174,7 +174,7 @@ Presence is a projection with separate facts:
 
 A server connection alone does not mean multiplayer. Likewise, a multiplayer session waiting for its second player is still multiplayer. The game declares the activity mode; occupancy does not infer it.
 
-Reading presence starts nothing and renews nothing. Social widgets do not alter fullscreen. Children see a small connection/status indication; detailed latency, capacity and failure diagnostics belong in adult and publisher tools.
+Reading presence starts nothing and renews nothing. Social widgets do not alter fullscreen. Users see a small connection/status indication; detailed latency, capacity and failure diagnostics belong in admin and publisher tools.
 
 ## 8 Publish immutable releases and drain deployments
 
@@ -182,7 +182,7 @@ A release binds the web/native client artifacts, server image digest, target arc
 
 The first implementation requires exact client/server build pairing. Recording a game-owned gameplay protocol version now leaves room for explicitly compatible client-only updates later. Do not implement concurrent server revisions, rolling pools or automatic protocol negotiation for this first version.
 
-Publication uploads and validates immediately. Packaging happens before activation, never when a child presses Play. An active deployment can keep running while the new release waits.
+Publication uploads and validates immediately. Packaging happens before activation, never when a user presses Play. An active deployment can keep running while the new release waits.
 
 When an update is queued:
 
@@ -194,7 +194,7 @@ When an update is queued:
 
 Use a server-initiated control channel with acknowledged command IDs and recoverable state, rather than inventing an arbitrary `/drain` callback path for each engine. Polling is a valid initial implementation. `SIGTERM` and a bounded stop timeout remain the final shutdown mechanism even when the adapter misbehaves.
 
-Normal updates should not impose an arbitrary deadline that destroys live runs. The adult can inspect a stuck drain and choose Force restart, with its consequences shown. A host may configure a maximum drain duration, but the configured forced-stop policy must be explicit. Superseded unpublished releases can be discarded without changing the active run; an operator can cancel a drain that has not reached its irreversible stop step.
+Normal updates should not impose an arbitrary deadline that destroys live runs. The admin can inspect a stuck drain and choose Force restart, with its consequences shown. A host may configure a maximum drain duration, but the configured forced-stop policy must be explicit. Superseded unpublished releases can be discarded without changing the active run; an operator can cancel a drain that has not reached its irreversible stop step.
 
 A crash invalidates transient session targets. Restart only with continuing demand, bounded backoff and a retry ceiling. Existing clients get an explicit interrupted-run result. A Join Friend retry must not create a replacement world. Persistent data survives if declared; unsaved in-memory runs do not.
 
@@ -235,7 +235,7 @@ Expose a durable build job with states such as queued, packaging, checking, read
 The container listens on the assigned `PORT`, with the legacy `INFUSER_PORT` alias
 preserved. It gets bounded writable temporary space, a declared persistent data
 mount only when requested, automatically injected server authentication, and a
-SIGTERM stop deadline. The adapter reads these settings; the child manages none of
+SIGTERM stop deadline. The adapter reads these settings; the user manages none of
 them. Readiness means the service can accept connections, not that it currently
 accepts new gameplay sessions. A draining server remains healthy while finishing
 its runs.
@@ -323,7 +323,7 @@ Provide `infuser dev` using the same gateway, control protocol and server adapte
 
 A Node game should run with its ordinary local Node process; Docker is optional for day-to-day editing. Publishing can do target-architecture packaging remotely. A container acceptance command checks the additional filesystem, network and resource constraints before promotion. Local development success is not proof of production isolation compatibility.
 
-Publisher diagnostics should identify the deployment and runtime incarnation, readiness, crash history, exit/OOM status, active sessions, resource limits and recent bounded stdout/stderr. They are scoped to the authorized game and group. Show metrics to adults and agents, not in children's gameplay overlays.
+Publisher diagnostics should identify the deployment and runtime incarnation, readiness, crash history, exit/OOM status, active sessions, resource limits and recent bounded stdout/stderr. They are scoped to the authorized game and group. Show metrics to admins and agents, not in users's gameplay overlays.
 
 Redact known credentials and avoid logging transport assertions or invitation secrets. Do not promise arbitrary application logs are universally secret-free: a game can print its own data. Log access remains private and rate-limited.
 
@@ -337,7 +337,7 @@ Deliver a narrow dedicated-server path first, then freeze the proven contract. D
 | 2 | One-command Node packaging with immutable image pairing | Publish/update from a machine without Docker; packaging failure leaves the current game untouched; verify target architecture and constrained execution. |
 | 3 | Authenticated managed WebSocket adapter with single shared session | Two accounts and a guest; solo requiring a backend; forged context rejected; title screen stays cold; actual connections keep a backgrounded player's run alive. |
 | 4 | Generic session directory, targeted joins, invitations and optional multiple sessions | Last-seat race, closed/replaced room, friend departure, private-room access, two rooms in one process, cross-group denial and no phantom presence. |
-| 5 | Drain, crash recovery, logs and adult restart | Active run finishes across a game publication; new runs cannot prolong drain; container crash changes incarnation; controller restart reconnects without inventing a new world. |
+| 5 | Drain, crash recovery, logs and admin restart | Active run finishes across a game publication; new runs cannot prolong drain; container crash changes incarnation; controller restart reconnects without inventing a new world. |
 | 6 | SDK 1.0 candidate and compatibility freeze | Unchanged shipped games pass; Lanternfall plus a small game with a different admission flow exercise the same contract. |
 
 Keep one fast fake-clock lifecycle suite, one real HTTP/WebSocket journey, the existing frozen old-client/save journeys, and a focused Docker packaging/start/drain journey. Add a tiny persistent-state fixture for migration/rollback behavior before promising that capability. These prove the boundaries without building another full showcase game or making every change wait on a large CI matrix.

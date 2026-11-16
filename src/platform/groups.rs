@@ -35,7 +35,7 @@ impl Groups {
 }
 impl Data {
     /// Shared policy for credential inventory and revocation. The caller must
-    /// already be an enabled adult in their home group, outside inspection.
+    /// already be an enabled admin in their home group, outside inspection.
     pub fn can_manage_credential(&self, email: &str, credential: &Credential) -> bool {
         match credential.role.as_str() {
             "publish" => self.groups.allows(email, &credential.app),

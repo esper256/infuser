@@ -3,14 +3,14 @@
 Audience: game authors and their agents.
 
 A game's durable link is `https://YOUR_INFUSER/games/moon-racers`. It opens that
-game's card, preserving Google sign-in and the adult invitation list. Play and
+game's card, preserving Google sign-in and the invitation list. Play and
 guest play remain explicit clicks; opening a shared link does not start a server.
 The card's arrow menu includes **Copy game link**. Publication responses and the
 CLI also return the link. An authenticated resolver is available at
 `GET /api/games/SLUG`; it returns `app_id`, canonical `slug`, `url`, and `title`.
 Names and aliases resolve within the signed-in player’s private group. Two
 groups may use the same slug; sharing a link never grants another group access.
-Aliases resolve to the canonical link. Hidden previews remain adult-only;
+Aliases resolve to the canonical link. Hidden previews remain admin-only;
 unpublished games return 404. Anonymous resolution requires sign-in.
 
 ## Names and renames
@@ -30,7 +30,7 @@ Content-Type: application/json
 {"slug":"moon-racers"}
 ```
 
-The owner or an adult can use `PUT /api/apps/APP/slug` with the ordinary website
+The owner or an admin can use `PUT /api/apps/APP/slug` with the ordinary website
 session and Origin check. Invalid/reserved
 names return 400; a name belonging to another game returns 409. Core route names
 and the `g-` execution prefix are reserved. Each game may retain up to 64 previous

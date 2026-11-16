@@ -53,7 +53,7 @@ pub(super) async fn owner_rename(
         d.members[&email].admin || d.owners.get(&app) == Some(&email),
         fault(
             403,
-            "Only the creator or an adult can change this game URL."
+            "Only the creator or an admin can change this game URL."
         )
     );
     rename(&p, &app, &body.slug)

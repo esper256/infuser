@@ -115,7 +115,7 @@ A publish during an active peer session queues the new build. When the session
 ends, the controller promotes it; already-open old clients must reopen before
 starting another multiplayer session. Single-player saves are unchanged.
 
-## Connection status and adult diagnostics
+## Connection status and admin diagnostics
 
 Players see only a small connection symbol in the existing title bar. It does
 not overlay the game, open dialogs, or change fullscreen. A green connection

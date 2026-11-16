@@ -7,7 +7,7 @@ for this project rather than sourced from a stock library or an existing game
 franchise. The collection mixes characters with object-only gaming artwork.
 
 - Original set: Circuit Fox, Orbit Racer, Moss Knight, Storm Drake, Deepwave.
-- Masculine character portraits: Neon Runner, Bass Pilot, Frost Scout, Forge Rider.
+- Character portraits: Neon Runner, Bass Pilot, Frost Scout, Forge Rider.
 - Object-only designs: Pulse Pad (controller), Prism Core (glass prism), Photon
   Loop (light sculpture), Pocket Arcade (cabinet), Critical Gem (crystal die),
   Ion Racer (racing craft).

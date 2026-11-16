@@ -28,7 +28,7 @@ const existing=process.env.INFUSER_GODOT_DEMO==='dodge';
 try {
   const context=await browser.newContext({viewport:{width:1000,height:740},ignoreHTTPSErrors:true});
   async function launch(guest=false) {
-    const r=await local('/api/apps/lantern-lake/launch','POST',{host:'games.example.com',origin:'https://games.example.com',cookie:'member=adult','Content-Type':'application/json'},JSON.stringify({guest}));
+    const r=await local('/api/apps/lantern-lake/launch','POST',{host:'games.example.com',origin:'https://games.example.com',cookie:'member=admin','Content-Type':'application/json'},JSON.stringify({guest}));
     assert.equal(r.status,200,r.body.toString()); const launch=JSON.parse(r.body);
     const page=await context.newPage();
     page.on('pageerror',e=>errors.push(e.message));

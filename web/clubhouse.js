@@ -162,7 +162,7 @@ function renderGames() {
     heading.append(creatorButton(game));dock.append(heading,gameActions(game,card));
     (game.preview?hiddenCards:nextCards).push(card);
   }
-  // Retain mounted covers while sorting visible games and the adult-only shelf.
+  // Retain mounted covers while sorting visible games and the admin-only shelf.
   function reconcile(container,cards){
     const retained=new Set(cards);
     for(const child of [...container.children])if(!retained.has(child))child.remove();

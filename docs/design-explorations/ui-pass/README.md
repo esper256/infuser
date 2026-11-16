@@ -46,7 +46,7 @@ networking are outside this pass.
 ## Release integration
 
 The approved layout is now wired into the actual Library, preserving main’s
-Play/guest/Join friend requests and adult peer diagnostics. `integration-desktop.webp`
+Play/guest/Join friend requests and admin peer diagnostics. `integration-desktop.webp`
 and `integration-phone.webp` capture the production renderer with local API fixtures.
 Unlike the fictional art mockup, production uses approved Infuser fallback art and
 real author initials. `/api/library` exposes only the recorded author’s name and

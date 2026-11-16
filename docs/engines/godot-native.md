@@ -3,7 +3,7 @@
 Audience: game authors and their agents.
 
 Windows x86-64 and Linux x86-64 (including Bazzite) use **Infuser Play**, the native app for the Infuser website.
-The child installs **Infuser-Play-Setup.exe** or opens **Infuser-Play.flatpak** in their
+The user installs **Infuser-Play-Setup.exe** or opens **Infuser-Play.flatpak** in their
 software center, then presses Play in the website. No manual unzip, copying game
 files, terminal commands or per-game installation. The first launch opens the
 browser to connect their Google account. Later launches download missing updates

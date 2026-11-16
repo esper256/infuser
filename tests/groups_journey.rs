@@ -122,8 +122,8 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         get(|h: HeaderMap| async move {
             let email = match h.get("cookie").and_then(|v| v.to_str().ok()) {
                 Some("member=frizz") => "frizz@example.com",
-                Some("member=adult") => "adult@example.com",
-                Some("member=child") => "child@example.com",
+                Some("member=admin") => "admin@example.com",
+                Some("member=user") => "user@example.com",
                 Some("member=visitor") => "visitor@example.com",
                 _ => "",
             };
@@ -156,40 +156,40 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         url,
         http: Client::new(),
     };
-    // Existing adults do not automatically gain installation-wide authority.
+    // Existing admins do not automatically gain installation-wide authority.
     denied(c.member("frizz", Method::GET, "/api/operator/groups")).await?;
     p.db.edit(|d| {
         d.groups.operators.insert("frizz@example.com".into());
         Ok(())
     })?;
     assert_eq!(p.db.read()?.groups.member("frizz@example.com"), "home");
-    let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Other family","admin_email":"adult@example.com","admin_name":"Other adult"}))).await?["id"].as_str().unwrap().to_owned();
-    ok(c.member("adult", Method::POST, "/api/admin/members")
-        .json(&json!({"email":"child@example.com","name":"Other kid"})))
+    let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Other family","admin_email":"admin@example.com","admin_name":"Other admin"}))).await?["id"].as_str().unwrap().to_owned();
+    ok(c.member("admin", Method::POST, "/api/admin/members")
+        .json(&json!({"email":"user@example.com","name":"Other user"})))
     .await?;
-    denied(c.member("adult", Method::GET, "/api/operator/groups")).await?;
+    denied(c.member("admin", Method::GET, "/api/operator/groups")).await?;
     denied(
-        c.member("adult", Method::GET, "/api/library")
+        c.member("admin", Method::GET, "/api/library")
             .header("x-infuser-inspect-group", "home"),
     )
     .await?;
     denied(
-        c.member("adult", Method::POST, "/api/admin/members")
+        c.member("admin", Method::POST, "/api/admin/members")
             .json(&json!({"email":"frizz@example.com","name":"Imposter","admin":true})),
     )
     .await?;
     denied(
         c.member("frizz", Method::POST, "/api/admin/members")
-            .json(&json!({"email":"child@example.com","name":"Stolen"})),
+            .json(&json!({"email":"user@example.com","name":"Stolen"})),
     )
     .await?;
     denied(
-        c.member("adult", Method::PUT, "/api/admin/members/handle")
+        c.member("admin", Method::PUT, "/api/admin/members/handle")
             .json(&json!({"email":"frizz@example.com","name":"Renamed"})),
     )
     .await?;
     assert_eq!(
-        c.member("adult", Method::POST, "/api/admin/members")
+        c.member("admin", Method::POST, "/api/admin/members")
             .json(&json!({"email":"new@example.com","name":"Escalated","operator":true}))
             .send()
             .await?
@@ -197,14 +197,14 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         422
     );
     let (home, home_key) = c.publish("frizz", "home-special").await?;
-    let (away, away_key) = c.publish("child", "away-special").await?;
+    let (away, away_key) = c.publish("user", "away-special").await?;
     // Same title/slug is independent; publisher codes automatically inherit their family.
     assert_eq!(
         ok(c.member("frizz", Method::GET, "/api/games/moon-race")).await?["app_id"],
         home
     );
     assert_eq!(
-        ok(c.member("child", Method::GET, "/api/games/moon-race")).await?["app_id"],
+        ok(c.member("user", Method::GET, "/api/games/moon-race")).await?["app_id"],
         away
     );
     assert_eq!(p.db.read()?.groups.app(&away), group);
@@ -212,29 +212,29 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         .json(&json!({"client_id":"home-message-00001","text":"Home only"})))
     .await?;
     let message = ok(c
-        .member("child", Method::POST, "/api/chat")
+        .member("user", Method::POST, "/api/chat")
         .json(&json!({"client_id":"away-message-00001","text":"Other family only"})))
     .await?;
-    ok(c.member("child", Method::PUT, "/api/profile")
+    ok(c.member("user", Method::PUT, "/api/profile")
         .json(&json!({"avatar":"circuit-fox"})))
     .await?;
-    let child_identity = ok(c.member("child", Method::GET, "/api/me")).await?;
+    let user_identity = ok(c.member("user", Method::GET, "/api/me")).await?;
     ok(
-        c.member("child", Method::PUT, &format!("/api/apps/{away}/reaction"))
+        c.member("user", Method::PUT, &format!("/api/apps/{away}/reaction"))
             .json(&json!({"emoji":"🚀","text":"Our game"})),
     )
     .await?;
     for (who, own, foreign, own_tag, foreign_tag) in [
         ("frizz", &home, &away, "home-special", "away-special"),
-        ("child", &away, &home, "away-special", "home-special"),
+        ("user", &away, &home, "away-special", "home-special"),
     ] {
         let library = ok(c.member(who, Method::GET, "/api/library")).await?;
         assert_eq!(library["apps"].as_array().unwrap().len(), 1);
         assert_eq!(library["apps"][0]["id"], *own);
         let reactions = library["apps"][0]["reactions"].as_array().unwrap();
-        if who == "child" {
+        if who == "user" {
             assert_eq!(reactions.len(), 1);
-            assert_eq!(reactions[0]["id"], child_identity["player_id"]);
+            assert_eq!(reactions[0]["id"], user_identity["player_id"]);
             assert_eq!(reactions[0]["avatar"], "circuit-fox");
             assert!(reactions[0].get("email").is_none());
         } else {
@@ -289,10 +289,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
             denied(c.member(who, method, &path).json(&body)).await?;
         }
     }
-    let members = ok(c.member("adult", Method::GET, "/api/admin/members"))
+    let members = ok(c.member("admin", Method::GET, "/api/admin/members"))
         .await?
         .to_string();
-    assert!(members.contains("Other kid"));
+    assert!(members.contains("Other user"));
     assert!(!members.contains("Frizz"));
     for (method, path, body) in [
         (
@@ -306,14 +306,14 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
             json!({"listed":false}),
         ),
     ] {
-        denied(c.member("adult", method, &path).json(&body)).await?;
+        denied(c.member("admin", method, &path).json(&body)).await?;
     }
     let home_chat = ok(c.member("frizz", Method::GET, "/api/chat"))
         .await?
         .to_string();
     assert!(home_chat.contains("Home only"));
     assert!(!home_chat.contains("Other family only"));
-    let away_chat = ok(c.member("child", Method::GET, "/api/chat"))
+    let away_chat = ok(c.member("user", Method::GET, "/api/chat"))
         .await?
         .to_string();
     assert!(away_chat.contains("Other family only"));
@@ -361,20 +361,20 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     )
     .await?;
     denied(c.member(
-        "adult",
+        "admin",
         Method::DELETE,
         &format!("/api/admin/credentials/{global_id}"),
     ))
     .await?;
     assert!(
-        !ok(c.member("adult", Method::GET, "/api/admin/credentials"))
+        !ok(c.member("admin", Method::GET, "/api/admin/credentials"))
             .await?
             .to_string()
             .contains(&global_id)
     );
     // Browser launch exchange and cloud saves remain bound to the group/game/player.
     let mut sessions = Vec::new();
-    for (who, app) in [("frizz", &home), ("child", &away)] {
+    for (who, app) in [("frizz", &home), ("user", &away)] {
         let launch = ok(c
             .member(who, Method::POST, &format!("/api/apps/{app}/launch"))
             .json(&json!({})))
@@ -429,13 +429,13 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     let away_presence = ok(game(1, Method::GET, "/_infuser/presence/v1"))
         .await?
         .to_string();
-    assert!(!home_presence.contains("Other kid"));
+    assert!(!home_presence.contains("Other user"));
     assert!(!away_presence.contains("Frizz"));
     // Even an old exchanged session is fenced if an operator changes membership offline.
     p.db.edit(|d| {
         d.groups
             .members
-            .insert("child@example.com".into(), "home".into());
+            .insert("user@example.com".into(), "home".into());
         Ok(())
     })?;
     denied(game(1, Method::GET, "/_infuser/saves/progress")).await?;
@@ -443,7 +443,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     p.db.edit(|d| {
         d.groups
             .members
-            .insert("child@example.com".into(), group.clone());
+            .insert("user@example.com".into(), group.clone());
         Ok(())
     })?;
     // Inspector can see target content but cannot interact or create presence there.
@@ -521,7 +521,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         true,
     )?;
     let reopened = platform::Database::open(temp.path())?;
-    assert_eq!(reopened.read()?.groups.member("child@example.com"), group);
+    assert_eq!(reopened.read()?.groups.member("user@example.com"), group);
     assert!(reopened.read()?.groups.operator("frizz@example.com"));
     let mut unsafe_cfg = cfg.clone();
     unsafe_cfg.controller.private_groups = false;

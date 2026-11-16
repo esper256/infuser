@@ -207,7 +207,7 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
             .as_deref(),
         Some(last_avatar)
     );
-    // Handles are adult-controlled, including attempts to rename oneself.
+    // Handles are admin-controlled, including attempts to rename oneself.
     for target in ["one@example.com", "two@example.com"] {
         assert_eq!(
             request(Method::PUT, "/api/admin/members/handle", "member=one")

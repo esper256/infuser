@@ -15,7 +15,7 @@ fn failed_operator_commands_can_retry_and_never_overwrite_credentials() -> Resul
         ),
     )?;
     let cfg = Config::load(&config)?;
-    platform::member(&cfg, "adult@example.com", "Adult", true, true)?;
+    platform::member(&cfg, "admin@example.com", "Admin", true, true)?;
     let output = dir.path().join("art.credentials.json");
     let pass = |group| {
         Command::new(env!("CARGO_BIN_EXE_infuser"))
@@ -53,7 +53,7 @@ fn failed_operator_commands_can_retry_and_never_overwrite_credentials() -> Resul
     let result = Command::new(env!("CARGO_BIN_EXE_infuser"))
         .arg("preview-game")
         .arg(&config)
-        .args(["missing-game", "adult@example.com"])
+        .args(["missing-game", "admin@example.com"])
         .arg(&preview)
         .output()?;
     assert!(!result.status.success());

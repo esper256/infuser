@@ -1,6 +1,6 @@
 # Chat and phone notifications
 
-Audience: players and adult admins.
+Audience: players and admins.
 
 Open **Chat** beside the online players at the top of the Library. Everyone in
 your private group shares the room. Enter sends a message; Shift+Enter adds a
@@ -11,7 +11,7 @@ is open. If sending fails, retry without retyping. The badge counts unread
 messages. Reading older messages keeps your place; **New messages ↓** returns
 to the latest ones.
 
-You can remove your own messages; adult admins can remove anyone's. Chat keeps
+You can remove your own messages; admins can remove anyone's. Chat keeps
 recent conversation for up to seven days. Older messages may disappear sooner
 as the room fills up; it is not a permanent archive.
 

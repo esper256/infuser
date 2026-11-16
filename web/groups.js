@@ -37,11 +37,11 @@ export function initGroups({me,api}) {
   if(!me.inspecting){
     const details=el('details');details.append(el('summary','Add a group'));
     const form=el('form');form.className='group-form';
-    for(const [name,label,type,max] of [['name','Group name','text',60],['admin_email',"Adult’s Google email",'email',253],['admin_name',"Adult’s display name",'text',40]]){
+    for(const [name,label,type,max] of [['name','Group name','text',60],['admin_email',"Admin’s Google email",'email',253],['admin_name',"Admin’s display name",'text',40]]){
       const field=el('label',label),input=el('input');input.name=name;input.type=type;input.required=true;input.maxLength=max;field.append(input);form.append(field);}
     const create=el('button','Create group');form.append(create);details.append(form);dialog.append(details);
     form.onsubmit=async event=>{event.preventDefault();create.disabled=true;error.textContent='';
-      try{await api('/api/operator/groups',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form)))});form.reset();details.open=false;await load();error.textContent='Created. Their adult can sign in with that Google account. No email is sent.';}
+      try{await api('/api/operator/groups',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form)))});form.reset();details.open=false;await load();error.textContent='Created. Their admin can sign in with that Google account. No email is sent.';}
       catch(problem){error.textContent=problem.message;}finally{create.disabled=false;}};
   }
   document.body.append(dialog);button.onclick=async()=>{menu.open=false;dialog.showModal();error.textContent='';try{await load();}catch(problem){error.textContent=problem.message;}};

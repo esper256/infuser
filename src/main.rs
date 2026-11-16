@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
             args.get(1).context("configuration path required")?,
         ))?;
         let app = args.get(2).context("preview app ID required")?;
-        let email = args.get(3).context("existing adult admin email required")?;
+        let email = args.get(3).context("existing admin email required")?;
         let output = args.get(4).context("private output path required")?;
         let file = infuser::private_file::reserve(Path::new(output))?;
         let intent = if args.len() == 5 {

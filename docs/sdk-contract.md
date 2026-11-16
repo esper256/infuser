@@ -47,7 +47,7 @@ Approved product decisions:
   back to public matchmaking or a different save namespace.
 - Multiplayer updates upload immediately and activate after the shared session
   ends and its server shuts down. Queued publication is implemented; a force-restart
-  action is reserved for adult administration.
+  action is reserved for admin administration.
 - Online, game open, and joinable multiplayer are separate states. The game must
   explicitly report joinability. A title screen does not create a multiplayer room.
 

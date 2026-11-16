@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const browser=await chromium.launch({headless:true,...(process.env.INFUSER_CHROMIUM?{executablePath:process.env.INFUSER_CHROMIUM}:{})});
 const page=await browser.newPage({viewport:{width:390,height:844}});
-let adult=false,available=true,failIntake=false,failPosting=false,entries=[],intakes=[],approvals=[];
+let admin=false,available=true,failIntake=false,failPosting=false,entries=[],intakes=[],approvals=[];
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.route('https://library.test/**',async route=>{
   const path=new URL(route.request().url()).pathname,method=route.request().method();
@@ -25,7 +25,7 @@ await page.route('https://library.test/**',async route=>{
   const file=path==='/library'?'index.html':path.startsWith('/assets/')?path.slice(8):null;
   if(file&&!file.includes('..'))try{
     let body=await fs.readFile(new URL('../web/'+file,import.meta.url));
-    if(file==='clubhouse.js')body=body.toString()+`\nme={name:'Private Name',player_id:'private-id',avatars:[],admin:${adult}};document.getElementById('clubhouse').hidden=false;document.getElementById('welcome').hidden=true;setupAccount();`;
+    if(file==='clubhouse.js')body=body.toString()+`\nme={name:'Private Name',player_id:'private-id',avatars:[],admin:${admin}};document.getElementById('clubhouse').hidden=false;document.getElementById('welcome').hidden=true;setupAccount();`;
     return route.fulfill({body,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});
   }catch{}
   return route.fulfill({status:404,body:''});
@@ -50,10 +50,10 @@ try{
   assert.match(await dialog.locator('pre').textContent(),/"viewport": "small"/);assert.doesNotMatch(await dialog.locator('pre').textContent(),/Private Name|private-id|library.test|secret/);
   await consent();await dialog.locator('.feedback-send').click();await page.waitForFunction(()=>document.querySelector('.feedback-status').textContent.includes('Sent privately'));
   assert.deepEqual(Object.keys(entries[1].report.diagnostics),['online','secure_context','webgl','webrtc','webassembly','viewport']);
-  adult=true;await page.setViewportSize({width:1280,height:900});await page.reload();await open('Review feedback');
+  admin=true;await page.setViewportSize({width:1280,height:900});await page.reload();await open('Review feedback');
   await dialog.getByRole('button',{name:'Review and edit'}).nth(1).click();
   await dialog.locator('[name=description]').fill('A button does not respond.');await preview();
-  assert.match(await dialog.locator('.feedback-review pre').textContent(),/"viewport": "small"/,'keep original snapshot, never collect adult device data');
+  assert.match(await dialog.locator('.feedback-review pre').textContent(),/"viewport": "small"/,'keep original snapshot, never collect admin device data');
   assert.doesNotMatch(await dialog.locator('.feedback-review pre').textContent(),/Private game name/);
   assert.equal(await dialog.locator('.feedback-send').isDisabled(),true);assert.equal(approvals.length,0);
   await consent();await dialog.locator('.feedback-send').click();await page.waitForFunction(()=>document.querySelector('.feedback-status').textContent.includes('approved public issue'));
@@ -67,5 +67,5 @@ try{
   entries.push({id:'no-token',created:1700000000,state:'pending',report:{kind:'feature',title:'Idea',description:'Please help',diagnostics:null}});available=false;
   await dialog.locator('.feedback-refresh').click();await dialog.getByRole('button',{name:'Review and edit'}).click();await preview();await consent();assert.equal(await dialog.locator('.feedback-send').isDisabled(),true);
   await page.keyboard.press('Escape');await page.waitForFunction(()=>document.getElementById('account-trigger')===document.activeElement);
-  assert.deepEqual(errors,[]);console.log('Feedback queue browser journey passed: private intake/retry, role menus, diagnostics, adult editing/consent, posting, uncertainty, dismissal, missing token, mobile and desktop.');
+  assert.deepEqual(errors,[]);console.log('Feedback queue browser journey passed: private intake/retry, role menus, diagnostics, admin editing/consent, posting, uncertainty, dismissal, missing token, mobile and desktop.');
 }finally{await browser.close();}

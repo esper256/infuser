@@ -39,13 +39,13 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         "/auth",
         get(|h: HeaderMap| async move {
             match h.get("cookie").and_then(|v| v.to_str().ok()) {
-                Some("member=adult") => (
+                Some("member=admin") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "adult@example.com")],
+                    [("X-Auth-Request-Email", "admin@example.com")],
                 ),
-                Some("member=kid") => (
+                Some("member=user") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "kid@example.com")],
+                    [("X-Auth-Request-Email", "user@example.com")],
                 ),
                 _ => (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
             }
@@ -57,8 +57,8 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         dir.path().display().to_string(),
         format!("{auth_url}/auth")
     ))?;
-    platform::member(&cfg, "adult@example.com", "Adult", true, true)?;
-    platform::member(&cfg, "kid@example.com", "Kid", false, true)?;
+    platform::member(&cfg, "admin@example.com", "Admin", true, true)?;
+    platform::member(&cfg, "user@example.com", "User", false, true)?;
     let p = portal::Platform::open(Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -172,7 +172,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
             404
         );
     }
-    let original = value(member("adult", Method::GET, "/api/games/moon-pond")).await?;
+    let original = value(member("admin", Method::GET, "/api/games/moon-pond")).await?;
     assert_eq!(original["app_id"], "pond");
     assert_eq!(
         http.get(format!("{url}/api/games/moon-pond"))
@@ -184,8 +184,8 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
     );
     // Two identical names reserve distinct stable URLs before either game is uploaded.
     let (a, b) = tokio::join!(
-        value(member("kid", Method::POST, "/api/my-games").json(&json!({"title":"Moon Pond"}))),
-        value(member("kid", Method::POST, "/api/my-games").json(&json!({"title":"Moon Pond"})))
+        value(member("user", Method::POST, "/api/my-games").json(&json!({"title":"Moon Pond"}))),
+        value(member("user", Method::POST, "/api/my-games").json(&json!({"title":"Moon Pond"})))
     );
     let (a, b) = (a?, b?);
     let data = db.read()?;
@@ -222,7 +222,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         409
     );
     assert_eq!(
-        member("kid", Method::PUT, "/api/apps/pond/slug")
+        member("user", Method::PUT, "/api/apps/pond/slug")
             .json(&json!({"slug":"stolen"}))
             .send()
             .await?
@@ -230,7 +230,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         403
     );
     let before =
-        value(member("adult", Method::POST, "/api/apps/pond/launch").json(&json!({}))).await?;
+        value(member("admin", Method::POST, "/api/apps/pond/launch").json(&json!({}))).await?;
     assert!(
         before["url"]
             .as_str()
@@ -243,7 +243,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
     .await?;
     assert_eq!(renamed["url"], "https://games.example.com/games/night-pond");
     assert_eq!(
-        value(member("adult", Method::GET, "/api/games/moon-pond")).await?["slug"],
+        value(member("admin", Method::GET, "/api/games/moon-pond")).await?["slug"],
         "night-pond"
     );
     // A restart and a legacy catalog rewrite preserve SDK declarations and URL aliases.
@@ -272,19 +272,19 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
     )
     .await?;
     assert_eq!(
-        member("kid", Method::GET, "/api/games/moon-pond")
+        member("user", Method::GET, "/api/games/moon-pond")
             .send()
             .await?
             .status(),
         404
     );
     let new =
-        value(member("adult", Method::POST, "/api/apps/pond/launch").json(&json!({}))).await?;
+        value(member("admin", Method::POST, "/api/apps/pond/launch").json(&json!({}))).await?;
     let guest =
-        value(member("adult", Method::POST, "/api/apps/pond/launch").json(&json!({"guest":true})))
+        value(member("admin", Method::POST, "/api/apps/pond/launch").json(&json!({"guest":true})))
             .await?;
     let guest2 =
-        value(member("adult", Method::POST, "/api/apps/pond/launch").json(&json!({"guest":true})))
+        value(member("admin", Method::POST, "/api/apps/pond/launch").json(&json!({"guest":true})))
             .await?;
     assert!(
         new["url"]
@@ -343,7 +343,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
     value(publisher(Method::PUT, "/api/publisher/apps/pond/slug").json(&json!({"slug":"g"})))
         .await?;
     let short =
-        value(member("adult", Method::POST, "/api/apps/pond/launch").json(&json!({"guest":true})))
+        value(member("admin", Method::POST, "/api/apps/pond/launch").json(&json!({"guest":true})))
             .await?;
     let short_url = reqwest::Url::parse(short["url"].as_str().unwrap())?;
     let short_token = short_url
@@ -365,7 +365,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
     assert_eq!(short_call(Method::GET, "/").send().await?.status(), 200);
     value(publisher(Method::DELETE, "/api/publisher/apps/pond")).await?;
     assert_eq!(
-        member("adult", Method::GET, "/api/games/night-pond")
+        member("admin", Method::GET, "/api/games/night-pond")
             .send()
             .await?
             .status(),
@@ -375,9 +375,9 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         infuser::game_urls::resolve(&db.read()?, "moon-pond"),
         Some("pond")
     );
-    // Existing-project onboarding: the kid supplies no title; the agent claims
+    // Existing-project onboarding: the user supplies no title; the agent claims
     // its one-use connection and publishes the project's actual name and SDK.
-    let setup = value(member("kid", Method::POST, "/api/my-games").json(&json!({}))).await?;
+    let setup = value(member("user", Method::POST, "/api/my-games").json(&json!({}))).await?;
     let app = setup["app_id"].as_str().unwrap();
     assert!(
         setup["supported_engines"]
@@ -411,7 +411,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         assert_eq!(published["slug"], "lantern-woods");
         assert_eq!(published["app_id"], app);
     }
-    let library = value(member("kid", Method::GET, "/api/library")).await?;
+    let library = value(member("user", Method::GET, "/api/library")).await?;
     let games: Vec<_> = library["apps"]
         .as_array()
         .unwrap()

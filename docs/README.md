@@ -3,7 +3,7 @@
 Choose the guide for what you want to do. Game integration guides describe using
 Infuser; developer guides describe changing Infuser itself.
 
-## Players and adult admins
+## Players and admins
 
 - [Chat, phone installation, and notifications](library-chat.md)
 - [Infuser Play updates](play-updates.md)

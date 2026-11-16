@@ -173,7 +173,7 @@ marks the entry as attempted. Only one caller can claim a pending entry. A
 successful retry of a confirmed submission returns success without another POST,
 provided the approved content matches. GitHub errors, lost responses or a crash
 leave an uncertain/in-progress entry that cannot be posted again, even after a
-restart. Adults should check GitHub, then dismiss it; if absent, deliberately
+restart. Admins should check GitHub, then dismiss it; if absent, deliberately
 create a revised report. There is no automatic public retry or reconciliation.
 An in-flight entry cannot be dismissed for its first minute. This conservative
 at-most-once policy favors avoiding duplicate public issues over automatic recovery.

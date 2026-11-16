@@ -60,13 +60,13 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         "/auth",
         get(|h: HeaderMap| async move {
             match h.get("cookie").and_then(|v| v.to_str().ok()) {
-                Some("member=adult") => (
+                Some("member=admin") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "adult@example.com")],
+                    [("X-Auth-Request-Email", "admin@example.com")],
                 ),
-                Some("member=kid") => (
+                Some("member=user") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "kid@example.com")],
+                    [("X-Auth-Request-Email", "user@example.com")],
                 ),
                 _ => (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
             }
@@ -78,8 +78,8 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         temp.path().display().to_string(),
         format!("{auth}/auth")
     ))?;
-    platform::member(&cfg, "adult@example.com", "Adult", true, true)?;
-    platform::member(&cfg, "kid@example.com", "Kid", false, true)?;
+    platform::member(&cfg, "admin@example.com", "Admin", true, true)?;
+    platform::member(&cfg, "user@example.com", "User", false, true)?;
     let p = portal::Platform::open(Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -148,15 +148,15 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .json(&json!({"listed":false})),
     )
     .await?;
-    let library = json_ok(member("/api/library", "adult")).await?;
+    let library = json_ok(member("/api/library", "admin")).await?;
     let image_url = library["apps"][0]["card_art_url"].as_str().unwrap();
     assert_eq!(member(image_url, "none").send().await?.status(), 401);
-    assert_eq!(member(image_url, "kid").send().await?.status(), 404);
+    assert_eq!(member(image_url, "user").send().await?.status(), 404);
     assert_eq!(
-        json_ok(member("/api/library", "kid")).await?["apps"],
+        json_ok(member("/api/library", "user")).await?["apps"],
         json!([])
     );
-    // Adult visibility changes do not publish, rebuild, or change game data.
+    // Admin visibility changes do not publish, rebuild, or change game data.
     let visibility = |app: &str, who: &str| {
         http.put(format!("{url}/api/admin/apps/{app}/visibility"))
             .header("host", "games.example.com")
@@ -164,7 +164,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
             .header("origin", "https://games.example.com")
     };
     assert_eq!(
-        visibility("pond", "kid")
+        visibility("pond", "user")
             .json(&json!({"listed":true}))
             .send()
             .await?
@@ -182,7 +182,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     assert_eq!(
         http.put(format!("{url}/api/admin/apps/pond/visibility"))
             .header("host", "games.example.com")
-            .header("cookie", "member=adult")
+            .header("cookie", "member=admin")
             .json(&json!({"listed":true}))
             .send()
             .await?
@@ -190,7 +190,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         403
     );
     assert_eq!(
-        visibility("missing", "adult")
+        visibility("missing", "admin")
             .json(&json!({"listed":true}))
             .send()
             .await?
@@ -198,7 +198,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         404
     );
     assert_eq!(
-        visibility("pond", "adult")
+        visibility("pond", "admin")
             .json(&json!({"listed":true,"build":"other"}))
             .send()
             .await?
@@ -206,25 +206,25 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         422
     );
     let before_visibility = p.db.read()?;
-    json_ok(visibility("pond", "adult").json(&json!({"listed":true}))).await?;
+    json_ok(visibility("pond", "admin").json(&json!({"listed":true}))).await?;
     assert_eq!(
-        json_ok(member("/api/library", "kid")).await?["apps"]
+        json_ok(member("/api/library", "user")).await?["apps"]
             .as_array()
             .unwrap()
             .len(),
         1
     );
-    assert_eq!(member(image_url, "kid").send().await?.status(), 200);
-    json_ok(visibility("pond", "adult").json(&json!({"listed":false}))).await?;
+    assert_eq!(member(image_url, "user").send().await?.status(), 200);
+    json_ok(visibility("pond", "admin").json(&json!({"listed":false}))).await?;
     assert_eq!(
-        json_ok(member("/api/library", "kid")).await?["apps"],
+        json_ok(member("/api/library", "user")).await?["apps"],
         json!([])
     );
-    assert_eq!(member(image_url, "kid").send().await?.status(), 404);
+    assert_eq!(member(image_url, "user").send().await?.status(), 404);
     assert_eq!(
         http.post(format!("{url}/api/apps/pond/launch"))
             .header("host", "games.example.com")
-            .header("cookie", "member=kid")
+            .header("cookie", "member=user")
             .header("origin", "https://games.example.com")
             .json(&json!({"guest":false}))
             .send()
@@ -245,7 +245,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         serde_json::to_value(&before_visibility.launches)?,
         serde_json::to_value(&after_visibility.launches)?
     );
-    let image = member(image_url, "adult")
+    let image = member(image_url, "admin")
         .send()
         .await?
         .error_for_status()?;
@@ -268,7 +268,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .json(&json!({"listed":true})),
     )
     .await?;
-    assert_eq!(member(image_url, "kid").send().await?.status(), 200);
+    assert_eq!(member(image_url, "user").send().await?.status(), 200);
     json_ok(
         publisher(
             Method::POST,
@@ -277,9 +277,9 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .json(&json!({"listed":true})),
     )
     .await?;
-    assert!(json_ok(member("/api/library", "kid")).await?["apps"][0]["card_art_url"].is_null());
+    assert!(json_ok(member("/api/library", "user")).await?["apps"][0]["card_art_url"].is_null());
     assert_eq!(
-        member(image_url, "adult").send().await?.status(),
+        member(image_url, "admin").send().await?.status(),
         404,
         "art cannot bypass the active-build pointer"
     );
@@ -292,7 +292,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     let art_path = "/api/publisher/apps/pond/card-art";
     let before = p.db.read()?;
     p.db.save_write(
-        "kid@example.com",
+        "user@example.com",
         "pond",
         "progress",
         0,
@@ -301,7 +301,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     json_ok(
         http.post(format!("{url}/api/apps/pond/launch"))
             .header("host", "games.example.com")
-            .header("cookie", "member=kid")
+            .header("cookie", "member=user")
             .header("origin", "https://games.example.com")
             .json(&json!({"guest":false})),
     )
@@ -413,7 +413,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     assert_eq!(unchanged["title"], described["title"]);
     assert_eq!(unchanged["description"], described["description"]);
     assert_eq!(
-        json_ok(member("/api/library", "kid")).await?["apps"][0]["description"],
+        json_ok(member("/api/library", "user")).await?["apps"][0]["description"],
         described["description"]
     );
     let cleared_description =
@@ -426,7 +426,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     )
     .await?;
     assert_eq!(
-        json_ok(member("/api/games/pond", "kid")).await?["title"],
+        json_ok(member("/api/games/pond", "user")).await?["title"],
         "Pond After Dark"
     );
     // Exercise the actual committed Firefly cover, not just a synthetic WebP.
@@ -441,11 +441,11 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     assert_eq!(updated["title"], "Pond After Dark");
     let override_url = updated["card_art_url"].as_str().unwrap().to_owned();
     let revision = updated["card_art_override"].as_str().unwrap().to_owned();
-    let library = json_ok(member("/api/library", "kid")).await?;
+    let library = json_ok(member("/api/library", "user")).await?;
     assert_eq!(library["apps"][0]["card_art_url"], override_url);
     assert_eq!(library["apps"][0]["title"], "Pond After Dark");
     assert_eq!(member(&override_url, "none").send().await?.status(), 401);
-    let image = member(&override_url, "kid")
+    let image = member(&override_url, "user")
         .send()
         .await?
         .error_for_status()?;
@@ -466,12 +466,12 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     );
     assert_eq!(serde_json::to_value(&after.launches)?, launches);
     assert_eq!(
-        p.db.save_read("kid@example.com", "pond", "progress")?,
+        p.db.save_read("user@example.com", "pond", "progress")?,
         (1, json!({"level":7}))
     );
     // Legacy catalog writes and reopening the database retain the independent metadata.
     p.db.edit(|d| {
-        d.members.get_mut("kid@example.com").unwrap().name = "New handle".into();
+        d.members.get_mut("user@example.com").unwrap().name = "New handle".into();
         Ok(())
     })?;
     let reopened = platform::Database::open(temp.path())?;
@@ -494,10 +494,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     let updated = json_ok(publisher(Method::PUT, art_path).body(replacement.clone())).await?;
     let replacement_url = updated["card_art_url"].as_str().unwrap();
     assert_ne!(replacement_url, override_url);
-    assert_eq!(member(&override_url, "kid").send().await?.status(), 404);
+    assert_eq!(member(&override_url, "user").send().await?.status(), 404);
     assert!(reopened.metadata_art("pond", &revision)?.is_none());
     assert_eq!(
-        member(replacement_url, "kid")
+        member(replacement_url, "user")
             .send()
             .await?
             .bytes()
@@ -531,12 +531,12 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         json_ok(publisher(Method::GET, metadata_path)).await?["card_art_url"],
         replacement_url
     );
-    assert_eq!(member(replacement_url, "kid").send().await?.status(), 404);
-    assert_eq!(member(replacement_url, "adult").send().await?.status(), 200);
+    assert_eq!(member(replacement_url, "user").send().await?.status(), 404);
+    assert_eq!(member(replacement_url, "admin").send().await?.status(), 200);
     let cleared = json_ok(publisher(Method::DELETE, art_path)).await?;
     assert_eq!(cleared["title"], "Pond After Dark");
     assert_eq!(cleared["card_art_url"], "/api/apps/pond/card-art/with-art");
-    assert_eq!(member(replacement_url, "adult").send().await?.status(), 404);
+    assert_eq!(member(replacement_url, "admin").send().await?.status(), 404);
     let cleared =
         json_ok(publisher(Method::PATCH, metadata_path).json(&json!({"title":null}))).await?;
     assert_eq!(cleared["title"], "Pond");
@@ -544,9 +544,9 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     // Disabling the credential's owner and revoking the token stop metadata writes too.
     p.db.edit(|d| {
         for c in d.credentials.values_mut().filter(|c| c.app == "pond") {
-            c.owner = Some("kid@example.com".into());
+            c.owner = Some("user@example.com".into());
         }
-        d.members.get_mut("kid@example.com").unwrap().enabled = false;
+        d.members.get_mut("user@example.com").unwrap().enabled = false;
         Ok(())
     })?;
     assert_eq!(
@@ -628,7 +628,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     let all = json_ok(request(&service_token, Method::GET, "/api/metadata/apps")).await?;
     assert_eq!(all["apps"].as_array().unwrap().len(), 2);
     assert_eq!(all["apps"][0]["art_prompt"], brief);
-    let library = json_ok(member("/api/library", "adult")).await?;
+    let library = json_ok(member("/api/library", "admin")).await?;
     for app in library["apps"].as_array().unwrap() {
         assert!(app.get("art_prompt").is_none());
         assert!(app.get("art_prompt_revision").is_none());
@@ -640,7 +640,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
             .json(&json!({"description":"Second game", "art_prompt":"Another brief"})),
     )
     .await?;
-    let library = json_ok(member("/api/library", "adult")).await?;
+    let library = json_ok(member("/api/library", "admin")).await?;
     let pending = library["apps"]
         .as_array()
         .unwrap()
@@ -655,7 +655,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
             .json(&json!({"art_prompt":null})),
     )
     .await?;
-    let library = json_ok(member("/api/library", "adult")).await?;
+    let library = json_ok(member("/api/library", "admin")).await?;
     assert_eq!(
         library["apps"]
             .as_array()
@@ -761,7 +761,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .body(bytes.clone()),
     )
     .await?;
-    let library = json_ok(member("/api/library", "adult")).await?;
+    let library = json_ok(member("/api/library", "admin")).await?;
     let complete = library["apps"]
         .as_array()
         .unwrap()
@@ -777,7 +777,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         "/api/metadata/apps/second/card-art",
     ))
     .await?;
-    let library = json_ok(member("/api/library", "adult")).await?;
+    let library = json_ok(member("/api/library", "admin")).await?;
     let complete = library["apps"]
         .as_array()
         .unwrap()
@@ -813,10 +813,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         );
     }
     p.db.edit(|d| {
-        d.groups.operators.insert("adult@example.com".into());
+        d.groups.operators.insert("admin@example.com".into());
         Ok(())
     })?;
-    let credentials = json_ok(member("/api/admin/credentials", "adult")).await?;
+    let credentials = json_ok(member("/api/admin/credentials", "admin")).await?;
     assert!(
         credentials["credentials"]
             .as_array()
@@ -827,7 +827,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     json_ok(
         http.delete(format!("{url}/api/admin/credentials/{service_id}"))
             .header("host", "games.example.com")
-            .header("cookie", "member=adult")
+            .header("cookie", "member=admin")
             .header("origin", "https://games.example.com"),
     )
     .await?;

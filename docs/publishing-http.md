@@ -11,7 +11,7 @@ the **upload tool**, not the game's engine, build, or SDK integration. Follow th
 The examples below use a POSIX shell (including macOS). Windows agents can use
 `curl.exe` with equivalent paths/quoting. The agent prepares and reads JSON using
 its file tools or an already available project runtime; `jq` and Python are not
-prerequisites. Do not parse JSON with regular expressions. Never ask the child to
+prerequisites. Do not parse JSON with regular expressions. Never ask the user to
 copy permanent tokens, install a toolchain, or construct these requests manually.
 
 ## Connect once
@@ -163,7 +163,7 @@ that job. Do not publish before `ready`. Read `logs`/`error` on failure and foll
 repeating finalization of unchanged inputs does not create a duplicate job.
 
 Once all files and any server packaging are ready, write `.local/publish.json` containing
-`{"listed":true}` (`false` for adult-only previews), then:
+`{"listed":true}` (`false` for admin-only previews), then:
 
 ```sh
 curl --silent --show-error --fail --proto '=https' \

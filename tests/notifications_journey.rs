@@ -45,7 +45,7 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
         get(|h: HeaderMap| async move {
             let who = h.get("cookie").and_then(|v| v.to_str().ok()).unwrap_or("");
             match who.strip_prefix("member=") {
-                Some(who @ ("adult" | "one" | "two" | "away")) => (
+                Some(who @ ("admin" | "one" | "two" | "away")) => (
                     StatusCode::ACCEPTED,
                     [("X-Auth-Request-Email", format!("{who}@example.com"))],
                 ),
@@ -62,12 +62,12 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
         temp.path().display().to_string(),
         format!("{auth}/auth")
     ))?;
-    for who in ["adult", "one", "two", "away"] {
+    for who in ["admin", "one", "two", "away"] {
         platform::member(
             &cfg,
             &format!("{who}@example.com"),
             who,
-            who == "adult",
+            who == "admin",
             true,
         )?;
     }
@@ -82,7 +82,7 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
         d.groups
             .members
             .insert("away@example.com".into(), "away".into());
-        d.groups.operators.insert("adult@example.com".into());
+        d.groups.operators.insert("admin@example.com".into());
         Ok(())
     })?;
     let (url, _server) = serve(portal::router(p.clone())).await?;
@@ -137,7 +137,7 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
         B64.decode(config["public_key"].as_str().unwrap())?.len(),
         65
     );
-    for who in ["adult", "one", "two", "away"] {
+    for who in ["admin", "one", "two", "away"] {
         assert_eq!(
             req(Method::PUT, "/api/notifications", who)
                 .json(&sub(who))
@@ -165,7 +165,7 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
         403
     );
     assert_eq!(
-        req(Method::PUT, "/api/notifications", "adult")
+        req(Method::PUT, "/api/notifications", "admin")
             .header("x-infuser-inspect-group", "away")
             .json(&sub("inspect"))
             .send()
@@ -205,7 +205,7 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
     assert!(
         targets
             .iter()
-            .all(|(endpoint, _, _)| endpoint.ends_with("two") || endpoint.ends_with("adult"))
+            .all(|(endpoint, _, _)| endpoint.ends_with("two") || endpoint.ends_with("admin"))
     );
     for (endpoint, id, _) in targets {
         p.db.push_result(&endpoint, id, Some(201))?;
@@ -239,7 +239,7 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
     })?;
     let targets = p.db.push_targets()?;
     assert_eq!(targets.len(), 1);
-    assert!(targets[0].0.ends_with("adult"));
+    assert!(targets[0].0.ends_with("admin"));
     p.db.push_result(&targets[0].0, targets[0].1, Some(410))?;
     assert!(p.db.push_targets()?.is_empty());
     p.db.edit(|d| {

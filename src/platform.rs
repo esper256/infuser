@@ -538,7 +538,7 @@ pub fn preview(
 ) -> Result<serde_json::Value> {
     let email = email.to_lowercase();
     Database::open(&config.controller.state_dir)?.edit(|d| {
-        ensure!(d.members.get(&email).is_some_and(|m|m.enabled&&m.admin),"preview requires an existing enabled adult admin");
+        ensure!(d.members.get(&email).is_some_and(|m|m.enabled&&m.admin),"preview requires an existing enabled admin");
         d.require_app_group(&email, app)?;
         let selected=d.apps.get(app).context("unknown app")?;
         ensure!(!selected.listed,"operator preview only accepts hidden test games");

@@ -31,10 +31,10 @@ async fn main() -> Result<()> {
             Router::new().route(
                 "/auth",
                 get(|h: HeaderMap| async move {
-                    if h.get("cookie").is_some_and(|v| v == "member=adult") {
+                    if h.get("cookie").is_some_and(|v| v == "member=admin") {
                         (
                             StatusCode::ACCEPTED,
-                            [("X-Auth-Request-Email", "adult@example.com")],
+                            [("X-Auth-Request-Email", "admin@example.com")],
                         )
                     } else {
                         (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")])
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
     if let Some(index) = args.iter().position(|a| a == "--domain") {
         cfg.controller.domain = args.get(index + 1).context("domain missing")?.clone();
     }
-    platform::member(&cfg, "adult@example.com", "Test Player", true, true)?;
+    platform::member(&cfg, "admin@example.com", "Test Player", true, true)?;
     let p = portal::Platform::open(Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {

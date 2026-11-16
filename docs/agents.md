@@ -2,7 +2,7 @@
 
 Audience: game authors and their agents.
 
-Keep the game's name, engine, gameplay, and build workflow. The child supplies the
+Keep the game's name, engine, gameplay, and build workflow. The user supplies the
 Add a game prompt; you handle integration and publishing. They should not need to
 configure hosting, manage credentials, or create a GitHub account.
 
@@ -94,7 +94,7 @@ For **every game type and engine**, web or native, choose **one** Library art ha
   [metadata API](game-metadata.md) after publication. Describe the real game,
   recognizable subjects, visual style, mood, and anything to avoid. An Infuser art
   agent can read this request and upload the cover later. Do not upload inferior
-  placeholder art. Tell the child the game is playable and artwork is requested.
+  placeholder art. Tell the user the game is playable and artwork is requested.
 
 Do not spend time staging screenshots just to supply a cover. Use a gameplay
 screenshot only when it already makes exceptional cover art: clear at thumbnail
@@ -114,7 +114,7 @@ updates. Cover, description, and Library-title edits do not require a new build.
 
 For a server-backed game, use the current [publisher download](publisher-install.md).
 On failure, read its build log or [runtime diagnostics](server-diagnostics.md)
-before asking the child for help. Reuse the existing app and credentials.
+before asking the user for help. Reuse the existing app and credentials.
 
 Use the project's existing build tools, then publish from its root with the
 built output path. For example, after building a Vite game:
@@ -133,8 +133,8 @@ metadata with the publisher credential. Confirm the intended build is active or
 queued, and that the title, tags, description, and art request/cover are correct.
 Successful publication is enough to hand the game back to its player; lack of a
 Google login is **not a publishing blocker**. Do not stop after uploading files:
-complete publication and check its result. Only adult admins can play `--preview`
-publications; do not hide a child's game from them by using it. Queued updates wait
+complete publication and check its result. Only admins can play `--preview`
+publications; do not hide a user's game from them by using it. Queued updates wait
 for the active session to end; do not describe them as live yet.
 
 Run the game's available local checks. Use the prebuilt publisher or HTTP API;
@@ -142,7 +142,7 @@ do not install a compiler, Docker, WSL, or a browser-test framework just to publ
 or verify a game on Infuser. If an authorized game test session is already
 available, also check launch, save/reload, guest isolation, and declared multiplayer
 modes. Otherwise, report those live checks as untested and finish the handoff.
-Publisher credentials are not a player login. **Do not ask the child to log in
+Publisher credentials are not a player login. **Do not ask the user to log in
 for your automation, share Google credentials/cookies, or give you account access.**
 Google accounts protect much more than this game; never bypass the login gate.
 A sign-in page or 401 from a player-only route is expected without a player session,
@@ -170,20 +170,20 @@ For problems with Infuser, Infuser Play, publishing, or the SDK:
    Add evidence to a matching open issue; link a closed issue if it has regressed.
 3. Use your connected GitHub tool or authenticated CLI to file a short report:
    steps, expected/actual results, relevant versions, a sanitized error excerpt,
-   impact, and any workaround. Give the child the confirmed issue link.
+   impact, and any workaround. Give the user the confirmed issue link.
 
 Reports are public. Exclude the copied prompt, codes, credentials, cookies, launch
 URLs, TURN secrets, private domains/IPs, account details, and private game data.
 Use example domains and paths. Review screenshots and logs before including them.
-Bring security-sensitive findings to the adult admin privately.
+Bring security-sensitive findings to the admin privately.
 
 If GitHub access is unavailable, save the sanitized report in
-`.local/infuser-issue.md` for an adult and say it has **not** been filed. Do not ask
-the child for GitHub credentials. Continue safe workarounds without wiping saves,
+`.local/infuser-issue.md` for an admin and say it has **not** been filed. Do not ask
+the user for GitHub credentials. Continue safe workarounds without wiping saves,
 weakening authentication, or quietly dropping multiplayer.
 
 ## Private groups
 
 The publishing connection assigns the game to its creator’s private group. Do
-not ask the child for a group ID or add one to the manifest. Games, players,
+not ask the user for a group ID or add one to the manifest. Games, players,
 presence, and saves are scoped by Infuser; the SDK integration stays the same.

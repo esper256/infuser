@@ -19,7 +19,7 @@ Responses are `Cache-Control: no-store` and expose opaque player IDs, never emai
   the same sender/request return the existing ID, including removed messages.
   Reusing a live request ID with different text returns 409. Each sender may send
   at most ten messages per minute; removal does not reset the limit (429).
-- `DELETE /api/chat/ID` → `{ok:true}` for the sender or an adult; otherwise 403.
+- `DELETE /api/chat/ID` → `{ok:true}` for the sender or an admin; otherwise 403.
   Missing messages return 404. Unknown JSON fields and invalid text return 422;
   request bodies over 4 KiB return 413.
 

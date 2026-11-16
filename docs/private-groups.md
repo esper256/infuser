@@ -4,7 +4,7 @@ Audience: server operators.
 
 One Infuser installation can host separate families. Each account belongs to one
 private group. Members see that group’s games, players, chat, reactions, and tags.
-A family’s adult admins manage only its invitations, game visibility, and agent
+A family’s admins manage only its invitations, game visibility, and agent
 connections. They cannot browse or administer other groups.
 
 Existing accounts, games, saves, and publishing connections belong to **Home**.
@@ -24,7 +24,7 @@ private_groups = true
 Restart Infuser, then grant the operator role to an existing enabled account:
 
 ```sh
-sudo -u infuser infuser operator /etc/infuser/infuser.toml adult@example.com
+sudo -u infuser infuser operator /etc/infuser/infuser.toml admin@example.com
 ```
 
 Append `--revoke` to remove the role. This local command is the only way to grant
@@ -34,7 +34,7 @@ the account’s home group or its ordinary player behavior.
 Operators open **Admin tools → Groups**. This entry is hidden from other players,
 including family admins without the operator role. During read-only inspection,
 the dropdown contains only Groups; family-management controls stay hidden.
-**Add a group** creates an empty group and invites its first adult by Google email. That adult
+**Add a group** creates an empty group and invites its first admin by Google email. That admin
 signs in normally and invites their family through Admin tools. Infuser does not
 send invitation emails. If Google OAuth is still in testing mode, add their
 accounts to its test-user list too.
@@ -67,7 +67,7 @@ Operator routes use the normal Google session and Origin checks:
 
 `infuser publisher-pass CONFIG APP OUTPUT --group GROUP_ID` creates a manual
 publishing pass in that group. Omitting `--group` selects Home. Normal Add Game
-prompts already do this correctly without additional choices for kids or agents.
+prompts already do this correctly without additional choices for users or agents.
 
 [Art-agent keys](art-agent-operations.md) default to Home; use `--group GROUP_ID` for another
 group or explicit `--all-groups` for installation-wide artwork maintenance.

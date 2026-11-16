@@ -1,7 +1,7 @@
 # Infuser
 
-A private game library for families. Kids make games with their agents, publish
-them, and press Play together. Google sign-in and adult-managed invitations keep
+A private game library for groups. Users make games with their agents, publish
+them, and press Play together. Google sign-in and admin-managed invitations keep
 each private group's games, players, and chat together.
 
 **Infuser** is the website. It provides cloud saves, fresh guest play, friends'
@@ -28,7 +28,7 @@ must support Infuser's relay fallback; direct-only networking is unsupported.
 
 ## Find your guide
 
-- Players and adults: [chat and phone notifications](docs/library-chat.md),
+- Players and admins: [chat and phone notifications](docs/library-chat.md),
   [Infuser Play updates](docs/play-updates.md), and [feedback](docs/feedback.md).
 - Game authors and agents: [integration and publishing](docs/agents.md),
   [art requirements](docs/card-art-guide.md), and [API reference](docs/public-api.md).

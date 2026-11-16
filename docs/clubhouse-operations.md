@@ -38,15 +38,15 @@ an old `authenticated_emails_file`, or new Infuser invitations will fail upstrea
 Use a static upstream (`static://202`) because Caddy routes `/oauth2/*` separately
 and the platform calls `/oauth2/auth` directly to validate sessions.
 
-Bootstrap an adult using the local CLI, as the service user so database ownership
+Bootstrap an admin using the local CLI, as the service user so database ownership
 and SQLite WAL files remain consistent:
 
 ```sh
-sudo -u infuser /usr/local/bin/infuser member /etc/infuser/infuser.toml adult@example.com 'Grown-up' --admin
+sudo -u infuser /usr/local/bin/infuser member /etc/infuser/infuser.toml admin@example.com 'Admin' --admin
 ```
 
-The same command can add members or apply `--disable`. Adults can subsequently
-invite/disable members in the Library's adult tools. Use a person's intended display name;
+The same command can add members or apply `--disable`. Admins can subsequently
+invite/disable members in the Library's admin tools. Use a person's intended display name;
 it is what friends see online and alongside reactions.
 
 ## Firewall helper
@@ -99,7 +99,7 @@ sudo -u infuser infuser publisher-pass /etc/infuser/infuser.toml my-game /var/li
 
 The CLI creates a mode-0600 file, never prints its token, and refuses to overwrite
 an existing file. Transfer it privately to the game-making agent; revoke it in
-the admin UI when finished. Normal kids use Add a game instead.
+the admin UI when finished. Normal users use Add a game instead.
 
 For an Infuser-side art agent, create a separate [all-games metadata key](art-agent-operations.md).
 It can read private art prompts and edit presentation across games, without
@@ -115,7 +115,7 @@ when done. Normal player launches still require Google and enabled membership.
 ## Multiple families
 
 Use [private groups](private-groups.md) to invite a separate family. Ordinary
-admin invites always belong to the inviting adult’s group. The local `member`
+admin invites always belong to the inviting admin’s group. The local `member`
 command adds new accounts to Home; it is not the way to invite another family.
 For a manual publisher pass outside Home, append `--group GROUP_ID`.
 
@@ -138,5 +138,5 @@ or its WAL. Monitor disk space and keep the configured free-disk reserve.
 
 For disposable hidden previews, the operator helper supports:
 `infuser preview-game CONFIG APP ADMIN_EMAIL OUTPUT --join-session SESSION --join-player PLAYER`.
-It retains the existing enabled-adult/hidden-game checks and writes a private,
+It retains the existing enabled-admin/hidden-game checks and writes a private,
 single-use guest launch. No Google session is granted to the test agent.

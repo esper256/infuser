@@ -60,8 +60,8 @@ try {
   await page.locator('#admin .admin-panel').getByRole('button',{name:'Groups',exact:true}).click();
   await page.getByText('Add a group',{exact:true}).click();
   await page.getByLabel('Group name',{exact:true}).fill('Browser family');
-  await page.getByLabel('Adult’s Google email',{exact:true}).fill('browser-adult@example.com');
-  await page.getByLabel('Adult’s display name',{exact:true}).fill('Browser adult');
+  await page.getByLabel('Admin’s Google email',{exact:true}).fill('browser-admin@example.com');
+  await page.getByLabel('Admin’s display name',{exact:true}).fill('Browser admin');
   await page.getByRole('button',{name:'Create group',exact:true}).click();
   await page.locator('.group-row').filter({hasText:'Browser family'}).waitFor();
   await page.getByRole('button',{name:'Close groups',exact:true}).click();
@@ -69,13 +69,13 @@ try {
   await page.reload();await page.locator('#games .game').waitFor();
   assert.equal(await page.locator('#group-inspection').count(),0);
   // A family admin without the operator role has ordinary admin tools, no Groups.
-  await context.clearCookies();await context.addCookies([{name:'member',value:'adult',url:'https://games.example.com'}]);
+  await context.clearCookies();await context.addCookies([{name:'member',value:'admin',url:'https://games.example.com'}]);
   await page.reload();await page.locator('#admin').waitFor();
   assert.equal(await page.locator('#operator-groups').count(),0);
   await page.locator('#admin > details > summary').click();
   assert.equal(await page.locator('#invite-form').isVisible(),true);
   // Ordinary players have neither admin navigation nor the operator entry.
-  await context.clearCookies();await context.addCookies([{name:'member',value:'child',url:'https://games.example.com'}]);
+  await context.clearCookies();await context.addCookies([{name:'member',value:'user',url:'https://games.example.com'}]);
   await page.reload();await page.locator('#clubhouse').waitFor();
   assert.equal(await page.locator('#admin').isVisible(),false);
   assert.equal(await page.locator('#operator-groups').count(),0);

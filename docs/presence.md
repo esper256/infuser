@@ -149,4 +149,4 @@ explicit host method to change it. Old games still work without presence calls.
 Presence reads do not renew browser or peer leases, start servers, reserve seats,
 or alter fullscreen. The normal SDK heartbeat remains required. Cache only briefly,
 handle fetch failures, and show a small player list or Join action in the game's own
-title screen. Numeric network diagnostics remain in adult tools.
+title screen. Numeric network diagnostics remain in admin tools.

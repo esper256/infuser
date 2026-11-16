@@ -2,7 +2,7 @@
 
 Audience: game authors and their agents.
 
-These instructions are for the game-making agent. The child copies the **Add a
+These instructions are for the game-making agent. The user copies the **Add a
 game** prompt into their existing project chat; the agent handles the rest.
 Keep the project's current engine and build tools. Installing Rust, Docker, or a
 Linux VM is not required to publish from a Mac.
@@ -29,7 +29,7 @@ It need not be installed globally or run with administrator privileges.
 
 The Mac binary exposes `connect`, `publish`, `unpublish`, and `version`; it does
 not run the Linux hosting daemon. macOS 15 is the validated baseline; older macOS versions have not been validated. These downloads are not Apple Developer ID signed or notarized;
-if local execution needs adult approval, use the HTTP route below while that is
+if local execution needs admin approval, use the HTTP route below while that is
 resolved. Do not disable OS protections or install a compiler to work around it.
 
 Pass the one-time setup code through stdin to `connect`, never a command-line

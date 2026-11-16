@@ -120,7 +120,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
         secret.display().to_string()
     ))?;
     cfg.validate()?;
-    platform::member(&cfg, "adult@example.com", "Adult", true, true)?;
+    platform::member(&cfg, "admin@example.com", "Admin", true, true)?;
     platform::member(&cfg, "friend@example.com", "Friend", false, true)?;
     platform::member(&cfg, "disabled@example.com", "Disabled", false, false)?;
     platform::member(&cfg, "stale@example.com", "Stale", false, true)?;
@@ -170,7 +170,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
                     intent: None,
                     app: "pond".into(),
                     build: "one".into(),
-                    email: "adult@example.com".into(),
+                    email: "admin@example.com".into(),
                     guest: id != "a",
                     host: format!("{id}.games.example.com"),
                     token_hash: platform::hash(id),
@@ -328,7 +328,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
     assert_eq!(a["epoch"], b["epoch"]);
     assert_eq!(a["ice_transport_policy"], "relay");
     assert!(a["ice_servers"][0]["credential"].as_str().is_some());
-    assert!(!a.to_string().contains("adult@example.com"));
+    assert!(!a.to_string().contains("admin@example.com"));
     let aid = a["self_id"].as_str().unwrap();
     let bid = b["self_id"].as_str().unwrap();
     assert_eq!(

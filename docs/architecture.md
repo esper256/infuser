@@ -21,7 +21,7 @@ player application. The game SDK is [pre-1.0](sdk-contract.md).
   admission, resource budgets, and Docker game-server lifecycle. Privileged
   controller routes are loopback-only and use an operator credential.
 - **Website:** Google login for invited members, Library, presence, reactions,
-  chat, guest play, and adult administration. Only adults invite or disable members.
+  chat, guest play, and administration. Only admins invite or disable members.
 - **Publishing CLI/API:** agents connect once, upload runnable artifacts, validate,
   and publish updates. They retain control of building and deciding when to publish.
 - **Game SDK/adapters:** browser JavaScript, Godot previews, and a PeerJS preview.

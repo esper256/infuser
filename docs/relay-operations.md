@@ -69,11 +69,11 @@ are needed. Leave the PeerServer port outside game/TURN allocations. A missing
 sidecar fails closed; there is no public-server fallback. Existing Infuser and
 Godot peer games keep their original adapters and require no changes.
 
-## Adult diagnostics
+## Admin diagnostics
 
 The SDK sends bounded browser connection reports every five seconds, stored only
-in memory for the active peer session. Adult accounts can inspect them under
-Admin tools → Network diagnostics. `GET /api/admin/peer-health` requires adult
+in memory for the active peer session. Admin accounts can inspect them under
+Admin tools → Network diagnostics. `GET /api/admin/peer-health` requires admin
 Google membership; the equivalent loopback-only `GET /v1/peer-health` uses the
 existing operator bearer credential. Reports include selected candidate types,
 byte counters, and the browser's current round-trip time estimate when available.

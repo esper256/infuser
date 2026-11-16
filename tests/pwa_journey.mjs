@@ -19,7 +19,7 @@ const errors=[];
 try {
   const context=await browser.newContext({ignoreHTTPSErrors:true,permissions:['notifications'],viewport:{width:390,height:844}});
   await context.grantPermissions(['notifications'],{origin});
-  await context.addCookies([{name:'member',value:'adult',url:origin}]);
+  await context.addCookies([{name:'member',value:'admin',url:origin}]);
   await context.addInitScript(()=>{
     window.permissionRequests=0;
     Notification.requestPermission=async()=>{window.permissionRequests++;return 'granted';};

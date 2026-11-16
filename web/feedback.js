@@ -1,10 +1,10 @@
 // Only explicit, bounded capability flags are collected. No logs or page data.
-export function initFeedback(button, closeMenu, api, adult=false) {
+export function initFeedback(button, closeMenu, api, admin=false) {
   const dialog=document.createElement('dialog');dialog.id='feedback-dialog';dialog.setAttribute('aria-labelledby','feedback-title');
   dialog.innerHTML=`<button type="button" class="close" aria-label="Close feedback">×</button>
     <h2 id="feedback-title">Send feedback</h2><p class="feedback-intro"></p>
     <p>Leave out names, email addresses, private game details, links, setup codes and passwords.</p>
-    <section class="feedback-queue" hidden><p>Only your group’s adult admins can review these reports. Private reports expire after 30 days.</p><button type="button" class="feedback-refresh">Refresh queue</button><div class="feedback-entries"></div></section>
+    <section class="feedback-queue" hidden><p>Only your group’s admins can review these reports. Private reports expire after 30 days.</p><button type="button" class="feedback-refresh">Refresh queue</button><div class="feedback-entries"></div></section>
     <form><label>Type<select name="kind"><option value="feature">Feature request</option><option value="bug">Bug</option></select></label>
     <label>Title<input name="title" maxlength="80" required autocomplete="off"></label>
     <label>What would you like to tell us?<textarea name="description" maxlength="2000" rows="5" required autocomplete="off"></textarea></label>
@@ -13,7 +13,7 @@ export function initFeedback(button, closeMenu, api, adult=false) {
     <button type="submit" class="feedback-preview">Review draft</button></form>
     <section hidden class="feedback-review"><h3>Review exactly what will be shared</h3><pre tabindex="0"></pre>
     <label class="feedback-check"><input type="checkbox" name="consent"><span class="feedback-consent-text"></span></label>
-    <div class="dialog-actions"><button type="button" class="feedback-edit">Edit</button><button type="button" class="feedback-send" disabled>Send to adults</button></div></section>
+    <div class="dialog-actions"><button type="button" class="feedback-edit">Edit</button><button type="button" class="feedback-send" disabled>Send to admins</button></div></section>
     <p class="feedback-status" role="status" aria-live="polite"></p>`;
   document.body.append(dialog);
   const $=selector=>dialog.querySelector(selector), form=$('form'),review=$('.feedback-review'),queue=$('.feedback-queue');
@@ -24,11 +24,11 @@ export function initFeedback(button, closeMenu, api, adult=false) {
   function updateKind(){const bug=form.elements.kind.value==='bug';form.elements.include.closest('label').hidden=!bug;$('.feedback-diagnostics-note').hidden=!bug;}
   function reset(){form.reset();form.hidden=false;review.hidden=true;report=null;requestId=null;snapshot=null;pending=false;finished=false;locked=false;consent.checked=false;consent.disabled=false;edit.disabled=false;updateKind();updateSend();}
   function copy(){
-    $('.feedback-intro').textContent=reviewId?'Adult review: edit out private information. Only the report below will become a public GitHub issue when you explicitly approve it.':'Your feedback goes privately to your group’s adult admins. An adult can edit and approve it before anything is posted publicly on GitHub.';
-    $('.feedback-consent-text').textContent=reviewId?'I am approving this reviewed, edited report for public posting on GitHub.':'I agree to share this draft with my group’s adults for review and possible public posting after their approval.';
-    $('.feedback-preview').textContent=reviewId?'Review public issue':'Review draft';send.textContent=reviewId?'Post public issue':'Send to adults';
+    $('.feedback-intro').textContent=reviewId?'Admin review: edit out private information. Only the report below will become a public GitHub issue when you explicitly approve it.':'Your feedback goes privately to your group’s admins. An admin can edit and approve it before anything is posted publicly on GitHub.';
+    $('.feedback-consent-text').textContent=reviewId?'I am approving this reviewed, edited report for public posting on GitHub.':'I agree to share this draft with my group’s admins for review and possible public posting after their approval.';
+    $('.feedback-preview').textContent=reviewId?'Review public issue':'Review draft';send.textContent=reviewId?'Post public issue':'Send to admins';
   }
-  button.onclick=()=>{closeMenu();reviewId=null;queue.hidden=true;reset();copy();dialog.showModal();message('Nothing is sent to GitHub without adult approval.');};
+  button.onclick=()=>{closeMenu();reviewId=null;queue.hidden=true;reset();copy();dialog.showModal();message('Nothing is sent to GitHub without admin approval.');};
   close.onclick=()=>{if(!pending)dialog.close();};
   dialog.addEventListener('cancel',event=>{if(pending)event.preventDefault();});
   dialog.addEventListener('close',()=>button.closest('details')?.querySelector('summary')?.focus());
@@ -49,21 +49,21 @@ export function initFeedback(button, closeMenu, api, adult=false) {
   edit.onclick=()=>{review.hidden=true;form.hidden=false;consent.checked=false;form.elements.title.focus();};
   send.onclick=async()=>{
     if(send.disabled)return;
-    pending=true;updateSend();close.disabled=true;edit.disabled=true;consent.disabled=true;$('.feedback-refresh').disabled=true;message(reviewId?'Posting to GitHub…':'Sending privately to adults…');
+    pending=true;updateSend();close.disabled=true;edit.disabled=true;consent.disabled=true;$('.feedback-refresh').disabled=true;message(reviewId?'Posting to GitHub…':'Sending privately to admins…');
     let intakeUncertain=false;
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
     try{
       const path=reviewId?'/api/feedback/review/'+encodeURIComponent(reviewId)+'/send':'/api/feedback';
       const body=reviewId?{report,public_consent:true}:{request_id:requestId,report};
       await api(path,{method:'POST',body:JSON.stringify(body),signal:controller.signal});finished=true;
-      message(reviewId?'Your approved public issue was posted.':'Sent privately to your group’s adults. Nothing has been posted on GitHub.');
+      message(reviewId?'Your approved public issue was posted.':'Sent privately to your group’s admins. Nothing has been posted on GitHub.');
     }catch(error){
       // Intake retries reuse the same ID and immutable report. Public posting is
       // durably claimed server-side; ambiguous results must never trigger retries.
       intakeUncertain=!reviewId&&(!error.status||error.status>=500);
       locked=!!reviewId&&(!error.status||error.status>=500&&error.status!==503||error.status===409);
       if(locked)message('Posting could not be confirmed. Refresh the queue and check GitHub before creating another report. This entry cannot be sent twice.');
-      else if(!reviewId&&(!error.status||error.status>=500))message('Could not confirm receipt. You can safely retry Send to adults with this same draft.');
+      else if(!reviewId&&(!error.status||error.status>=500))message('Could not confirm receipt. You can safely retry Send to admins with this same draft.');
       else message(error.message);
       if(reviewId&&error.status===503)available=false;
     }finally{clearTimeout(timeout);pending=false;close.disabled=false;$('.feedback-refresh').disabled=false;edit.disabled=finished||locked||intakeUncertain;consent.disabled=finished||locked;updateSend();}
@@ -97,7 +97,7 @@ export function initFeedback(button, closeMenu, api, adult=false) {
     }catch(error){$('.feedback-entries').replaceChildren();message(error.message);}
   }
   $('.feedback-refresh').onclick=loadQueue;
-  if(!adult)return null;
+  if(!admin)return null;
   const reviewButton=document.createElement('button');reviewButton.type='button';reviewButton.textContent='Review feedback';reviewButton.setAttribute('aria-haspopup','dialog');
   reviewButton.onclick=async()=>{closeMenu();queue.hidden=false;reset();form.hidden=true;dialog.showModal();$('.feedback-intro').textContent='Private feedback from your group. Review and edit before approving a public GitHub issue.';await loadQueue();};
   return reviewButton;

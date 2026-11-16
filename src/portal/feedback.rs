@@ -1,10 +1,10 @@
-//! Private, group-scoped feedback. Only an adult can approve a public issue.
+//! Private, group-scoped feedback. Only an admin can approve a public issue.
 use super::*;
 use serde::Serialize;
 
 const DESTINATION: &str = "https://api.github.com/repos/esper256/infuser/issues";
-const UNAVAILABLE: &str = "Feedback is not set up. Ask your adult admin to enable it.";
-const UNCERTAIN: &str = "We could not confirm whether GitHub received your report. Keep this preview and ask your adult admin to check the issues before sending it again.";
+const UNAVAILABLE: &str = "Feedback is not set up. Ask your admin to enable it.";
+const UNCERTAIN: &str = "We could not confirm whether GitHub received your report. Keep this preview and ask your admin to check the issues before sending it again.";
 
 pub(super) fn routes() -> Router<Platform> {
     Router::new()
@@ -50,8 +50,8 @@ fn token(p: &Platform) -> Result<String> {
 }
 async fn status(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
-    let adult = !h.contains_key(groups::INSPECT) && p.db.read()?.members[&email].admin;
-    Ok(reply(json!({"adult":adult})))
+    let admin = !h.contains_key(groups::INSPECT) && p.db.read()?.members[&email].admin;
+    Ok(reply(json!({"admin":admin})))
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -209,7 +209,7 @@ impl Queue {
                 entry.keys.len() < 32,
                 fault(
                     429,
-                    "This identical report has already been received. Please ask an adult to check the queue."
+                    "This identical report has already been received. Please ask an admin to check the queue."
                 )
             );
             entry.keys.push(key);
@@ -292,7 +292,7 @@ impl Platform {
         Ok(())
     }
 }
-async fn adult_group(p: &Platform, h: &HeaderMap, write: bool) -> Result<String> {
+async fn admin_group(p: &Platform, h: &HeaderMap, write: bool) -> Result<String> {
     ensure!(
         !h.contains_key(groups::INSPECT),
         fault(
@@ -310,7 +310,7 @@ async fn enqueue(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Intak
     Ok(reply(json!({"queued":true,"id":id})))
 }
 async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let group = adult_group(&p, &h, false).await?;
+    let group = admin_group(&p, &h, false).await?;
     let _lock = p.feedback_lock.lock().unwrap();
     let queue = load_queue(&p)?;
     let entries: Vec<_> = queue
@@ -326,7 +326,7 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     ))
 }
 async fn dismiss(State(p): State<Platform>, h: HeaderMap, Path(id): Path<String>) -> Answer {
-    let group = adult_group(&p, &h, true).await?;
+    let group = admin_group(&p, &h, true).await?;
     change(&p, |q| {
         let entry = q.entry(&id, &group)?;
         ensure!(
@@ -355,7 +355,7 @@ async fn send_to(
     body: Approval,
     destination: &str,
 ) -> Answer {
-    let group = adult_group(&p, &h, true).await?;
+    let group = admin_group(&p, &h, true).await?;
     ensure!(
         body.public_consent,
         fault(422, "Review and agree to post this publicly first.")
@@ -385,7 +385,7 @@ async fn send_to(
         );
         credential = Some(token(&p)?);
         // A global daily posting budget. The group is the rate-limit principal,
-        // so one adult cannot accidentally flood the repository with a queue.
+        // so one admin cannot accidentally flood the repository with a queue.
         reserve(
             &p.config()
                 .controller
@@ -547,7 +547,7 @@ mod tests {
         task.abort();
     }
     #[tokio::test]
-    async fn adult_approval_is_durable_at_most_once_and_only_posts_edited_text() {
+    async fn admin_approval_is_durable_at_most_once_and_only_posts_edited_text() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         for status in [StatusCode::CREATED, StatusCode::FORBIDDEN] {
             let dir = tempfile::tempdir().unwrap();
@@ -556,7 +556,7 @@ mod tests {
                 dir.path().to_string_lossy()
             ))
             .unwrap();
-            platform::member(&config, "adult@example.com", "Adult", true, true).unwrap();
+            platform::member(&config, "admin@example.com", "Admin", true, true).unwrap();
             let controller = Arc::new(
                 Controller::open(
                     config.clone(),
@@ -580,7 +580,7 @@ mod tests {
                         json!({"request_id":"request-1234567890","report":original}),
                     )
                     .unwrap(),
-                    "child@example.com",
+                    "user@example.com",
                     "home",
                     now(),
                 )
@@ -603,7 +603,7 @@ mod tests {
             h.insert("origin", "https://games.example.com".parse().unwrap());
             h.insert(
                 "x-infuser-verified-email",
-                "adult@example.com".parse().unwrap(),
+                "admin@example.com".parse().unwrap(),
             );
             let approval = || {
                 serde_json::from_value::<Approval>(json!({"report":{"kind":"feature","title":"Edited","description":"Safe public description","diagnostics":null},"public_consent":true})).unwrap()

@@ -1,9 +1,9 @@
 # Send feedback
 
-Audience: players and adult admins.
+Audience: players and admins.
 
 Choose **Profile → Send feedback** to send a private report to your group's
-adults. You can suggest a feature or report a problem. Review it before sending;
+admins. You can suggest a feature or report a problem. Review it before sending;
 this step does not post anything to GitHub.
 
 Bug reports can include optional browser capability checks and a screen-size
@@ -12,12 +12,12 @@ Text you type is not automatically cleaned of private information.
 You can send up to three new reports per day. Unsent drafts disappear if you
 close or reload the form.
 
-## Review as an adult
+## Review as an admin
 
 Open **Profile → Review feedback**. You can edit a report, remove diagnostics, or
 dismiss it. Before choosing **Post public issue**, remove private information,
 preview the exact text, and confirm you want it public. Only that edited version
-goes to GitHub; the submitter's identity is not attached. Neither you nor the child
+goes to GitHub; the submitter's identity is not attached. Neither you nor the user
 needs a GitHub account.
 
 Posting must be enabled by the server operator. Until then, you can still review

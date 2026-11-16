@@ -155,7 +155,7 @@ impl Database {
             .ok_or_else(|| fault(404, "Message not found."))?;
         ensure!(
             author == email || data.members[email].admin,
-            fault(403, "Only the sender or an adult can remove this message.")
+            fault(403, "Only the sender or an admin can remove this message.")
         );
         // Keep a bounded tombstone for retries and rate limiting.
         tx.execute("UPDATE library_chat SET text=NULL WHERE id=?1", [id])?;

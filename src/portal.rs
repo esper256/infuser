@@ -232,7 +232,7 @@ impl Platform {
                 .members
                 .get(&email)
                 .is_some_and(|m| m.enabled),
-            fault(403, "Ask your grown-up for an Infuser invitation.")
+            fault(403, "Ask your admin for an Infuser invitation.")
         );
         self.group_view(h, &email)?;
         Ok(email)
@@ -244,7 +244,7 @@ impl Platform {
                 || (!write
                     && h.contains_key(groups::INSPECT)
                     && self.db.read()?.groups.operator(&email)),
-            fault(403, "An adult admin account is required.")
+            fault(403, "An admin account is required.")
         );
         Ok(email)
     }

@@ -104,3 +104,6 @@ terms, and link to the implemented contract rather than a proposal. Start at the
 [documentation index](README.md). Feature-specific tests live in
 [developer testing](developer-testing.md); storage and compatibility details live
 in [implementation notes](implementation-notes.md).
+
+Describe people by their role: user, player, author, admin, or operator. Do not
+infer age or gender in documentation, UI copy, agent prompts, or example accounts.

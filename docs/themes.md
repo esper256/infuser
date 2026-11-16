@@ -44,12 +44,12 @@ Keep DOM and keyboard order coherent when changing layout.
 
 Card artwork and titles open the shared game-detail dialog. Play launches directly;
 the author portrait opens the reaction picker. Both views use the same launch
-controls, including guest mode, Join, native launch, sharing, and adult visibility.
+controls, including guest mode, Join, native launch, sharing, and admin visibility.
 Recently entries open the referenced game, focusing the relevant reaction when
 present. Feedback portraits use the same opaque player IDs and approved avatar
 catalog as presence; email addresses are never sent for this presentation.
 
-Hidden games live in a collapsed adult-only shelf, using the existing visibility
+Hidden games live in a collapsed admin-only shelf, using the existing visibility
 permissions. The detail dialog uses actual descriptions, update times, tags, and
 reactions. Missing artwork uses the shared abstract fallback. No presentation
 fixture becomes production game data.
@@ -88,7 +88,7 @@ Compare desktop, tablet, and 320px/390px phones with identical content. Include
 long titles/handles/tags, loaded and missing artwork, loading/empty/error states,
 keyboard focus, reduced motion, and the signed-out landing page. Verify search,
 filters, normal/guest/join launch, copy link, creator reactions, tag editing,
-profile selection, the single Add a game prompt, and adult tools under each
+profile selection, the single Add a game prompt, and admin tools under each
 selectable theme. Check open dialogs survive a presentation change.
 
 Recently shows existing updates and reactions. Its dot means an event appeared

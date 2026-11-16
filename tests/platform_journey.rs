@@ -31,8 +31,8 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         "/oauth2/auth",
         get(|h: HeaderMap| async move {
             let email = match h.get("cookie").and_then(|v| v.to_str().ok()) {
-                Some("member=adult") => "adult@example.com",
-                Some("member=kid") => "kid@example.com",
+                Some("member=admin") => "admin@example.com",
+                Some("member=user") => "user@example.com",
                 Some("member=outsider") => "outsider@example.com",
                 _ => {
                     return (
@@ -59,8 +59,8 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         dir.path().display().to_string(),
         format!("{auth_url}/oauth2/auth")
     ))?;
-    platform::member(&cfg, "adult@example.com", "Grown-up", true, true)?;
-    platform::member(&cfg, "kid@example.com", "Kid", false, true)?;
+    platform::member(&cfg, "admin@example.com", "Admin", true, true)?;
+    platform::member(&cfg, "user@example.com", "User", false, true)?;
     let controller = Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -71,29 +71,29 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     let db = p.db.clone();
     let (url, _server) = serve(portal::router(p)).await?;
     let http = reqwest::Client::new();
-    let adult = |method: reqwest::Method, path: &str| {
+    let admin = |method: reqwest::Method, path: &str| {
         http.request(method, format!("{url}{path}"))
             .header("host", HOST)
-            .header("cookie", "member=adult")
+            .header("cookie", "member=admin")
             .header("origin", format!("https://{HOST}"))
     };
-    let kid = |method: reqwest::Method, path: &str| {
+    let user = |method: reqwest::Method, path: &str| {
         http.request(method, format!("{url}{path}"))
             .header("host", HOST)
-            .header("cookie", "member=kid")
+            .header("cookie", "member=user")
             .header("origin", format!("https://{HOST}"))
     };
     assert_eq!(
         http.get(format!("{url}/api/me"))
             .header("host", HOST)
-            .header("X-Auth-Request-Email", "adult@example.com")
-            .header("X-Infuser-Verified-Email", "adult@example.com")
+            .header("X-Auth-Request-Email", "admin@example.com")
+            .header("X-Infuser-Verified-Email", "admin@example.com")
             .send()
             .await?
             .status(),
         401
     );
-    let refreshed = adult(reqwest::Method::GET, "/api/me").send().await?;
+    let refreshed = admin(reqwest::Method::GET, "/api/me").send().await?;
     assert_eq!(refreshed.status(), 200);
     assert!(
         refreshed.headers()["set-cookie"]
@@ -111,27 +111,27 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         403
     );
     assert_eq!(
-        kid(reqwest::Method::GET, "/api/admin/members")
+        user(reqwest::Method::GET, "/api/admin/members")
             .send()
             .await?
             .status(),
         403
     );
     assert_eq!(
-        kid(reqwest::Method::GET, "/api/admin/peer-health")
+        user(reqwest::Method::GET, "/api/admin/peer-health")
             .send()
             .await?
             .status(),
         403
     );
     assert_eq!(
-        adult(reqwest::Method::GET, "/api/admin/peer-health")
+        admin(reqwest::Method::GET, "/api/admin/peer-health")
             .send()
             .await?
             .status(),
         200
     );
-    let owned: Value = kid(reqwest::Method::POST, "/api/my-games")
+    let owned: Value = user(reqwest::Method::POST, "/api/my-games")
         .json(&json!({"title":"My star adventure"}))
         .send()
         .await?
@@ -145,7 +145,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     );
     assert!(
         owned["token"].is_null(),
-        "the child should receive only a one-time setup code"
+        "the user should receive only a one-time setup code"
     );
     assert!(
         owned["tag_catalog"]
@@ -174,7 +174,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         401,
         "setup code was reusable"
     );
-    let renewed: Value = kid(
+    let renewed: Value = user(
         reqwest::Method::POST,
         &format!("/api/my-games/{app_id}/setup"),
     )
@@ -214,7 +214,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .status(),
         200
     );
-    let connection: Value = adult(reqwest::Method::POST, "/api/admin/credentials")
+    let connection: Value = admin(reqwest::Method::POST, "/api/admin/credentials")
         .json(&json!({"app":"moon","label":"Journey publisher"}))
         .send()
         .await?
@@ -277,17 +277,17 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .status(),
         200
     );
-    let list: Value = kid(reqwest::Method::GET, "/api/library")
+    let list: Value = user(reqwest::Method::GET, "/api/library")
         .send()
         .await?
         .json()
         .await?;
     assert!(
         list["apps"].as_array().unwrap().is_empty(),
-        "preview leaked to kid"
+        "preview leaked to user"
     );
     assert_eq!(
-        kid(reqwest::Method::POST, "/api/apps/moon/launch")
+        user(reqwest::Method::POST, "/api/apps/moon/launch")
             .json(&json!({"mode":"solo"}))
             .send()
             .await?
@@ -315,20 +315,20 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .status(),
         409
     );
-    let list: Value = kid(reqwest::Method::GET, "/api/library")
+    let list: Value = user(reqwest::Method::GET, "/api/library")
         .send()
         .await?
         .json()
         .await?;
     assert_eq!(list["apps"][0]["title"], "Moon");
-    assert_eq!(list["apps"][0]["author"]["name"], "Grown-up");
+    assert_eq!(list["apps"][0]["author"]["name"], "Admin");
     assert!(list["apps"][0]["author"]["avatar"].is_null());
-    adult(reqwest::Method::PUT, "/api/profile")
+    admin(reqwest::Method::PUT, "/api/profile")
         .json(&json!({"avatar":"circuit-fox"}))
         .send()
         .await?
         .error_for_status()?;
-    let updated: Value = kid(reqwest::Method::GET, "/api/library")
+    let updated: Value = user(reqwest::Method::GET, "/api/library")
         .send()
         .await?
         .error_for_status()?
@@ -337,12 +337,12 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     assert_eq!(updated["apps"][0]["author"]["avatar"], "circuit-fox");
     assert_eq!(
         list["apps"][0]["author"]["id"],
-        platform::hash("adult@example.com")
+        platform::hash("admin@example.com")
     );
     assert!(list["apps"][0]["author"].get("email").is_none());
     assert_eq!(list["apps"][0]["tags"], json!(["puzzle", "3d"]));
     assert_eq!(
-        kid(reqwest::Method::PUT, "/api/apps/moon/tags")
+        user(reqwest::Method::PUT, "/api/apps/moon/tags")
             .json(&json!({"tags":["racing"]}))
             .send()
             .await?
@@ -350,14 +350,14 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         403
     );
     assert_eq!(
-        kid(reqwest::Method::POST, "/api/my-games/moon/setup")
+        user(reqwest::Method::POST, "/api/my-games/moon/setup")
             .send()
             .await?
             .status(),
         403
     );
     assert_eq!(
-        adult(reqwest::Method::PUT, "/api/apps/moon/tags")
+        admin(reqwest::Method::PUT, "/api/apps/moon/tags")
             .json(&json!({"tags":["Chill","Puzzle"]}))
             .send()
             .await?
@@ -365,7 +365,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         200
     );
     assert_eq!(
-        kid(reqwest::Method::POST, "/api/apps/moon/launch")
+        user(reqwest::Method::POST, "/api/apps/moon/launch")
             .header("origin", "https://evil.example")
             .json(&json!({"mode":"solo"}))
             .send()
@@ -375,7 +375,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     );
     let mut sessions = vec![];
     for guest in [false, true, true] {
-        let launch: Value = kid(reqwest::Method::POST, "/api/apps/moon/launch")
+        let launch: Value = user(reqwest::Method::POST, "/api/apps/moon/launch")
             .json(&json!({"guest":guest}))
             .send()
             .await?
@@ -418,7 +418,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .header("origin", format!("https://{}", sessions[n].0))
     };
     db.edit(|d| {
-        d.presence.remove("kid@example.com");
+        d.presence.remove("user@example.com");
         Ok(())
     })?;
     assert_eq!(
@@ -429,7 +429,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         200
     );
     assert!(
-        !db.read()?.presence.contains_key("kid@example.com"),
+        !db.read()?.presence.contains_key("user@example.com"),
         "a guest is not the account owner's presence"
     );
     assert_eq!(
@@ -440,7 +440,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         200
     );
     assert!(
-        db.read()?.presence.contains_key("kid@example.com"),
+        db.read()?.presence.contains_key("user@example.com"),
         "playing with the Library closed should still count as online"
     );
     let page = game(0, reqwest::Method::GET, "/").send().await?;
@@ -538,14 +538,14 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .await?;
     assert_eq!(personal["data"]["stars"], 7);
     assert_eq!(
-        kid(reqwest::Method::PUT, "/api/apps/moon/reaction")
+        user(reqwest::Method::PUT, "/api/apps/moon/reaction")
             .json(&json!({"emoji":"🚀","text":"I loved the stars!"}))
             .send()
             .await?
             .status(),
         200
     );
-    let list: Value = adult(reqwest::Method::GET, "/api/library")
+    let list: Value = admin(reqwest::Method::GET, "/api/library")
         .send()
         .await?
         .json()
@@ -587,14 +587,14 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .await?
             .contains("Moon v1")
     );
-    let updated: Value = kid(reqwest::Method::POST, "/api/apps/moon/launch")
+    let updated: Value = user(reqwest::Method::POST, "/api/apps/moon/launch")
         .json(&json!({"mode":"solo"}))
         .send()
         .await?
         .json()
         .await?;
     let updated_url = reqwest::Url::parse(updated["url"].as_str().unwrap())?;
-    let tags: Value = kid(reqwest::Method::GET, "/api/library")
+    let tags: Value = user(reqwest::Method::GET, "/api/library")
         .send()
         .await?
         .json()
@@ -620,7 +620,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         409
     );
     // Revocation also applies to already-open game hosts and cloud saves.
-    platform::member(&cfg, "kid@example.com", "Kid", false, false)?;
+    platform::member(&cfg, "user@example.com", "User", false, false)?;
     assert_eq!(
         game(0, reqwest::Method::GET, "/_infuser/saves/progress")
             .send()
@@ -638,13 +638,13 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         403
     );
     assert_eq!(
-        kid(reqwest::Method::GET, "/api/library")
+        user(reqwest::Method::GET, "/api/library")
             .send()
             .await?
             .status(),
         403
     );
-    adult(
+    admin(
         reqwest::Method::DELETE,
         &format!(
             "/api/admin/credentials/{}",
@@ -664,7 +664,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     drop(db);
     let db = platform::Database::open(dir.path())?;
     assert_eq!(
-        db.save_read(&platform::hash("kid@example.com"), "moon", "progress")?
+        db.save_read(&platform::hash("user@example.com"), "moon", "progress")?
             .1["stars"],
         7
     );
@@ -688,10 +688,10 @@ async fn only_authenticated_members_reach_the_ip_admission_helper() -> Result<()
     let auth = Router::new().route(
         "/oauth2/auth",
         get(|h: HeaderMap| async move {
-            if h.get("cookie").is_some_and(|c| c == "member=adult") {
+            if h.get("cookie").is_some_and(|c| c == "member=admin") {
                 (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "adult@example.com")],
+                    [("X-Auth-Request-Email", "admin@example.com")],
                 )
             } else {
                 (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")])
@@ -705,7 +705,7 @@ async fn only_authenticated_members_reach_the_ip_admission_helper() -> Result<()
         format!("{auth_url}/oauth2/auth"),
         socket.display().to_string()
     ))?;
-    platform::member(&cfg, "adult@example.com", "Adult", true, true)?;
+    platform::member(&cfg, "admin@example.com", "Admin", true, true)?;
     let c = Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -721,7 +721,7 @@ async fn only_authenticated_members_reach_the_ip_admission_helper() -> Result<()
     };
     assert_eq!(request().send().await?.status(), 401);
     let me: Value = request()
-        .header("cookie", "member=adult")
+        .header("cookie", "member=admin")
         .send()
         .await?
         .json()
@@ -731,7 +731,7 @@ async fn only_authenticated_members_reach_the_ip_admission_helper() -> Result<()
     drop(helper);
     // The rate-limit cache avoids a subprocess/helper operation on every asset/request.
     let me: Value = request()
-        .header("cookie", "member=adult")
+        .header("cookie", "member=admin")
         .send()
         .await?
         .json()

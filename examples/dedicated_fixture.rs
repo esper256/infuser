@@ -166,9 +166,9 @@ async fn main() -> Result<()> {
                             StatusCode::ACCEPTED,
                             [("X-Auth-Request-Email", "sky@example.com")],
                         ),
-                        Some("adult") => (
+                        Some("admin") => (
                             StatusCode::ACCEPTED,
-                            [("X-Auth-Request-Email", "adult@example.com")],
+                            [("X-Auth-Request-Email", "admin@example.com")],
                         ),
                         _ => (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
                     }
@@ -185,7 +185,7 @@ async fn main() -> Result<()> {
     for (email, name, admin) in [
         ("river@example.com", "River", false),
         ("sky@example.com", "Sky", false),
-        ("adult@example.com", "Test adult", true),
+        ("admin@example.com", "Test admin", true),
     ] {
         platform::member(&cfg, email, name, admin, true)?;
     }

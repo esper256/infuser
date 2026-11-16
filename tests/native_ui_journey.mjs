@@ -7,7 +7,7 @@ const browser=await chromium.launch({headless:true});
 const errors=[];
 const context=await browser.newContext({viewport:{width:1000,height:800}});
 async function api(path,method='GET',body=''){
- return new Promise((resolve,reject)=>{const r=http.request({hostname:'127.0.0.1',port:17877,path,method,headers:{Host:'games.localhost',Origin:'https://games.localhost',Cookie:'member=adult','Content-Type':'application/json'}},r=>{const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',()=>resolve({status:r.statusCode,body:Buffer.concat(chunks)}));});r.on('error',reject);r.end(body);});
+ return new Promise((resolve,reject)=>{const r=http.request({hostname:'127.0.0.1',port:17877,path,method,headers:{Host:'games.localhost',Origin:'https://games.localhost',Cookie:'member=admin','Content-Type':'application/json'}},r=>{const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',()=>resolve({status:r.statusCode,body:Buffer.concat(chunks)}));});r.on('error',reject);r.end(body);});
 }
 await context.route('https://games.localhost/**',async route=>{
  const r=route.request(),path=new URL(r.url()).pathname;

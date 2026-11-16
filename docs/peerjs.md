@@ -102,7 +102,7 @@ is not an application-level acknowledgement. Validate messages in the game.
 `room.active`, `room.epoch`, `room.role`, `room.peers`, and `room.connections`
 provide current state. `room.setJoinable(boolean)` is host-only. `room.close()`
 leaves multiplayer without ending the single-player launch. `room.stats()` is for
-adult diagnostics/testing; the existing title-bar symbol stays quiet and does
+admin diagnostics/testing; the existing title-bar symbol stays quiet and does
 not disturb fullscreen.
 
 ## Saves and Join friend

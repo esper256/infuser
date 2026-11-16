@@ -48,13 +48,13 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         "/auth",
         get(|h: HeaderMap| async move {
             match h.get("cookie").and_then(|v| v.to_str().ok()) {
-                Some("member=adult") => (
+                Some("member=admin") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "adult@example.com")],
+                    [("X-Auth-Request-Email", "admin@example.com")],
                 ),
-                Some("member=kid") => (
+                Some("member=user") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "kid@example.com")],
+                    [("X-Auth-Request-Email", "user@example.com")],
                 ),
                 _ => (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
             }
@@ -66,8 +66,8 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         dir.path().display().to_string(),
         format!("{auth}/auth")
     ))?;
-    platform::member(&cfg, "adult@example.com", "Adult", true, true)?;
-    platform::member(&cfg, "kid@example.com", "Kid", false, true)?;
+    platform::member(&cfg, "admin@example.com", "Admin", true, true)?;
+    platform::member(&cfg, "user@example.com", "User", false, true)?;
     let p = portal::Platform::open(Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -111,7 +111,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         .bearer_auth(&publisher)
         .json(&json!({"listed":false})))
     .await?;
-    let library = ok(member(Method::GET, "/api/library", "adult")).await?;
+    let library = ok(member(Method::GET, "/api/library", "admin")).await?;
     assert_eq!(library["apps"][0]["native_only"], true);
     assert_eq!(
         library["apps"][0]["native_platforms"],
@@ -119,7 +119,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
     );
     let play_body = json!({"platform":"windows-x86_64","guest":true});
     assert_eq!(
-        member(Method::POST, "/api/native/v1/play/native-pond", "kid")
+        member(Method::POST, "/api/native/v1/play/native-pond", "user")
             .json(&play_body)
             .send()
             .await?
@@ -162,7 +162,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         401
     );
     ok(
-        member(Method::POST, "/api/native/v1/device/approve", "adult")
+        member(Method::POST, "/api/native/v1/device/approve", "admin")
             .json(&json!({"request_id":pair["request_id"]})),
     )
     .await?;
@@ -177,7 +177,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         410
     );
     let play =
-        ok(member(Method::POST, "/api/native/v1/play/native-pond", "adult").json(&play_body))
+        ok(member(Method::POST, "/api/native/v1/play/native-pond", "admin").json(&play_body))
             .await?;
     let link = reqwest::Url::parse(play["url"].as_str().unwrap())?;
     let nonce = link
@@ -201,7 +201,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         .json(&json!({"challenge":hash(second_verifier.as_bytes())})))
     .await?;
     assert_eq!(
-        member(Method::POST, "/api/native/v1/device/approve", "kid")
+        member(Method::POST, "/api/native/v1/device/approve", "user")
             .header("origin", "https://elsewhere.example")
             .json(&json!({"request_id":second_pair["request_id"]}))
             .send()
@@ -209,7 +209,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
             .status(),
         403
     );
-    ok(member(Method::POST, "/api/native/v1/device/approve", "kid")
+    ok(member(Method::POST, "/api/native/v1/device/approve", "user")
         .json(&json!({"request_id":second_pair["request_id"]})))
     .await?;
     let second_device = ok(req(Method::POST, "/api/native/v1/device/token")
@@ -280,16 +280,16 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
             .as_ref(),
         bytes.as_slice()
     );
-    let devices = ok(member(Method::GET, "/api/native/v1/devices", "adult")).await?;
+    let devices = ok(member(Method::GET, "/api/native/v1/devices", "admin")).await?;
     let path = format!(
         "/api/native/v1/devices/{}",
         devices["devices"][0]["id"].as_str().unwrap()
     );
     assert_eq!(
-        member(Method::DELETE, &path, "kid").send().await?.status(),
+        member(Method::DELETE, &path, "user").send().await?.status(),
         404
     );
-    ok(member(Method::DELETE, &path, "adult")).await?;
+    ok(member(Method::DELETE, &path, "admin")).await?;
     assert_eq!(
         req(Method::POST, "/api/native/v1/claim")
             .bearer_auth(key)

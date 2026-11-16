@@ -84,7 +84,7 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
         )]),
         image_budget_mb: 2048,
     });
-    platform::member(&cfg, "kid@example.com", "Player", false, true)?;
+    platform::member(&cfg, "user@example.com", "Player", false, true)?;
     let controller = Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -104,12 +104,12 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
     let token = infuser::store::secret();
     db.edit(|d| {
         d.owners
-            .insert("existing-game".into(), "kid@example.com".into());
+            .insert("existing-game".into(), "user@example.com".into());
         d.setup_claims.insert(
             platform::hash(&token),
             platform::SetupClaim {
                 app: "existing-game".into(),
-                owner: "kid@example.com".into(),
+                owner: "user@example.com".into(),
                 label: "Existing game".into(),
                 expires: infuser::controller::now() + 3600,
             },
@@ -279,7 +279,7 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
         r#"{"name":"fixture","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"fixture","version":"1.0.0"}}}"#,
     )?;
     std::fs::write(source.join("server.js"), "// fixture server")?;
-    let owner = platform::hash("kid@example.com");
+    let owner = platform::hash("user@example.com");
     db.save_write(&owner, "existing-game", "progress", 0, &json!({"level":7}))?;
     let mut settings: Value =
         serde_json::from_slice(&std::fs::read(project.join("infuser.game.json"))?)?;

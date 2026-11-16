@@ -7,9 +7,9 @@ Use a fine-grained token restricted to `esper256/infuser` with
 Store it in `<state_dir>/feedback.github-token`, mode 0600, owned by the Infuser
 service user. The default path is `/var/lib/infuser/feedback.github-token`.
 Never commit or serve the state directory. Rotation/removal takes effect on the
-next request. Without the token, adults can review/dismiss but cannot publish.
+next request. Without the token, admins can review/dismiss but cannot publish.
 The issue is posted by the token's account to the fixed Infuser repository.
-No child or reviewing adult needs their own GitHub account.
+No user or reviewing admin needs their own GitHub account.
 
 
 Back up the state directory privately. Pending reports expire after 30 days while

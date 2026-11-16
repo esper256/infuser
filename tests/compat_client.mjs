@@ -16,7 +16,7 @@ function transport(path,{method='GET',headers={},body}={}){
  });
 }
 async function json(path,options){const r=await transport(path,options);const v=await r.json();assert.ok(r.ok,JSON.stringify(v));return v;}
-const memberHeaders={Host:host,Origin:'https://'+host,Cookie:'member=adult','Content-Type':'application/json'};
+const memberHeaders={Host:host,Origin:'https://'+host,Cookie:'member=admin','Content-Type':'application/json'};
 async function open(guest,versioned=false,previous){
  const launch=previous||await json('/api/apps/pond/launch',{method:'POST',headers:memberHeaders,body:JSON.stringify({guest})});
  const u=new URL(launch.url),token=new URLSearchParams(u.hash.slice(1)).get('infuser');

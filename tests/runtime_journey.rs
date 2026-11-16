@@ -179,7 +179,7 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
             if h.get("cookie").is_some_and(|v| v == "member=yes") {
                 (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "kid@example.com")],
+                    [("X-Auth-Request-Email", "user@example.com")],
                 )
             } else {
                 (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")])
@@ -192,7 +192,7 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         dir.path().display().to_string(),
         format!("{auth_url}/oauth2/auth")
     ))?;
-    platform::member(&cfg, "kid@example.com", "Kid", false, true)?;
+    platform::member(&cfg, "user@example.com", "User", false, true)?;
     let engine = Arc::new(Runtime::default());
     let controller = Arc::new(Controller::open(cfg.clone(), engine.clone())?);
     let p = portal::Platform::open(controller.clone())?;
@@ -441,7 +441,7 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
             .server_start
             .is_some()
     );
-    platform::member(&cfg, "kid@example.com", "Kid", false, false)?;
+    platform::member(&cfg, "user@example.com", "User", false, false)?;
     assert_eq!(
         blocked
             .request(&http, &url, Method::POST, "/_infuser/runtime/v1")

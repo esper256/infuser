@@ -45,9 +45,9 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
         "/auth",
         get(|h: HeaderMap| async move {
             match h.get("cookie").and_then(|v| v.to_str().ok()) {
-                Some("member=adult") => (
+                Some("member=admin") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "adult@example.com")],
+                    [("X-Auth-Request-Email", "admin@example.com")],
                 ),
                 Some("member=one") => (
                     StatusCode::ACCEPTED,
@@ -67,12 +67,12 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
         temp.path().display().to_string(),
         format!("{auth}/auth")
     ))?;
-    for who in ["adult", "one", "two"] {
+    for who in ["admin", "one", "two"] {
         platform::member(
             &cfg,
             &format!("{who}@example.com"),
             who,
-            who == "adult",
+            who == "admin",
             true,
         )?;
     }
@@ -100,7 +100,7 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
     };
     assert_eq!(
         req(Method::GET, "/api/chat", "unknown")
-            .header("x-infuser-verified-email", "adult@example.com")
+            .header("x-infuser-verified-email", "admin@example.com")
             .send()
             .await?
             .status(),
@@ -124,7 +124,7 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
     );
     assert_eq!(
         send("one", "request-00000001", "hi")
-            .json(&json!({"client_id":"request-00000001","text":"hi","author":"adult"}))
+            .json(&json!({"client_id":"request-00000001","text":"hi","author":"admin"}))
             .send()
             .await?
             .status(),
@@ -177,13 +177,13 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
     let id = first["id"].as_u64().unwrap();
     assert_eq!(remove("two", id).send().await?.status(), 403);
     assert_eq!(
-        req(Method::DELETE, &format!("/api/chat/{id}"), "adult")
+        req(Method::DELETE, &format!("/api/chat/{id}"), "admin")
             .send()
             .await?
             .status(),
         403
     );
-    ok(remove("adult", id)).await?;
+    ok(remove("admin", id)).await?;
     ok(send(
         "one",
         "request-00000001",
@@ -264,7 +264,7 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
         true
     );
     assert_eq!(
-        ok(req(Method::GET, "/api/client-state", "adult")).await?["game_open"],
+        ok(req(Method::GET, "/api/client-state", "admin")).await?["game_open"],
         false
     );
     p.db.edit(|d| {
@@ -283,7 +283,7 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
             .unwrap()
             .execute("UPDATE library_chat SET created=?1", [now() - 61])?;
         p.db.chat_send(
-            "adult@example.com",
+            "admin@example.com",
             &format!("retention-{i:08}"),
             "retained",
         )?;

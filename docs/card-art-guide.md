@@ -43,10 +43,9 @@ are welcome.
 Infuser's dark interface is the frame, not a requirement to turn every game into
 a neon city. Bright, warm, or daylight scenes can work too.
 
-The audience includes young game makers. Be aspirational without being childish:
-no nursery-like mascot treatment, patronizing depictions of children, corporate
-stock illustration, motivational slogans, or sentimental decorative copy. Keep
-the image appropriate for young players; no sexual imagery or graphic gore.
+Make the artwork compelling and respectful of its players. Avoid patronizing
+depictions, corporate stock illustration, motivational slogans, and sentimental
+decorative copy. No sexual imagery or graphic gore.
 
 ## Canvas and delivery
 
@@ -87,7 +86,7 @@ keeps the old cover until activation. To add or replace only the cover, use the
 connection file, not its source or a new build. An explicit cover override survives
 future builds until cleared with DELETE; then the active build cover is used again.
 Missing art uses the abstract Library fallback. The Library returns an optional `card_art_url`, accessible only
-to members who can see that game; hidden preview art is adult-only as well.
+to members who can see that game; hidden preview art is admin-only as well.
 
 Only this square cover is supported. Do not submit a separate About-window
 banner or stretch the cover into one.

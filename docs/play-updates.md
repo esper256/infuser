@@ -1,6 +1,6 @@
 # Infuser Play updates
 
-Audience: players and adult admins.
+Audience: players and admins.
 
 Install Infuser Play once. When opened, it checks for a new published release at
 most once an hour, then downloads and starts the update automatically. The window

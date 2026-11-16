@@ -66,7 +66,7 @@ using the publisher API. The live checks below apply when an authorized game tes
 session is already available. Otherwise, report them as untested and hand off the
 published game; do not ask for Google login or account access to complete them.
 
-1. Publish normally for the owner to test. Use `--preview` only for adult-admin tests.
+1. Publish normally for the owner to test. Use `--preview` only for admin tests.
 2. Play from the Library, earn progress, close and reopen, and confirm it loads.
 3. Choose **Play in guest mode**: progress must start empty. Earn different progress.
 4. Reopen ordinary play: the owner's original progress must be unchanged.
