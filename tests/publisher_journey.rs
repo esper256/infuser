@@ -252,6 +252,15 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
     let missing_bridge = cli(root, &publish, None).await?;
     assert!(!missing_bridge.status.success());
     assert!(String::from_utf8_lossy(&missing_bridge.stderr).contains("infuser-unity.mjs"));
+    std::fs::remove_dir(project.join("Assets/Infuser"))?;
+    std::fs::create_dir_all(project.join("Packages"))?;
+    std::fs::write(
+        project.join("Packages/manifest.json"),
+        r#"{"dependencies":{"org.infuser.unity-web":"file:../../sdk/unity"}}"#,
+    )?;
+    let missing_package_bridge = cli(root, &publish, None).await?;
+    assert!(!missing_package_bridge.status.success());
+    assert!(String::from_utf8_lossy(&missing_package_bridge.stderr).contains("infuser-unity.mjs"));
     std::fs::write(
         export.join("infuser-unity.mjs"),
         include_str!("../sdk/unity/Assets/Infuser/Web/bridge.mjs"),

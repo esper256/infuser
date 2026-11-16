@@ -2,6 +2,9 @@
 
 Audience: game authors and their agents.
 
+`--preview` in this fixture is for admin-only testing. Publish normally when an
+ordinary user needs to play; hidden builds are not available to them.
+
 A small two-player game showing Godot web exports, GDScript cloud saves,
 and `WebRTCMultiplayerPeer` RPCs. No external art dependencies. Keep it hidden
 with `--preview` until explicitly choosing to list it.

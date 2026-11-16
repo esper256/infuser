@@ -52,6 +52,7 @@ or [HTTP publishing](publishing-http.md); no Infuser build toolchain is required
 These pages are for changing the platform, not publishing a game.
 
 - [Development setup and checks](development.md), [feature tests](developer-testing.md), [CI and releases](ci.md)
+- [Unity agent-experience review and acceptance](proposals/unity-agent-experience.md)
 - [Architecture](architecture.md), [implementation and compatibility notes](implementation-notes.md), [roadmap](roadmap.md)
 - [Architectural review improvement plan](proposals/architecture-improvement-plan.md)
 - [Ansible host-maintenance design](proposals/ansible-host-maintenance.md)

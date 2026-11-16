@@ -2,7 +2,7 @@
 
 Audience: Infuser developers.
 
-**Direction accepted; detailed interfaces remain a proposal.** See the [SDK decisions](../sdk-1.0-decisions.md). This does not declare the existing SDK stable or change production behavior. It builds on the implementation at `11a24df` and the supplied Lanternfall feature request. Names in proposed API examples are illustrative until the wire contract is reviewed.
+**Historical design record.** The accepted direction is implemented as a preview; use [dedicated sessions](../dedicated-sessions.md) for the current wire contract and [SDK decisions](../sdk-1.0-decisions.md) for accepted choices. This proposal began against `11a24df`; its illustrative API names and delivery stages are not integration instructions. The SDK is not yet frozen at 1.0.
 
 **Implementation update:** [managed Node packaging and hosting](../engines/node-server.md)
 are now available and tested. Use that recipe's actual fields and endpoints.
@@ -67,7 +67,7 @@ A player may have several tabs or connections. Count connections, gameplay parti
 
 Preserve the original social default: ordinary multiplayer joins the existing shared session when possible. It does not create another one because the first is full, closed, updating or unreachable. The player receives the reason and stays on the title screen.
 
-An explicit multiple-session capability allows games whose design needs separate runs. Lanternfall can opt in because its server already owns independent runs. Those runs share one container and resource allocation. Infuser does not require a container per room, nor does it invent another room system alongside the game's. One process is an initial scheduling policy, not part of the meaning of a session ID; future games can explicitly opt into distributed hosting without renaming their player or session identities.
+An explicit multiple-session capability allows games whose design needs separate runs. A game can opt in when its server owns independent runs. Those runs share one container and resource allocation. Infuser does not require a container per room, nor does it invent another room system alongside the game's. One process is an initial scheduling policy, not part of the meaning of a session ID; future games can explicitly opt into distributed hosting without renaming their player or session identities.
 
 Multiple sessions are an accepted relaxation of the earlier one-shared-world rule. Use UX to encourage joining friends while allowing an explicit independent run. Where supported, highlight Join friends and Play on my own on the game’s title screen; the Library’s primary Play still opens the game. Keep shared-session behavior as the default for games that do not opt in. Games with instances, private matches or simultaneous solo runs can then fit without changing Infuser's core concepts.
 
@@ -103,7 +103,7 @@ An unlisted group-accessible room can be joined through an authorized friend tar
 
 Room links resolve an opaque, expiring invitation into a targeted launch intent after membership checks. They never grant access to another private group. Keep invitation credentials out of ordinary room listings and public metadata. Use an opaque invite route with token-redacted logs and a restrictive referrer policy, then exchange it for server-side launch state and remove it from the address bar. Short human codes are a separate, rate-limited lookup mechanism with expiry and attempt limits.
 
-For Lanternfall, password-named rooms can initially map to unlisted, invitation-required sessions. If its authors want any group member to Join Friend without a code, that is an explicit group-accessible policy. Do not silently turn their password into a public room label.
+Password-protected rooms can map to unlisted, invitation-required sessions. Allowing any group member to Join Friend without a code requires an explicit group-accessible policy. Never expose a room password as a public label.
 
 Ordinary Play still opens the game's title screen. Join Friend and Join Room are targeted intentions, never instructions to create a replacement session. A failed target returns a useful error; the game may offer a separate, explicit Start action.
 
@@ -130,7 +130,7 @@ For the first managed WebSocket adapter:
 
 The browser helper returns a normal WebSocket after admission. Its error path queries the join-attempt result, because browser WebSocket failures alone do not supply a useful HTTP rejection body. A lost acknowledgement is recovered using the same attempt ID; it must not join twice. Reservation expiry and disconnect handling release abandoned seats.
 
-A server adapter should make this integration a small boundary change around an existing `ws` upgrade handler and room join function. It should not replace Lanternfall's JSON messages, 30 Hz simulation, or snapshots. Games with admission information that only exists in their initial gameplay message can use a bounded admission phase before publishing membership; the adapter still prevents unverified identities and misleading Join success.
+A server adapter should make this integration a small boundary change around an existing `ws` upgrade handler and room join function. It should preserve the game's messages, simulation rate, and snapshots. Games with admission information that only exists in their initial gameplay message can use a bounded admission phase before publishing membership; the adapter still prevents unverified identities and misleading Join success.
 
 Web backends stay on private internal bridges or loopback-published ports. Games with direct TCP/UDP endpoints use short-lived, narrowly scoped connection tickets and the same identity/admission semantics through an adapter. The existing verification route remains available. Do not claim native multiplayer support for SDK 1.0 until a real native game exercises that path.
 
@@ -142,7 +142,7 @@ Authentication at the HTTP upgrade alone is insufficient to promise prompt logou
 
 Keep Caddy for TLS and ordinary routing. Route the new managed-connection endpoint through a Rust gateway owned by Infuser, which manages connection lifetimes and forwards gameplay frames without interpreting them. Existing legacy server proxy routes keep their behavior. Caddy itself transitions WebSockets into a tunnel, and configuration reloads have connection-lifetime behavior that needs testing; a forward-auth check is not a continuing revocation mechanism. [Caddy reverse proxy documentation](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#streaming).
 
-Use bounded message sizes, output queues, handshake times and idle connection checks. Do not make Lanternfall's 64 KiB message size a platform-wide constant. Publish effective limits, and let games request values within operator policy.
+Use bounded message sizes, output queues, handshake times and idle connection checks. Do not make one game’s message limit a platform-wide constant. Publish effective limits, and let games request values within operator policy.
 
 Define revocation scope explicitly: disabling a member or withdrawing game access
 ends all affected launches, including sponsored guests; leaving a game closes that
@@ -158,7 +158,7 @@ These semantics should be tested before the capability is marked stable. The exa
 
 ## 7 Separate backend demand from browser presence
 
-A title screen can read presence and save data while its backend is asleep. A single-player run may still require a backend. That is already the right model for Lanternfall and should remain explicit in the manifest.
+A title screen can read presence and save data while its backend is asleep. A single-player run may still require a backend. Declare that requirement explicitly in the manifest.
 
 Backend lifetime depends on bounded acquisitions, authenticated gameplay connections, reconnect reservations and short shutdown work. A server's own heartbeat or a stale room report cannot keep an unused container alive forever. Browser heartbeat throttling must not stop a server that still has valid gameplay connections and server-confirmed membership. That connection renews both its bounded backend demand and its associated launch authorization, subject to membership and expiry policy, so a backgrounded guest does not suddenly inherit an empty save namespace.
 
@@ -208,7 +208,7 @@ A persistent volume belongs to the game deployment's group and app, not a partic
 
 A game update that changes persistent data needs a backup/recovery point and migration policy. Code rollback alone cannot undo the change. Automatic fallback to an older server is permitted only when its data compatibility is established. A failed readiness check after a migration must not blindly start an old image against new data.
 
-Lanternfall can declare ephemeral server data. The generic lifecycle must still leave room for persistent games, without forcing a database or a cloud-save API onto its throwaway runs. Guest isolation applies to personal progress; participating as a guest in a shared world can still affect that shared world through ordinary gameplay.
+Games can declare ephemeral server data. The lifecycle must also support persistent games without forcing a database or cloud-save API onto disposable runs. Guest isolation applies to personal progress; participating as a guest in a shared world can still affect that shared world through ordinary gameplay.
 
 ## 10 Managed packaging is a service with recipes
 
@@ -267,7 +267,7 @@ The author-facing file should ask for only what cannot be inferred reliably. Thi
 
 `solo` is the existing wire value; the UI continues to say Single player. The CLI can suggest a runtime line from the project's engine requirement, but the server must return the resolved runtime and reject unsupported requirements rather than silently changing them. The exact new manifest field layout should be decided alongside its validation examples.
 
-Distinguish a process's total connection limit, each session's participant capacity, the directory's maximum session count and CPU/RAM allocations. Lanternfall's requested 30 rooms of eight players is not evidence that its requested resource allocation can run 240 players at 30 Hz. Its effective capacity needs measurement.
+Distinguish a process's total connection limit, each session's participant capacity, the directory's maximum session count and CPU/RAM allocations. For example, a request for 30 rooms of eight players does not demonstrate capacity for 240 players at 30 Hz. Effective capacity needs measurement.
 
 Provide reasonable host defaults and allow explicit requests within policy. Return effective limits and explain reductions or rejection; do not silently advertise capacities the host cannot support. Never expose arbitrary Docker flags, host mounts or privileged networking through the game manifest.
 
@@ -338,13 +338,13 @@ Deliver a narrow dedicated-server path first, then freeze the proven contract. D
 | 3 | Authenticated managed WebSocket adapter with single shared session | Two accounts and a guest; solo requiring a backend; forged context rejected; title screen stays cold; actual connections keep a backgrounded player's run alive. |
 | 4 | Generic session directory, targeted joins, invitations and optional multiple sessions | Last-seat race, closed/replaced room, friend departure, private-room access, two rooms in one process, cross-group denial and no phantom presence. |
 | 5 | Drain, crash recovery, logs and admin restart | Active run finishes across a game publication; new runs cannot prolong drain; container crash changes incarnation; controller restart reconnects without inventing a new world. |
-| 6 | SDK 1.0 candidate and compatibility freeze | Unchanged shipped games pass; Lanternfall plus a small game with a different admission flow exercise the same contract. |
+| 6 | SDK 1.0 candidate and compatibility freeze | Unchanged shipped games pass; an independently authored game plus a fixture with a different admission flow exercise the same contract. |
 
 Keep one fast fake-clock lifecycle suite, one real HTTP/WebSocket journey, the existing frozen old-client/save journeys, and a focused Docker packaging/start/drain journey. Add a tiny persistent-state fixture for migration/rollback behavior before promising that capability. These prove the boundaries without building another full showcase game or making every change wait on a large CI matrix.
 
 Before declaring SDK 1.0, explicitly exercise lost responses, duplicate requests, reordered reports, daemon restart, connection revocation, background tabs, guest expiry, resource exhaustion, archive traversal, and a failed image activation. Those failures are where superficially similar game integrations diverge.
 
-For Lanternfall specifically, the adaptation should be limited to server packaging, verified identity/admission at the WebSocket boundary, mapping its existing rooms into session reports, consuming targeted joins, and handling drain/reconnect. Keep its gameplay code and packet protocol. Its claimed dependency/runtime compatibility and capacity still need validation against the actual project.
+For an existing WebSocket game, limit adaptation to server packaging, verified identity/admission at the connection boundary, mapping existing rooms into session reports, consuming targeted joins, and handling drain/reconnect. Preserve gameplay and packet protocols. Verify dependency/runtime compatibility and capacity against the actual project.
 
 ## What changes from the supplied request
 
@@ -361,4 +361,4 @@ For Lanternfall specifically, the adaptation should be limited to server packagi
 | Thirty rooms as declared capacity | Separate directory limits from verified simulation capacity and host connection limits. |
 | Lightweight fake local platform | Reuse the production protocol and adapters in an explicit development mode. |
 
-The core product choice is to keep Infuser responsible for **who may connect, what release they run, and how their progress survives**, while games remain responsible for **what their sessions mean and what happens inside them**. That supports Lanternfall immediately without making its room structure the shape of every future game.
+The core product choice is to keep Infuser responsible for **who may connect, what release they run, and how their progress survives**, while games remain responsible for **what their sessions mean and what happens inside them**. This supports existing games without imposing one room structure on future games.

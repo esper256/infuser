@@ -20,9 +20,10 @@ earlier design; [dedicated sessions](dedicated-sessions.md) describes the shippe
 candidate. Publishing inputs can be retained as
 [private importer fixtures](publication-capture.md).
 
-The accepted [temporary-visit design](proposals/temporary-visits.md) is not yet
-implemented. Its deployment and expiring-access boundaries must be verified before
-freezing the affected contracts; existing home-group saves and games stay compatible.
+The [temporary-visit design](proposals/temporary-visits.md) is implemented with
+scoped deployments, saves, presence, and expiring access. Preserve those boundaries
+in compatibility acceptance before freezing the affected contracts; existing
+home-group saves and games stay compatible.
 
 ## Review before calling the SDK 1.0
 

@@ -9,6 +9,7 @@ public static class BuildBeaconGarden
     [MenuItem("Infuser/Build Beacon Garden Web")]
     public static void Build()
     {
+        if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         new GameObject("Beacon Garden").AddComponent<BeaconGarden>();
         EditorSceneManager.SaveScene(scene, "Assets/BeaconGarden.unity");

@@ -60,6 +60,8 @@ code** for the same app. Do not create a duplicate game. If the request times ou
 after the server consumed it and no complete response was saved, a fresh setup
 code is needed. Do not blindly retry a claim or discard a successful response.
 
+## Private authentication config
+
 For subsequent requests, create a private `.local/publisher.curl` containing
 `header = "Authorization: Bearer TOKEN"`, substituting the stored token using
 file tools, not shell interpolation into a visible command. Validate that it is

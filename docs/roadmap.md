@@ -23,7 +23,7 @@ Keep individual deployments' configuration and status in private operator record
 - Finish [Infuser Play](engines/godot-native.md) acceptance on physical Windows,
   including installation, browser-login handoff, cache cleanup and guest saves.
   Keep native support limited to the documented single-player preview meanwhile.
-- Playtest Lanternfall with [dedicated sessions](dedicated-sessions.md) and test
+- Playtest an independently authored dedicated game with [dedicated sessions](dedicated-sessions.md) and test
   the [PeerJS adapter](peerjs.md) against an existing user's game. Platform fixtures
   and source review do not prove those games' integrations.
 - Add a Windows publisher executable. Keep author checks usable with prebuilt

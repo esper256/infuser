@@ -1,0 +1,9 @@
+{
+  "name": "org.infuser.unity-web",
+  "version": "0.1.0-preview.1",
+  "displayName": "Infuser Web",
+  "description": "Identity, cloud checkpoints, presence and multiplayer for games hosted on Infuser. Experimental SDK major 1 adapter.",
+  "unity": "6000.0",
+  "license": "MIT",
+  "documentationUrl": "https://github.com/esper256/infuser/blob/main/docs/engines/unity-web.md"
+}

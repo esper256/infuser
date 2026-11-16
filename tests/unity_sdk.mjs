@@ -98,9 +98,9 @@ test('leaving while admission is pending fences late rooms and blocks overlappin
 });
 
 test('dedicated WebSockets carry text and binary, preserve admission, and report congestion', async () => {
-  const socket=new EventTarget();let sent, options, disconnected=0;
-  Object.assign(socket,{readyState:1,bufferedAmount:0,infuser:{attempt_id:'a',session:{id:'room'}},send:v=>{sent=v;},close:()=>{socket.readyState=3;}});
-  const h=harness({cloud,sessions:{connect:async o=>{options=o;return socket;},disconnect:async s=>{assert.equal(s,socket);disconnected++;s.close();}}});
+  const socket=new EventTarget();let sent, options, disconnected=0, released=0;
+  Object.assign(socket,{readyState:1,bufferedAmount:0,infuser:{attempt_id:'a',lease_id:'lease',session:{id:'room'}},send:v=>{sent=v;},close:()=>{socket.readyState=3;}});
+  const h=harness({cloud,runtime:{release:async id=>{assert.equal(id,'lease');released++;}},sessions:{connect:async o=>{options=o;return socket;},disconnect:async s=>{assert.equal(s,socket);disconnected++;s.close();}}});
   const intent={kind:'join_friend',session_id:'s',player_id:'p'};
   assert.deepEqual((await h.call('socket.connect',{intent})).value,socket.infuser);
   assert.deepEqual(options.intent,intent);assert.equal(options.binaryType,'arraybuffer');
@@ -108,7 +108,38 @@ test('dedicated WebSockets carry text and binary, preserve admission, and report
   socket.dispatchEvent(new MessageEvent('message',{data:Uint8Array.of(0,255).buffer}));assert.equal(JSON.parse(h.events.at(-1).json).base64,'AP8=');
   assert.equal((await h.call('socket.send',{base64:'AP8='})).value.sent,true);assert.deepEqual(sent,Uint8Array.of(0,255));
   socket.bufferedAmount=65537;assert.equal((await h.call('socket.send',{text:'input'})).value.sent,false);
-  await h.call('network.close');assert.equal(disconnected,1);h.bridge.dispose();
+  // Unexpected loss retains the reservation for explicit resume; leaving from
+  // the disconnected screen must still cancel it and release the runtime.
+  socket.dispatchEvent(new Event('close'));assert.equal(released,0);
+  await h.call('network.close');assert.equal(disconnected,1);assert.equal(released,1);h.bridge.dispose();
+});
+
+test('cancelled dedicated admission releases a late socket and suppresses late events', async () => {
+  let resolve, released=0, disconnected=0;
+  const socket=new EventTarget();socket.infuser={lease_id:'lease'};
+  const h=harness({runtime:{release:async()=>{released++;}},sessions:{connect:()=>new Promise(r=>{resolve=r;}),disconnect:async()=>{disconnected++;}}});
+  const pending=h.call('socket.connect');await new Promise(r=>setImmediate(r));
+  await h.call('network.close');resolve(socket);
+  assert.equal((await pending).code,'cancelled');assert.equal(disconnected,1);assert.equal(released,1);
+  assert.equal(h.events.length,0);h.bridge.dispose();
+});
+
+test('deliberate leave releases the runtime even when disconnect acknowledgement fails', async () => {
+  let released=0;const socket=new EventTarget();socket.infuser={lease_id:'lease'};
+  const h=harness({runtime:{release:async()=>{released++;}},sessions:{connect:async()=>socket,disconnect:async()=>{throw Error('Lost acknowledgement');}}});
+  await h.call('socket.connect');assert.equal((await h.call('network.close')).ok,false);
+  assert.equal(released,1);h.bridge.dispose();
+});
+
+test('new joins wait for leave to release the old launch lease', async () => {
+  let release, released=0;const socket=new EventTarget();socket.infuser={lease_id:'lease'};
+  const h=harness({runtime:{release:()=>new Promise(r=>{release=()=>{released++;r();};})},sessions:{connect:async()=>socket,disconnect:async()=>{}}});
+  await h.call('socket.connect');const leave=h.call('network.close');
+  await new Promise(r=>setImmediate(r));
+  assert.equal((await h.call('socket.connect')).code,'already_connected');
+  const repeated=h.call('network.close');release();
+  assert.equal((await leave).ok,true);assert.equal((await repeated).ok,true);assert.equal(released,1);
+  h.bridge.dispose();
 });
 
 test('Unity jslib copies strings before asynchronous loading, reports missing bridge, and disposes safely', async () => {

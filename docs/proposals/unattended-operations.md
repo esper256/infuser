@@ -2,10 +2,10 @@
 
 Audience: Infuser developers.
 
-Status: implementation, automated acceptance, and ARM64 deployment complete.
-Encrypted off-server backup authorization remains deferred. Notification delivery
-and independent heartbeats are verified; cloud snapshot configuration and a
-volume-level restore were reported complete in private operator records.
+Status: implementation and automated acceptance complete, including ARM64 deployment
+checks. Operators configure their own backup storage, alert destinations, and
+external probes. Verify delivery and restoration for each installation; neither
+an available cloud snapshot nor another deployment's test proves recoverability.
 Conditional OS reboot windows and tracked service images are described in
 [host maintenance](../host-maintenance.md). Continue with the
 [SDK 1.0 stabilization plan](sdk-1.0-stabilization.md).

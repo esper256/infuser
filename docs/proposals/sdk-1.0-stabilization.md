@@ -165,7 +165,7 @@ release scope, not an assertion that they have passed the freeze gate.
 | --- | --- |
 | `identity.v1`, `saves.v1` | Frozen legacy journey exists. Freeze a versioned client too; preserve private-group/guest and old-client behavior |
 | `cloud_checkpoints.v1` | JSON/binary and conflict journeys exist. Main-import binary helpers now pass a real HTTP save/reload journey; freeze that surface with the candidate client |
-| `runtime_sessions.v1`, `sessions.v1`, `connections.websocket.v1` | Generic shared/multiple-run, browser, and ARM64 Docker/Caddy journeys passed. Record real Lanternfall integration/playtest evidence and freeze copied Node helpers |
+| `runtime_sessions.v1`, `sessions.v1`, `connections.websocket.v1` | Generic shared/multiple-run, browser, and ARM64 Docker/Caddy journeys passed. Record independent real-game integration/playtest evidence and freeze copied Node helpers |
 | `presence.v1`, `launch_intents.v1` | Peer and dedicated journeys exist. Freeze stale-target, hidden-game/group isolation, at-most-once, and no-backend-on-read behavior |
 | `peers.webrtc.v1` | Forced relay and browser studies exist. Complete physical sleep, full-duration renewal, and supported-browser acceptance before marking adapter stable |
 | `peers.peerjs.v1` | Independent fixture passed. Keep adapter preview until an existing user's game confirms the integration |
@@ -204,7 +204,7 @@ remain outside this freeze. None needs to block unchanged working games.
 5. **Close external acceptance and declare scope.** Collect actual game and device
    results, select the capabilities that passed, publish their support matrix and
    exact contract snapshot, then declare that scope stable. Anything unverified
-   stays explicitly preview. Do not make up Lanternfall or Windows test results.
+   stays explicitly preview. Record only observed game and platform test results.
 
 Keep fast semantic checks in the existing test workflow. Run Docker/Caddy, physical
 devices, sleep, and long renewal journeys when the affected boundary changes and

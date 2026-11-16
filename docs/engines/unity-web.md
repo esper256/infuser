@@ -2,15 +2,18 @@
 
 Audience: game authors and their agents.
 
-Use this recipe for [Choose the integration](../agents.md#choose-the-integration).
-Complete the main guide's connection step first. Apply the sections your game
-needs, then return to [Explicit play modes](../agents.md#explicit-play-modes)
-and finish its artwork, publishing, and handoff steps.
+**Creating a game?** Use this recipe to choose Unity features, then return to the
+[creation guide](../create-game.md). Skip connection and upload until publication.
+**Integrating an existing game?** Follow the [publishing checklist](../agents.md),
+connect once, apply the sections here that your game needs, then return to
+[Explicit play modes](../agents.md#explicit-play-modes). That checklist covers
+artwork, publication, and giving the user their play link.
 
 **Experimental.** Infuser can host Unity Web exports, including gzip, Brotli,
-and decompression-fallback files. The C# adapter targets Unity 6 and has not yet
-been compiled with a Unity Editor. Its JavaScript bridge and platform behavior
-have automated tests. Do not describe a source-only check as a Unity playtest.
+and decompression-fallback files. The C# adapter targets Unity 6. C# checks with
+test doubles and JavaScript/platform tests pass; actual Unity Editor import,
+IL2CPP export, and compiled-game playtests remain unverified. Do not describe
+those automated checks as a Unity playtest.
 
 ## Export an existing game
 
@@ -37,7 +40,7 @@ Use the [publisher download](../publisher-install.md) or [HTTP recipe](../publis
 Publish the project root so its declarations and artwork are included:
 
 ```sh
-infuser publish /private/game.credentials.json /path/to/project --preview
+infuser publish /private/game.credentials.json /path/to/project
 ```
 
 `web_dir` is relative to the project. `--web-dir /absolute/export/path` overrides
@@ -56,10 +59,23 @@ content bundles if necessary; report a size blocker rather than silently droppin
 
 ## Add identity, cloud saves, or multiplayer
 
-Copy the complete [Assets/Infuser folder](../../sdk/unity/Assets/Infuser) into
-your project's `Assets/Infuser`. Keep that path. There are no extra Unity packages.
-Rebuild: the included Editor hook places `infuser-unity.mjs` beside `index.html`.
-Keep that file in the upload. No custom Web template is required.
+Install the adapter using **Window → Package Manager → Install package from Git URL**:
+
+```text
+https://github.com/esper256/infuser.git?path=/sdk/unity#main
+```
+
+This uses the project's existing Git installation. Commit `Packages/manifest.json`
+and `Packages/packages-lock.json` so collaborators get the same revision; update
+deliberately. A reviewed commit can replace `main` in the URL. Alternatively,
+copy the complete [Assets/Infuser folder](../../sdk/unity/Assets/Infuser), including
+its `.meta` files, into your project's `Assets/Infuser`. Use one installation
+method, not both. If your scripts have an assembly definition, add an `Infuser.Unity`
+reference there. No Rust, Docker, or npm installation is needed.
+
+Rebuild Web: the Editor hook places `infuser-unity.mjs` beside `index.html`.
+Keep that file in the upload. No custom Web template is required. The adapter
+does not change your scenes, input system, render pipeline, or existing UI.
 
 ```csharp
 using Infuser.Unity;
@@ -97,16 +113,21 @@ For one JSON file per group, use a `[Serializable]` class with public fields:
 [System.Serializable]
 public class Progress { public int schema = 1; public int level; }
 
-var save = new JsonSave<Progress>(client, "progress", "progress.json");
+var save = new JsonSave<Progress>(client, "progress", "progress.json", value => {
+    if (value.schema != 1 || value.level < 0)
+        throw new System.Exception("Unsupported save. Keep it and return to the Library.");
+});
 await save.LoadAsync();
 var progress = save.Value ?? new Progress();
-// Validate schema/ranges, then start gameplay.
+// Validation runs on load, save, and conflict resolution. Now start gameplay.
 var result = await save.SaveAsync(progress, "Level " + progress.level);
 // Only result.status == "saved" means saved.
 ```
 
 `JsonSave` retains the exact serialized checkpoint and commit ID after a failed
-request. Use `RetryAsync()` before creating another checkpoint. A conflict keeps
+request. Use `RetryAsync()` before creating another checkpoint. Summaries may
+contain up to 80 characters and no control characters; invalid local inputs are
+rejected without creating a pending save. A conflict keeps
 both copies: read `ReadConflictAsync(false)` (cloud) and `ReadConflictAsync(true)`
 (this session), show summaries, validate the chosen copy, then call
 `ResolveAsync(useDevice)`. Another concurrent write may require another choice.
@@ -135,7 +156,9 @@ Use the [peer manifest](../peer-hosting.md), including both modes if applicable,
 `peers.webrtc.v1`, mandatory relay fallback, and `launch_intents: ["join_friend"]`.
 
 ```csharp
-client.Event += (kind, json) => { /* peer_state, peer_message, peer_end */ };
+client.PeerMessageReceived += message => { /* Validate and parse message.json. */ };
+client.PeerStateChanged += state => { /* Update the lobby from state.peers. */ };
+client.PeerEnded += ended => { /* Return to the title screen. */ };
 // Consume once after loading progress; ordinary Play has no intent.
 var launch = await client.ConsumeLaunchIntentAsync();
 // On a multiplayer selection, or when launch.intent?.kind == "join_friend":
@@ -148,8 +171,10 @@ if (room.role == "host") await client.SetJoinableAsync(true);
 
 Ordinary Play opens the title screen. Do not join multiplayer just because the
 SDK is ready. Failed Join Friend must return to that screen; never remove its
-target and create a replacement room. `PresenceAsync()` returns the existing
-[presence JSON](../presence.md), including who is online and joinable sessions.
+target and create a replacement room. `GetPresenceAsync()` returns typed
+[presence](../presence.md), including who is online and joinable sessions.
+Poll about every five seconds while showing a lobby; a failed poll must not
+disable single player. Presence is a hint, not an admission guarantee.
 
 `peer_message` contains `{from, json}`; parse the inner JSON into the game's message
 type. The host validates inputs and owns shared simulation. `SendPeerAsync`
@@ -159,14 +184,36 @@ browser peer SDK. Host departure ends the session; there is no host migration,
 automatic transform replication, rollback netcode, or arbitrary Unity RPC support.
 Use `relayOnly: true` for a relay test, normal ICE selection for everyday play.
 
-For **persistent worlds or authoritative multiplayer**, use a managed dedicated
-WebSocket server. The adapter's `socket.connect` operation takes the same options
-as [`sessions.connect`](../dedicated-sessions.md), including an exact Join Friend
-intent. `socket.send` accepts `{text}` or `{base64}` and returns `{sent}`;
-`socket_message` events carry the same shapes. `network.close` leaves the session.
-Server-side room reports, identity admission, and save ownership still follow
-the dedicated-session contract. [Node source packaging](node-server.md) is one
-available backend; custom containers must run on the host's architecture.
+For **authoritative multiplayer**, use [Node source packaging](node-server.md)
+with a managed WebSocket server. Follow the [dedicated-session contract](../dedicated-sessions.md)
+for the manifest, verified identity, rooms, and admission. The Unity client can
+keep its own text or binary gameplay protocol:
+
+```csharp
+client.SocketMessageReceived += message => {
+    if (message.IsBinary) { /* Validate and decode message.Bytes. */ }
+    else { /* Validate and decode message.text. */ }
+};
+client.SocketEnded += ended => { /* Offer Resume or Leave. */ };
+client.NetworkFailed += error => { /* Show a short retry/return action. */ };
+var connection = await client.ConnectSessionAsync(new SessionOptions {
+    intent = launch.intent, activity = "multiplayer"
+});
+// SendTextAsync(text) / SendBytesAsync(bytes) return .sent; do not queue forever.
+```
+
+After transport loss, resume the same session with `action = "resume"` and
+`target = new SessionTarget { session_id = connection.session.id }`. Resume can
+fail if its short reservation expired; show that failure, rather than creating
+a different run. On deliberate leave, call `LeaveMultiplayerAsync()` to cancel
+admission and release the server lease. Subscribe before connecting so early
+welcome messages are handled. The [adapter reference](../../sdk/unity/README.md)
+lists other connection options.
+
+**Persistent worlds** need the advanced container path, durable server storage,
+and clean shutdown; the Node source recipe currently supports ephemeral servers.
+Custom server images must support the host's architecture. Do not assume native
+Unity dedicated builds run on an ARM64 host.
 
 For an **existing Netcode, Mirror, Fusion, or other networking stack**, inspect
 its Web transport first. These bridges are not drop-in implementations of those
@@ -177,12 +224,24 @@ will run on an ARM64 host. Native Unity delivery is outside this recipe.
 
 ## Verify and hand back
 
-Check that the export and `infuser-unity.mjs` exist, publish a preview, and inspect
-the publisher's result and server diagnostics. If you have a Unity Editor, check
-its build log. Without authenticated play access, report that limit and invite
+Use **Infuser → Validate Web export** in the Editor to check required files.
+Then publish normally and inspect the publisher's result and, for server games,
+server diagnostics. `--preview` is only for deliberate admin-only tests: ordinary
+users cannot play hidden builds. Check the Unity build log when building locally.
+
+With play access, check load/save/reload, fresh guest progress, conflict choices,
+standalone behavior, and Join Friend. Multiplayer also needs two clients,
+disconnect/resume or host-departure handling, and forced relay for peer games.
+Test the intended desktop/mobile browsers; a Web build alone does not establish
+mobile performance or touch support. Fullscreen belongs to Infuser's player bar.
+
+Without authenticated play access, report that limit and invite
 the user to press Play in their Library; **do not request Google credentials or
 pause waiting for their agent to log in**. Follow the main guide's art prompt
-option when high-quality image generation is unavailable.
+option when high-quality image generation is unavailable. Include a description,
+tags, and either suitable cover art or an art-generation prompt; a screenshot is
+not required. [Report platform blockers](../agents.md#reporting-platform-problems)
+with sanitized diagnostics, never credentials.
 
 Unity references: [Web deployment and compression](https://docs.unity.com/en-us/engine/6000.3/manual/platform-specific/webgl/building-distribution/deploying),
 [browser plug-ins](https://docs.unity.com/en-us/engine/6000.3/manual/platform-specific/webgl/develop/interactingwithbrowserscripting/web-interacting-browser-js),

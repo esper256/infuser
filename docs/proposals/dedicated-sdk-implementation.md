@@ -46,8 +46,8 @@ SDK 1.0 remains a candidate. Existing games keep their current routes and behavi
 5. **Integration and candidate freeze.** Exercise the same contract in the dedicated
    fixture and a different room-admission flow. Supply a small Node helper and local
    development harness using the production protocol. Test real Docker/Caddy before
-   advertising support. Then let Lanternfall's agent adapt its game; this project
-   does not edit Lanternfall. Freeze only capabilities that pass these journeys.
+   advertising support. Validate integration in an independently authored game
+   without changing its gameplay. Freeze only capabilities that pass these journeys.
 
 Each step should leave a tested, reviewable change. Keep incomplete entry points
 unadvertised and clearly identified as internal scaffolding; no game should need
@@ -83,9 +83,8 @@ The live ARM64 Docker/Caddy journey also passed: source packaging, two distinct
 guest identities, exact Join Friend, a separate single-player room, publisher
 diagnostics, controller restart with both players resuming the same process/run,
 draining updates, old-client refusal, a declared path/subprotocol and idle shutdown.
-The hidden fixture was removed after testing; family games were not republished.
+The hidden fixture was removed after testing; existing games were not republished.
 
-Lanternfall itself remains untouched. Its agent can now integrate against the
-documented contract. Keep SDK 1.0 a candidate until that real-game integration
-confirms the contract. Browser-only single player can coexist with managed
+Keep SDK 1.0 a candidate until an independent real-game integration confirms the
+documented contract. Browser-only single player can coexist with managed
 multiplayer; the platform does not require every mode to use the server.

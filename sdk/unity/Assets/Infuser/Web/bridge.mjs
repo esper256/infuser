@@ -11,7 +11,7 @@ export function createBridge(send, loadSdk = connect) {
   const sdk = Promise.resolve().then(loadSdk);
   // Loading is asynchronous, but a failed connection is reported by each call.
   sdk.catch(() => {});
-  let peer = null, socket = null, generation = 0, joining = false, disposed = false, connectingAbort = null;
+  let peer = null, socket = null, reservation = null, closing = null, generation = 0, joining = false, disposed = false, connectingAbort = null;
   const emit = (event, value) => { if (!disposed) send({event, json: JSON.stringify(value ?? null)}); };
   const failure = (code, message) => Object.assign(new Error(message), {code});
   const requirePeer = () => {
@@ -20,13 +20,24 @@ export function createBridge(send, loadSdk = connect) {
   };
   const errorEvent = e => emit('session_error', {error:e.detail?.message || 'Return to the Library and launch again.', code:e.detail?.code, status:e.detail?.status});
   globalThis.addEventListener?.('infuser-session-error', errorEvent);
+  async function disconnect(api, s) {
+    // Deliberate leave ends this launch's reservation and runtime lease.
+    // Unexpected transport loss keeps the lease available for resume instead.
+    try { await api.sessions.disconnect(s); }
+    finally { if (s.infuser?.lease_id) await api.runtime.release(s.infuser.lease_id); }
+  }
   async function close(api) {
+    if (closing) return closing;
     generation++;
     connectingAbort?.abort();
-    const oldPeer = peer, oldSocket = socket;
-    peer = socket = null;
-    oldPeer?.close();
-    if (oldSocket) await api.sessions.disconnect(oldSocket);
+    const oldPeer = peer, oldSocket = socket || reservation;
+    peer = socket = reservation = null;
+    // Do not let a new join acquire the same launch lease while leave releases it.
+    closing = Promise.resolve().then(async () => {
+      oldPeer?.close();
+      if (oldSocket) await disconnect(api, oldSocket);
+    }).finally(() => { closing = null; });
+    return closing;
   }
   async function operation(op, a) {
     const api = await sdk;
@@ -57,7 +68,7 @@ export function createBridge(send, loadSdk = connect) {
         return a.candidateRevision ? api.cloud.resolve(a.group, {...checkpoint, candidateRevision:a.candidateRevision}) : api.cloud.commit(a.group, checkpoint);
       }
       case 'peer.join': {
-        if (peer || socket || joining) throw failure('already_connected', 'Leave the current multiplayer session first.');
+        if (peer || socket || joining || closing) throw failure('already_connected', 'Wait for the current multiplayer join or leave to finish.');
         joining = true;
         const current = ++generation;
         const event = (name, value) => { if (current === generation) emit(name, value); };
@@ -79,18 +90,18 @@ export function createBridge(send, loadSdk = connect) {
       case 'peer.broadcast': requirePeer().broadcast(JSON.parse(a.json)); return {};
       case 'peer.joinable': return {joinable:await requirePeer().setJoinable(a.joinable)};
       case 'socket.connect': {
-        if (peer || socket || joining) throw failure('already_connected', 'Leave the current multiplayer session first.');
+        if (peer || socket || joining || closing) throw failure('already_connected', 'Wait for the current multiplayer join or leave to finish.');
         joining = true;
         const current = ++generation;
         const abort = new AbortController();
         connectingAbort = abort;
         try {
           const s = await api.sessions.connect({...a, binaryType:'arraybuffer', signal:abort.signal});
-          if (current !== generation || disposed) { await api.sessions.disconnect(s); throw failure('cancelled', 'Join cancelled.'); }
-          socket = s;
+          if (current !== generation || disposed) { await disconnect(api, s); throw failure('cancelled', 'Join cancelled.'); }
+          socket = reservation = s;
           s.addEventListener('message', e => {
             if (current !== generation) return;
-            emit('socket_message', typeof e.data === 'string' ? {text:e.data} : api.cloud.encodeBinary(new Uint8Array(e.data)));
+            emit('socket_message', typeof e.data === 'string' ? {text:e.data, binary:false} : {...api.cloud.encodeBinary(new Uint8Array(e.data)), binary:true});
           });
           s.addEventListener('close', e => { if (current === generation) { socket = null; emit('socket_end', {code:e.code, reason:e.reason}); } });
           s.addEventListener('error', () => { if (current === generation) emit('socket_error', {error:'Game connection failed.'}); });
@@ -116,8 +127,8 @@ export function createBridge(send, loadSdk = connect) {
       disposed = true; generation++; peer?.close(); peer = null;
       connectingAbort?.abort();
       // Close the connection immediately even if the SDK request is interrupted.
-      const oldSocket = socket; socket = null; oldSocket?.close();
-      if (oldSocket) sdk.then(api => api?.sessions.disconnect(oldSocket)).catch(() => {});
+      const oldSocket = socket || reservation; socket = reservation = null; oldSocket?.close();
+      if (oldSocket) sdk.then(api => api && disconnect(api, oldSocket)).catch(() => {});
       globalThis.removeEventListener?.('infuser-session-error', errorEvent);
     }
   };

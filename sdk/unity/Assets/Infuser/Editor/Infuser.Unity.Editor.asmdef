@@ -1,0 +1,6 @@
+{
+  "name": "Infuser.Unity.Editor",
+  "references": ["Infuser.Unity"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

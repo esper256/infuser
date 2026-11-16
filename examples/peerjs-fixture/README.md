@@ -2,6 +2,9 @@
 
 Audience: Infuser developers.
 
+`--preview` in this fixture is for admin-only testing. Publish normally when an
+ordinary user needs to play; hidden builds are not available to them.
+
 Small disposable networking fixture, not Event Horizon. It reuses one real
 PeerJS DataConnection handler for hosted and standalone play, including binary
 messages and automatic motion without AI. Keep it an admin-only preview.
