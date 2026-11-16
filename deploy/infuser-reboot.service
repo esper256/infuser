@@ -1,0 +1,17 @@
+[Unit]
+Description=Reboot for Ubuntu updates only when Infuser is idle
+After=network-online.target
+ConditionPathExists=/var/run/reboot-required
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/infuser/reboot.conf
+ExecStart=/usr/local/libexec/infuser-host-maintenance-lock /usr/local/libexec/infuser-reboot-if-required
+User=root
+UMask=0077
+TimeoutStartSec=30
+MemoryMax=64M
+TasksMax=32
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true

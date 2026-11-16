@@ -102,6 +102,10 @@ collect Caddy or browser logs.
 
 ## Check the installation
 
+For OS patch reboots and shared-service image updates, follow
+[host maintenance](host-maintenance.md). This is separate from Infuser's binary
+updater and preserves the same idle-maintenance admission rules.
+
 Run `infuser check /etc/infuser/infuser.toml`, then check
 `systemctl status infuser` and `curl --fail http://127.0.0.1:7777/healthz`.
 The health endpoint confirms the daemon is running. Test a game separately.

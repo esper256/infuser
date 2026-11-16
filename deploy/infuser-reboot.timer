@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for required reboots during the early maintenance window
+
+[Timer]
+# Operator override must use the same zone as INFUSER_MAINTENANCE_TIMEZONE.
+OnCalendar=*-*-* 04:00,05,10,15,20,25:00 Etc/UTC
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+
+[Install]
+WantedBy=timers.target
