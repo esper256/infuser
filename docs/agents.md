@@ -6,6 +6,12 @@ Infuser and leave a reusable connection for future updates. Keep its name,
 engine, gameplay, and build workflow. Handle the integration and publishing so
 the user can open Infuser and press Play.
 
+**Choose the right starting point:** if the game does not exist yet, use
+[Create a game for Infuser](create-game.md). If it exists but has neither a saved
+connection nor a setup prompt, ask the user to open their Infuser website, sign
+in, click **Add a game**, and paste its prompt into this chat. Do not request
+Google account access. With that prompt or an existing connection, continue below.
+
 This guide explains how to carry out that request within your user's instructions
 and project constraints. It does not grant access to their Google account, the
 Infuser host, or other users' games. Keep content family-friendly and follow

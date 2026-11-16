@@ -11,7 +11,11 @@ Infuser; developer guides describe changing Infuser itself.
 
 ## Game authors and their agents
 
-Start with [Put an existing game on Infuser](agents.md). Use a [publisher download](publisher-install.md)
+Making a new game? Start with [Create a game for Infuser](create-game.md) to choose
+features, engine, platforms, and multiplayer design. No setup code is needed yet.
+
+Already have a game or an Add a game prompt? Use [Put an existing game on Infuser](agents.md)
+for integration and publishing. Use a [publisher download](publisher-install.md)
 or [HTTP publishing](publishing-http.md); no Infuser build toolchain is required.
 
 - Engines: [Three.js/Vite and HTML](engines/threejs-vite.md), [Node servers](engines/node-server.md),
