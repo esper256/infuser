@@ -3,7 +3,7 @@ use super::*;
 use std::collections::BTreeSet;
 
 pub(super) fn capabilities() -> Value {
-    json!({"version":1,"experimental":true,"joinability":["peer_hosted_webrtc"]})
+    json!({"version":1,"experimental":true,"joinability":["peer_hosted_webrtc","dedicated_websocket"]})
 }
 
 pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTreeSet<String> {
@@ -86,12 +86,21 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
         }
     }
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
-    let supported = build.manifest.multiplayer.as_ref().is_some_and(|m| {
+    let dedicated = build.manifest.dedicated_sessions();
+    let sessions = if dedicated {super::dedicated::live_sessions(&p,&data,&launch.app,&launch.build,time)} else {vec![]};
+    for room in &sessions {
+        for member in room["players"].as_array().unwrap() {
+            let player = member["player_id"].as_str().unwrap();
+            players.insert(player.to_owned(),json!({"player_id":player,"name":member["name"],"guest":member["guest"],
+                "is_self":player==own_id,"online":true,"game_open":true,"multiplayer":room["activity"] == "multiplayer"}));
+        }
+    }
+    let supported = dedicated || build.manifest.multiplayer.as_ref().is_some_and(|m| {
         m.mode == Mode::PeerHosted && m.transport == crate::manifest::Transport::Webrtc
     });
     let unavailable = if !supported {
         Some("unsupported_topology")
-    } else if p.relay.is_none() {
+    } else if !dedicated && p.relay.is_none() {
         Some("relay_unavailable")
     } else if !data
         .apps
@@ -99,15 +108,17 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
         .is_some_and(|a| a.build == launch.build)
     {
         Some("newer_build")
-    } else if !p.peers.available(time) {
+    } else if dedicated && data.pending_promotions.contains_key(&launch.app) {
+        Some("server_draining")
+    } else if !dedicated && !p.peers.available(time) {
         Some("coordinator_restarting")
     } else {
         None
     };
     Ok(reply(
         json!({"app_id":launch.app,"build_id":launch.build,"self_id":own_id,
-        "players":players.into_values().collect::<Vec<_>>(),"session":session,
-        "can_start":unavailable.is_none() && session.is_null(),"unavailable_reason":unavailable}),
+        "players":players.into_values().collect::<Vec<_>>(),"session":session,"sessions":sessions,
+        "can_start":unavailable.is_none() && if dedicated {build.manifest.sessions.as_ref().is_some_and(|s| s.policy == crate::dedicated::Policy::Multiple) || sessions.is_empty()} else {session.is_null()},"unavailable_reason":unavailable}),
     ))
 }
 

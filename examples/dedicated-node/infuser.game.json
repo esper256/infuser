@@ -5,6 +5,8 @@
   "solo_runtime": "shared_server",
   "server_start": "on_demand",
   "multiplayer": {"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},
-  "sdk": {"major":1,"api_major":1,"required_capabilities":["identity.v1","runtime_sessions.v1"]},
+  "sessions": {"policy":"multiple","max_players_per_session":8},
+  "launch_intents": ["join_friend"],
+  "sdk": {"major":1,"api_major":1,"required_capabilities":["identity.v1","runtime_sessions.v1","connections.websocket.v1","sessions.v1"]},
   "server": {"runtime":"node","node_major":24,"dir":"server","entry":"server.js","health_path":"/healthz","memory_mb":128,"cpu_millis":250,"idle_seconds":5}
 }

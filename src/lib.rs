@@ -4,6 +4,7 @@ pub mod card_art;
 pub mod cloud;
 pub mod config;
 pub mod connections;
+pub mod dedicated;
 pub mod controller;
 pub mod docker;
 pub mod game_urls;

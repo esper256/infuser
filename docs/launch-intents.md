@@ -1,6 +1,6 @@
 # Join friend launch intents
 
-**Experimental v1, currently peer-hosted WebRTC only.** Ordinary Play opens the
+**Experimental v1, for peer-hosted WebRTC and managed dedicated WebSocket games.** Ordinary Play opens the
 game's title screen. Join friend is an explicit request to join a specific person
 in a specific existing session. It never means creating a replacement world.
 
@@ -40,10 +40,15 @@ The card menu's Join action uses the signed-in player's progress.
 
 Add `"launch_intents":["join_friend"]` to `infuser.game.json`; the publisher checks
 `capabilities.launch_intents.version === 1` before upload. The manifest is accepted
-only for peer-hosted WebRTC games. An unsupported game's launch rejects an intent
+for peer-hosted WebRTC or builds declaring [dedicated sessions](dedicated-sessions.md).
+An unsupported game's launch rejects an intent
 with 422 rather than pretending it can handle it. Old builds need no changes.
 
-After loading its state, the game consumes the optional intent once:
+Dedicated games pass the consumed intent to `Infuser.sessions.connect({intent})`.
+The helper checks that the exact session and friend are still present. It never
+creates a replacement run. Ordinary Play still opens the game's title screen.
+
+For peer games, after loading its state, consume the optional intent once:
 
 ```js
 import { ready, launchIntent, peers } from '/_infuser/sdk/v1.js';

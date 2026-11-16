@@ -169,6 +169,15 @@ pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
             build.manifest.launch_intents = serde_json::from_str(&declaration)?;
         }
     }
+    let mut statement = c.prepare("SELECT build_key,declaration FROM dedicated_manifests")?;
+    for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (key, declaration) = row?;
+        if let Some(build) = data.builds.get_mut(&key) {
+            let value: serde_json::Value = serde_json::from_str(&declaration)?;
+            build.manifest.sessions = serde_json::from_value(value["sessions"].clone())?;
+            build.manifest.server_connection = serde_json::from_value(value["server_connection"].clone())?;
+        }
+    }
     Ok(data)
 }
 fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
@@ -194,6 +203,11 @@ fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
         tx.execute("INSERT INTO game_urls(app,declaration) VALUES(?1,?2) ON CONFLICT(app) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![app,serde_json::to_string(url)?])?;
     }
     for (key, build) in &data.builds {
+        if build.manifest.sessions.is_some() || build.manifest.server_connection.is_some() {
+            let declaration = serde_json::json!({"sessions":build.manifest.sessions,"server_connection":build.manifest.server_connection});
+            tx.execute("INSERT INTO dedicated_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration", params![key, declaration.to_string()])?;
+        }
+        for field in ["sessions", "server_connection"] {value["builds"][key]["manifest"].as_object_mut().unwrap().remove(field);}
         if let Some(sdk) = &build.manifest.sdk {
             tx.execute("INSERT INTO sdk_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(sdk)?])?;
         }
@@ -263,6 +277,11 @@ fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
             tx.execute("DELETE FROM sdk_manifests WHERE build_key=?1", [key])?;
         }
     }
+    let keys = {
+        let mut stmt = tx.prepare("SELECT build_key FROM dedicated_manifests")?;
+        stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for key in keys {if !data.builds.contains_key(&key) {tx.execute("DELETE FROM dedicated_manifests WHERE build_key=?1", [key])?;}}
     Ok(serde_json::to_string(&value)?)
 }
 pub struct Database {
@@ -292,6 +311,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS server_builds(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS runtime_manifests(build_key TEXT PRIMARY KEY, server_start TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS dedicated_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute(
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
             [serde_json::to_string(&Data::default())?],

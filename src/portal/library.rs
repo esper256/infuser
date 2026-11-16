@@ -65,7 +65,7 @@ impl View<'_> {
         p.peers
             .retain_launches(id, &presence::live_launches(data, id, self.time), self.time);
         let room = p.peers.discovery(id, &app.build, self.time);
-        let join_targets: Vec<_> = if !self.inspecting
+        let mut join_targets: Vec<_> = if !self.inspecting
             && build
                 .manifest
                 .launch_intents
@@ -89,6 +89,15 @@ impl View<'_> {
         } else {
             vec![]
         };
+        if !self.inspecting && build.manifest.dedicated_sessions()
+            && build.manifest.launch_intents.contains(&crate::launch_intent::Kind::JoinFriend) {
+            for session in dedicated::live_sessions(p,data,id,&app.build,self.time) {
+                if session["joinable"] != true || session["activity"] != "multiplayer" {continue;}
+                for player in session["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(self.email)) {
+                    join_targets.push(json!({"session_id":session["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]}));
+                }
+            }
+        }
         let desktop = native::bundle(p, id, &app.build, build).ok().flatten();
         let author = data.owners.get(id).and_then(|owner| {
             data.members

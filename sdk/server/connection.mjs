@@ -1,4 +1,4 @@
-// Internal SDK candidate. Not yet a supported game integration; see the implementation plan.
+// SDK v1 candidate proof verifier; use hosting.mjs for complete room admission.
 import {createPublicKey, verify} from 'node:crypto';
 
 export function createConnectionVerifier(env = process.env) {

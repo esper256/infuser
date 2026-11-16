@@ -62,6 +62,8 @@ Copy the complete example from the matching multiplayer recipe.
   the installation. Other runtimes and persistent worlds use the advanced staged-image
   [publishing API](public-api.md). Use [on-demand sessions](runtime-sessions.md)
   when the title screen or single-player mode does not need the backend.
+  For Node `ws` games, [dedicated sessions](dedicated-sessions.md) adds verified
+  identity, room discovery, reconnect and Join Friend without changing gameplay messages.
 - The separate `relayed` datagram/WebSocket mode is **not implemented**.
 
 Engine choice does not determine networking. Never relabel multiplayer as single

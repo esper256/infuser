@@ -8,12 +8,28 @@ not Lanternfall's source or a claim that Lanternfall has been tested.
 Standalone: run `npm ci --ignore-scripts` in `server`, then `node server.js` and open
 `http://localhost:8080`. This path makes no Infuser requests.
 
-Hosted: publish this directory with the normal publisher and `--preview`. The agent
+Hosted: run `node examples/dedicated-node/prepare.mjs` from the repository root.
+This stages `.local/dedicated-sdk-project` with the current server helper. Publish
+that staged directory with the normal publisher and `--preview`. The agent
 needs no Docker installation. The server's Node packaging recipe must be enabled
 on the installation. The source and public export are separate. The title screen
 stays cold until a run is chosen. `?autoplay=1` chooses the shared run and moves its
 player deterministically; it uses no model or tokens.
 
-The fixture currently tests hosting and gameplay transport. Identity verification,
-session discovery and Join Friend are separate integration steps; room labels in
-this fixture are not passwords or access credentials.
+The fixture exercises verified identity, guest isolation, multiple and single-player
+runs, Join Friend, reconnects, idle shutdown and queued updates. It keeps the same
+gameplay messages in standalone and hosted modes. Room labels are not passwords.
+
+For local development without Google or Docker, stage it, run `npm ci --ignore-scripts`
+in the staged `server` folder, then run:
+
+```sh
+INFUSER_TEST_NODE=node cargo run --example dedicated_fixture -- \
+  .local/dedicated-sdk-project .local/dedicated-ready.json
+node tests/dedicated_sessions_journey.mjs .local/dedicated-ready.json
+```
+
+The browser test requires Playwright from `services/peerjs` and an installed Chromium.
+The harness binds only loopback, uses synthetic members and deletes temporary data
+on exit. Its ready file contains a test publishing credential: keep it private.
+Production tests still use the real Docker/Caddy deployment.

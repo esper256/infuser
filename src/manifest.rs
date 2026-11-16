@@ -21,6 +21,10 @@ pub struct Manifest {
     pub server_start: Option<ServerStart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_saves: Option<crate::cloud::Declaration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<crate::dedicated::Declaration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_connection: Option<crate::dedicated::SocketDeclaration>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -93,18 +97,38 @@ pub enum PeerAdapter {
 }
 
 impl Manifest {
+    pub fn dedicated_sessions(&self) -> bool {
+        self.sessions.is_some() && self.sdk.as_ref().is_some_and(|sdk|
+            [crate::connections::CAPABILITY, crate::dedicated::CAPABILITY].iter().all(|c| sdk.required_capabilities.iter().any(|v| v == c)))
+    }
     pub fn validate(&self) -> Result<()> {
         if let Some(sdk) = &self.sdk {
             sdk.validate()?;
+            if sdk.required_capabilities.iter().any(|c| c == crate::connections::CAPABILITY || c == crate::dedicated::CAPABILITY) {
+                ensure!(self.sessions.is_some() && self.dedicated_sessions(),"managed connection capabilities require a sessions declaration and both sessions.v1 and connections.websocket.v1");
+            }
         }
         ensure!(
             self.launch_intents.len() <= 1
                 && (self.launch_intents.is_empty()
                     || self.multiplayer.as_ref().is_some_and(
-                        |m| m.mode == Mode::PeerHosted && m.transport == Transport::Webrtc
+                        |m| (m.mode == Mode::PeerHosted && m.transport == Transport::Webrtc)
+                            || (self.dedicated_sessions() && m.mode == Mode::Dedicated && m.transport == Transport::Websocket)
                     )),
-            "join_friend currently requires peer-hosted WebRTC; declare it at most once"
+            "join_friend requires peer-hosted WebRTC or managed dedicated WebSocket sessions; declare it at most once"
         );
+        if let Some(sessions) = &self.sessions {
+            ensure!(self.dedicated_sessions(), "sessions requires sessions.v1 and connections.websocket.v1 SDK capabilities");
+            ensure!((1..=256).contains(&sessions.max_players_per_session), "session capacity must be 1–256");
+            ensure!(self.server_start == Some(ServerStart::OnDemand), "sessions requires on-demand server startup");
+            ensure!(self.multiplayer.as_ref().is_none_or(|m| m.mode == Mode::Dedicated && m.transport == Transport::Websocket), "managed sessions currently support dedicated WebSocket servers");
+            ensure!(self.multiplayer.as_ref().is_none_or(|m| m.max_players == sessions.max_players_per_session), "multiplayer.max_players must match max_players_per_session");
+            ensure!(!self.play_modes.contains(&PlayMode::Solo) || matches!(self.solo_runtime, Some(SoloRuntime::SharedServer)), "managed solo sessions require shared_server");
+        }
+        if let Some(connection) = &self.server_connection {
+            ensure!(self.dedicated_sessions(), "server_connection requires managed sessions");
+            connection.validate()?;
+        }
         ensure!(
             self.server_start.is_none()
                 || matches!(self.solo_runtime, Some(SoloRuntime::SharedServer))

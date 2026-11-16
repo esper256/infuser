@@ -1,7 +1,7 @@
 // Pre-1.0 Infuser browser SDK; see docs/sdk-contract.md before extending this contract.
 // Import it, or include it as a module script for automatic heartbeats.
 export class InfuserError extends Error {
-  constructor(message, status) { super(message); this.status = status; }
+  constructor(message, status) { super(typeof message === 'string' ? message : message?.message || 'Infuser request failed'); this.status = status; if(message?.code)this.code=message.code; }
 }
 async function request(path, options = {}) {
   const response = await fetch('/_infuser/api/v1/' + path, { credentials: 'same-origin', ...options });
@@ -37,8 +37,8 @@ export const cloud = {load:checkpoint('load'),read:checkpoint('read'),history:ch
 // acquire() returns starting/ready; poll status() before connecting. Keep the
 // returned session_id for release so an old retry cannot end a newer session.
 export const runtime = {
-  acquire: () => request('runtime/v1', {method:'POST'}),
-  status: () => request('runtime/v1'),
+  acquire: (options = {}) => request('runtime/v1', {method:'POST',signal:options.signal}),
+  status: (options = {}) => request('runtime/v1', {signal:options.signal}),
   release: sessionId => {
     if (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId)) {
       return Promise.reject(new TypeError('release requires the acquired session_id'));
@@ -55,7 +55,11 @@ export const launchIntent = {
   // At most once: refresh and lost-response retries cannot silently replay a join.
   consume: () => request('launch-intent/v1/consume', {method:'POST',signal:AbortSignal.timeout(5000)})
 };
-export const Infuser = { version, ready, saves, leave, peers, peerjs, cloud, runtime, presence, launchIntent };
+export const sessions = {
+  connect: async options => (await import('/_infuser/sdk/v1/sessions.js')).connect(options),
+  disconnect: async socket => (await import('/_infuser/sdk/v1/sessions.js')).disconnect(socket)
+};
+export const Infuser = { version, ready, saves, leave, peers, peerjs, cloud, runtime, presence, launchIntent, sessions };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.

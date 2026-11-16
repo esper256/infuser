@@ -12,6 +12,9 @@ impl Platform {
         let (Some(lease), Some(token)) = (&launch.lease_id, &launch.lease_token) else {
             return Ok(json!({"state":"idle","session_id":null,"endpoint":null,"error":null}));
         };
+        // Managed-session demand is renewed by authenticated live sockets, not
+        // title-screen timers. An acquisition has its initial bounded startup lease.
+        let renew = renew && !self.db.read()?.builds[&build_key(&launch.app,&launch.build)].manifest.dedicated_sessions();
         let state = match self.controller.lease(
             &launch.app,
             lease,
@@ -76,6 +79,11 @@ pub(super) async fn acquire(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.admit(&h).await;
     let _guard = p.publishing.lock().unwrap();
     let (id, mut launch) = p.runtime_launch(&h)?;
+    let data = p.db.read()?;
+    if data.builds[&build_key(&launch.app,&launch.build)].manifest.dedicated_sessions()
+        && data.pending_promotions.contains_key(&launch.app) {
+        ensure!(p.runtime_view(&launch,false)?["state"] == "ready", crate::dedicated::fault(409,"server_draining","An update is waiting; existing runs are finishing."));
+    }
     ensure!(
         p.db.read()?
             .apps

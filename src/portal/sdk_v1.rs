@@ -67,3 +67,6 @@ pub(super) async fn peerjs() -> impl IntoResponse {
 pub(super) async fn cloud() -> impl IntoResponse {
     javascript(include_str!("../../sdk/v1/cloud.js"))
 }
+pub(super) async fn sessions() -> impl IntoResponse {
+    javascript(include_str!("../../sdk/v1/sessions.js"))
+}

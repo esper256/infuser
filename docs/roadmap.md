@@ -1,10 +1,9 @@
 # Remaining work
 
-- Extend [dedicated Node hosting](server-packaging.md) with verified WebSocket
-  connections and dedicated session discovery/Join Friend under the
-  [accepted SDK direction](sdk-1.0-decisions.md). Packaging and hosting have passed
-  the Docker and live two-browser journeys. Actual game adaptation and playtesting
-  remain separate acceptance steps; reviewing a game's source is not a playtest.
+- Integrate and playtest Lanternfall using [dedicated sessions](dedicated-sessions.md).
+  The platform supplies verified identity, discovery, Join Friend, reconnects and
+  queued updates. Shared and multiple-run fixtures exercise the generic contract;
+  reviewing Lanternfall's source is not a playtest or an adaptation of that game.
 - Finish [Godot web](engines/godot-web.md) acceptance on actual Windows browsers,
   physical laptop sleep, and full-duration TURN credential renewal. Bazzite
   Flatpak Chrome has passed threaded/single-threaded exports, forced relay,

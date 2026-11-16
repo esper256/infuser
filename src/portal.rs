@@ -37,6 +37,7 @@ mod card_art;
 mod chat;
 mod client;
 mod connections;
+mod dedicated;
 mod feedback;
 mod groups;
 mod library;
@@ -84,6 +85,10 @@ impl IntoResponse for Error {
             )
                 .into_response();
         }
+        if let Some(f) = self.0.downcast_ref::<crate::dedicated::Fault>() {
+            return (StatusCode::from_u16(f.status).unwrap(), [("Cache-Control", "no-store")],
+                Json(json!({"error":{"code":f.code,"message":f.message}}))).into_response();
+        }
         let (status, message) = match self.0.downcast_ref::<Fault>() {
             Some(f) => (f.status, f.message.clone()),
             None => {
@@ -120,6 +125,7 @@ pub struct Platform {
     connection_signer: Arc<crate::connections::Signer>,
     connections: Arc<Mutex<crate::connections::Attempts>>,
     connection_epoch: String,
+    dedicated: Arc<Mutex<crate::dedicated::Directory>>,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -159,6 +165,7 @@ impl Platform {
             )?),
             connections: Default::default(),
             connection_epoch: secret()[..16].into(),
+            dedicated: Default::default(),
             packager: Arc::new(crate::server_package::worker::DockerWorker {
                 settings: controller.config.controller.clone(),
             }),
@@ -329,6 +336,8 @@ impl Platform {
             .get(id)
             .filter(|l| l.expires > now())
             .ok_or_else(|| fault(410, "game session expired"))?;
+        ensure!(data.members.get(&launch.email).is_some_and(|m|m.enabled)
+            && data.groups.allows(&launch.email,&launch.app),fault(401,"Game authorization ended."));
         let mut status = json!({"state":"ready","endpoint":null});
         let on_demand = data.builds[&build_key(&launch.app, &launch.build)]
             .manifest
@@ -482,6 +491,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/sdk/v1/peerjs.js", get(sdk_v1::peerjs))
         .route("/_infuser/peerjs/peerjs", get(peerjs::socket))
         .route("/_infuser/sdk/v1/cloud.js", get(sdk_v1::cloud))
+        .route("/_infuser/sdk/v1/sessions.js", get(sdk_v1::sessions))
         .route("/", get(page))
         .route("/games/{slug}", get(page))
         .route("/clubhouse", get(page))
@@ -548,6 +558,10 @@ pub fn router(platform: Platform) -> Router {
         )
         .route("/api/admin/credentials/{id}", delete(revoke))
         .route("/api/server/verify", post(verify_ticket))
+        .route("/api/server/v1/register", post(dedicated::register).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/server/v1/sessions", put(dedicated::report).layer(DefaultBodyLimit::max(131072)))
+        .route("/api/server/v1/connections/{connection}/admission", post(dedicated::admission).layer(DefaultBodyLimit::max(8192)))
+        .route("/api/server/v1/control", get(dedicated::control))
         .route("/_infuser/session", post(exchange))
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
@@ -1005,7 +1019,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"sessions":crate::dedicated::capabilities(),"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -1458,7 +1472,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         hash(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"app_id":l.app,"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {

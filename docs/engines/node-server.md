@@ -55,9 +55,10 @@ Merge this into the existing declaration, preserving title, SDK, saves, tags and
 artwork. Use `client_only` when single-player genuinely needs no backend. A game can
 add multiplayer in an update under the same app ID and publishing credential.
 
-Use [on-demand runtime sessions](../runtime-sessions.md) when the player chooses to
-start a run. Wait for `ready`, then connect to the returned endpoint using WebSocket
-(`wss:`), with a trailing `/` at `/_infuser/server/`. Keep SDK heartbeats running.
+For verified identity, presence, reconnects and Join Friend, use
+[dedicated sessions](../dedicated-sessions.md). Its browser helper warms the backend
+and returns an ordinary WebSocket after admission. Add its manifest fields and
+copy the two Node helper files into the server source. Keep SDK heartbeats running.
 Disconnect and release the backend lease on returning to the title screen.
 Use the [optional integration helper](../../sdk/optional.js) to retain standalone
 play. A failed Infuser launch must not fall back to an unrelated public server.
@@ -87,13 +88,11 @@ dependencies, workspaces, project npm configuration or external backend services
 Managed servers can reach the provided Infuser API URL but have no Internet egress.
 The [advanced staged-image route](../public-api.md) remains available for other needs.
 
-This slice supplies packaging and hosting. Dedicated-server presence and Join Friend
-are separate capabilities; do not declare peer-hosted features for a dedicated game
-or trust identity headers that this preview has not promised to verify. The existing
-`/api/server/verify` contract accepts game tickets already held by a supported client;
-it does not make the browser's HttpOnly launch cookie available to game JavaScript.
-Do not claim a browser player's Infuser identity is verified merely because the
-WebSocket passed the proxy. A browser-to-server identity handoff is separate SDK work.
+Older games may keep the existing `runtime.acquire()` plus `/_infuser/server/`
+transport. That route alone does not verify a browser player's identity or report
+room membership. Use the dedicated-session helper for those features; do not
+declare peer-hosted capabilities for a dedicated game. Both routes preserve the
+game's own message protocol.
 
 Use the [dedicated fixture](../../examples/dedicated-node) to test cold startup,
 multiple connections, guest launches, reconnection, idle shutdown and updates.

@@ -1,8 +1,6 @@
-//! Unadvertised transport foundation. Room admission is a separate next step.
+//! Verified WebSocket admission and transport for managed dedicated sessions.
 use super::*;
-use crate::connections::{
-    Attempt, CAPABILITY, Identity, MAX_MESSAGE_BYTES, PROOF_SECONDS, State as ConnectionState,
-};
+use crate::connections::{Attempt, Identity, PROOF_SECONDS, State as ConnectionState};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use futures_util::{SinkExt, StreamExt};
 use tokio::time::{Duration, Instant, timeout};
@@ -26,9 +24,10 @@ fn prune(p: &Platform) -> Result<()> {
 }
 
 pub(super) async fn options(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    allowed(&p, &h)?;
+    let (_, launch) = allowed(&p, &h)?;
+    let build = &p.db.read()?.builds[&build_key(&launch.app, &launch.build)];
     Ok(reply(
-        json!({"epoch":p.connection_epoch,"max_message_bytes":MAX_MESSAGE_BYTES}),
+        json!({"epoch":p.connection_epoch,"connection":build.manifest.server_connection.clone().unwrap_or_default(),"limits":crate::dedicated::capabilities()}),
     ))
 }
 
@@ -38,11 +37,7 @@ fn allowed(p: &Platform, h: &HeaderMap) -> Result<(String, Launch)> {
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
     ensure!(
         build.server.as_ref().is_some_and(|server| server.web)
-            && build
-                .manifest
-                .sdk
-                .as_ref()
-                .is_some_and(|sdk| sdk.required_capabilities.iter().any(|c| c == CAPABILITY)),
+            && build.manifest.dedicated_sessions(),
         fault(
             422,
             "this build does not declare managed WebSocket connections"
@@ -108,18 +103,16 @@ fn validate(p: &Platform, h: &HeaderMap, attempt: &Attempt) -> Result<()> {
 
 fn view(attempt: &Attempt) -> Value {
     json!({"attempt_id":attempt.identity.connection_id,"state":attempt.state,
-        "error":attempt.error.map(|code| json!({"code":code})),"expires_at":attempt.identity.exp})
+        "error":attempt.error.as_ref().map(|code| json!({"code":code})),"expires_at":attempt.identity.exp,
+        "session":attempt.session.as_ref().map(|s|json!({"id":s.id,"label":s.label,"activity":s.activity,"max_players":s.max_players})),
+        "admitted":attempt.admission.as_deref() == Some("accepted")})
 }
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Prepare {}
 
 pub(super) async fn prepare(
     State(p): State<Platform>,
     Path(id): Path<String>,
     h: HeaderMap,
-    Json(_): Json<Prepare>,
+    Json(body): Json<crate::dedicated::Request>,
 ) -> Answer {
     p.origin(&h, host(&h))?;
     ensure!(
@@ -149,9 +142,18 @@ pub(super) async fn prepare(
                 existing.identity.launch_id == launch_id,
                 fault(404, "unknown connection attempt")
             );
+            ensure!(
+                existing.identity.request == body,
+                crate::dedicated::fault(
+                    409,
+                    "attempt_conflict",
+                    "A retry must keep the same admission request."
+                )
+            );
             return Ok(reply(view(existing)));
         }
     }
+    dedicated::check_request(&p, &launch, &body)?;
     let state = p.controller.snapshot();
     let instance = state
         .games
@@ -181,6 +183,7 @@ pub(super) async fn prepare(
                 data.members[&launch.email].name.clone()
             },
             guest: launch.guest,
+            request: body,
         },
         lease_id: launch
             .lease_id
@@ -189,6 +192,8 @@ pub(super) async fn prepare(
         state: ConnectionState::Pending,
         error: None,
         updated: now(),
+        session: None,
+        admission: None,
     };
     validate(&p, &h, &attempt)?;
     let response = reply(view(&attempt));
@@ -238,7 +243,7 @@ impl Drop for ConnectionGuard {
     }
 }
 impl ConnectionGuard {
-    fn fail(&self, code: &'static str) {
+    fn fail(&self, code: &str) {
         self.p.connections.lock().unwrap().finish(
             &self.id,
             ConnectionState::Failed,
@@ -255,13 +260,26 @@ pub(super) async fn socket(
     ws: WebSocketUpgrade,
 ) -> Answer {
     p.origin(&h, host(&h))?;
-    // No subprotocol negotiation yet; do not silently mis-negotiate a game's protocol.
+    let (_, launch) = allowed(&p, &h)?;
+    let connection = p.db.read()?.builds[&build_key(&launch.app, &launch.build)]
+        .manifest
+        .server_connection
+        .clone()
+        .unwrap_or_default();
+    let requested_protocols: Vec<_> = h
+        .get("sec-websocket-protocol")
+        .map(|v| {
+            v.to_str()
+                .unwrap_or("")
+                .split(',')
+                .map(str::trim)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
     ensure!(
-        !h.contains_key("sec-websocket-protocol"),
-        fault(
-            422,
-            "subprotocol negotiation is not supported by this preview"
-        )
+        requested_protocols == connection.protocols,
+        fault(422, "WebSocket protocols must match the game declaration")
     );
     let attempt = {
         let _guard = p.publishing.lock().unwrap();
@@ -290,23 +308,49 @@ pub(super) async fn socket(
             .await?;
         // The engine supplies this address; the browser cannot select an upstream,
         // path, forwarding headers, credentials, or a destination outside its game.
-        let mut request = format!("ws://{address}/").into_client_request()?;
+        let mut request = format!("ws://{address}{}", connection.path).into_client_request()?;
         request.headers_mut().insert(
             "x-infuser-connection",
             p.connection_signer.sign(&attempt.identity)?.parse()?,
         );
+        if !connection.protocols.is_empty() {
+            request.headers_mut().insert(
+                "sec-websocket-protocol",
+                connection.protocols.join(", ").parse()?,
+            );
+        }
         let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
-            .max_message_size(Some(MAX_MESSAGE_BYTES))
-            .max_frame_size(Some(MAX_MESSAGE_BYTES))
-            .max_write_buffer_size(MAX_MESSAGE_BYTES * 2);
-        let (socket, _) =
+            .max_message_size(Some(connection.max_message_bytes))
+            .max_frame_size(Some(connection.max_message_bytes))
+            .max_write_buffer_size((connection.max_message_bytes * 2).max(262144));
+        let (socket, response) =
             tokio_tungstenite::connect_async_with_config(request, Some(limits), true).await?;
-        Ok::<_, anyhow::Error>(socket)
+        let protocol = response
+            .headers()
+            .get("sec-websocket-protocol")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        ensure!(
+            protocol
+                .as_ref()
+                .is_none_or(|p| connection.protocols.contains(p)),
+            fault(502, "backend selected an undeclared WebSocket protocol")
+        );
+        Ok::<_, anyhow::Error>((socket, protocol))
     };
-    let upstream = match timeout(Duration::from_secs(4), upstream).await {
+    let (upstream, protocol) = match timeout(Duration::from_secs(10), upstream).await {
         Ok(Ok(upstream)) => upstream,
         _ => {
-            guard.fail("backend_unavailable");
+            let reason = p
+                .connections
+                .lock()
+                .unwrap()
+                .0
+                .get(&id)
+                .and_then(|a| a.admission.clone())
+                .filter(|v| v != "accepted")
+                .unwrap_or_else(|| "backend_unavailable".into());
+            guard.fail(&reason);
             return Err(fault(503, "game connection unavailable").into());
         }
     };
@@ -323,11 +367,23 @@ pub(super) async fn socket(
             guard.fail("authorization_ended");
             return Err(fault(410, "connection authorization ended").into());
         }
+        let admitted = p
+            .connections
+            .lock()
+            .unwrap()
+            .0
+            .get(&id)
+            .is_some_and(|a| a.admission.as_deref() == Some("accepted") && a.session.is_some());
+        if !admitted {
+            guard.fail("admission_missing");
+            return Err(fault(502, "backend did not confirm admission").into());
+        }
     }
     Ok(ws
-        .max_message_size(MAX_MESSAGE_BYTES)
-        .max_frame_size(MAX_MESSAGE_BYTES)
-        .max_write_buffer_size(MAX_MESSAGE_BYTES * 2)
+        .protocols(protocol)
+        .max_message_size(connection.max_message_bytes)
+        .max_frame_size(connection.max_message_bytes)
+        .max_write_buffer_size((connection.max_message_bytes * 2).max(262144))
         .on_upgrade(move |client| async move {
             p.connections
                 .lock()
@@ -376,11 +432,39 @@ async fn proxy(
                 {
                     return Err("cancelled");
                 }
+                let directory = p.dedicated.lock().unwrap();
+                let report = directory
+                    .0
+                    .get(&attempt.identity.app_id)
+                    .ok_or("session_ended")?;
+                if report.scope.instance_id != attempt.identity.instance_id
+                    || report.seen + crate::dedicated::REPORT_SECONDS <= now()
+                {
+                    return Err("platform_unreachable");
+                }
+                if !report
+                    .sessions
+                    .values()
+                    .any(|s| s.connections.contains(&attempt.identity.connection_id))
+                {
+                    return Err("session_ended");
+                }
+                drop(directory);
                 // Renew only the same validated launch/lease under this lock.
                 if renewed.elapsed() >= Duration::from_secs(15)
                     && last_pong.elapsed() < Duration::from_secs(10)
                 {
                     p.refresh_locked(&attempt.identity.launch_id)
+                        .map_err(|_| "authorization_ended")?;
+                    let (_, launch) = allowed(p, h).map_err(|_| "authorization_ended")?;
+                    p.controller
+                        .lease(
+                            &launch.app,
+                            &attempt.lease_id,
+                            launch.lease_token.as_deref().ok_or("authorization_ended")?,
+                            "renew",
+                            now(),
+                        )
                         .map_err(|_| "authorization_ended")?;
                     renewed = Instant::now();
                 }
@@ -410,7 +494,11 @@ async fn proxy(
                     Message::Binary(v) => Upstream::Binary(v),
                     Message::Pong(_) => {last_pong = Instant::now(); continue;},
                     Message::Ping(_) => continue,
-                    Message::Close(_) => return Ok(()),
+                    Message::Close(v) => {
+                        let close = v.map(|v| tokio_tungstenite::tungstenite::protocol::CloseFrame {code:v.code.into(), reason:v.reason.to_string().into()});
+                        let _ = timeout(Duration::from_secs(3), upstream.send(Upstream::Close(close))).await;
+                        return Ok(());
+                    },
                 };
                 timeout(Duration::from_secs(3), upstream.send(frame)).await.map_err(|_| "connection_timeout")?.map_err(|_| "connection_lost")?;
             }

@@ -37,7 +37,7 @@ SDK 1.0 remains a candidate. Existing games keep their current routes and behavi
 3. **Join Friend.** Extend presence additively and route Library, avatar and in-game
    targets through the same admission path. Add a browser helper returning an ordinary
    WebSocket only after admission. Preserve current peer APIs and title-screen choice.
-4. **Lifecycle.** Bind logout to its browser login session; define renewal, guest
+4. **Lifecycle.** Keep website logout independent of ongoing play; define renewal, guest
    expiry, background operation, reconnect reservations and bounded outage grace.
    Add drain notices and prevent new runs while an old client/server pair finishes.
    Test controller restart, vanished clients, delayed release and queued activation.
@@ -52,41 +52,31 @@ unadvertised and clearly identified as internal scaffolding; no game should need
 to integrate against half of a contract. Record remaining gaps rather than calling
 hosting success a completed social integration. No extra CI or approval process.
 
-## Current implementation checkpoint
+## Implementation and verification
 
-The connection foundation is implemented and tested locally, **not advertised or
-available to published games yet**. Publishing rejects `connections.websocket.v1`
-until the rest of its integration is ready. Existing SDKs and server routes retain
-their behavior.
+The candidate now includes the verified gateway, scoped process registration,
+sequenced full room reports, admission results, browser and Node helpers, dedicated
+presence, Library/avatar Join Friend targets, reconnect reservations and draining.
+Both new capabilities are opt-in. Existing transports and manifests keep working.
+See [the game integration contract](../dedicated-sessions.md) for actual names and
+payloads; earlier proposal examples are not the wire contract.
 
-- The Rust gateway supplies an Ed25519 proof with installation, group, game, build,
-  instance, launch, connection and player identity. Game containers receive only
-  the public key. Caller identity headers, cookies and bearer credentials are not
-  forwarded. The signing key survives controller restart in a private file.
-- The internal Node verifier rejects forged, expired, replayed and wrongly scoped
-  proofs. Missing all hosted configuration selects standalone; partial hosted
-  configuration fails. Instantiate one verifier per server process.
-- Authenticated attempt preparation is idempotent. An epoch prevents retries from
-  crossing controller restarts; terminal handles remain consumed for the launch's
-  lifetime. Status is readable separately from the WebSocket handshake. `connected`
-  means transport established, **not room admission**.
-- The gateway checks current membership, group, build, process and lease while
-  forwarding unchanged text/binary messages. Release, cancellation and membership
-  disable close connections without a game-side handler. Transport pongs can renew
-  the existing lease without relying on browser JavaScript timers.
-- Buffers, pending attempts, handshakes and writes are bounded. The current internal
-  defaults are 1 MiB messages, four live attempts per launch, 256 installation-wide,
-  and 4096 retained attempt records. These are implementation bounds, not promised
-  SDK capacities; effective limits need an advertised contract before adoption.
+Verified locally:
 
-The real-socket journey covers two members plus a guest, text/binary forwarding,
-identity forgery, duplicate upgrade, foreign origin, attempt ownership, cancellation,
-membership revocation, release and a failed upstream handshake with readable status.
-Key persistence and replay-tombstone behavior have focused tests. Existing runtime
-and PeerJS journeys remain unchanged.
+- Real sockets with two members and a guest, unchanged text/binary frames, forged
+  identity and replay rejection, cancellation, lease release and readable failures.
+- Ordered snapshots, duplicate/lost-response retries, retired process credentials,
+  expired tokens and private-group scope.
+- Real Chromium, Node ws and the production Rust gateway: cold start, first welcome
+  delivery, Join Friend intent, distinct guest identity, multiple runs, exact resume,
+  simultaneous last-seat requests and no new world after a failed targeted join.
+- Queued matched updates, idle title screens allowing activation, old-client refusal,
+  shared policy, a non-root WebSocket path and negotiated subprotocol.
+- Website logout intentionally leaves existing play connected. Disabled membership
+  still ends access; games do not implement platform revocation themselves.
+- Frozen renderer/background operation and full server credential renewal are
+  exercised by the optional longer browser journey, outside fast default checks.
 
-Still outstanding: atomic room admission and its typed errors; per-instance server
-credentials; session reports; the browser and complete `ws` adapters; Join Friend;
-logout binding; measured background/reconnect behavior; drain control; subprotocol
-and endpoint-path requirements; real Docker/Caddy validation. The current socket
-liveness mechanism does not establish completion of those lifecycle acceptance items.
+Release acceptance also requires real ARM64 Docker/Caddy verification. Lanternfall
+itself remains untouched; its agent can integrate after platform validation. Keep
+SDK 1.0 a candidate until that real-game integration confirms the contract.

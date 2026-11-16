@@ -30,11 +30,17 @@ pub struct Identity {
     pub player_id: String,
     pub name: String,
     pub guest: bool,
+    #[serde(default)]
+    pub request: crate::dedicated::Request,
 }
 
 pub struct Signer(Ed25519KeyPair);
 impl Signer {
     pub fn open(directory: &Path) -> Result<Self> {
+        let bootstrap = directory.join("server-bootstrap.key");
+        if !bootstrap.exists() {
+            crate::private_file::replace(&bootstrap, crate::store::secret().as_bytes())?;
+        }
         let path = directory.join("connection-signing-key.pk8");
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
@@ -65,6 +71,40 @@ impl Signer {
             B64.encode(self.0.sign(input.as_bytes()))
         ))
     }
+    pub fn access_token(&self, scope: &crate::dedicated::Scope) -> Result<String> {
+        let payload = B64.encode(serde_json::to_vec(scope)?);
+        let input = format!("infuser-server-access-v1.{payload}");
+        Ok(format!(
+            "{input}.{}",
+            B64.encode(self.0.sign(input.as_bytes()))
+        ))
+    }
+    pub fn access_scope(&self, token: &str, now: u64) -> Result<crate::dedicated::Scope> {
+        ensure!(token.len() <= 4096, "invalid server token");
+        let parts: Vec<_> = token.split('.').collect();
+        ensure!(
+            parts.len() == 3 && parts[0] == "infuser-server-access-v1",
+            "invalid server token"
+        );
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, self.0.public_key())
+            .verify(parts[..2].join(".").as_bytes(), &B64.decode(parts[2])?)
+            .map_err(|_| anyhow::anyhow!("invalid server token"))?;
+        let scope: crate::dedicated::Scope = serde_json::from_slice(&B64.decode(parts[1])?)?;
+        ensure!(
+            scope.exp > now && scope.exp <= now.saturating_add(120),
+            "expired server token"
+        );
+        Ok(scope)
+    }
+}
+
+pub fn instance_token(directory: &Path, owner: &str, app: &str, instance: &str) -> Result<String> {
+    let key = ring::hmac::Key::new(
+        ring::hmac::HMAC_SHA256,
+        &std::fs::read(directory.join("server-bootstrap.key"))?,
+    );
+    let input = serde_json::to_vec(&["infuser-server-bootstrap-v1", owner, app, instance])?;
+    Ok(B64.encode(ring::hmac::sign(&key, &input)))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -88,8 +128,10 @@ pub struct Attempt {
     pub identity: Identity,
     pub lease_id: String,
     pub state: State,
-    pub error: Option<&'static str>,
+    pub error: Option<String>,
     pub updated: u64,
+    pub session: Option<crate::dedicated::Session>,
+    pub admission: Option<String>,
 }
 #[derive(Default)]
 pub struct Attempts(pub BTreeMap<String, Attempt>);
@@ -98,7 +140,7 @@ impl Attempts {
         for attempt in self.0.values_mut() {
             if attempt.state == State::Pending && attempt.identity.exp <= now {
                 attempt.state = State::Failed;
-                attempt.error = Some("attempt_expired");
+                attempt.error = Some("attempt_expired".into());
                 attempt.updated = now;
             }
         }
@@ -136,10 +178,10 @@ impl Attempts {
         attempt.updated = now;
         Ok(attempt.clone())
     }
-    pub fn finish(&mut self, id: &str, state: State, error: Option<&'static str>, now: u64) {
+    pub fn finish(&mut self, id: &str, state: State, error: Option<&str>, now: u64) {
         if let Some(attempt) = self.0.get_mut(id).filter(|a| !a.state.terminal()) {
             attempt.state = state;
-            attempt.error = error;
+            attempt.error = error.map(str::to_owned);
             attempt.updated = now;
         }
     }
@@ -165,6 +207,7 @@ mod tests {
             player_id: "player".into(),
             name: "River".into(),
             guest: false,
+            request: Default::default(),
         }
     }
 
@@ -207,6 +250,8 @@ mod tests {
                 state: State::Pending,
                 error: None,
                 updated: 100,
+                session: None,
+                admission: None,
             },
         )?;
         attempts.claim("connection", 110)?;
@@ -225,10 +270,15 @@ mod tests {
                 state: State::Pending,
                 error: None,
                 updated: 100,
+                session: None,
+                admission: None,
             },
         )?;
         attempts.prune(1000, &live);
-        assert_eq!(attempts.0["expired"].error, Some("attempt_expired"));
+        assert_eq!(
+            attempts.0["expired"].error.as_deref(),
+            Some("attempt_expired")
+        );
         assert!(attempts.claim("expired", 1000).is_err());
         attempts.prune(1000, &BTreeSet::new());
         assert!(attempts.0.is_empty());

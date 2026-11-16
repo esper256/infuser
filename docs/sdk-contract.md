@@ -74,10 +74,11 @@ Peer-hosted games already enter multiplayer explicitly through `peers.join()`.
 experimentally. A targeted peer join binds to the observed session ID; it never
 creates a replacement world. [Join friend launch intents](launch-intents.md) are
 opt-in and consumed once by the game, with guarded friend/session admission.
-Dedicated-server joinability reports are not implemented yet.
-Dedicated Node/WebSocket **hosting is implemented** through the
-[managed Node recipe](engines/node-server.md), including multiple game-owned rooms
-inside one server. It does not depend on those future social/identity interfaces.
+[Dedicated sessions](dedicated-sessions.md) adds verified Node/WebSocket admission,
+room reports, exact Join Friend and reconnects through the `sessions.v1` and
+`connections.websocket.v1` capabilities. One managed process can host shared or
+explicitly multiple runs. The [managed Node recipe](engines/node-server.md)
+packages both client and server; the game's gameplay messages remain unchanged.
 
 ## Compatibility foundation and promise for 1.0
 

@@ -83,8 +83,8 @@ The representative ws/Three.js fixture has passed:
   players to leave, and the updated pair waking and sleeping again.
 
 This validates the hosting path, not an individual game's integration or maximum
-player capacity. Dedicated identity, session discovery and Join Friend remain
-separate work under the [SDK decisions](sdk-1.0-decisions.md).
+player capacity. [Dedicated sessions](dedicated-sessions.md) adds verified identity,
+session discovery and Join Friend as explicit capabilities on top of hosting.
 
 ## Installation setup
 

@@ -324,6 +324,10 @@ impl Docker {
                 "--env".into(),
                 format!("INFUSER_CONNECTION_ISSUER=https://{}", self.settings.domain),
             ]);
+            if let Ok(token) = crate::connections::instance_token(&self.settings.state_dir, owner, id, &i.attempt) {
+                args.extend(["--env".into(), format!("INFUSER_INSTANCE_TOKEN={token}"),
+                    "--env".into(), format!("INFUSER_API_URL=https://{}", self.settings.domain)]);
+            }
         }
         args.push(g.image.clone());
         args

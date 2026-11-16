@@ -61,7 +61,10 @@ await runtime.release(session.session_id);
 
 `acquire()` returns immediately with `starting` or `ready`; it does not wait for
 the process or a network connection. Preserve its `session_id`. The browser SDK's
-normal heartbeat renews an attached backend lease while also renewing the launch.
+normal heartbeat renews an attached backend lease while also renewing the launch
+for the legacy transport. Builds using [dedicated sessions](dedicated-sessions.md)
+instead renew backend demand through live sockets: a title-screen timer cannot
+hold the backend indefinitely. The sessions helper handles acquisition and admission.
 Check status during startup and when a game connection fails. A disconnected or
 expired backend never auto-rejoins: return visibly to the game's title screen
 and let the player retry. The game's own transport handles disconnecting sockets
@@ -113,11 +116,13 @@ current state without ending the new lease. Supplying another player's ID never
 releases their lease. Two tabs sharing the same signed-in build origin also share
 its launch cookie/lease; independent guest launches have distinct leases.
 
-Errors retain the existing `{ "error": "message" }` envelope: 401 expired/missing
+Legacy errors retain the existing `{ "error": "message" }` envelope: 401 expired/missing
 launch, 403 membership/origin rejection, 422 build did not opt in, 409 stale build
 or server stopping, 429 capacity in player leases, 503 resource budget or failure
 backoff. Show a retry/reopen action instead of looping forever or making a second
-world. A heartbeat is not permission to silently reacquire after an error.
+world. New dedicated-session errors use `{ "error": {"code":"...","message":"..."} }`;
+the browser SDK exposes `error.code`. A heartbeat is not permission to silently
+reacquire after an error.
 
 Publication and acquisition are serialized. While the server is active, uploads
 queue; activation waits for confirmed shutdown. After activation, an already-open

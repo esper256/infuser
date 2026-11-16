@@ -67,6 +67,8 @@ pub fn capabilities(relay: bool) -> Value {
         "runtime_sessions.v1",
         "presence.v1",
         "launch_intents.v1",
+        crate::connections::CAPABILITY,
+        crate::dedicated::CAPABILITY,
     ];
     if relay {
         available.push("peers.webrtc.v1");

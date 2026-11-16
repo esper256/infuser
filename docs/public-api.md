@@ -194,6 +194,11 @@ For opt-in managed backends, [runtime sessions](runtime-sessions.md) add
 These endpoints do not select a gameplay mode, create parallel servers, or end
 the browser/cloud-save session. Peer-hosted games use the separate peer API.
 
+[Dedicated sessions](dedicated-sessions.md) adds `sessions.connect()` and
+`sessions.disconnect()` for verified Node/WebSocket room admission, exact joins,
+reconnects and session discovery. Its `sessions.v1` and `connections.websocket.v1`
+capabilities are explicit opt-ins; legacy runtime routes retain their behavior.
+
 `presence.get()` reads `GET /_infuser/api/v1/presence/v1` without acquiring anything.
 It separates online members, launches with this game open, and active peer-room
 participants. Peer hosts use `PUT /_infuser/api/v1/peers/PEER/joinability` with

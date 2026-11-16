@@ -7,6 +7,7 @@ import {WebSocketServer, WebSocket} from 'ws';
 // A small authoritative simulation: several rooms in one server process.
 // Room rules and gameplay messages belong to this game, not to Infuser.
 const rooms = new Map();
+const descriptions = new Map();
 const boot = randomUUID();
 let tick = 0;
 const server = http.createServer(async (req,res) => {
@@ -26,8 +27,43 @@ const server = http.createServer(async (req,res) => {
   }
   res.writeHead(404); res.end();
 });
-const sockets = new WebSocketServer({server,maxPayload:64*1024});
-function send(socket,value) {if(socket.readyState===WebSocket.OPEN && socket.bufferedAmount<128*1024) socket.send(JSON.stringify(value));}
+const sockets = new WebSocketServer({noServer:true,maxPayload:64*1024});
+function send(socket,value) {if(socket?.readyState===WebSocket.OPEN && socket.bufferedAmount<128*1024) socket.send(JSON.stringify(value));}
+let hosting;
+if(process.env.INFUSER_CONNECTION_PUBLIC_KEY || process.env.INFUSER_INSTANCE_TOKEN || process.env.INFUSER_INSTANCE_ID) {
+  const {createInfuserServer,AdmissionError,sessionId}=await import('./infuser/hosting.mjs');
+  hosting=createInfuserServer({server,sockets,sessions:()=>[...descriptions.values()],admit:({identity,request})=>{
+    let name=request.target?.session_id, room;
+    if(name) {
+      room=rooms.get(name);
+      if(!room)throw new AdmissionError('session_ended');
+      if(!descriptions.get(name).joinable)throw new AdmissionError('session_unavailable');
+    } else {
+      if(rooms.size>=30)throw new AdmissionError('capacity_unavailable');
+      name=sessionId();room=new Map();rooms.set(name,room);
+      const solo=request.activity==='solo';
+      descriptions.set(name,{id:name,label:solo?'Single player':'Co-op run',activity:solo?'solo':'multiplayer',joinable:!solo,max_players:solo?1:8});
+    }
+    const id=identity.player_id;
+    if(room.has(id))throw new AdmissionError('already_connected');
+    if(room.size>=descriptions.get(name).max_players)throw new AdmissionError('session_full');
+    const player={socket:null,position:new Vector3(),direction:0,name:identity.name,guest:identity.guest};
+    room.set(id,player);
+    return {session:descriptions.get(name),attach(socket){
+      player.socket=socket;send(socket,{type:'joined',id,room:name,boot,name:identity.name,guest:identity.guest});
+      socket.on('message',bytes=>{
+        try {
+          const message=JSON.parse(bytes.toString());
+          if(message.type==='input' && Number.isFinite(message.direction))player.direction=message.direction%(Math.PI*2);
+          if(message.type==='finish')hosting.endSession(name).catch(()=>{});
+        }catch{}
+      });
+    },suspend(){player.socket=null;},release(){
+      room.delete(id);if(room.size===0){rooms.delete(name);descriptions.delete(name);}
+    }};
+  }});
+} else {
+server.on('upgrade',(request,socket,head)=>sockets.handleUpgrade(request,socket,head,ws=>sockets.emit('connection',ws)));
 sockets.on('connection', socket => {
   if (sockets.clients.size > 64) {socket.close(1013,'Server full'); return;}
   const id = randomUUID();
@@ -61,6 +97,7 @@ sockets.on('connection', socket => {
     for(const [name,players] of rooms) if(players.size===0) rooms.delete(name);
   });
 });
+}
 const timer=setInterval(()=>{
   tick++;
   for(const room of rooms.values()) {
@@ -77,6 +114,7 @@ const timer=setInterval(()=>{
 server.listen(Number(process.env.PORT||8080),'0.0.0.0');
 process.on('SIGTERM',()=>{
   clearInterval(timer);
+  hosting?.close().catch(()=>{});
   for(const socket of sockets.clients) socket.close(1001,'Server stopping');
   server.close(()=>process.exit(0));
   setTimeout(()=>process.exit(0),3000).unref();

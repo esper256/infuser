@@ -199,6 +199,9 @@ pub async fn run(args: &[String]) -> Result<()> {
     if let Some(sdk) = settings.get("sdk") {
         manifest["sdk"] = sdk.clone();
     }
+    for field in ["sessions", "server_connection"] {
+        if let Some(value) = settings.get(field) {manifest[field] = value.clone();}
+    }
     let parsed: crate::manifest::Manifest = serde_json::from_value(manifest.clone())?;
     parsed.validate()?;
     let mut server = settings.get("server").cloned().unwrap_or(Value::Null);

@@ -111,12 +111,15 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
     let backend_address = listener.local_addr()?;
     let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
     let record = seen.clone();
+    let control = Arc::new(Mutex::new((String::new(), String::new())));
+    let backend_control = control.clone();
     let key_file = dir.path().join(PUBLIC_KEY_FILE);
     let backend = Router::new().route(
         "/",
         get(move |h: HeaderMap, ws: WebSocketUpgrade| {
             let record = record.clone();
             let key_file = key_file.clone();
+            let control = backend_control.clone();
             async move {
                 // The backend deliberately implements no revocation/control endpoint.
                 assert!(
@@ -141,6 +144,16 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
                 assert_eq!(identity["aud"], "infuser-server-connection");
                 assert_eq!(identity["app_id"], "pond");
                 assert!(identity["exp"].as_u64().unwrap() > now());
+                let (base, bootstrap) = control.lock().unwrap().clone();
+                let http = reqwest::Client::new();
+                let registration: Value = http.post(format!("{base}/api/server/v1/register"))
+                    .header("host","games.example.com").bearer_auth(bootstrap)
+                    .json(&json!({"app_id":"pond","instance_id":identity["instance_id"]}))
+                    .send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+                http.post(format!("{base}/api/server/v1/connections/{}/admission",identity["connection_id"].as_str().unwrap()))
+                    .header("host","games.example.com").bearer_auth(registration["token"].as_str().unwrap())
+                    .json(&json!({"session":{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","label":"Shared","activity":"multiplayer","joinable":true,"max_players":8}}))
+                    .send().await.unwrap().error_for_status().unwrap();
                 record.lock().unwrap().push(identity);
                 ws.on_upgrade(|mut socket| async move {
                     while let Some(Ok(frame)) = socket.next().await {
@@ -175,19 +188,29 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
     let game = controller.snapshot().games["pond"].spec.clone();
     p.db.edit(|d| {
         d.apps.insert("pond".into(),App{build:"one".into(),listed:true,updated:now()});
-        d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["multiplayer"],"server_start":"on_demand","multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY]}}))?,server:Some(game),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:BTreeMap::new()});
+        d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["multiplayer"],"server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(game),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:BTreeMap::new()});
         for who in ["a","b","guest"] {
             let lease = controller.acquire("pond",who,now())?;
             d.launches.insert(who.into(),Launch{intent:None,app:"pond".into(),build:"one".into(),email:if who=="b"{"b@example.test"}else{"a@example.test"}.into(),guest:who=="guest",host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
         }
-        // Publication must continue to reject this incomplete integration.
-        assert!(d.builds["pond/one"].manifest.sdk.as_ref().unwrap().admit(&infuser::sdk_contract::capabilities(false)).is_err());
+        // Managed sessions are now an additive advertised capability.
+        assert!(d.builds["pond/one"].manifest.sdk.as_ref().unwrap().admit(&infuser::sdk_contract::capabilities(false)).is_ok());
         Ok(())
     })?;
     controller.reconcile(now()).await?;
     let db = p.db.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let base = format!("http://{}", listener.local_addr()?);
+    let state = controller.snapshot();
+    *control.lock().unwrap() = (
+        base.clone(),
+        infuser::connections::instance_token(
+            dir.path(),
+            &state.owner,
+            "pond",
+            &state.games["pond"].attempt,
+        )?,
+    );
     let _server = Running(tokio::spawn(async move {
         axum::serve(listener, portal::router(p)).await.unwrap()
     }));
@@ -206,7 +229,7 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         for _ in 0..2 {
             // A lost prepare response is safely retried.
             let result: Value = request(&http, &base, who, PUT, &format!("/{id}"))
-                .json(&json!({}))
+                .json(&json!({"activity":"multiplayer"}))
                 .send()
                 .await?
                 .error_for_status()?
@@ -278,13 +301,88 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         controller.snapshot().games["pond"].attempt
     );
 
+    // Full snapshots are ordered and do not let a late response erase newer rooms.
+    let bootstrap = control.lock().unwrap().1.clone();
+    let registration: Value = http
+        .post(format!("{base}/api/server/v1/register"))
+        .header("host", "games.example.com")
+        .bearer_auth(bootstrap)
+        .json(&json!({"app_id":"pond","instance_id":identities[0]["instance_id"]}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let token = registration["token"].as_str().unwrap();
+    let snapshot = json!({"coordinator":epoch,"seq":5,"sessions":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","label":"Shared","activity":"multiplayer","joinable":true,"max_players":8,"connections":ids}]});
+    let report = |value: Value| {
+        http.put(format!("{base}/api/server/v1/sessions"))
+            .header("host", "games.example.com")
+            .bearer_auth(token)
+            .json(&value)
+            .send()
+    };
+    assert_eq!(report(snapshot.clone()).await?.status(), 200);
+    let late: Value = report(json!({"coordinator":epoch,"seq":4,"sessions":[]}))
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(late["accepted"], false);
+    assert_eq!(late["seq"], 5);
+    let duplicate: Value = report(snapshot).await?.error_for_status()?.json().await?;
+    assert_eq!(duplicate["accepted"], false);
+    assert_eq!(
+        report(json!({"coordinator":"retired","seq":6,"sessions":[]}))
+            .await?
+            .status(),
+        409
+    );
+    // Reports remain scoped to the process's original private group.
+    let mut wrong_scope: infuser::dedicated::Scope =
+        serde_json::from_value(registration["scope"].clone())?;
+    wrong_scope.group_id = "other-family".into();
+    let signer = infuser::connections::Signer::open(dir.path())?;
+    let wrong_token = signer.access_token(&wrong_scope)?;
+    assert_eq!(
+        http.get(format!("{base}/api/server/v1/control"))
+            .header("host", "games.example.com")
+            .bearer_auth(wrong_token)
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    wrong_scope = serde_json::from_value(registration["scope"].clone())?;
+    wrong_scope.instance_id = "retired-process".into();
+    assert_eq!(
+        http.get(format!("{base}/api/server/v1/control"))
+            .header("host", "games.example.com")
+            .bearer_auth(signer.access_token(&wrong_scope)?)
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    wrong_scope = serde_json::from_value(registration["scope"].clone())?;
+    wrong_scope.exp = now();
+    assert_eq!(
+        http.get(format!("{base}/api/server/v1/control"))
+            .header("host", "games.example.com")
+            .bearer_auth(signer.access_token(&wrong_scope)?)
+            .send()
+            .await?
+            .status(),
+        401
+    );
+
     // A consumed/cancelled handle cannot restart, including an identical PUT retry.
     request(&http, &base, "b", DELETE, &format!("/{}", ids[1]))
         .send()
         .await?
         .error_for_status()?;
     let cancelled: Value = request(&http, &base, "b", PUT, &format!("/{}", ids[1]))
-        .json(&json!({}))
+        .json(&json!({"activity":"multiplayer"}))
         .send()
         .await?
         .error_for_status()?
@@ -320,7 +418,7 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
     // Releasing demand closes the transport even when the game ignores it.
     let released_id = format!("{epoch}{:032x}", 4);
     request(&http, &base, "b", PUT, &format!("/{released_id}"))
-        .json(&json!({}))
+        .json(&json!({"activity":"multiplayer"}))
         .send()
         .await?
         .error_for_status()?;
@@ -361,7 +459,7 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         .error_for_status()?;
     let failed_id = format!("{epoch}{:032x}", 5);
     request(&http, &base, "b", PUT, &format!("/{failed_id}"))
-        .json(&json!({}))
+        .json(&json!({"activity":"multiplayer"}))
         .send()
         .await?
         .error_for_status()?;
@@ -381,7 +479,7 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
     assert_eq!(failed["state"], "failed");
     assert_eq!(failed["error"]["code"], "backend_unavailable");
     let retry: Value = request(&http, &base, "b", PUT, &format!("/{failed_id}"))
-        .json(&json!({}))
+        .json(&json!({"activity":"multiplayer"}))
         .send()
         .await?
         .error_for_status()?

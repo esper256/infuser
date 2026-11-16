@@ -1,11 +1,18 @@
 # In-game presence and joinability
 
 **Experimental v1; the overall SDK is still pre-1.0.** Capabilities advertise
-`presence.version = 1` and `presence.joinability = ["peer_hosted_webrtc"]`.
-Presence is readable by any authenticated game launch. Explicit session discovery
-and admission currently cover WebRTC peer hosting; managed server occupancy alone
-does not mean that its game is joinable. A server-authenticated reporting contract
-needs separate review before that topology advertises Join friend.
+`presence.version = 1` and `presence.joinability` includes `peer_hosted_webrtc`
+and `dedicated_websocket`. Presence is readable by any authenticated game launch.
+Managed server occupancy alone does not mean that a game is joinable: opt into
+[dedicated sessions](dedicated-sessions.md) and report actual rooms and admissions.
+
+Dedicated games receive an additive `sessions` array containing
+`{id,label,activity,joinable,max_players,players}`; each player has
+`{player_id,name,guest}`. The singular `session` below remains the peer-room field.
+Use `sessions.connect({action:'join',target:{session_id,player_id}})` for a dedicated
+target. Reports expire after 45 seconds; new joins are unavailable while an update
+drains existing runs. This adds `server_draining` to `unavailable_reason`.
+The rest of this page describes the unchanged peer API.
 
 ## What a game learns
 
