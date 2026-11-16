@@ -29,14 +29,16 @@ configure hosting, manage credentials, or create a GitHub account.
 | --- | --- |
 | Three.js, Vite, or plain HTML/JavaScript | [Browser games](engines/threejs-vite.md) |
 | Browser game using PeerJS | [PeerJS adapter](peerjs.md), including standalone play |
-| Browser game with a Node HTTP/WebSocket server | [Managed Node hosting](engines/node-server.md): upload source; Infuser packages and runs it |
+| Browser game with a Node HTTP/WebSocket server | [Managed Node hosting](engines/node-server.md) for packaging; [dedicated sessions](dedicated-sessions.md) for identity, rooms, reconnects and Join Friend |
 | Godot web | [Web export and saves](engines/godot-web.md), then [multiplayer](engines/godot-multiplayer.md) if needed |
 | Godot native, single-player Windows/Linux | [Infuser Play preview](engines/godot-native.md) |
 
 Godot and PeerJS adapters are previews with the limitations in their recipes.
-Managed Node hosting is implemented and tested. Check this installation's
-`server_packaging` capability; an old proposal or missing dedicated Join Friend
-support is not a reason to reject Node/WebSocket hosting.
+Managed Node hosting and dedicated sessions are implemented and tested. Check this
+installation's `server_packaging` capability for source packaging, and
+`sessions.v1` plus `connections.websocket.v1` for the dedicated-session adapter.
+Older installations may offer hosting without the social adapter; check live
+capabilities rather than treating an old proposal as the current support list.
 [Bevy](engines/bevy.md) has no validated integration yet. Do not promise support
 based only on an engine's ability to export a web page.
 

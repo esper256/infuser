@@ -94,10 +94,15 @@ admission rechecks the session epoch, target membership, build, capacity and hos
 joinability atomically. The peer wire fields are `expected_epoch` and
 `expected_player`. A friend target requires an epoch.
 
-Room replacement/ending or the friend leaving returns 410; closed/full rooms or
+For peer-hosted games, room replacement/ending or the friend leaving returns 410; closed/full rooms or
 build mismatch return 409. Do not drop either target field and retry. A failed
 join leaves the current shared room unchanged. All existing membership and relay
 requirements still apply.
+
+Dedicated sessions use typed `error.code` values such as `session_ended`,
+`friend_left` and `session_full`, normally with HTTP 409. Their Node helper and
+browser SDK handle admission together; do not use peer signaling fields or
+require TURN for this transport. See [dedicated sessions](dedicated-sessions.md).
 
 Manifest opt-in is stored beside the legacy catalog so older daemons can read and
 rewrite that catalog without losing the declaration. Pending intents are short-

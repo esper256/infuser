@@ -55,7 +55,7 @@ Approved product decisions:
 | Cloud saves | Empty saves, compare-and-swap conflicts, error codes, limits, game-owned schema migrations, recovery and rollback behavior |
 | Sessions | Title-screen startup, explicit backend acquisition/release, readiness, reconnect, timeout and session expiry |
 | Multiplayer and presence | Online friends versus players in this game versus a joinable multiplayer session; capacity and joinability; one shared session; tickets and relay availability |
-| Launch intent | Ordinary Play opens the game's title screen; optional Join friend intent only for games declaring support; unavailable/full sessions fall back visibly |
+| Launch intent | Ordinary Play opens the game's title screen; optional Join friend intent only for games declaring support; unavailable/full sessions show an error and return to the title screen |
 | Compatibility | Manifest declaration of required SDK/API major and optional capabilities; versioned SDK and HTTP routes; admission rules for unsupported requirements |
 
 Presence must not equate “has this game open” with “playing multiplayer.” A title

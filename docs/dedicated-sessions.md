@@ -28,7 +28,8 @@ Preserve the other required SDK capabilities. `shared` allows one multiplayer
 session per game; `multiple` also allows an explicit “Start a separate run” choice.
 Both allow independent server-backed single-player runs. Declare `solo_runtime:
 "shared_server"` if single player is supported by this path. The existing
-`multiplayer.max_players` must match `max_players_per_session` (1–256). Capacity
+`multiplayer.max_players` must match `max_players_per_session` (2–256 for multiplayer;
+1 is allowed for a single-player-only server). Capacity
 is per gameplay session, not the total server process. The effective process and
 connection limits come from `capabilities.sessions`; show capacity errors and
 never try to bypass them with a second container.
@@ -40,7 +41,8 @@ onto a server just to integrate multiplayer.
 
 `server_connection` is optional: `/`, no subprotocol and 64 KiB are the defaults.
 Use a fixed backend path and up to eight WebSocket subprotocols; no query string.
-Messages may be 1 KiB–1 MiB. These fields apply to the hosted transport, not the
+The configured maximum message size may be 1 KiB–1 MiB; smaller messages are allowed.
+These fields apply to the hosted transport, not the
 standalone server's public URL. SDK configuration supplies the hosted URL.
 
 ## Browser: enter a run
@@ -65,12 +67,16 @@ title screen. Failed startup has a bounded lease even if the caller disappears.
 
 | Player choice | `sessions.connect()` options |
 | --- | --- |
-| Multiplayer | `{activity:'multiplayer'}` — joins an existing joinable run, otherwise creates the first |
+| Multiplayer | `{activity:'multiplayer'}` — joins an existing joinable run; creates a run only if no multiplayer run exists |
 | Single player | `{activity:'solo'}` |
 | Separate multiplayer run | `{action:'create',activity:'multiplayer'}` — requires `multiple` while another run exists |
 | Join a displayed run | `{action:'join',target:{session_id,player_id}}` — player ID is optional |
 | Resume this launch's disconnected run | `{action:'resume',target:{session_id}}` |
 | Launcher Join Friend | `{intent:(await Infuser.launchIntent.consume()).intent}` — only when an intent was returned |
+
+If multiplayer runs exist but none can accept this player, ordinary Multiplayer
+fails visibly. It does not create another run. A separate run requires the
+explicit `create` action and the game's policy must allow it.
 
 An exact join or resume never creates a replacement world. Catch `error.code`:
 `session_ended`, `session_full`, `friend_left`, `session_unavailable`,
