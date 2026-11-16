@@ -2,6 +2,7 @@
 // INFUSER_GROUP_BROWSER_NODE=/path/to/node cargo test --test groups_journey -- --nocapture
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import {mkdir} from 'node:fs/promises';
 const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'../services/peerjs/node_modules/playwright/index.mjs');
 const [base,group]=process.argv.slice(2), errors=[];
 let page;
@@ -25,7 +26,7 @@ try {
   await page.locator('#games .game').waitFor();
   assert.equal(await page.locator('#games .game').count(),1);
   assert.equal(await page.locator('#operator-groups').isVisible(),false);
-  await page.locator('#admin > details > summary').click();
+  await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   await page.locator('#admin .admin-panel').getByRole('button',{name:'Groups',exact:true}).click();
   await page.getByText('Host health',{exact:true}).click();
   await page.getByText('Monitoring data is stale. Check the host health timer.',{exact:true}).waitFor();
@@ -42,14 +43,16 @@ try {
   await page.getByText('Other family only',{exact:true}).waitFor();
   assert.equal(await page.locator('#chat-form').isVisible(),false);
   await page.locator('#chat-close').click();
-  await page.locator('#admin > details > summary').click();
+  await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   assert.equal(await page.locator('#operator-groups').isVisible(),true);
   assert.equal(await page.locator('#invite-form').isVisible(),false);
   assert.equal(await page.locator('#credential-form').isVisible(),false);
   await page.locator('#operator-groups').click();
   await page.getByRole('button',{name:'Close groups',exact:true}).click();
-  await page.waitForFunction(()=>document.activeElement===document.querySelector('#admin > details > summary'));
-  assert.equal(await page.locator('#admin > details').getAttribute('open'),null);
+  await page.waitForFunction(()=>document.activeElement===document.querySelector('#operator-groups'));
+  assert(await page.locator('#admin').isVisible());
+  await page.locator('#close-admin').click();
+  await page.waitForFunction(()=>document.activeElement===document.querySelector('#account-trigger'));
   // Narrow view must keep the return control usable, without horizontal overflow.
   await page.setViewportSize({width:390,height:844});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -58,7 +61,7 @@ try {
   assert.equal(await page.getByRole('button',{name:'Play',exact:true}).isDisabled(),false);
   assert.equal(await page.locator('#group-inspection').count(),0);
   assert.equal(await page.locator('#operator-groups').isVisible(),false);
-  await page.locator('#admin > details > summary').click();
+  await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   await page.locator('#admin .admin-panel').getByRole('button',{name:'Groups',exact:true}).click();
   await page.getByText('Add a group',{exact:true}).click();
   await page.getByLabel('Group name',{exact:true}).fill('Browser family');
@@ -72,14 +75,38 @@ try {
   assert.equal(await page.locator('#group-inspection').count(),0);
   // A family admin without the operator role has ordinary admin tools, no Groups.
   await context.clearCookies();await context.addCookies([{name:'member',value:'admin',url:'https://games.example.com'}]);
-  await page.reload();await page.locator('#admin').waitFor();
+  await page.reload();await page.locator('#open-admin').waitFor({state:'attached'});
   assert.equal(await page.locator('#operator-groups').count(),0);
-  await page.locator('#admin > details > summary').click();
-  assert.equal(await page.locator('#invite-form').isVisible(),true);
+  await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
+  await page.locator('#invite-form').waitFor();
+  // The modal stays nearly full-screen, with an always-reachable close button.
+  for(const theme of ['nightglass','cartridge-club'])for(const width of [1280,390,320]){
+    await page.setViewportSize({width,height:850});await page.evaluate(t=>InfuserThemes.select(t),theme);
+    const dialog=page.locator('#admin'),bounds=await dialog.boundingBox();
+    assert(bounds.width>=width-50&&bounds.height>=800,'admin tools use almost the full viewport');
+    assert(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=width&&bounds.y+bounds.height<=850);
+    assert(await dialog.evaluate(d=>d.scrollWidth<=d.clientWidth),'dialog has no horizontal overflow');
+    const before=await page.locator('#close-admin').boundingBox();
+    await page.locator('.admin-panel').evaluate(e=>e.scrollTop=e.scrollHeight);
+    assert.deepEqual(await page.locator('#close-admin').boundingBox(),before,'close control stays fixed while tools scroll');
+    await page.locator('.admin-panel').evaluate(e=>e.scrollTop=0);
+    await mkdir(new URL('../.local/admin-dialog/',import.meta.url),{recursive:true});
+    await page.screenshot({path:new URL(`../.local/admin-dialog/${theme}-${width}.png`,import.meta.url).pathname});
+  }
+  await page.locator('#invite-form input[name="name"]').fill('Unfinished invitation');
+  await page.keyboard.press('Escape');await page.locator('#admin').waitFor({state:'hidden'});
+  assert(await page.locator('#account-trigger').evaluate(e=>e===document.activeElement));
+  await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
+  assert.equal(await page.locator('#invite-form input[name="name"]').inputValue(),'Unfinished invitation','closing preserves unfinished work');
+  await page.locator('#close-admin').click();
+  assert.equal(await page.locator('header #admin').count(),0,'admin tools occupy no header space');
+  const headerBounds=await page.locator('body > header').boundingBox();
   // Ordinary players have neither admin navigation nor the operator entry.
   await context.clearCookies();await context.addCookies([{name:'member',value:'user',url:'https://games.example.com'}]);
   await page.reload();await page.locator('#clubhouse').waitFor();
   assert.equal(await page.locator('#admin').isVisible(),false);
+  assert.equal(await page.locator('#open-admin').count(),0);
+  assert.deepEqual(await page.locator('body > header').boundingBox(),headerBounds,'admin and player headers have the same layout');
   assert.equal(await page.locator('#operator-groups').count(),0);
   assert.deepEqual(errors,[]);
   console.log('Browser: inspect, cover, read-only chat, return home, mobile, create group, expiry, operator-only admin menu and focus return passed.');

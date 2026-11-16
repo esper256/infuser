@@ -17,7 +17,7 @@ try {
    ['Hidden shelf open','<details id="hidden-games" open><summary>Hidden</summary></details>',false,1],
    ['Play options open','<details class="play-menu" open><summary>Options</summary></details>',false,0],
    ['Profile menu open','<details class="profile-menu" open><summary>Profile</summary></details>',false,0],
-   ['Admin tools open','<details open><summary>Admin tools</summary></details>',false,0],
+   ['Admin tools open','<dialog id="admin" open></dialog>',false,0],
    ['Game details open','<dialog open></dialog>',false,0],
    ['Chat draft','<textarea id="chat-text">Unfinished</textarea>',false,0],
    ['Launching','<div data-launching></div>',false,0],

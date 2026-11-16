@@ -31,7 +31,7 @@ Append `--revoke` to remove the role. This local command is the only way to gran
 operator access. Being a family admin does not grant it. The role does not change
 the account’s home group or its ordinary player behavior.
 
-Operators open **Admin tools → Groups**. This entry is hidden from other players,
+Operators open their profile picture menu, then **Admin tools → Groups**. This entry is hidden from other players,
 including family admins without the operator role. During read-only inspection,
 the dropdown contains only Groups; family-management controls stay hidden.
 **Add a group** creates an empty group and invites its first admin by Google email. That admin

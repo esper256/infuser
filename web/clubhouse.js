@@ -7,7 +7,7 @@ import { initClientUpdates } from '/assets/client-updates.js';
 const $ = id => document.getElementById(id);
 const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
-let noticeTimer;
+let noticeTimer,adminLoaded=false,adminLoading=false,networkHealthBusy=false;
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
@@ -99,6 +99,7 @@ window.addEventListener('scroll',()=>{for(const {close} of tagRows.values())clos
 document.fonts.ready.then(()=>{for(const state of tagRows.values())state.layoutKey=null;layoutTagRows();});
 
 function notice(message) {
+  if($('admin').open){$('admin-status').textContent=message;return;}
   clearTimeout(noticeTimer);
   const toast=$('notice');toast.textContent=message;toast.classList.add('visible');
   noticeTimer=setTimeout(()=>{toast.classList.remove('visible');toast.textContent='';},5000);
@@ -618,6 +619,18 @@ function openReaction(game,selectedEmoji){
 $('close-reaction').onclick=()=>$('reaction-dialog').close();
 $('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text')})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
+async function openAdmin(){
+  if(!me?.admin&&!me?.operator)return;
+  $('admin').showModal();refreshNetworkHealth();
+  if(!me.admin||adminLoaded||adminLoading)return;
+  adminLoading=true;$('admin-status').textContent='Loading admin tools…';
+  try{
+    await adminRefresh();adminLoaded=true;$('admin-controls').hidden=false;$('admin-status').textContent='';
+  }catch(error){showError(error);}
+  finally{adminLoading=false;}
+}
+$('close-admin').onclick=()=>$('admin').close();
+$('admin').addEventListener('close',()=>$('account-trigger')?.focus({preventScroll:true}));
 async function adminRefresh(){
   const [members,credentials]=await Promise.all([api('/api/admin/members'),api('/api/admin/credentials')]);
   $('members').replaceChildren();
@@ -689,7 +702,12 @@ function setupAccount(){
   const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
   const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
   const reviewFeedback=initFeedback(feedback,()=>{menu.open=false;},api,me.admin&&!me.inspecting);
-  panel.append(profile,label,feedback,...(reviewFeedback?[reviewFeedback]:[]),out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
+  panel.append(profile,label,feedback,...(reviewFeedback?[reviewFeedback]:[]));
+  if(me.admin||me.operator){
+    const admin=el('button','Admin tools');admin.id='open-admin';admin.type='button';admin.setAttribute('aria-haspopup','dialog');admin.setAttribute('aria-controls','admin');
+    admin.onclick=()=>{menu.open=false;openAdmin();};panel.append(admin);
+  }
+  panel.append(out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;
@@ -766,7 +784,6 @@ try {
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
   initClientUpdates({api});
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
-  if(me.admin){$('admin').hidden=false;await adminRefresh();}
 } catch(error) {
   if(inspection){sessionStorage.removeItem('infuser.group-inspection');location.replace('/library');}
   else if(error.status!==401)$('login-message').textContent=error.message;
@@ -936,9 +953,8 @@ function reactionBurst(target,emoji){
   hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
   setTimeout(()=>burst.remove(),950);
 }
-let networkHealthBusy=false;
 async function refreshNetworkHealth(){
-  if(networkHealthBusy||document.hidden||!me?.admin||!$('admin').querySelector('details')?.open)return;
+  if(networkHealthBusy||document.hidden||!me?.admin||!$('admin').open)return;
   networkHealthBusy=true;
   let box=$('network-health');if(!box){box=el('section');box.id='network-health';$('admin').querySelector('.admin-panel').append(box);}
   try{
@@ -958,5 +974,4 @@ async function refreshNetworkHealth(){
   }catch{box.replaceChildren(el('h3','Network diagnostics'),el('p','Diagnostics unavailable. Games can keep running.','quiet'));}
   finally{networkHealthBusy=false;}
 }
-$('admin').querySelector('details').addEventListener('toggle',refreshNetworkHealth);
 setInterval(refreshNetworkHealth,5000);

@@ -116,14 +116,15 @@ try{
  for(const route of heldLibrary)await route.abort().catch(()=>{});heldLibrary=[];
  holdLibrary=false;await page.evaluate(()=>refreshLibrary());assert.equal(libraryRequests-beforeRequests,2,'polling recovers after timeout');
  holdHealth=true;const beforeHealth=healthRequests,health=page.waitForRequest('**/api/admin/peer-health');
- await page.locator('#admin > details > summary').click();await health;
+ await page.locator('#account-trigger').click();await page.locator('#open-admin').click();await health;
  await page.evaluate(()=>Promise.all(Array.from({length:20},()=>refreshHealth())));
  assert.equal(healthRequests-beforeHealth,1,'slow diagnostics must not accumulate requests');
  for(const route of heldHealth)await route.fulfill({json:{sessions:[]}});heldHealth=[];
  await page.waitForFunction(()=>document.querySelector('#network-health')?.textContent.includes('No active peer sessions'));
  await page.evaluate(async()=>{Object.defineProperty(document,'hidden',{value:true,configurable:true});await refreshHealth();delete document.hidden;});
  assert.equal(healthRequests-beforeHealth,1,'background diagnostics are paused');holdHealth=false;
- await page.locator('#admin > details > summary').click();
+ await page.locator('#close-admin').click();
+ await page.evaluate(()=>refreshHealth());assert.equal(healthRequests-beforeHealth,1,'closed admin dialog does not poll diagnostics');
  // The empty-library state is also stable across repeated backend snapshots.
  apps=[];await page.evaluate(()=>refreshLibrary());await settle();await reset();await page.evaluate(()=>refreshLibrary());await settle();
  assert.equal((await page.evaluate(()=>work)).mutations,0,'empty-library refresh is stable');

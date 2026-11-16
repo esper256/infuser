@@ -178,7 +178,7 @@ be used as a player login.
   1–40 characters, without control characters. Returns `{player_id, name}`; preserves
   identity, permissions, enabled status, avatar, and saves. Unknown members return 404.
   Ordinary players cannot rename themselves or anyone else; `/api/profile` accepts
-  avatar selection only. The admin uses **Admin tools → Members → Rename**.
+  avatar selection only. The admin opens their profile picture menu, then **Admin tools → Members → Rename**.
 
 ## Game SDK and saves
 
