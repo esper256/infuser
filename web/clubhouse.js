@@ -104,6 +104,23 @@ async function refresh() {
     renderFilters(); renderGames(); renderFeed(); renderGameDetail();
   } catch (error) { showError(error); } finally { refreshing = false; }
 }
+function gameArtSource(game){return game.card_art_url||(game.card_art_pending?'/assets/card-generating.webp':null);}
+function describeArt(art,game){
+  if(game.card_art_pending&&!game.card_art_url){art.removeAttribute('aria-hidden');art.setAttribute('role','img');art.setAttribute('aria-label','Artwork being generated');}
+  else{art.setAttribute('aria-hidden','true');art.removeAttribute('role');art.removeAttribute('aria-label');}
+}
+function gameBuzz(game){
+  const now=Date.now()/1000,cutoff=now-28*86400;
+  const recent=(game.reactions||[]).filter(r=>Number.isFinite(r.updated)&&r.updated>=cutoff&&r.updated<=now&&emojis.some(([emoji])=>emoji===r.emoji)).sort((a,b)=>b.updated-a.updated);
+  if(!recent.length)return null;
+  // Diminishing growth: 8 reactions -> 4 faces, 12 -> 5, capped at 6.
+  const count=Math.min(recent.length,6,Math.ceil(Math.sqrt(2*recent.length))),seen=new Set(),distinct=[],rest=[];
+  for(const reaction of recent){if(!seen.has(reaction.emoji)){seen.add(reaction.emoji);distinct.push(reaction);}else rest.push(reaction);}
+  const stack=el('button',undefined,'game-buzz');stack.type='button';stack.setAttribute('aria-haspopup','dialog');
+  const label=recent.length+' '+(recent.length===1?'reaction':'reactions')+' in the last 28 days';stack.title=label;stack.setAttribute('aria-label',label+' · View feedback');
+  for(const reaction of [...distinct,...rest].slice(0,count)){const face=el('span',reaction.emoji);face.setAttribute('aria-hidden','true');stack.append(face);}
+  stack.onclick=()=>openGameDetail(game,recent[0]);return stack;
+}
 function renderGames() {
   const games = $('games');
   // Preserve ongoing launch controls and selections during presence polling.
@@ -115,7 +132,7 @@ function renderGames() {
     const empty = el('div',undefined,'empty'); empty.append(el('h2','No games yet'),el('p','Add a game to get started.')); nextCards.push(empty);
   }
   const query=$('game-search').value.trim().toLowerCase();
-  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(!query||(g.title+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
   $('game-count').textContent=(visible===total?visible:visible+' / '+total)+' games';
   if(library.apps.length&&!matching.length){const empty=el('div',undefined,'empty');empty.append(el('h2','No matches'),el('p','Try another tag or clear your search.'));nextCards.push(empty);}
@@ -124,18 +141,21 @@ function renderGames() {
     card.dataset.app=game.id;card.classList.toggle('hidden-game',!!game.preview);
     // Keep loaded (or still loading) covers connected across presence refreshes.
     // Recreating an img resets has-game-art and briefly paints the fallback.
-    let art=card.querySelector('.game-art');
-    if(!art || art.querySelector('img')?.getAttribute('src') !== (game.card_art_url || undefined)) {
+    const artSource=gameArtSource(game);let art=card.querySelector('.game-art');
+    if(!art || art.querySelector('img')?.getAttribute('src') !== (artSource || undefined)) {
       const replacement=el('div',undefined,'game-art game-mark');replacement.setAttribute('aria-hidden','true');
-      if(game.card_art_url){const image=el('img');image.alt='';image.loading='lazy';image.decoding='async';image.onload=()=>replacement.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=game.card_art_url;replacement.append(image);}
+      if(artSource){const image=el('img');image.alt='';image.loading='lazy';image.decoding='async';image.onload=()=>replacement.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=artSource;replacement.append(image);}
       if(art)art.replaceWith(replacement);else card.append(replacement);
       art=replacement;
     }
+    describeArt(art,game);
     for(const child of [...card.children])if(child!==art)child.remove();
     const meta=el('div',undefined,'game-meta'),dock=el('div',undefined,'game-dock'),heading=el('div',undefined,'game-heading');
-    const title=el('h2'),open=el('button',game.title,'game-open');open.type='button';open.setAttribute('aria-haspopup','dialog');open.setAttribute('aria-label','About '+game.title);open.title=game.title;open.onclick=()=>openGameDetail(game);title.append(open);heading.append(title);card.append(dock);
+    const title=el('h2'),open=el('button',game.title,'game-open');open.type='button';open.setAttribute('aria-haspopup','dialog');open.setAttribute('aria-label','About '+game.title);open.title=game.title;open.onclick=()=>openGameDetail(game);title.append(open);heading.append(title);
+    const bottom=el('div',undefined,'game-bottom');bottom.append(dock);card.append(bottom);
+    const buzz=gameBuzz(game);if(buzz){if(game.preview)card.append(buzz);else bottom.prepend(buzz);}
     card.onclick=event=>{if(event.target.closest('button,a,input,summary,details,select'))return;if(Date.now()<suppressContextUntil&&heldCard===card)return;openGameDetail(game);};
-    if(game.preview)dock.append(el('p','Hidden','game-visibility'));else card.insertBefore(meta,dock);
+    if(game.preview)dock.append(el('p','Hidden','game-visibility'));else card.insertBefore(meta,bottom);
     const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags&&!me.inspecting){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}if(!game.preview){meta.append(tags);prepareTagRow(tags);}
     heading.append(creatorButton(game));dock.append(heading,gameActions(game,card));
     (game.preview?hiddenCards:nextCards).push(card);
@@ -212,11 +232,12 @@ function renderGameDetail(){
   const focused=document.activeElement,oldReaction=focused?.dataset.reaction;
   const oldControl=dialog.querySelector('.detail-info')?.contains(focused)&&focused.matches('button,summary')?{tag:focused.tagName,label:focused.getAttribute('aria-label'),text:focused.textContent}:null;
   const content=$('game-detail-content'),info=el('section',undefined,'detail-info');
-  let art=content.querySelector('.detail-art');
-  if(!art||art.querySelector('img')?.getAttribute('src')!==(game.card_art_url||undefined)){
+  const artSource=gameArtSource(game);let art=content.querySelector('.detail-art');
+  if(!art||art.querySelector('img')?.getAttribute('src')!==(artSource||undefined)){
     art=el('div',undefined,'game-art detail-art');art.setAttribute('aria-hidden','true');
-    if(game.card_art_url){const image=el('img');image.alt='';image.decoding='async';image.onload=()=>art.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=game.card_art_url;art.append(image);}
+    if(artSource){const image=el('img');image.alt='';image.decoding='async';image.onload=()=>art.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=artSource;art.append(image);}
   }
+  describeArt(art,game);
   const title=el('h2',game.title);title.id='game-detail-title';info.append(title);
   if(game.preview)info.append(el('p','Hidden','game-visibility'));
   const creator=el('div',undefined,'detail-creator'),react=creatorButton(game);

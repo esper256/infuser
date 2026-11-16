@@ -7,13 +7,21 @@ pub(super) fn title<'a>(data: &'a platform::Data, app: &str, fallback: &'a str) 
         .unwrap_or(fallback)
 }
 
+pub(super) fn art_pending(data: &platform::Data, app: &str) -> bool {
+    data.metadata.get(app).is_some_and(|metadata| {
+        metadata
+            .art_prompt
+            .as_deref()
+            .is_some_and(|prompt| Some(hash(prompt)) != metadata.art_prompt_completed_revision)
+    })
+}
+
 fn view(d: &platform::Data, app: &str) -> Result<Value> {
     let active = d.apps.get(app).ok_or_else(|| fault(404, "unknown game"))?;
     let build = &d.builds[&build_key(app, &active.build)];
     let metadata = d.metadata.get(app).cloned().unwrap_or_default();
     let prompt_revision = metadata.art_prompt.as_deref().map(hash);
-    let prompt_pending =
-        prompt_revision.is_some() && prompt_revision != metadata.art_prompt_completed_revision;
+    let prompt_pending = art_pending(d, app);
     Ok(
         json!({"app_id":app,"private_group":d.groups.app(app),"build":active.build,"listed":active.listed,
         "title":title(d,app,&build.manifest.title),"title_override":metadata.title,

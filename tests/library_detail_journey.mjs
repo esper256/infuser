@@ -11,6 +11,8 @@ const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'Orb
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
 const game={id:'firefly-drift',title:'Firefly Drift',description:'A quiet flight through a glowing forest.',author,updated:now-60,card_art_url:'/test-art/firefly',url:'https://library.test/games/firefly-drift',tags:['3d','arcade','chill'],can_edit_tags:true,players:[],join_targets:[{name:'OrbitFox',session_id:'session',player_id:'two'}],reactions:[{...friend,emoji:'👏',text:'Love the atmosphere.',updated:now,mine:false},{...author,emoji:'⭐',text:'',updated:now-10,mine:true}]};
 const apps=[game,{...game,id:'nocomgame',title:'NoCOMgame',description:null,author:friend,card_art_url:null,tags:['3d','sandbox','action','survival','exploration'],reactions:[]},{...game,id:'event-horizon',title:'Event Horizon',author:friend,card_art_url:'/test-art/event',reactions:[]},{...game,id:'dodge',title:'Dodge the Creeps',author:null,preview:true,card_art_url:null,reactions:[]},{...game,id:'lantern',title:'Lantern Lake',author:null,preview:true,card_art_url:null,reactions:[]}];
+const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
+apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
 let launches=[],writes=[],reads=0,unauthorized=false;
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
@@ -38,6 +40,7 @@ try {
    if(path==='/test-art/firefly'){file='docs/design-explorations/card-art-guide/firefly-drift.webp';type='image/webp';}
    else if(path==='/test-art/event'){file='assets/avatars/event-horizon.png';type='image/png';}
    else if(path.startsWith('/assets/avatars/')){const [,id,size]=path.match(/\/avatars\/([^/]+)\/(\d+)\.webp$/);file=`assets/avatars/${id}-${size}.webp`;type='image/webp';}
+   else if(path==='/assets/card-generating.webp'){file='assets/card-fallback/generating.webp';type='image/webp';}
    else if(path==='/assets/google-signin.png'){file='assets/google/sign-in-with-google-pill.png';type='image/png';}
    else if(path.startsWith('/assets/')){file='web/'+path.slice(8);type=path.endsWith('.js')?'text/javascript':'text/css';}
    else if(path==='/sw.js')return route.fulfill({status:404,body:''});
@@ -54,6 +57,24 @@ try {
  async function close(){await page.locator('#close-game-detail').click();await page.waitForFunction(()=>!document.querySelector('#game-detail').open);}
  async function open(){await card().locator('.game-open').click();await dialog.waitFor();}
  async function popup(action){const opening=page.waitForEvent('popup');await action();const tab=await opening;await tab.waitForURL('**/game-fixture');await tab.close();}
+ // Pending placeholder transitions and author search use the real shared renderer.
+ const pendingCard=()=>page.locator('#visible-games [data-app="nocomgame"]');
+ assert.equal(await pendingCard().locator('.game-art img').getAttribute('src'),'/assets/card-generating.webp');
+ await pendingCard().locator('.game-open').click();assert.equal(await dialog.locator('.detail-art img').getAttribute('src'),'/assets/card-generating.webp');await close();
+ apps[1].card_art_pending=false;await page.evaluate(()=>refreshTestLibrary());assert.equal(await pendingCard().locator('.game-art img').count(),0);
+ apps[1].card_art_pending=true;apps[1].card_art_url='/test-art/firefly';await page.evaluate(()=>refreshTestLibrary());assert.equal(await pendingCard().locator('.game-art img').getAttribute('src'),'/test-art/firefly');
+ apps[1].card_art_url=null;await page.evaluate(()=>refreshTestLibrary());
+ await page.locator('#game-search').fill('kWaMi');assert.equal(await page.locator('#visible-games .game').count(),1);
+ await page.locator('#game-search').fill(' ORBITFOX ');assert.equal(await page.locator('#visible-games .game').count(),2);
+ await page.locator('#game-search').fill('');
+ // Only the last 28 days contribute; a busy card never grows past six faces.
+ for(const [n,faces] of [[0,0],[1,1],[8,4],[12,5],[50,6]]){
+  apps[1].reactions=[...recentReactions(n),{id:'old',name:'Old',emoji:'⭐',updated:now-29*86400,text:''}];await page.evaluate(()=>refreshTestLibrary());
+  assert.equal(await pendingCard().locator('.game-buzz span').count(),faces);
+ }
+ apps[1].reactions=recentReactions(8);await page.evaluate(()=>refreshTestLibrary());
+ assert.equal(new Set(await pendingCard().locator('.game-buzz span').allTextContents()).size,4);
+ await pendingCard().locator('.game-buzz').click();assert(await dialog.isVisible());assert(await page.evaluate(()=>document.activeElement.classList.contains('game-feedback-row')));await close();
  for(const theme of ['nightglass','cartridge-club']){
   await page.evaluate(t=>InfuserThemes.select(t),theme);
   for(const width of [1500,900,390,320]){
@@ -64,6 +85,7 @@ try {
    assert.equal(await page.locator('#friends [data-player-id="one"]').count(),1);
    await page.locator('#hidden-games').evaluate(e=>e.open=true);
    await page.evaluate(()=>document.activeElement.blur());
+   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=p.left+1&&b.top>=h.bottom;})),'reaction stacks must not overlap controls');
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);
@@ -119,7 +141,7 @@ try {
  // Unread Recently is large and animated in both themes, clears on opening,
  // and retains a static highlight with reduced motion.
  for(const theme of ['nightglass','cartridge-club']){
-  await page.evaluate(t=>InfuserThemes.select(t),theme);game.updated+=1;await page.evaluate(()=>refreshTestLibrary());
+  await page.evaluate(t=>InfuserThemes.select(t),theme);game.updated=Math.max(now,game.updated)+1;await page.evaluate(()=>refreshTestLibrary());
   const recent=page.locator('#recent-toggle');assert(await recent.evaluate(e=>e.classList.contains('has-updates')));
   assert(await recent.evaluate(e=>getComputedStyle(e).animationName==='recent-excitement'));
   assert(await recent.evaluate(e=>getComputedStyle(e).backgroundColor!=='rgba(0, 0, 0, 0)'&&parseFloat(getComputedStyle(e).fontSize)>=15));
@@ -153,5 +175,5 @@ try {
  me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),6);await close();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);
- console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, positive reactions with optional notes and bursts, unread Recently, centered card scaling, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');
+ console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, pending-art transitions, author search, 28-day attenuated reaction stacks, positive reactions with optional notes and bursts, unread Recently, centered card scaling, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');
 } finally {await browser.close();}

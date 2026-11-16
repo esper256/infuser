@@ -478,6 +478,10 @@ pub fn router(platform: Platform) -> Router {
         .route("/assets/themes.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes.js")) }))
         .route("/assets/themes/nightglass.css", get(|| async { ([(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes/nightglass.css")) }))
         .route("/assets/themes/cartridge-club.css", get(|| async { ([(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes/cartridge-club.css")) }))
+        .route("/assets/card-generating.webp", get(|| async {
+            ([(header::CONTENT_TYPE, "image/webp"), (header::CACHE_CONTROL, "public, max-age=3600")],
+             include_bytes!("../assets/card-fallback/generating.webp").as_slice())
+        }))
         .route(
             "/assets/google-signin.png",
             get(|| async {
