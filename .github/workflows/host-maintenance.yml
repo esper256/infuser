@@ -1,0 +1,38 @@
+name: Host maintenance and service images
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/services/**'
+      - 'deploy/*reboot*'
+      - 'deploy/*maintenance*'
+      - 'tests/reboot_journey.mjs'
+      - 'tests/service_images_journey.sh'
+      - '.github/workflows/host-maintenance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: node tests/reboot_journey.mjs
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: docker build -t infuser-caddy:acceptance deploy/services/caddy
+      - run: bash tests/service_images_journey.sh

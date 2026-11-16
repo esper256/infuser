@@ -3,8 +3,11 @@
 Audience: Infuser developers.
 
 Status: implementation, automated acceptance, and ARM64 deployment complete.
-Backup destinations, cloud snapshot policy, notification delivery, and independent
-uptime setup are deferred at the operator's request. Continue with the
+Encrypted off-server backup authorization remains deferred. Notification delivery
+and independent heartbeats are verified; cloud snapshot configuration and a
+volume-level restore were reported complete in private operator records.
+Conditional OS reboot windows and tracked service images are described in
+[host maintenance](../host-maintenance.md). Continue with the
 [SDK 1.0 stabilization plan](sdk-1.0-stabilization.md).
 
 ## Delivery order
@@ -31,7 +34,7 @@ uptime setup are deferred at the operator's request. Continue with the
 
 ## Backup decisions
 
-No remote destination is configured yet. The requested destination is the
+No encrypted off-server destination is configured yet. The requested destination is the
 operator's Google Drive quota, with a separate OAuth app requesting only
 `drive.file`. Rclone can provide that transport; restic provides encryption and
 integrity rather than Infuser implementing either. The limited refresh token and
@@ -96,8 +99,8 @@ ARM64 deployment passed health checks and uses approximately 321 MiB combined fo
 the four monitoring containers. The opt-in monitoring journey additionally
 passed real notification delivery, recovery, bearer-token handling and watchdog
 cutoff/resumption on stale data. Live Grafana test delivery reached ntfy, and
-scheduled watchdog delivery to Healthchecks succeeded. Phone receipt remains an
-operator acceptance step. Private rollout details are recorded separately.
+scheduled watchdog delivery to Healthchecks succeeded. The operator confirmed
+phone receipt. Private rollout details are recorded separately.
 
 References: [restic repositories](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html),
 [restoring backups](https://restic.readthedocs.io/en/stable/050_restore.html),

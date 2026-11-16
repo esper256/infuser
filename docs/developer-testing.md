@@ -8,6 +8,18 @@ exercised, not certification of every game or device.
 
 ## Unattended operation
 
+`node tests/reboot_journey.mjs` runs the actual reboot scripts against a local
+HTTP admission fixture with fake time and systemd. It checks absent reboot flags,
+window boundaries, package activity, busy admission, shared-lock exclusion,
+inhibitors, failure cleanup and successful shutdown requests. Requires Bash,
+curl, jq and flock; it never executes the host's reboot command.
+
+Build `docker build -t infuser-caddy:acceptance deploy/services/caddy`, then run
+`bash tests/service_images_journey.sh` for the DNS module/HTTP and service binary
+smoke checks. The manual Docker/Caddy workflow uses this same build for its full
+authentication and forwarding journey. The scoped host-maintenance workflow
+gives early feedback on image and reboot-script PRs.
+
 Fast checks: `cargo test --locked --test operations_journey --test host_health_journey --test update_journey`.
 These cover maintenance admission, active-player deferral, bounded recovery,
 planned backup downtime, the recovery hook, staged-release cleanup and rollback.

@@ -1,0 +1,11 @@
+# Image/build source of truth. Merge with PRIVATE service configuration (networks,
+# mounts, limits, credentials and container names); do not start this file alone.
+services:
+  caddy:
+    image: infuser-caddy:local
+    build:
+      context: ./caddy
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
+  turn:
+    image: coturn/coturn:4.19.0-alpine@sha256:136cbd65085981300ce8dda9f917f377d84f4512497041aecd5d0a42ac5fd04e

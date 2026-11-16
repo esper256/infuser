@@ -48,3 +48,34 @@ updates:
       docker-security:
         applies-to: security-updates
         patterns: ['*']
+  - package-ecosystem: docker-compose
+    directories:
+      - /deploy/services
+      - /deploy/monitoring
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      production-images:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+  - package-ecosystem: docker
+    directories:
+      - /deploy/services/caddy
+      - /services/peerjs
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      service-base-images:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+  - package-ecosystem: gomod
+    directory: /deploy/services/caddy
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      caddy-build:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
