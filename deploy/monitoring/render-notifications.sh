@@ -10,7 +10,7 @@ source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 target=$2
 staged=$(mktemp "${target}.XXXXXX")
 trap 'rm -f -- "$staged"' EXIT
-jq --slurpfile base "$source_dir/provisioning/alerting/infuser.json" '
+jq --slurpfile base "$source_dir/alert-rules.json" '
   def url: type == "string" and (test("^https://[^/[:space:]]+/[^[:space:]]+$") or test("^http://127\\.0\\.0\\.1:[0-9]+/[^[:space:]]+$")) and (contains("REPLACE")|not);
   # Grafana interpolates environment variables in provisioning settings.
   def literal: gsub("\\$"; "$$");
@@ -25,13 +25,13 @@ jq --slurpfile base "$source_dir/provisioning/alerting/infuser.json" '
    contactPoints:[{orgId:1,name:"infuser-operator",receivers:[{
      uid:"infuser-operator-webhook",type:"webhook",disableResolveMessage:false,
      settings:({url:(.webhook_url|literal),httpMethod:"POST",maxAlerts:"20",
-       title:"Infuser · {{ if eq .Status \"firing\" }}needs attention{{ else }}recovered{{ end }}",
+       title:"{{ if eq .CommonLabels.project \"host\" }}Host{{ else }}Infuser{{ end }} · {{ if eq .Status \"firing\" }}needs attention{{ else }}recovered{{ end }}",
        message:"{{ range .Alerts.Firing }}Problem: {{ .Labels.alertname }}{{ with .Labels.check }} ({{ . }}){{ end }}\n{{ .Annotations.summary }}\n{{ end }}{{ range .Alerts.Resolved }}Recovered: {{ .Labels.alertname }}{{ with .Labels.check }} ({{ . }}){{ end }}\n{{ end }}"}
        + if $token == "" then {} else {authorization_scheme:"Bearer",authorization_credentials:($token|literal)} end)
    }]}],
-   policies:[{orgId:1,receiver:"infuser-operator",group_by:["service"],
-     group_wait:"45s",group_interval:"5m",repeat_interval:"4h",
-     routes:[]}]
+   groups:($base[0].groups | map(.rules |= map(.notification_settings={
+     receiver:"infuser-operator",group_by:["project","service"],
+     group_wait:"45s",group_interval:"5m",repeat_interval:"4h"})))
   } |
   if $heartbeat == "" then
     .deleteRules=[{orgId:1,uid:"infuser-watchdog"}]
@@ -41,15 +41,14 @@ jq --slurpfile base "$source_dir/provisioning/alerting/infuser.json" '
       settings:{url:($heartbeat|literal),httpMethod:"POST",maxAlerts:"1",
         title:"Infuser monitoring heartbeat",message:"Monitoring pipeline is running."}
     }]}] |
-    .policies[0].routes=[{receiver:"infuser-heartbeat",object_matchers:[["route","=","watchdog"]],
-      group_by:["service"],group_wait:"0s",group_interval:"1m",repeat_interval:"1m"}] |
-    .groups=[{orgId:1,name:"Infuser watchdog",folder:"Infuser",interval:"1m",rules:[
+    .groups += [{orgId:1,name:"Host watchdog",folder:"Host",interval:"1m",rules:[
       ($base[0].groups[0].rules[0] |
         .uid="infuser-watchdog" | .title="Monitoring heartbeat" | .for="0s" |
         .noDataState="OK" | .execErrState="OK" |
-        .labels={service:"infuser",route:"watchdog",severity:"none"} |
+        .labels={project:"host",service:"host",route:"watchdog",severity:"none"} |
+        .notification_settings={receiver:"infuser-heartbeat",group_by:["project","service"],group_wait:"0s",group_interval:"1m",repeat_interval:"1m"} |
         .annotations={summary:"Expected to fire while the monitoring pipeline is healthy. Never route this to a person."} |
-        .data[0].model.expr="(min(up{job=~\"host|prometheus|grafana|website\"}) == 1) and on() (count(up{job=~\"host|prometheus|grafana|website\"}) >= 4) and on() (time() - max(infuser_collector_timestamp_seconds) < 180)")
+        .data[0].model.expr="(min(up{job=~\"host|prometheus|grafana|website\",project=~\"host|infuser\"}) == 1) and on() (count(count by(job)(up{job=~\"host|prometheus|grafana|website\",project=~\"host|infuser\"})) == 4) and on() (time() - max(infuser_collector_timestamp_seconds{job=\"host\",project=\"infuser\"}) < 180)")
     ]}]
   end
 ' "$1" > "$staged"

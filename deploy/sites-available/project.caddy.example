@@ -1,0 +1,6 @@
+# Copy into sites-enabled only after replacing this domain and local port.
+# This site has its own authentication requirements; it does not inherit Infuser login.
+project.example.org {
+    encode gzip
+    reverse_proxy 127.0.0.1:12000
+}

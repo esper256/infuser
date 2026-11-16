@@ -4,6 +4,10 @@ const port=Number(process.argv[2]);
 let failed=false,stale=false;
 const events=[];
 http.createServer(async(req,res)=>{
+  if(req.url==='/other-metrics'){
+    res.setHeader('Content-Type','text/plain');
+    res.end('probe_success 0\nprobe_ssl_earliest_cert_expiry 0\ninfuser_check_success{check="foreign"} 0\nnode_memory_MemAvailable_bytes 0\nnode_memory_MemTotal_bytes 100\n');return;
+  }
   if(req.url==='/metrics'){
     const now=Math.floor(Date.now()/1000);
     res.setHeader('Content-Type','text/plain');
@@ -23,7 +27,7 @@ probe_ssl_earliest_cert_expiry ${now+30*86400}
   let body='';for await(const chunk of req){body+=chunk;if(body.length>65536){res.writeHead(413);res.end();return;}}
   if(req.url==='/state'){const state=JSON.parse(body);failed=state.failed??failed;stale=state.stale??stale;}
   else if(req.url==='/reset')events.length=0;
-  else if(['/alerts','/heartbeat'].includes(req.url)){
+  else if(['/alerts','/heartbeat','/other'].includes(req.url)){
     if(req.url==='/alerts'&&req.headers.authorization!=='Bearer fixture$token'){res.writeHead(401);res.end();return;}
     events.push({path:req.url,at:Date.now(),body:JSON.parse(body)});if(events.length>120)events.shift();
   }else{res.writeHead(404);res.end();return;}

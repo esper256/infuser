@@ -48,9 +48,10 @@ All listeners bind loopback. No cloud firewall changes or public Grafana route
 are needed. From your computer, use `ssh -N -L 3000:127.0.0.1:3000 YOUR_HOST`, then
 open `http://127.0.0.1:3000` and sign in as `admin` with the file's password.
 
-The stack includes a dashboard and eight health alert rules. Configure delivery
-below; starting the stack alone does not enable outside notifications. Grafana
-history is not part of the game backup.
+The stack includes separate Infuser and Host dashboards. Configure delivery below
+to install the eight health rules and optional heartbeat from `alert-rules.json`.
+Starting the stack alone does not enable outside notifications. Grafana history
+is not part of the game backup.
 
 ## Phone notifications and outage detection
 
@@ -85,19 +86,65 @@ stops sending, Healthchecks alerts independently of the VM.
 
 5. Restart only Grafana using the same Compose command and password-file setting
    as installation, with `restart grafana` instead of `up -d`. For an existing
-   installation, also copy the current `prometheus.yml` and recreate only
+   installation, also copy the current `prometheus.yml`, `compose.yaml` and
+   `scrape.d/` example and recreate only
    Prometheus with `up -d --no-deps --force-recreate prometheus`. This adds the
-   Grafana scrape and refreshes its file mount. Keep your private `targets.json`.
+   project labels and the scrape-directory mount. Keep your private `targets.json`
+   and other projects' files. See the upgrade note below before replacing older
+   alert provisioning.
 6. In Grafana **Alerting → Contact points**, test **infuser-operator**. Confirm
    receipt on the phone. In Healthchecks, confirm recurring pings and a healthy
    check. Test its notification integration too; provider acceptance alone does
    not prove the phone has notifications enabled.
 
-This configuration owns the entire notification policy tree of the dedicated
-Infuser Grafana instance. Do not apply it over unrelated Grafana policies.
+The generated rules select their contact points directly. The renderer does not
+provision or reset Grafana's shared notification policy tree, so other projects
+can manage their own routing without an Infuser update replacing it.
 Edit the private input and render again to change destinations; provisioned
 settings are managed by files. Preserve those files in your private host backup.
 An empty `heartbeat_url` disables the watchdog rule, leaving ordinary alerts.
+
+### Upgrade from the original dedicated monitoring setup
+
+Back up private provisioning and export the current notification policy tree
+before changing it. The new generated `notifications.json` includes the health
+rules as well as contacts: remove the old deployed `alerting/infuser.json` after
+rendering, so the same rules are not provisioned twice. Keep all unrelated files.
+Install the new dashboard subdirectories/provider file too; dashboard UIDs and
+the existing Prometheus datasource UID remain stable.
+
+Removing a policy from its provisioning file does not undo the already installed
+policy. If the old tree contains only Infuser's default route and watchdog route,
+reset that legacy tree once through Grafana's provisioning API after the new
+direct notification routes are active. If the tree also contains another
+project's routing, preserve it and migrate deliberately; never reset it blindly.
+Future Infuser provisioning must not include `policies` or `resetPolicies`.
+
+## Adding another project
+
+Use the existing Prometheus/Grafana installation. Put a unique scrape job in
+`scrape.d/PROJECT.yml`, following `project.yml.example`, and label its targets
+`project: PROJECT`. Keep the built-in job names `host`, `prometheus`, `grafana`
+and `website` reserved. Infuser's website job always receives `project: infuser`;
+its application metrics keep the `infuser_` prefix, receive `project="infuser"`,
+and are read only from the host collector job. Standard `node_*` host metrics
+receive `project="host"` and are shared, not copied for each project. Host memory,
+disk and core scrape alerts remain in the Host folder.
+
+Validate new files with `promtool check config /etc/prometheus/prometheus.yml`
+inside the Prometheus container, then send that container `SIGHUP` to reload.
+The scrape-directory mount allows new jobs without recreating the container.
+The original `targets.json` remains the Infuser website list. For another site's
+HTTPS check, create a separate blackbox scrape job with its own project label.
+
+Add dashboards through a uniquely named provider under `provisioning/dashboards/`
+and its own directory under `dashboards/`, using that project's folder and unique
+dashboard/rule UIDs. Reload Grafana provisioning after adding providers or rules.
+Other projects can select their own contacts directly or use the shared policy
+tree. The existing `infuser-operator` contact receives only the explicitly routed
+Infuser and host checks; its historical name does not make it a global default.
+No extra Grafana or Prometheus process, public port, or Infuser Google login is
+needed. Project labels organize metrics; they are not a security boundary.
 
 Problems are grouped, with a 45-second initial delay, subsequent changes at
 five-minute intervals, and reminders every four hours. Recovery messages are

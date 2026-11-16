@@ -1,6 +1,6 @@
 {
   "uid": "infuser-host",
-  "title": "Infuser host",
+  "title": "Infuser",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "30s",
@@ -29,7 +29,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "infuser_check_success",
+          "expr": "infuser_check_success{job=\"host\",project=\"infuser\"}",
           "legendFormat": "{{check}}{{category}}{{instance}}"
         }
       ],
@@ -57,7 +57,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - infuser_collector_timestamp_seconds",
+          "expr": "time() - infuser_collector_timestamp_seconds{job=\"host\",project=\"infuser\"}",
           "legendFormat": "{{check}}{{category}}{{instance}}"
         }
       ],
@@ -69,8 +69,8 @@
       }
     },
     {
-      "id": 3,
-      "title": "Host memory used",
+      "id": 4,
+      "title": "Available disk",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -85,35 +85,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
-          "legendFormat": "{{check}}{{category}}{{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 4,
-      "title": "Available disk",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 8,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "infuser-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "infuser_disk_available_bytes",
+          "expr": "infuser_disk_available_bytes{job=\"host\",project=\"infuser\"}",
           "legendFormat": "{{check}}{{category}}{{instance}}"
         }
       ],
@@ -129,8 +101,8 @@
       "title": "Infuser storage",
       "type": "timeseries",
       "gridPos": {
-        "x": 0,
-        "y": 16,
+        "x": 12,
+        "y": 8,
         "w": 12,
         "h": 8
       },
@@ -141,7 +113,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "infuser_storage_bytes",
+          "expr": "infuser_storage_bytes{job=\"host\",project=\"infuser\"}",
           "legendFormat": "{{check}}{{category}}{{instance}}"
         }
       ],
@@ -157,7 +129,7 @@
       "title": "Last verified backup age",
       "type": "timeseries",
       "gridPos": {
-        "x": 12,
+        "x": 0,
         "y": 16,
         "w": 12,
         "h": 8
@@ -169,7 +141,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(time() - infuser_backup_verified_timestamp_seconds) and (infuser_backup_verified_timestamp_seconds > 0)",
+          "expr": "(time() - infuser_backup_verified_timestamp_seconds{job=\"host\",project=\"infuser\"}) and (infuser_backup_verified_timestamp_seconds{job=\"host\",project=\"infuser\"} > 0)",
           "legendFormat": "{{check}}{{category}}{{instance}}"
         }
       ],
@@ -185,8 +157,8 @@
       "title": "Website response time",
       "type": "timeseries",
       "gridPos": {
-        "x": 0,
-        "y": 24,
+        "x": 12,
+        "y": 16,
         "w": 12,
         "h": 8
       },
@@ -197,41 +169,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "probe_duration_seconds",
+          "expr": "probe_duration_seconds{project=\"infuser\"}",
           "legendFormat": "{{check}}{{category}}{{instance}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 8,
-      "title": "CPU busy",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 24,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "infuser-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))",
-          "legendFormat": "{{check}}{{category}}{{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit"
         },
         "overrides": []
       }

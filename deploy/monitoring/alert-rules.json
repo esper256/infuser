@@ -16,7 +16,8 @@
           "execErrState": "Alerting",
           "labels": {
             "service": "infuser",
-            "severity": "warning"
+            "severity": "warning",
+            "project": "infuser"
           },
           "annotations": {
             "summary": "Read the matching check and suggested action in Infuser operator tools.",
@@ -32,7 +33,7 @@
               },
               "model": {
                 "refId": "A",
-                "expr": "1 - infuser_check_success",
+                "expr": "1 - infuser_check_success{job=\"host\",project=\"infuser\"}",
                 "instant": true,
                 "range": false,
                 "intervalMs": 30000,
@@ -86,7 +87,8 @@
           "execErrState": "Alerting",
           "labels": {
             "service": "infuser",
-            "severity": "warning"
+            "severity": "warning",
+            "project": "infuser"
           },
           "annotations": {
             "summary": "Inspect infuser-health.timer and infuser-health.service.",
@@ -102,77 +104,7 @@
               },
               "model": {
                 "refId": "A",
-                "expr": "(time() - infuser_collector_timestamp_seconds > bool 180) or absent(infuser_collector_timestamp_seconds)",
-                "instant": true,
-                "range": false,
-                "intervalMs": 30000,
-                "maxDataPoints": 43200
-              }
-            },
-            {
-              "refId": "B",
-              "datasourceUid": "__expr__",
-              "relativeTimeRange": {
-                "from": 0,
-                "to": 0
-              },
-              "model": {
-                "refId": "B",
-                "type": "threshold",
-                "expression": "A",
-                "conditions": [
-                  {
-                    "evaluator": {
-                      "type": "gt",
-                      "params": [
-                        0
-                      ]
-                    },
-                    "operator": {
-                      "type": "and"
-                    },
-                    "reducer": {
-                      "type": "last",
-                      "params": []
-                    },
-                    "query": {
-                      "params": [
-                        "B"
-                      ]
-                    },
-                    "type": "query"
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "uid": "infuser-scrape",
-          "title": "Monitoring target unavailable",
-          "condition": "B",
-          "for": "2m",
-          "noDataState": "Alerting",
-          "execErrState": "Alerting",
-          "labels": {
-            "service": "infuser",
-            "severity": "warning"
-          },
-          "annotations": {
-            "summary": "Inspect the affected monitoring service.",
-            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
-          },
-          "data": [
-            {
-              "refId": "A",
-              "datasourceUid": "infuser-prometheus",
-              "relativeTimeRange": {
-                "from": 600,
-                "to": 0
-              },
-              "model": {
-                "refId": "A",
-                "expr": "1 - up",
+                "expr": "(time() - infuser_collector_timestamp_seconds{job=\"host\",project=\"infuser\"} > bool 180) or absent(infuser_collector_timestamp_seconds{job=\"host\",project=\"infuser\"})",
                 "instant": true,
                 "range": false,
                 "intervalMs": 30000,
@@ -226,7 +158,8 @@
           "execErrState": "Alerting",
           "labels": {
             "service": "infuser",
-            "severity": "critical"
+            "severity": "critical",
+            "project": "infuser"
           },
           "annotations": {
             "summary": "Check DNS, Caddy and the controller. A missing website target also triggers this alert.",
@@ -242,7 +175,7 @@
               },
               "model": {
                 "refId": "A",
-                "expr": "1 - probe_success",
+                "expr": "1 - probe_success{project=\"infuser\"}",
                 "instant": true,
                 "range": false,
                 "intervalMs": 30000,
@@ -296,7 +229,8 @@
           "execErrState": "Alerting",
           "labels": {
             "service": "infuser",
-            "severity": "warning"
+            "severity": "warning",
+            "project": "infuser"
           },
           "annotations": {
             "summary": "Inspect Caddy certificate renewal and DNS-provider access.",
@@ -312,147 +246,7 @@
               },
               "model": {
                 "refId": "A",
-                "expr": "probe_ssl_earliest_cert_expiry - time() < bool 14 * 86400",
-                "instant": true,
-                "range": false,
-                "intervalMs": 30000,
-                "maxDataPoints": 43200
-              }
-            },
-            {
-              "refId": "B",
-              "datasourceUid": "__expr__",
-              "relativeTimeRange": {
-                "from": 0,
-                "to": 0
-              },
-              "model": {
-                "refId": "B",
-                "type": "threshold",
-                "expression": "A",
-                "conditions": [
-                  {
-                    "evaluator": {
-                      "type": "gt",
-                      "params": [
-                        0
-                      ]
-                    },
-                    "operator": {
-                      "type": "and"
-                    },
-                    "reducer": {
-                      "type": "last",
-                      "params": []
-                    },
-                    "query": {
-                      "params": [
-                        "B"
-                      ]
-                    },
-                    "type": "query"
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "uid": "infuser-memory",
-          "title": "Host memory pressure",
-          "condition": "B",
-          "for": "10m",
-          "noDataState": "Alerting",
-          "execErrState": "Alerting",
-          "labels": {
-            "service": "infuser",
-            "severity": "warning"
-          },
-          "annotations": {
-            "summary": "Review game and service memory use.",
-            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
-          },
-          "data": [
-            {
-              "refId": "A",
-              "datasourceUid": "infuser-prometheus",
-              "relativeTimeRange": {
-                "from": 600,
-                "to": 0
-              },
-              "model": {
-                "refId": "A",
-                "expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes > bool 0.9",
-                "instant": true,
-                "range": false,
-                "intervalMs": 30000,
-                "maxDataPoints": 43200
-              }
-            },
-            {
-              "refId": "B",
-              "datasourceUid": "__expr__",
-              "relativeTimeRange": {
-                "from": 0,
-                "to": 0
-              },
-              "model": {
-                "refId": "B",
-                "type": "threshold",
-                "expression": "A",
-                "conditions": [
-                  {
-                    "evaluator": {
-                      "type": "gt",
-                      "params": [
-                        0
-                      ]
-                    },
-                    "operator": {
-                      "type": "and"
-                    },
-                    "reducer": {
-                      "type": "last",
-                      "params": []
-                    },
-                    "query": {
-                      "params": [
-                        "B"
-                      ]
-                    },
-                    "type": "query"
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "uid": "infuser-disk",
-          "title": "Host filesystem nearly full",
-          "condition": "B",
-          "for": "5m",
-          "noDataState": "Alerting",
-          "execErrState": "Alerting",
-          "labels": {
-            "service": "infuser",
-            "severity": "warning"
-          },
-          "annotations": {
-            "summary": "Review storage categories; do not prune game saves or worlds.",
-            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
-          },
-          "data": [
-            {
-              "refId": "A",
-              "datasourceUid": "infuser-prometheus",
-              "relativeTimeRange": {
-                "from": 600,
-                "to": 0
-              },
-              "model": {
-                "refId": "A",
-                "expr": "max((node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|fuse.*\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|fuse.*\"} < bool 0.1) and (node_filesystem_readonly == 0))",
+                "expr": "probe_ssl_earliest_cert_expiry{project=\"infuser\"} - time() < bool 14 * 86400",
                 "instant": true,
                 "range": false,
                 "intervalMs": 30000,
@@ -506,7 +300,8 @@
           "execErrState": "Alerting",
           "labels": {
             "service": "infuser",
-            "severity": "warning"
+            "severity": "warning",
+            "project": "infuser"
           },
           "annotations": {
             "summary": "Inspect backup service and staging disk space; its stop hook must resume Infuser.",
@@ -522,7 +317,228 @@
               },
               "model": {
                 "refId": "A",
-                "expr": "infuser_maintenance",
+                "expr": "infuser_maintenance{job=\"host\",project=\"infuser\"}",
+                "instant": true,
+                "range": false,
+                "intervalMs": 30000,
+                "maxDataPoints": 43200
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "B",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "orgId": 1,
+      "name": "Host",
+      "folder": "Host",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "infuser-scrape",
+          "title": "Monitoring target unavailable",
+          "condition": "B",
+          "for": "2m",
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "labels": {
+            "service": "host",
+            "severity": "warning",
+            "project": "host"
+          },
+          "annotations": {
+            "summary": "Inspect the affected monitoring service.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
+          },
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "infuser-prometheus",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "1 - up{project=\"host\"}",
+                "instant": true,
+                "range": false,
+                "intervalMs": 30000,
+                "maxDataPoints": 43200
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "B",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "infuser-memory",
+          "title": "Host memory pressure",
+          "condition": "B",
+          "for": "10m",
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "labels": {
+            "service": "host",
+            "severity": "warning",
+            "project": "host"
+          },
+          "annotations": {
+            "summary": "Review game and service memory use.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
+          },
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "infuser-prometheus",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "1 - node_memory_MemAvailable_bytes{job=\"host\",project=\"host\"} / node_memory_MemTotal_bytes{job=\"host\",project=\"host\"} > bool 0.9",
+                "instant": true,
+                "range": false,
+                "intervalMs": 30000,
+                "maxDataPoints": 43200
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "refId": "B",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "infuser-disk",
+          "title": "Host filesystem nearly full",
+          "condition": "B",
+          "for": "5m",
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "labels": {
+            "service": "host",
+            "severity": "warning",
+            "project": "host"
+          },
+          "annotations": {
+            "summary": "Review storage categories; do not prune game saves or worlds.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
+          },
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "infuser-prometheus",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "refId": "A",
+                "expr": "max((node_filesystem_avail_bytes{job=\"host\",project=\"host\",fstype!~\"tmpfs|overlay|squashfs|fuse.*\"} / node_filesystem_size_bytes{job=\"host\",project=\"host\",fstype!~\"tmpfs|overlay|squashfs|fuse.*\"} < bool 0.1) and (node_filesystem_readonly{job=\"host\",project=\"host\"} == 0))",
                 "instant": true,
                 "range": false,
                 "intervalMs": 30000,
