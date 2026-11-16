@@ -114,7 +114,7 @@ pub struct Game {
     pub user: String,
     #[serde(default)]
     pub persistent: bool,
-    /// Web servers are loopback-only and reached through Caddy at ID-server.DOMAIN.
+    /// Web servers use authenticated Caddy routing, via loopback or an internal bridge.
     #[serde(default)]
     pub web: bool,
     #[serde(default, skip_serializing_if = "NetworkPolicy::is_default")]

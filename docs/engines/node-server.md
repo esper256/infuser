@@ -83,7 +83,10 @@ The [advanced staged-image route](../public-api.md) remains available for other 
 This slice supplies packaging and hosting. Dedicated-server presence and Join Friend
 are separate capabilities; do not declare peer-hosted features for a dedicated game
 or trust identity headers that this preview has not promised to verify. The existing
-`/api/server/verify` contract can verify game tickets when player identity is needed.
+`/api/server/verify` contract accepts game tickets already held by a supported client;
+it does not make the browser's HttpOnly launch cookie available to game JavaScript.
+Do not claim a browser player's Infuser identity is verified merely because the
+WebSocket passed the proxy. A browser-to-server identity handoff is separate SDK work.
 
 Use the [dedicated fixture](../../examples/dedicated-node) to test cold startup,
 multiple connections, guest launches, reconnection, idle shutdown and updates.

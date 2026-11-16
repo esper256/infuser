@@ -70,14 +70,21 @@ build images are not pruned to make a new build succeed.
 
 ## Acceptance
 
-Publish from a machine without Docker, using a fixture with ws and Three.js. Cover
-upload retries, mismatched lockfiles, unsafe dependency URLs, disabled install
-scripts, worker interruption, readiness failure, capacity queuing and cleanup.
-Upgrade a single-player game to single-player plus dedicated multiplayer under the
-same app ID. Verify client/server pairing, two clients, a guest, cold title-screen
-startup, idle shutdown and queued updates. Preserve the current game on every
-failed publication. Later session discovery and Join Friend use the separate
-[SDK decisions](sdk-1.0-decisions.md).
+The representative ws/Three.js fixture has passed:
+
+- API/CLI journeys for sealed uploads, invalid dependency URLs, capacity queuing,
+  interruption/retry, cleanup, and adding multiplayer to an existing app.
+- Real Docker installation with lifecycle scripts disabled, readiness checks,
+  two WebSocket players, departure, idle shutdown, and a fresh restart.
+- Live ARM64 Node 22/24 packaging from a laptop without Docker. Two Chromium
+  guest launches covered cold title screens, shared and independent rooms,
+  reconnects, isolated saves, CPU/RAM limits and blocked Internet/metadata access.
+- A broken server leaving the active pair intact, a valid update waiting for
+  players to leave, and the updated pair waking and sleeping again.
+
+This validates the hosting path, not an individual game's integration or maximum
+player capacity. Dedicated identity, session discovery and Join Friend remain
+separate work under the [SDK decisions](sdk-1.0-decisions.md).
 
 ## Installation setup
 

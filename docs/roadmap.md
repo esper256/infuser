@@ -1,10 +1,10 @@
 # Remaining work
 
-- Prioritize [dedicated Node hosting](server-packaging.md): prove the real Docker
-  packaging path, then add verified WebSocket connections and dedicated session
-  discovery/Join Friend under the [accepted SDK direction](sdk-1.0-decisions.md).
-  Lanternfall's source is unavailable; use the representative fixture and keep
-  actual game integration as a separate acceptance step.
+- Extend [dedicated Node hosting](server-packaging.md) with verified WebSocket
+  connections and dedicated session discovery/Join Friend under the
+  [accepted SDK direction](sdk-1.0-decisions.md). Packaging and hosting have passed
+  the Docker and live two-browser journeys. Actual game adaptation and playtesting
+  remain separate acceptance steps; reviewing a game's source is not a playtest.
 - Finish [Godot web](engines/godot-web.md) acceptance on actual Windows browsers,
   physical laptop sleep, and full-duration TURN credential renewal. Bazzite
   Flatpak Chrome has passed threaded/single-threaded exports, forced relay,
