@@ -603,7 +603,8 @@ impl Controller {
                 );
             }
         }
-        self.last_tick.store(now(),std::sync::atomic::Ordering::Relaxed);
+        self.last_tick
+            .store(now(), std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 }

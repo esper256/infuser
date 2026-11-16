@@ -42,7 +42,10 @@ pub fn router_with_peers(
         )
         .route("/v1/apps/{id}/instance", delete(stop))
         .layer(DefaultBodyLimit::max(4096))
-        .layer(axum::middleware::from_fn_with_state(controller.maintenance.clone(),crate::maintenance::admission))
+        .layer(axum::middleware::from_fn_with_state(
+            controller.maintenance.clone(),
+            crate::maintenance::admission,
+        ))
         .with_state(App {
             controller,
             token_hash: Sha256::digest(token.as_bytes()).into(),

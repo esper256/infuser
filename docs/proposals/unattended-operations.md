@@ -2,7 +2,8 @@
 
 Audience: Infuser developers.
 
-Status: implementation in progress. SDK 1.0 design is a separate next task.
+Status: implementation and automated acceptance complete; destination configuration
+and production rollout acceptance remain. SDK 1.0 design is a separate next task.
 
 ## Delivery order
 
@@ -81,8 +82,10 @@ Local evidence: fast Rust and SDK tests, operator browser journey and real Caddy
 journeys pass. The restic fixture restores game assets and saves through HTTP and
 keeps one verified snapshot. Recovery tests exercise stalled lifecycle checks,
 cooldown and the backup exit hook with missing source paths. The actual
-Prometheus/Grafana stack loads the dashboard and all eight alert rules; its local
-AMD64 test used approximately 355 MB combined. Real Docker volume/image snapshots,
+Prometheus/Grafana stack loads the dashboard and all eight alert rules and passed
+a real failure/firing/recovery cycle; its local AMD64 test used approximately
+355 MB combined. The manual Docker lane passed 20 wake/serve/sleep cycles, world
+ownership and image snapshots, encrypted restore, managed Node hosting and Caddy.
 ARM64 deployment and destination-specific acceptance are recorded separately.
 
 References: [restic repositories](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html),

@@ -164,9 +164,18 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         Ok(())
     })?;
     assert_eq!(p.db.read()?.groups.member("frizz@example.com"), "home");
-    assert_eq!(ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["configured"],false);
-    std::fs::write(temp.path().join("host-health.json"),serde_json::to_vec(&infuser::host_health::Report::default())?)?;
-    assert_eq!(ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["stale"],true);
+    assert_eq!(
+        ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["configured"],
+        false
+    );
+    std::fs::write(
+        temp.path().join("host-health.json"),
+        serde_json::to_vec(&infuser::host_health::Report::default())?,
+    )?;
+    assert_eq!(
+        ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["stale"],
+        true
+    );
     let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Other family","admin_email":"admin@example.com","admin_name":"Other admin"}))).await?["id"].as_str().unwrap().to_owned();
     ok(c.member("admin", Method::POST, "/api/admin/members")
         .json(&json!({"email":"user@example.com","name":"Other user"})))
