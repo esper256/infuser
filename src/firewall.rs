@@ -31,10 +31,20 @@ pub async fn serve(socket: &Path) -> Result<()> {
             .await??;
             let ip: IpAddr = raw.trim().parse()?;
             let mut command = tokio::process::Command::new("/usr/sbin/nft")
-                .args(["-f", "-"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null())
-                .kill_on_drop(true).spawn()?;
-            command.stdin.take().unwrap().write_all(renewal(ip, "30m").as_bytes()).await?;
-            let status = tokio::time::timeout(std::time::Duration::from_secs(2), command.wait()).await??;
+                .args(["-f", "-"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .spawn()?;
+            command
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(renewal(ip, "30m").as_bytes())
+                .await?;
+            let status =
+                tokio::time::timeout(std::time::Duration::from_secs(2), command.wait()).await??;
             ensure!(status.success(), "nft grant failed");
             Ok(())
         }
@@ -48,6 +58,8 @@ pub async fn serve(socket: &Path) -> Result<()> {
 /// nft commits the entire batch atomically. The first add also handles an absent
 /// or expired entry, so this works without a version-specific destroy command.
 pub fn renewal(ip: IpAddr, timeout: &str) -> String {
-    let set = if ip.is_ipv4() {"members4"} else {"members6"};
-    format!("add element inet infuser_ingress {set} {{ {ip} }}\ndelete element inet infuser_ingress {set} {{ {ip} }}\nadd element inet infuser_ingress {set} {{ {ip} timeout {timeout} }}\n")
+    let set = if ip.is_ipv4() { "members4" } else { "members6" };
+    format!(
+        "add element inet infuser_ingress {set} {{ {ip} }}\ndelete element inet infuser_ingress {set} {{ {ip} }}\nadd element inet infuser_ingress {set} {{ {ip} timeout {timeout} }}\n"
+    )
 }

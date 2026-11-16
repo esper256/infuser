@@ -9,7 +9,7 @@ pub(crate) const OWNER: &str = "org.infuser.controller";
 pub(crate) const GAME: &str = "org.infuser.game";
 const ATTEMPT: &str = "org.infuser.attempt";
 mod diagnostics;
-pub use diagnostics::{retained as retained_diagnostics, capabilities as diagnostics_capabilities};
+pub use diagnostics::{capabilities as diagnostics_capabilities, retained as retained_diagnostics};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Health {
@@ -26,11 +26,19 @@ pub trait Engine: Send + Sync {
     async fn ensure(&self, id: &str, instance: &Instance, owner: &str) -> Result<Health>;
     async fn health(&self, instance: &Instance, owner: &str, id: &str) -> Result<Health>;
     async fn remove(&self, id: &str, instance: &Instance, owner: &str) -> Result<()>;
-    async fn diagnostics(&self, _id: &str, _instance: &Instance, _owner: &str) -> Result<Option<Value>> {
+    async fn diagnostics(
+        &self,
+        _id: &str,
+        _instance: &Instance,
+        _owner: &str,
+    ) -> Result<Option<Value>> {
         Ok(None)
     }
     async fn web_address(
-        &self, id: &str, instance: &Instance, owner: &str,
+        &self,
+        id: &str,
+        instance: &Instance,
+        owner: &str,
     ) -> Result<std::net::SocketAddr> {
         let _ = (id, owner);
         ensure!(instance.spec.web, "game is not an HTTP backend");
@@ -313,7 +321,9 @@ impl Docker {
         }
         if g.web
             && let Ok(key) = std::fs::read_to_string(
-                self.settings.state_dir.join(crate::connections::PUBLIC_KEY_FILE),
+                self.settings
+                    .state_dir
+                    .join(crate::connections::PUBLIC_KEY_FILE),
             )
         {
             args.extend([
@@ -324,9 +334,15 @@ impl Docker {
                 "--env".into(),
                 format!("INFUSER_CONNECTION_ISSUER=https://{}", self.settings.domain),
             ]);
-            if let Ok(token) = crate::connections::instance_token(&self.settings.state_dir, owner, id, &i.attempt) {
-                args.extend(["--env".into(), format!("INFUSER_INSTANCE_TOKEN={token}"),
-                    "--env".into(), format!("INFUSER_API_URL=https://{}", self.settings.domain)]);
+            if let Ok(token) =
+                crate::connections::instance_token(&self.settings.state_dir, owner, id, &i.attempt)
+            {
+                args.extend([
+                    "--env".into(),
+                    format!("INFUSER_INSTANCE_TOKEN={token}"),
+                    "--env".into(),
+                    format!("INFUSER_API_URL=https://{}", self.settings.domain),
+                ]);
             }
         }
         args.push(g.image.clone());
@@ -350,11 +366,19 @@ impl Docker {
 
 #[async_trait]
 impl Engine for Docker {
-    async fn diagnostics(&self, id: &str, instance: &Instance, owner: &str) -> Result<Option<Value>> {
+    async fn diagnostics(
+        &self,
+        id: &str,
+        instance: &Instance,
+        owner: &str,
+    ) -> Result<Option<Value>> {
         self.capture_diagnostics(id, instance, owner).await
     }
     async fn web_address(
-        &self, id: &str, instance: &Instance, owner: &str,
+        &self,
+        id: &str,
+        instance: &Instance,
+        owner: &str,
     ) -> Result<std::net::SocketAddr> {
         ensure!(instance.spec.web, "game is not an HTTP backend");
         if instance.spec.network != crate::config::NetworkPolicy::Internal {
@@ -362,13 +386,24 @@ impl Engine for Docker {
         }
         // Internal bridges have no published host port. Caddy runs in the host
         // network and can reach the owned container directly on its bridge.
-        let object = self.object("container", &instance.name).await?
+        let object = self
+            .object("container", &instance.name)
+            .await?
             .context("game container disappeared")?;
         Self::owned(&object, "container", owner, id, Some(&instance.attempt))?;
-        ensure!(Self::status(Some(object.clone())) == Health::Ready, "game container is not ready");
-        let address: std::net::Ipv4Addr = object["NetworkSettings"]["Networks"][&instance.name]["IPAddress"]
-            .as_str().context("game bridge address missing")?.parse()?;
-        ensure!(!address.is_unspecified() && !address.is_loopback() && !address.is_multicast(), "invalid game bridge address");
+        ensure!(
+            Self::status(Some(object.clone())) == Health::Ready,
+            "game container is not ready"
+        );
+        let address: std::net::Ipv4Addr =
+            object["NetworkSettings"]["Networks"][&instance.name]["IPAddress"]
+                .as_str()
+                .context("game bridge address missing")?
+                .parse()?;
+        ensure!(
+            !address.is_unspecified() && !address.is_loopback() && !address.is_multicast(),
+            "invalid game bridge address"
+        );
         Ok((address, instance.spec.container_port).into())
     }
 
@@ -484,7 +519,9 @@ impl Engine for Docker {
                     }
                 }
                 Ok(None) => {}
-                Err(error) => tracing::warn!(app_id = id, attempt = %i.attempt, %error, "Could not capture game diagnostics"),
+                Err(error) => {
+                    tracing::warn!(app_id = id, attempt = %i.attempt, %error, "Could not capture game diagnostics")
+                }
             }
             self.cmd(&["container", "rm", "--volumes", &i.name]).await?;
         }

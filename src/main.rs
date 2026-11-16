@@ -28,10 +28,14 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if args.first().is_some_and(|s| {
-        matches!(s.as_str(), "backup" | "backup-init" | "backup-resume" | "backup-verify")
+        matches!(
+            s.as_str(),
+            "backup" | "backup-init" | "backup-resume" | "backup-verify"
+        )
     }) {
         let path = Path::new(
-            args.get(1).context("backup configuration or snapshot path required")?,
+            args.get(1)
+                .context("backup configuration or snapshot path required")?,
         );
         if args[0] == "backup-verify" {
             infuser::backup::verify(path)?;
@@ -232,7 +236,8 @@ async fn main() -> Result<()> {
             infuser::updater::run_force(
                 infuser::updater::Settings::load(Path::new(path))?,
                 args.iter().any(|a| a == "--force")
-            ).await?
+            )
+            .await?
         );
         return Ok(());
     }
@@ -321,12 +326,16 @@ async fn main() -> Result<()> {
                     return Ok(());
                 };
                 p.db.cleanup()?;
-                if p.cleanup_feedback().is_err() {tracing::warn!("feedback retention cleanup failed");}
+                if p.cleanup_feedback().is_err() {
+                    tracing::warn!("feedback retention cleanup failed");
+                }
                 Ok(())
-            }).await??;
+            })
+            .await??;
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
-        #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
+        #[allow(unreachable_code)]
+        Ok::<(), anyhow::Error>(())
     });
     let publication_worker = tokio::spawn(async move {
         loop {
@@ -337,17 +346,18 @@ async fn main() -> Result<()> {
                 };
                 p.reconcile_publications()?;
                 p.activate_pending()
-            }).await??;
+            })
+            .await??;
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
-        #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
+        #[allow(unreachable_code)]
+        Ok::<(), anyhow::Error>(())
     });
     let background = tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(config.controller.tick_seconds)).await;
             // Persistence failure is fatal: continuing would lose resource accounting.
             runner.reconcile_step(now()).await?;
-
         }
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())

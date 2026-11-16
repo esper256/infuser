@@ -39,13 +39,37 @@ fn connect(settings: &Settings) -> Result<Connection> {
 }
 /// Record before handling, so interruption leaves an explicit unknown outcome.
 pub fn begin(settings: &Settings, request: &Request, body: &[u8]) -> Result<Option<i64>> {
-    begin_reader(settings, request, &mut std::io::Cursor::new(body), body.len() as u64, digest(body))
+    begin_reader(
+        settings,
+        request,
+        &mut std::io::Cursor::new(body),
+        body.len() as u64,
+        digest(body),
+    )
 }
 /// The upload has already been spooled and hashed; copy it into SQLite in chunks.
-pub fn begin_file(settings: &Settings, request: &Request, path: &Path, bytes: u64, sha256: &str) -> Result<Option<i64>> {
-    begin_reader(settings, request, &mut fs::File::open(path)?, bytes, sha256.to_owned())
+pub fn begin_file(
+    settings: &Settings,
+    request: &Request,
+    path: &Path,
+    bytes: u64,
+    sha256: &str,
+) -> Result<Option<i64>> {
+    begin_reader(
+        settings,
+        request,
+        &mut fs::File::open(path)?,
+        bytes,
+        sha256.to_owned(),
+    )
 }
-fn begin_reader(settings: &Settings, request: &Request, input: &mut impl std::io::Read, bytes: u64, hash: String) -> Result<Option<i64>> {
+fn begin_reader(
+    settings: &Settings,
+    request: &Request,
+    input: &mut impl std::io::Read,
+    bytes: u64,
+    hash: String,
+) -> Result<Option<i64>> {
     if settings.publish_capture_mb == 0 {
         return Ok(None);
     }
@@ -78,10 +102,16 @@ fn begin_reader(settings: &Settings, request: &Request, input: &mut impl std::io
         return Ok(None);
     }
     if !exists {
-        tx.execute("INSERT INTO bodies VALUES(?1,?2)", params![hash, rusqlite::blob::ZeroBlob(bytes)])?;
+        tx.execute(
+            "INSERT INTO bodies VALUES(?1,?2)",
+            params![hash, rusqlite::blob::ZeroBlob(bytes)],
+        )?;
         let row = tx.last_insert_rowid();
         let mut blob = tx.blob_open("main", "bodies", "body", row, false)?;
-        ensure!(std::io::copy(input, &mut blob)? == bytes, "capture body size changed");
+        ensure!(
+            std::io::copy(input, &mut blob)? == bytes,
+            "capture body size changed"
+        );
         blob.close()?;
     }
     tx.execute("INSERT INTO requests(at,controller_build,request,body_sha256,status) VALUES(?1,?2,?3,?4,NULL)",params![crate::controller::now(),crate::BUILD_SHA,request,hash])?;
