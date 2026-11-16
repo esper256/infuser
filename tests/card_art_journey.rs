@@ -258,9 +258,23 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .error_for_status()?;
     assert_eq!(image.headers()["content-type"], "image/webp");
     assert_eq!(image.headers()["cache-control"], "private, no-cache");
-    let etag=image.headers()["etag"].clone();
-    assert_eq!(member(image_url,"admin").header("if-none-match",&etag).send().await?.status(),304);
-    assert_eq!(member(image_url,"none").header("if-none-match",&etag).send().await?.status(),401);
+    let etag = image.headers()["etag"].clone();
+    assert_eq!(
+        member(image_url, "admin")
+            .header("if-none-match", &etag)
+            .send()
+            .await?
+            .status(),
+        304
+    );
+    assert_eq!(
+        member(image_url, "none")
+            .header("if-none-match", &etag)
+            .send()
+            .await?
+            .status(),
+        401
+    );
 
     assert_eq!(image.bytes().await?.as_ref(), bytes);
     assert_eq!(

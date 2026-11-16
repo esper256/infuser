@@ -82,33 +82,60 @@ pub(super) async fn record(State(p): State<Platform>, request: Request, next: Ne
     let settings = p.config().controller.clone();
     let (id, body) = if let Some(staged) = parts.extensions.get::<publication::Staged>().cloned() {
         // Keep admission and per-app coordination alive if the request disconnects.
-        let mutation = parts.extensions.get::<Arc<publication::Mutation>>().cloned();
+        let mutation = parts
+            .extensions
+            .get::<Arc<publication::Mutation>>()
+            .cloned();
         let id = tokio::task::spawn_blocking(move || {
             let _mutation = mutation;
-            crate::publish_capture::begin_file(&settings, &event, staged.file.path(), staged.bytes, &staged.sha256)
-        }).await.ok().and_then(Result::ok).flatten();
+            crate::publish_capture::begin_file(
+                &settings,
+                &event,
+                staged.file.path(),
+                staged.bytes,
+                &staged.sha256,
+            )
+        })
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten();
         (id, body)
     } else {
-        let limit = if event.route.ends_with("/card-art") { crate::card_art::MAX_BYTES } else { 96 * 1024 };
+        let limit = if event.route.ends_with("/card-art") {
+            crate::card_art::MAX_BYTES
+        } else {
+            96 * 1024
+        };
         let bytes = match axum::body::to_bytes(body, limit).await {
             Ok(bytes) => bytes,
-            Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "request body too large or interrupted").into_response(),
+            Err(_) => {
+                return (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "request body too large or interrupted",
+                )
+                    .into_response();
+            }
         };
         let copy = bytes.clone();
-        let mutation = parts.extensions.get::<Arc<publication::Mutation>>().cloned();
+        let mutation = parts
+            .extensions
+            .get::<Arc<publication::Mutation>>()
+            .cloned();
         let id = tokio::task::spawn_blocking(move || {
             let _mutation = mutation;
             crate::publish_capture::begin(&settings, &event, &copy)
         })
-            .await.ok().and_then(Result::ok).flatten();
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten();
         (id, Body::from(bytes))
     };
     if id.is_none() {
         warn();
     }
-    let mut response = next
-        .run(Request::from_parts(parts, body))
-        .await;
+    let mut response = next.run(Request::from_parts(parts, body)).await;
     let mut recorded = false;
     if let Some(id) = id {
         let settings = p.config().controller.clone();

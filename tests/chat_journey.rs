@@ -153,17 +153,51 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
         "  <img src=x onerror=alert(1)> 🎮\nhi  ",
     ))
     .await?;
-    let cached = req(Method::GET,"/api/chat","two").send().await?;
+    let cached = req(Method::GET, "/api/chat", "two").send().await?;
     let etag = cached.headers()["etag"].clone();
-    assert_eq!(cached.headers()["cache-control"],"private, no-cache");
-    assert_eq!(req(Method::GET,"/api/chat","two").header("if-none-match",&etag).send().await?.status(),304);
-    assert_eq!(req(Method::GET,"/api/chat","unknown").header("if-none-match",&etag).send().await?.status(),401);
-    p.db.edit(|d| {d.members.get_mut("one@example.com").unwrap().name="Renamed".into();Ok(())})?;
-    assert_eq!(req(Method::GET,"/api/chat","two").header("if-none-match",&etag).send().await?.status(),200);
-    p.db.edit(|d| {d.members.get_mut("one@example.com").unwrap().name="one".into();Ok(())})?;
-    let library = req(Method::GET,"/api/library","one").send().await?;
+    assert_eq!(cached.headers()["cache-control"], "private, no-cache");
+    assert_eq!(
+        req(Method::GET, "/api/chat", "two")
+            .header("if-none-match", &etag)
+            .send()
+            .await?
+            .status(),
+        304
+    );
+    assert_eq!(
+        req(Method::GET, "/api/chat", "unknown")
+            .header("if-none-match", &etag)
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    p.db.edit(|d| {
+        d.members.get_mut("one@example.com").unwrap().name = "Renamed".into();
+        Ok(())
+    })?;
+    assert_eq!(
+        req(Method::GET, "/api/chat", "two")
+            .header("if-none-match", &etag)
+            .send()
+            .await?
+            .status(),
+        200
+    );
+    p.db.edit(|d| {
+        d.members.get_mut("one@example.com").unwrap().name = "one".into();
+        Ok(())
+    })?;
+    let library = req(Method::GET, "/api/library", "one").send().await?;
     let tag = library.headers()["etag"].clone();
-    assert_eq!(req(Method::GET,"/api/library","one").header("if-none-match",&tag).send().await?.status(),304);
+    assert_eq!(
+        req(Method::GET, "/api/library", "one")
+            .header("if-none-match", &tag)
+            .send()
+            .await?
+            .status(),
+        304
+    );
     assert_eq!(
         ok(send(
             "one",

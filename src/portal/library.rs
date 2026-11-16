@@ -89,11 +89,23 @@ impl View<'_> {
         } else {
             vec![]
         };
-        if !self.inspecting && build.manifest.dedicated_sessions()
-            && build.manifest.launch_intents.contains(&crate::launch_intent::Kind::JoinFriend) {
-            for session in dedicated::live_sessions(p,data,id,&app.build,self.time) {
-                if session["joinable"] != true || session["activity"] != "multiplayer" {continue;}
-                for player in session["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(self.email)) {
+        if !self.inspecting
+            && build.manifest.dedicated_sessions()
+            && build
+                .manifest
+                .launch_intents
+                .contains(&crate::launch_intent::Kind::JoinFriend)
+        {
+            for session in dedicated::live_sessions(p, data, id, &app.build, self.time) {
+                if session["joinable"] != true || session["activity"] != "multiplayer" {
+                    continue;
+                }
+                for player in session["players"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|player| player["player_id"] != hash(self.email))
+                {
                     join_targets.push(json!({"session_id":session["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]}));
                 }
             }
@@ -175,7 +187,9 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         p.admit(&h).await;
     }
     let time = now();
-    if !inspecting {p.db.see_member(&email,time)?;}
+    if !inspecting {
+        p.db.see_member(&email, time)?;
+    }
     let data = p.db.read()?;
     let view = View {
         data: &data,
@@ -191,9 +205,12 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .map(|(id, app)| view.card(&p, id, app))
         .collect();
     let friends = view.friends(&apps);
-    Ok(conditional::json(json!({
-        "apps":apps,
-        "friends":friends,
-        "tags":crate::tags::catalog_in_group(&data,data.members[&email].admin||inspecting,&group),
-    }), &h))
+    Ok(conditional::json(
+        json!({
+            "apps":apps,
+            "friends":friends,
+            "tags":crate::tags::catalog_in_group(&data,data.members[&email].admin||inspecting,&group),
+        }),
+        &h,
+    ))
 }

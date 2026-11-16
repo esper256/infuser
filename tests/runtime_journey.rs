@@ -266,7 +266,8 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         ready["endpoint"]["url"],
         format!("https://{}/_infuser/server", a.host)
     );
-    let proxy = a.request(&http, &url, Method::GET, "/_infuser/proxy-auth")
+    let proxy = a
+        .request(&http, &url, Method::GET, "/_infuser/proxy-auth")
         .header("X-Infuser-Upstream", "169.254.169.254:80")
         .send()
         .await?

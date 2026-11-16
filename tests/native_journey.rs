@@ -209,8 +209,10 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
             .status(),
         403
     );
-    ok(member(Method::POST, "/api/native/v1/device/approve", "user")
-        .json(&json!({"request_id":second_pair["request_id"]})))
+    ok(
+        member(Method::POST, "/api/native/v1/device/approve", "user")
+            .json(&json!({"request_id":second_pair["request_id"]})),
+    )
     .await?;
     let second_device = ok(req(Method::POST, "/api/native/v1/device/token")
         .json(&json!({"request_id":second_pair["request_id"],"verifier":second_verifier})))

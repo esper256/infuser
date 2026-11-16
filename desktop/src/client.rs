@@ -120,12 +120,16 @@ fn response(response: reqwest::blocking::Response) -> Result<serde_json::Value> 
     response.take(256 * 1024 + 1).read_to_end(&mut bytes)?;
     ensure!(bytes.len() <= 256 * 1024, "Infuser response is too large");
     let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let code = value["error"]["code"].as_str().map(|c|format!(" ({c})")).unwrap_or_default();
+    let code = value["error"]["code"]
+        .as_str()
+        .map(|c| format!(" ({c})"))
+        .unwrap_or_default();
     ensure!(
         status.is_success(),
         "{}{code}: {}",
         status,
-        value["error"]["message"].as_str()
+        value["error"]["message"]
+            .as_str()
             .or_else(|| value["error"].as_str())
             .unwrap_or("Infuser could not open this game. Try Play again.")
     );
@@ -313,35 +317,41 @@ pub fn run_with_http(
     let cache = versions.join(&launch.artifact.sha256);
     // The same lock covers verification, repair, run preparation and pruning.
     // Another player cannot change the cache between verification and copying.
-    let cache_lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false)
+    let cache_lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
         .open(game_root.join("install.lock"))?;
     cache_lock.lock()?;
     let verified = match install::verified(&cache, &launch.artifact) {
         Ok(verified) => verified,
         Err(_) => {
-        events
-            .send(Event::Status(format!("Downloading {}…", launch.title)))
-            .ok();
-        let download = http
-            .get(format!(
-                "{}/{}",
-                launch.game_origin, launch.artifact.archive
-            ))
-            .bearer_auth(&launch.token)
-            .send()?
-            .error_for_status()?;
-        let mut bytes = Vec::new();
-        download
-            .take(infuser_native_protocol::MAX_ARCHIVE + 1)
-            .read_to_end(&mut bytes)?;
-        events
-            .send(Event::Status("Checking the update…".into()))
-            .ok();
-        install::install(&versions, &launch.artifact, &bytes)?;
+            events
+                .send(Event::Status(format!("Downloading {}…", launch.title)))
+                .ok();
+            let download = http
+                .get(format!(
+                    "{}/{}",
+                    launch.game_origin, launch.artifact.archive
+                ))
+                .bearer_auth(&launch.token)
+                .send()?
+                .error_for_status()?;
+            let mut bytes = Vec::new();
+            download
+                .take(infuser_native_protocol::MAX_ARCHIVE + 1)
+                .read_to_end(&mut bytes)?;
+            events
+                .send(Event::Status("Checking the update…".into()))
+                .ok();
+            install::install(&versions, &launch.artifact, &bytes)?;
             install::verified(&cache, &launch.artifact)?
         }
     };
-    events.send(Event::Status(format!("Starting {}…", launch.title))).ok();
+    events
+        .send(Event::Status(format!("Starting {}…", launch.title)))
+        .ok();
     let run = install::prepare_verified(verified, &game_root.join("runs"), &namespace)?;
     // A cache cleanup failure must not prevent playing an already verified game.
     let _ = crate::run_storage::prune(&game_root, &launch.artifact.sha256);
@@ -360,8 +370,12 @@ pub fn run_with_http(
         .stderr(Stdio::null())
         .spawn();
     let mut child = match child {
-        Ok(child)=>child,
-        Err(error)=>{let _=run.finished();return Err(error).context("The game could not start. Its creator may need to update this build.");}
+        Ok(child) => child,
+        Err(error) => {
+            let _ = run.finished();
+            return Err(error)
+                .context("The game could not start. Its creator may need to update this build.");
+        }
     };
     // If the process exits immediately, keep the uncertain marker until wait
     // confirms exit; never delete a possibly-running game because inspection failed.
