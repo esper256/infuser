@@ -47,3 +47,5 @@ lease_seconds = 90
 # auth_url = "http://127.0.0.1:4180/oauth2/auth"
 # firewall_socket = "/run/infuser-firewall/admit.sock"
 # content_budget_mb = 2048
+# Optional private publishing fixtures, including exact uploaded files. 0 disables.
+# publish_capture_mb = 0

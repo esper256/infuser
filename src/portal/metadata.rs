@@ -26,7 +26,7 @@ fn view(d: &platform::Data, app: &str) -> Result<Value> {
     )
 }
 
-fn authorize(p: &Platform, h: &HeaderMap, app: &str) -> Result<()> {
+pub(super) fn authorize(p: &Platform, h: &HeaderMap, app: &str) -> Result<()> {
     if p.publisher(h, Some("all-games"), "metadata").is_ok() {
         return Ok(());
     }

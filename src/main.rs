@@ -17,6 +17,16 @@ async fn main() -> Result<()> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "capture-export") {
+        ensure!(
+            args.len() == 3,
+            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY"
+        );
+        let config = Config::load(Path::new(&args[1]))?;
+        infuser::publish_capture::export(&config.controller, Path::new(&args[2]))?;
+        println!("Private publication fixtures exported. No requests were replayed.");
+        return Ok(());
+    }
     if args.first().is_some_and(|s| s == "connect") {
         return infuser::publisher::connect(&args).await;
     }
@@ -197,7 +207,7 @@ async fn main() -> Result<()> {
     let command = args.first().map(String::as_str).unwrap_or("help");
     if !["serve", "init", "check", "render-caddy"].contains(&command) {
         bail!(
-            "usage: infuser operator CONFIG EMAIL [--revoke] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|render-caddy> CONFIG [--wildcard]"
+            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|render-caddy> CONFIG [--wildcard]"
         );
     }
     let path = args.get(1).context("configuration path required")?;

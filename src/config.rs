@@ -39,6 +39,8 @@ pub struct Settings {
     /// Optional Unix socket for the privileged, narrowly scoped firewall helper.
     pub firewall_socket: Option<PathBuf>,
     pub content_budget_mb: u64,
+    /// Private publication fixture archive; zero disables capture.
+    pub publish_capture_mb: u64,
     pub cloud_save_budget_mb: u64,
     pub turn: Option<Turn>,
     /// Optional private PeerServer listener on IPv4 loopback; never a public port.
@@ -77,6 +79,7 @@ impl Default for Settings {
             auth_url: "http://127.0.0.1:4180/oauth2/auth".into(),
             firewall_socket: None,
             content_budget_mb: 2048,
+            publish_capture_mb: 0,
             cloud_save_budget_mb: 512,
             turn: None,
             peerjs_port: None,
@@ -272,6 +275,10 @@ impl Config {
         ensure!(
             (64..=1048576).contains(&s.content_budget_mb),
             "invalid content budget"
+        );
+        ensure!(
+            s.publish_capture_mb <= 1048576,
+            "invalid publication capture budget"
         );
         ensure!(
             s.firewall_socket.as_ref().is_none_or(|p| p.is_absolute()),

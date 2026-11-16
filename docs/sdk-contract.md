@@ -10,6 +10,11 @@ short design review before release: concrete request/response examples, failure
 behavior, and what happens to an older game. This is a focused review of durable
 interfaces, not an approval process for ordinary UI changes.
 
+The [accepted SDK 1.0 decisions](sdk-1.0-decisions.md) and
+[dedicated-server proposal](proposals/sdk-1.0-dedicated-servers.md) guide the next
+implementation slice. Publishing inputs can be retained as
+[private importer fixtures](publication-capture.md).
+
 ## Review before calling the SDK 1.0
 
 Approved product decisions:
@@ -94,7 +99,7 @@ a declaration that the full SDK contract is frozen. Review the durable semantics
 above before calling it stable. The [Godot web study](engines/godot-web.md) is
 explicitly experimental and exercises the same wire contract before that freeze;
 native authentication and artifact delivery are implemented for single-player
-Godot on Windows/Linux. Binary checkpoints and native multiplayer remain open.
+Godot on Windows/Linux. Binary checkpoints are implemented; native multiplayer remains open.
 
 ## Later features: achievements as an example
 

@@ -32,6 +32,7 @@ use std::{
 use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::services::ServeFile;
 mod avatars;
+mod capture;
 mod card_art;
 mod chat;
 mod client;
@@ -433,6 +434,10 @@ pub fn router(platform: Platform) -> Router {
             "/api/publisher/apps/{app}/builds/{build}/publish",
             post(publish),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            platform.clone(),
+            capture::record,
+        ))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(ConcurrencyLimitLayer::new(1));
     Router::new()
