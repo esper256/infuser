@@ -419,11 +419,26 @@ img.avatar { object-fit: cover; }
 #chat-error:empty, #chat-connection:empty { display: none; }
 #chat-new { align-self: center; flex: none; padding: 6px 14px; min-height: 34px; margin: 5px; border-radius: 20px; font-size: 12px; }
 @keyframes chat-unread-wiggle { 0%,10%,100% { transform: rotate(0); } 2%,6% { transform: rotate(-7deg); } 4%,8% { transform: rotate(6deg); } }
+@media (max-width: 650px), (pointer: coarse) and (max-height: 500px) {
+  .chat-heading { padding: 8px 12px; }
+  .chat-heading h2 { font-size: 18px; }
+  #chat-form { padding: 8px 12px; }
+  #chat-text { height: 44px; padding: 8px 12px; }
+  #chat-send { min-height: 44px; }
+}
 @media (max-width: 520px) {
   #chat-log { padding: 16px 12px; }
   .chat-meta { gap: 5px; }
   .chat-remove { min-height: 32px; width: 30px; }
 }
+/* A landscape keyboard can leave less height than the layout viewport reports. */
+#library-chat[data-short] .chat-audience, #library-chat[data-short] #chat-limit { display: none; }
+#library-chat[data-short] .chat-heading { padding: 2px 12px; }
+#library-chat[data-short] #chat-log { padding: 8px 12px; }
+#library-chat[data-short] #chat-form { display: flex; align-items: center; gap: 8px; }
+#library-chat[data-short] #chat-text { flex: 1; min-width: 0; }
+#library-chat[data-short] .chat-compose-actions { flex: none; margin: 0; }
+#library-chat[data-short] #chat-error, #library-chat[data-short] #chat-connection { flex: none; padding: 3px 12px; }
 @media (prefers-reduced-motion: reduce) { #chat-toggle.has-unread[aria-expanded="false"] { animation: none; } }
 @media (forced-colors: active) { .chat-bubble::before { background: Canvas; border-color: CanvasText; } .chat-pointer { border-bottom-color: CanvasText; } .chat-pointer::after { border-bottom-color: Canvas; } #chat-toggle { border: 1px solid ButtonText; } }
 
