@@ -7,15 +7,16 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   root.innerHTML=`<button id="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-panel" title="Show chat"><span class="chat-icon" aria-hidden="true">···</span><span class="sr-only">Chat</span><span id="chat-unread" hidden></span></button>
     <div id="chat-pointers" aria-hidden="true"></div>
     <section id="chat-panel" aria-label="Chat" hidden>
+      <button id="chat-close" type="button" aria-label="Close chat" title="Close chat">×</button>
       <div id="chat-log" role="log" aria-label="Messages" aria-live="off" tabindex="0"><p class="chat-empty">${emptyMessage}</p></div>
       <button id="chat-new" class="chat-new" type="button" hidden>New messages ↓</button>
       <p id="chat-connection" role="status"></p><p id="chat-error" role="alert"></p>
       <div class="chat-compose-row">
-        <button id="chat-close" type="button" aria-label="Close chat" title="Close chat">×</button>
         <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg><span id="chat-limit" hidden></span></button></form>
       </div>
       <span id="chat-announcement" class="sr-only" role="status"></span>
-    </section>`;
+    </section>
+    <div id="chat-actions" popover="manual" role="menu" aria-label="Message actions"><button id="chat-delete" type="button" role="menuitem">Delete message</button><button id="chat-cancel-action" type="button" role="menuitem">Cancel</button></div>`;
   document.body.append(root);
   const $=id=>document.getElementById('chat-'+id), log=$('log'), input=$('text');
   if(me.inspecting)$('form').hidden=true;
@@ -34,6 +35,68 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   const isOpen=()=>!$('panel').hidden;
   const compactQuery=matchMedia('(max-width: 650px), (pointer: coarse) and (max-height: 500px)');
   const compact=()=>compactQuery.matches;
+  const hoverControls=matchMedia('(hover: hover) and (pointer: fine) and (min-width: 651px)');
+  let hoverAction,press,actionTarget,deleteBusy=false,suppressReleaseClick=false;
+  const actions=$('actions');
+  function clearHover(){
+    if(!hoverAction)return;
+    clearTimeout(hoverAction.timer);hoverAction.remove.disabled=true;
+    hoverAction.bubble.classList.remove('show-delete');hoverAction=null;
+  }
+  function revealDelete(bubble,remove){
+    if(hoverAction?.bubble===bubble||!hoverControls.matches||deleteBusy||actionTarget)return;
+    clearHover();bubble.classList.add('show-delete');remove.disabled=true;
+    const state={bubble,remove,readyAt:performance.now()+500};hoverAction=state;
+    state.timer=setTimeout(()=>{if(hoverAction===state&&bubble.isConnected&&isOpen())remove.disabled=false;},500);
+  }
+  function cancelPress(){if(press)clearTimeout(press.timer);press=null;}
+  function closeActions(restore=false){
+    const target=actionTarget;actionTarget=null;
+    if(actions.matches(':popover-open'))actions.hidePopover();
+    if(restore&&isOpen())(target?.bubble.isConnected?target.bubble:log).focus({preventScroll:true});
+  }
+  function showActions(message,bubble){
+    if(!isOpen()||deleteBusy||!bubble.isConnected)return;
+    clearHover();actionTarget={message,bubble};$('delete').disabled=false;
+    actions.showPopover();
+    const rect=bubble.getBoundingClientRect(),viewport=window.visualViewport;
+    const left=viewport?.offsetLeft||0,top=viewport?.offsetTop||0,width=viewport?.width||innerWidth,height=viewport?.height||innerHeight;
+    const menu=actions.getBoundingClientRect();
+    actions.style.left=Math.max(left+8,Math.min(rect.right-menu.width,left+width-menu.width-8))+'px';
+    actions.style.top=Math.max(top+8,Math.min(rect.bottom+6,top+height-menu.height-8))+'px';
+    $('delete').focus({preventScroll:true});
+  }
+  async function deleteMessage(message){
+    // Recheck the latest snapshot, including permissions, before acting.
+    if(deleteBusy||!messages.some(m=>m.id===message.id&&m.can_delete))return;
+    deleteBusy=true;clearHover();closeActions();$('delete').disabled=true;
+    try{await request('/api/chat/'+message.id,{method:'DELETE'});$('error').textContent='';await poll();if(isOpen())log.focus({preventScroll:true});}
+    catch(error){$('error').textContent=error.message;}
+    finally{deleteBusy=false;}
+  }
+  $('delete').onclick=()=>{if(actionTarget)deleteMessage(actionTarget.message);};
+  $('cancel-action').onclick=()=>closeActions(true);
+  actions.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeActions(true);}
+    else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
+      event.preventDefault();const buttons=[...actions.querySelectorAll('button')];
+      const index=buttons.indexOf(document.activeElement);
+      buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+1)%buttons.length].focus();
+    }else if(event.key==='Tab')closeActions();
+  });
+  actions.addEventListener('toggle',()=>{if(!actions.matches(':popover-open'))actionTarget=null;});
+  // Consume only the release click from a completed hold, never the next deliberate tap.
+  document.addEventListener('pointerdown',event=>{suppressReleaseClick=false;if(actionTarget&&!actions.contains(event.target))closeActions();},{capture:true});
+  document.addEventListener('click',event=>{if(suppressReleaseClick&&event.detail){event.preventDefault();event.stopImmediatePropagation();suppressReleaseClick=false;}},{capture:true});
+  document.addEventListener('pointermove',event=>{if(press&&event.pointerId===press.id&&Math.hypot(event.clientX-press.x,event.clientY-press.y)>10)cancelPress();},{passive:true});
+  document.addEventListener('pointerup',cancelPress,{passive:true});
+  document.addEventListener('pointercancel',cancelPress,{passive:true});
+  function resetActions(){cancelPress();clearHover();closeActions();}
+  hoverControls.addEventListener('change',resetActions);
+  window.addEventListener('resize',resetActions);window.visualViewport?.addEventListener('resize',resetActions);
+  window.addEventListener('scroll',resetActions,{passive:true});window.visualViewport?.addEventListener('scroll',resetActions);
+  window.addEventListener('blur',resetActions);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)resetActions();});
   function position(latest=false) {
     if(!isOpen())return;
     const stick=bottom(), height=log.clientHeight, widthBefore=log.clientWidth, viewport=window.visualViewport;
@@ -115,6 +178,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     updateToggle();
     if(open){scrollDirection=0;scrollSpeed=0;position(true);scrollLatest();schedulePosition();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}
     else{
+      resetActions();
       cancelAnimationFrame(positionFrame);positionFrame=null;speakerSignature=null;scrollDirection=0;scrollSpeed=0;
       $('pointers').replaceChildren();onSpeakerContext(null);
       if(restoreFocus)$('toggle').focus({preventScroll:true});
@@ -126,6 +190,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   document.addEventListener('pointerdown',event=>{if(isOpen()&&!root.contains(event.target)&&!$('toggle').contains(event.target))setOpen(false,false);});
   $('new').onclick=scrollLatest;
   log.addEventListener('scroll',()=>{
+    resetActions();
     const now=performance.now(),delta=log.scrollTop-lastScrollTop;
     if(delta){
       const direction=Math.sign(delta),speed=Math.abs(delta)/Math.max(16,Math.min(200,now-lastScrollAt));
@@ -153,12 +218,24 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     const time=document.createElement('time');time.dateTime=new Date(message.created*1000).toISOString();time.textContent=new Date(message.created*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});time.title=new Date(message.created*1000).toLocaleString();
     meta.append(name,time);
     if(message.can_delete){
-      const remove=document.createElement('button');remove.type='button';remove.className='chat-remove';remove.textContent='×';remove.title='Remove message';remove.setAttribute('aria-label','Remove message from '+message.author.name);
-      remove.onclick=async()=>{
-        remove.disabled=true;
-        try{await request('/api/chat/'+message.id,{method:'DELETE'});$('error').textContent='';await poll();input.focus();}
-        catch(error){$('error').textContent=error.message;remove.disabled=false;}
-      };meta.append(remove);
+      bubble.tabIndex=0;bubble.classList.add('has-actions');bubble.setAttribute('role','group');bubble.setAttribute('aria-haspopup','menu');bubble.setAttribute('aria-keyshortcuts','Shift+F10');bubble.setAttribute('aria-label','Message from '+message.author.name);
+      const remove=document.createElement('button');remove.type='button';remove.className='chat-remove';remove.textContent='×';remove.title='Delete message';remove.disabled=true;remove.setAttribute('aria-label','Delete message from '+message.author.name);
+      remove.onclick=()=>{if(hoverAction?.bubble===bubble&&performance.now()>=hoverAction.readyAt)deleteMessage(message);};
+      bubble.addEventListener('pointerenter',event=>{if(event.pointerType==='mouse')revealDelete(bubble,remove);});
+      bubble.addEventListener('pointerleave',()=>{if(hoverAction?.bubble===bubble&&!bubble.matches(':focus-visible')&&!remove.matches(':focus-visible'))clearHover();});
+      bubble.addEventListener('focusin',()=>{if(bubble.matches(':focus-visible')||remove.matches(':focus-visible'))revealDelete(bubble,remove);});
+      bubble.addEventListener('focusout',event=>{if(hoverAction?.bubble===bubble&&!bubble.contains(event.relatedTarget))clearHover();});
+      bubble.addEventListener('keydown',event=>{
+        if(event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey){event.preventDefault();showActions(message,bubble);}
+      });
+      bubble.addEventListener('pointerdown',event=>{
+        if(event.button!==0||!event.isPrimary||deleteBusy)return;
+        if(event.pointerType==='mouse'&&hoverControls.matches)return;
+        cancelPress();const state={id:event.pointerId,x:event.clientX,y:event.clientY,bubble};press=state;
+        state.timer=setTimeout(()=>{if(press===state&&bubble.isConnected){suppressReleaseClick=true;showActions(message,bubble);}},550);
+      });
+      bubble.addEventListener('contextmenu',event=>{event.preventDefault();cancelPress();suppressReleaseClick=true;showActions(message,bubble);});
+      meta.append(remove);
     }
     const text=document.createElement('p');text.textContent=message.text;bubble.append(meta,text);article.append(portrait,bubble);return article;
   }
@@ -179,6 +256,9 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     if(next.length)log.querySelector('.chat-empty')?.remove();
     if(!next.length&&!log.querySelector('.chat-empty')){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent=emptyMessage;log.append(empty);}
     messages=next;
+    if(hoverAction&&!hoverAction.bubble.isConnected)clearHover();
+    if(press&&!press.bubble.isConnected)cancelPress();
+    if(actionTarget&&(!actionTarget.bubble.isConnected||!messages.some(m=>m.id===actionTarget.message.id&&m.can_delete)))closeActions(true);
     if(!initialized){lastRead=Math.max(0,...next.map(m=>m.id));initialized=true;}
     if(isOpen()&&stick&&changed&&!document.hidden)scrollLatest();
     else if(added.length&&isOpen())$('new').hidden=false;

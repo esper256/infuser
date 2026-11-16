@@ -86,6 +86,13 @@ try {
     assert.equal(initial.panel.y,12,'mobile panel uses viewport top despite wrapped header');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'chat-log','reading does not automatically summon the keyboard');
     assert.equal(await page.locator('.chat-pointer').count(),0);
+    const close=await page.locator('#chat-close').boundingBox(),field=await input.boundingBox();
+    assert(close.y<initial.panel.y+20&&close.x>initial.panel.x+initial.panel.width-50,'mobile close floats at upper right');
+    assert(field.width>=initial.panel.width-28,'composer uses the full width');
+    await page.locator('#chat-log').evaluate(e=>e.scrollTop-=100);
+    assert.deepEqual(await page.locator('#chat-close').boundingBox(),close,'floating close stays put while history scrolls');
+    await page.locator('#chat-log').evaluate(e=>e.scrollTop=e.scrollHeight);
+
     await page.locator('#chat-text').fill('Keep my draft');
     // Synthetic VisualViewport shrink + pan models keyboard/browser chrome events.
     // Neither mobile emulation nor desktop WebKit opens a real iOS keyboard.
