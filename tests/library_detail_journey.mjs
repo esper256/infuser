@@ -67,6 +67,31 @@ try {
  await page.locator('#game-search').fill('kWaMi');assert.equal(await page.locator('#visible-games .game').count(),1);
  await page.locator('#game-search').fill(' ORBITFOX ');assert.equal(await page.locator('#visible-games .game').count(),2);
  await page.locator('#game-search').fill('');
+ // Search previews real gamers, then offers exact author selection or game details.
+ const search=page.locator('#game-search'),suggestions=page.locator('#search-options');
+ assert.equal(await search.getAttribute('placeholder'),'Find a game…');
+ await search.focus();await search.click();
+ assert.equal(await suggestions.getByRole('option').count(),2);
+ assert(await suggestions.getByRole('option').first().textContent().then(t=>t.includes('Gamer')));
+ await search.press('Escape');assert(await suggestions.isHidden());
+ await search.press('ArrowDown');assert(await search.getAttribute('aria-activedescendant'));
+ await search.press('Enter');assert.equal(await page.locator('#visible-games .game').count(),1);
+ await search.fill('orbit');
+ // A title containing the same handle must not leak into an exact author filter.
+ const originalTitle=game.title;game.title='OrbitFox adventure';await page.evaluate(()=>refreshTestLibrary());
+ assert.equal(await suggestions.getByRole('option').count(),2);
+ await suggestions.getByRole('option',{name:'OrbitFox Gamer · View games',exact:true})[process.env.INFUSER_TOUCH==='1'?'tap':'click']();
+ assert.equal(await page.locator('#visible-games .game').count(),2);
+ assert.equal(await card().count(),0);
+ await page.evaluate(()=>refreshTestLibrary());assert.equal(await page.locator('#visible-games .game').count(),2);
+ game.title=originalTitle;await search.fill('');await page.evaluate(()=>refreshTestLibrary());
+ await search.fill('fIrEf');const launchCount=launches.length;
+ await suggestions.getByRole('option',{name:'Firefly Drift Game · KwamiKwami',exact:true})[process.env.INFUSER_TOUCH==='1'?'tap':'click']();
+ assert(await dialog.isVisible());assert.equal(launches.length,launchCount);await close();
+ await search.fill('nothing matches');assert(await suggestions.isHidden());
+ await search.fill('orbit');await search.press('ArrowDown');await search.press('Escape');assert(await suggestions.isHidden());
+ await search.click();await search.press('Tab');assert(await suggestions.isHidden());
+ await search.fill('');await search.press('Escape');
  // Only the last 28 days contribute; a busy card never grows past six faces.
  for(const [n,faces] of [[0,0],[1,1],[8,4],[12,5],[50,6]]){
   apps[1].reactions=[...recentReactions(n),{id:'old',name:'Old',emoji:'⭐',updated:now-29*86400,text:''}];await page.evaluate(()=>refreshTestLibrary());
@@ -86,6 +111,16 @@ try {
    await page.locator('#hidden-games').evaluate(e=>e.open=true);
    await page.evaluate(()=>document.activeElement.blur());
    assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=p.left+1&&b.top>=h.bottom;})),'reaction stacks must not overlap controls');
+   assert(await page.locator('#games .game').evaluateAll(cards=>cards.every(card=>{
+    const buzz=card.querySelector('.game-buzz');if(!buzz)return true;
+    const c=card.getBoundingClientRect(),face=buzz.firstElementChild.getBoundingClientRect(),hang=(face.bottom-c.bottom)/face.height;
+    return face.left>=c.left&&face.left-c.left<=8&&hang>=.15&&hang<=.25&&buzz.getBoundingClientRect().height>=44;
+   })),'emoji faces should hang 20% below the card, stay inside its left edge, and retain a touch target');
+   await search.fill('');await search.click();
+   assert.equal(await suggestions.getByRole('option').count(),2);
+   assert(await suggestions.evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&e.scrollWidth<=e.clientWidth;}));
+   if(width===390||width===1500)await page.screenshot({path:new URL(`${theme}-${width}-search.png`,out).pathname});
+   await search.press('Escape');await search.blur();
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);

@@ -573,14 +573,27 @@ button.feed-row:hover { border-color: var(--accent); }
 .friend-name { margin: 10px 12px 2px; font-weight: 600; overflow-wrap: anywhere; }
 .friend-status { margin: 4px 12px 12px; font-size: 13px; }
 
-/* Recent reactions share the bottom row with the dock, never cover Play/title. */
-.game-bottom { position: relative; margin-top: auto; width: 100%; min-width: 0; }
+/* Reactions sit 4px inside the left edge, with 20% below the card.
+   The 44px hit area extends upward so the visible overhang stays small. */
+.game-bottom { position: static; margin-top: auto; width: 100%; min-width: 0; }
 .game-bottom .game-dock { margin-top: 0; margin-left: auto; min-width: 0; }
-.game-buzz { position: absolute; z-index: 2; left: 0; bottom: 0; display: flex; align-items: center; flex: none; min-height: 44px; padding: 5px 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink); }
+.game-buzz { --buzz-size: 28px; position: absolute; z-index: 2; left: 4px; bottom: calc(var(--buzz-size) * -.2 - 1px); display: flex; align-items: flex-end; flex: none; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink); }
 .game-buzz:hover { background: transparent; }
-.game-buzz span { display: grid; place-items: center; position: relative; width: 28px; height: 28px; font-size: 23px; line-height: 1; border-radius: 50%; background: #0b1c248c; text-shadow: 0 1px 3px #000a; filter: drop-shadow(0 2px 3px #0006); }
+.game-buzz span { display: grid; place-items: center; position: relative; width: var(--buzz-size); height: var(--buzz-size); font-size: 23px; line-height: 1; border-radius: 50%; background: #0b1c248c; text-shadow: 0 1px 3px #000a; filter: drop-shadow(0 2px 3px #0006); }
 .game-buzz span + span { margin-left: -15px; }
 .hidden-game .game-bottom { display: block; }
-.hidden-game .game-buzz { position: absolute; left: 10px; bottom: 8px; }
-.hidden-game .game-buzz span { width: 24px; height: 24px; font-size: 20px; }
+.hidden-game .game-buzz { --buzz-size: 24px; }
+.hidden-game .game-buzz span { font-size: 20px; }
 @media (forced-colors:active) { .game-buzz span { background: Canvas; filter: none; text-shadow: none; } }
+
+/* Search suggestions stay compact, keyboard-accessible and shared by all themes. */
+.search-label { position: relative; }
+.search-options { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0; max-height: min(360px,50dvh); overflow-y: auto; overscroll-behavior: contain; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); box-shadow: 0 12px 30px #0007; }
+.search-option { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px; border-radius: 8px; cursor: pointer; }
+.search-option:hover,.search-option[aria-selected="true"] { background: var(--surface); outline: 1px solid var(--accent); outline-offset: -1px; }
+.search-option .avatar,.search-game-mark { flex: none; width: 32px; height: 32px; border-radius: 50%; }
+.search-game-mark { display: grid; place-items: center; background: var(--surface); color: var(--accent); font-size: 22px; }
+.search-option-text { min-width: 0; }
+.search-option strong,.search-option small { display: block; overflow-wrap: anywhere; }
+.search-option strong { font-size: 14px; }
+.search-option small { margin-top: 2px; color: var(--quiet); font-size: 12px; }
