@@ -172,12 +172,17 @@ curl --silent --show-error --fail --proto '=https' \
 
 Inspect the response: `state:"queued"` means a managed server or peer session is
 still active. The update waits for shutdown/session end; do not call it live yet.
-GET `$BUILD_URL` for `publication_state` and check the returned canonical game
-URL in Infuser. Exercise Play, saves/guest mode, and relevant multiplayer behavior.
+GET `$BUILD_URL` for `publication_state` and check metadata with the publisher
+credential. This verifies publication without a Google login. Run available local
+checks; exercise live Play, saves/guest mode, and multiplayer only if an authorized
+game test session is already available. Otherwise, mark live gameplay untested
+and finish. Do not ask the user to log in for your automation or share Google
+account access. Link to the connection's Infuser website origin so they can play
+themselves. See [verification and handoff](agents.md#publish-and-verify).
 After first publication, save a factual description via the [metadata API](game-metadata.md)
 and either upload a spec-compliant cover or store an `art_prompt` for later
-fulfillment by an Infuser art agent. An upload alone is not
-acceptance. Use the same credentials/app ID and a fresh
+fulfillment by an Infuser art agent. Complete publication, not just file uploads.
+Use the same credentials/app ID and a fresh
 build ID for each future “update it on Infuser.”
 
 Report platform trouble following [the agent issue instructions](agents.md#reporting-platform-problems).

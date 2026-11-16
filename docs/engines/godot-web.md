@@ -1,5 +1,11 @@
 # Godot web: export, upload, play
 
+Start with the [agent guide](../agents.md). Prefer an art-generation prompt if
+you cannot produce high-quality cover art; do not spend time staging screenshots.
+After publishing, verify build state and metadata using the publisher API.
+No Google login is needed to finish: report unavailable live checks as untested
+and link the player to their Infuser website. Do not ask for Google account access.
+
 This adapter is a preview. The real Godot/WASM
 [Lantern Lake journey](../../examples/godot-web/README.md) covers cloud saves,
 guest refresh/isolation, conflicts, save retries, and forced-relay multiplayer.

@@ -44,8 +44,11 @@ Example patch:
 ## Either an image or a prompt
 
 A game agent should **either upload high-quality artwork meeting the spec or
-store an art prompt**, not improvise an inferior placeholder. The game can
-publish immediately; an Infuser art agent can fulfill the prompt later.
+store an art prompt**, not improvise an inferior placeholder. Prefer the prompt
+when high-quality image generation is not your strength. Do not spend time staging
+screenshots; only an exceptionally readable, well-composed capture with no UI,
+HUD, or browser chrome qualifies as cover art. The game can publish immediately;
+an Infuser art agent can fulfill the prompt later.
 
 Keep `description` factual. Use `art_prompt` for the image brief: recognizable
 subjects, setting, composition, style, mood, and exclusions. Make it understandable
@@ -111,9 +114,11 @@ curl --silent --show-error --fail --proto '=https' \
   "$API/api/publisher/apps/$APP/metadata"
 ```
 
-Verify the returned metadata and the cover in the signed-in Library. Committing
-an image to a repository does not upload it to Infuser. Cover URLs require player
-membership; a publisher token is not a browser login.
+Verify the returned metadata with the publisher credential. Inspect the signed-in
+Library only if an authorized player session is already available; its absence
+does not block completion. Do not ask for a Google login to check artwork.
+Committing an image to a repository does not upload it to Infuser. Cover URLs
+require player membership; a publisher token is not a browser login.
 
 ## Persistence
 

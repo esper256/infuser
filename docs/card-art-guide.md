@@ -5,12 +5,17 @@ delivery image described below. No artwork field in `infuser.game.json` is neede
 
 Read the game description from the [metadata API](game-metadata.md), then inspect
 available project assets or screenshots. If neither gives enough context, use the
-creator's brief; do not guess gameplay from the title. Image generation is optional:
-a suitable existing image or HUD-free screenshot also works. **Either upload an
-image meeting this spec or save a detailed `art_prompt` using the [metadata API](game-metadata.md).**
-If your tools cannot produce high-quality art, use the prompt handoff. Describe
-the real game, subjects, style, mood, and exclusions for an Infuser art agent.
-The game publishes immediately with a fallback while the request waits.
+creator's brief; do not guess gameplay from the title. **If high-quality image
+generation is not your strength, prefer a detailed `art_prompt` using the
+[metadata API](game-metadata.md).** Describe the real game, recognizable subjects,
+composition, palette, style, mood, and exclusions for an Infuser art agent.
+This is a complete art handoff: publish with a fallback and continue; do not spend
+time staging screenshots to avoid requesting art. Suitable existing high-quality
+artwork is also welcome.
+
+A gameplay screenshot is an exception: use it only if it reads exceptionally well
+as a cover, including at thumbnail size, and contains no UI, HUD, menus, browser
+chrome, or window borders. Merely capturing a running game is not enough.
 
 ## What to make
 
@@ -134,7 +139,7 @@ its own text and controls. Avoid tiny lettering inside the scene as well.
 
 Use original or appropriately licensed artwork. Preserve provenance in the
 handoff note; identify generated art as generated art. A real gameplay screenshot
-is acceptable if it meets the composition requirements and has its HUD removed.
+must meet the exceptional-cover standard above as well as every delivery requirement.
 Do not describe an invented illustration as a gameplay capture.
 
 ## Review before handing off

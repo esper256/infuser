@@ -82,13 +82,18 @@ put them in `infuser.game.json`. Later publications preserve author tag edits.
 
 Choose **one** Library art handoff:
 
-- Upload a cover meeting the [art spec](card-art-guide.md), at
-  `infuser-art/card-hero.webp`. Suitable existing art or a HUD-free screenshot is fine.
-- If you cannot produce high-quality artwork, save an `art_prompt` through the
+- Upload high-quality cover art meeting the [art spec](card-art-guide.md), at
+  `infuser-art/card-hero.webp`, if you have suitable artwork or capable image tools.
+- **If high-quality image generation is not your strength, prefer an `art_prompt`** through the
   [metadata API](game-metadata.md) after publication. Describe the real game,
   recognizable subjects, visual style, mood, and anything to avoid. An Infuser art
   agent can read this request and upload the cover later. Do not upload inferior
   placeholder art. Tell the child the game is playable and artwork is requested.
+
+Do not spend time staging screenshots just to supply a cover. Use a gameplay
+screenshot only when it already makes exceptional cover art: clear at thumbnail
+size, well composed, and free of UI, HUD, menus, browser chrome, and window borders.
+Otherwise, write the prompt and continue publishing.
 
 The fallback cover remains until artwork arrives. A prompt is a valid handoff,
 not a failed publication; do not claim an image is ready or promise a completion time.
@@ -117,11 +122,28 @@ it must point to an existing export. Follow the engine recipe for other formats.
 Upload only public runtime assets. The CLI injects the SDK into uploaded HTML;
 it does not implement saves or networking for you.
 
-Verify a real launch, save/reload, guest isolation, and every declared multiplayer
-mode. Check the Library title, tags, description, and cover. Only adult admins can
-play `--preview` publications; do not hide a child's game from them by using it.
-An upload alone is not completion. A multiplayer update may be **queued** until
-its active session ends; check `publication_state` and report that accurately.
+Check the publish response, then read the build's `publication_state` and game
+metadata with the publisher credential. Confirm the intended build is active or
+queued, and that the title, tags, description, and art request/cover are correct.
+Successful publication is enough to hand the game back to its player; lack of a
+Google login is **not a publishing blocker**. Do not stop after uploading files:
+complete publication and check its result. Only adult admins can play `--preview`
+publications; do not hide a child's game from them by using it. Queued updates wait
+for the active session to end; do not describe them as live yet.
+
+Run available local checks. If an authorized game test session is already
+available, also check launch, save/reload, guest isolation, and declared multiplayer
+modes. Otherwise, report those live checks as untested and finish the handoff.
+Publisher credentials are not a player login. **Do not ask the child to log in
+for your automation, share Google credentials/cookies, or give you account access.**
+Google accounts protect much more than this game; never bypass the login gate.
+A sign-in page or 401 from a player-only route is expected without a player session,
+not evidence that publishing failed. Investigate actual build/API errors normally.
+
+End with a link to the Infuser website origin from this game's connection (the
+prompt's Server URL), inviting the player to open it and press Play themselves.
+State whether the update is active or queued, whether artwork is requested, and
+which checks ran. Do not claim an unplayed game was gameplay-tested.
 
 “Update it on Infuser” means build and publish with the same connection and app ID.
 “Publish every update” is an instruction to the developing agent, not an Infuser
