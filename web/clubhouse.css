@@ -41,6 +41,7 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .google img { display: block; width: 216px; height: 48px; }
 #login-message { max-width: 360px; margin: 0; text-align: center; line-height: 1.5; color: #b4c2d0; overflow-wrap: anywhere; }
 #login-message:empty { display: none; }
+.create-game-guide { max-width: 360px; margin: 0; text-align: center; text-wrap: balance; }
 
 /* Library navigation: one heading, quiet presence, compact categories. */
 .intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 10px 0 20px; }

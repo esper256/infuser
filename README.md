@@ -9,9 +9,15 @@ online status, reactions, tags, and game artwork. **Infuser Play** is the native
 app for downloading, updating, and running supported Windows and Linux games,
 including on Bazzite.
 
-## Publish a game
+## Make or publish a game
 
-Copy **Add a game** into the game's existing agent chat. The agent follows the
+To make a new game for an Infuser website, give its URL to your agent and start
+with [Create a game for Infuser](docs/create-game.md). That guide explains the
+features, supported engines, and multiplayer choices. No publishing token is
+needed to design or build the game.
+
+When the game is ready, sign in to your Infuser website, click **Add a game**, and
+copy its prompt into the game's existing agent chat. The agent follows the
 [game integration guide](docs/agents.md), keeps the project's name and tools,
 and stores its publishing connection for later updates.
 
@@ -31,7 +37,7 @@ must support Infuser's relay fallback; direct-only networking is unsupported.
 
 - Players and admins: [chat and phone notifications](docs/library-chat.md),
   [Infuser Play updates](docs/play-updates.md), and [feedback](docs/feedback.md).
-- Game authors and agents: [integration and publishing](docs/agents.md),
+- Game authors and agents: [design a new game](docs/create-game.md), [integration and publishing](docs/agents.md),
   [art requirements](docs/card-art-guide.md), and [API reference](docs/public-api.md).
 - Server operators: [install Infuser](docs/operations.md), [Google login and invitations](docs/clubhouse-operations.md),
   [private groups](docs/private-groups.md), and [automatic server updates](docs/deployment.md).
