@@ -266,10 +266,15 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         ready["endpoint"]["url"],
         format!("https://{}/_infuser/server", a.host)
     );
-    a.request(&http, &url, Method::GET, "/_infuser/proxy-auth")
+    let proxy = a.request(&http, &url, Method::GET, "/_infuser/proxy-auth")
+        .header("X-Infuser-Upstream", "169.254.169.254:80")
         .send()
         .await?
         .error_for_status()?;
+    assert_eq!(
+        proxy.headers()["X-Infuser-Upstream"],
+        format!("127.0.0.1:{}", controller.snapshot().games["moon"].port)
+    );
     // Reading context/heartbeating never hands out a backend endpoint for a title-only launch.
     let title = launch(&http, &url, "moon", true).await?;
     assert_eq!(

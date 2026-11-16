@@ -387,6 +387,10 @@ impl Config {
                 ids.len() == 2 && ids.iter().all(|s| s.parse::<u32>().is_ok_and(|v| v > 0)),
                 "{id}: user must be non-root UID:GID"
             );
+            ensure!(
+                g.network != NetworkPolicy::Internal || g.web,
+                "{id}: internal networks require the authenticated HTTP/WebSocket proxy"
+            );
             if g.web {
                 ensure!(
                     g.protocols == ["tcp"],

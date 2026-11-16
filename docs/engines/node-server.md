@@ -15,6 +15,12 @@ source, credentials or environment files in the public export. The server folder
 contains its entry file, `package.json`, `package-lock.json`, and required local
 modules. Do not upload `node_modules`.
 
+Keep shared modules in both exports when the browser and server import them. Stage
+the server folder with the relative paths its imports expect. For an unbundled
+browser game, copy its browser dependencies into the public export too: URLs once
+served by the Node development server (such as `/vendor/three.module.js`) must
+exist in the static export. Do not copy the entire server dependency tree there.
+
 The server listens on `process.env.PORT` on `0.0.0.0`. Its health endpoint returns
 HTTP 200 once it can accept connections. It must start without platform credentials
 for the isolated readiness probe and normal standalone development. Handle SIGTERM

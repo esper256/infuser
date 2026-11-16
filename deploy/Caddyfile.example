@@ -35,15 +35,17 @@ example.com {
     handle /_infuser/server/* {
         route {
             request_header -X-Infuser-Port
+            request_header -X-Infuser-Upstream
             forward_auth 127.0.0.1:7777 {
                 uri /_infuser/proxy-auth
-                copy_headers X-Infuser-Port
+                copy_headers X-Infuser-Port X-Infuser-Upstream
             }
             uri strip_prefix /_infuser/server
-            reverse_proxy 127.0.0.1:{http.request.header.X-Infuser-Port} {
+            reverse_proxy {http.request.header.X-Infuser-Upstream} {
                 header_up -Cookie
                 header_up -Authorization
                 header_up -X-Infuser-Port
+                header_up -X-Infuser-Upstream
                 header_down -Set-Cookie
             }
         }

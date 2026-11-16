@@ -57,7 +57,9 @@ lockfile hash and recipe version are recorded with the build.
 Managed servers use a separate internal Docker network. There is no Internet
 egress or route to cloud metadata; the installation hostname resolves to the
 bridge's host gateway so the server can reach Infuser's HTTPS API. The controller's
-private API remains bound to host loopback. This recipe does not support external
+private API remains bound to host loopback. These containers publish no host port;
+after checking the player's lease, the controller gives Caddy the owned container's
+bridge address. Caddy must run in the host network. This recipe does not support external
 backend services. Existing operator-staged images retain their declared network
 policy. The packaging worker and readiness probe have no networking at all.
 
@@ -90,7 +92,10 @@ images = { "24" = "node@sha256:REPLACE_WITH_STAGED_IMAGE_DIGEST" }
 image_budget_mb = 2048
 ```
 
-Upgrade the controller before adding this table, run `infuser check`, then restart.
+Upgrade the controller and apply the `X-Infuser-Upstream` routing in
+[`deploy/Caddyfile.example`](../deploy/Caddyfile.example) before adding this table.
+Strip client-supplied routing headers before forward authentication. Validate and
+reload Caddy, run `infuser check`, then restart the controller.
 The digest must identify a Linux image for the host architecture. The worker verifies
 the actual Node major too. The controller service needs its existing Docker access;
 Node is not installed on the host. Docker 25+ is needed for readiness probe intervals.

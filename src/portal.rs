@@ -1695,9 +1695,11 @@ async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
         "get",
         now(),
     )?;
+    let upstream = p.controller.engine.web_address(&l.app, i, &state.owner).await?;
     Ok((
         [
             ("X-Infuser-Port", i.port.to_string()),
+            ("X-Infuser-Upstream", upstream.to_string()),
             ("Cache-Control", "no-store".into()),
         ],
         "",

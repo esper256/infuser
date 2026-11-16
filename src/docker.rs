@@ -24,6 +24,17 @@ pub trait Engine: Send + Sync {
     async fn ensure(&self, id: &str, instance: &Instance, owner: &str) -> Result<Health>;
     async fn health(&self, instance: &Instance, owner: &str, id: &str) -> Result<Health>;
     async fn remove(&self, id: &str, instance: &Instance, owner: &str) -> Result<()>;
+    async fn web_address(
+        &self, id: &str, instance: &Instance, owner: &str,
+    ) -> Result<std::net::SocketAddr> {
+        let _ = (id, owner);
+        ensure!(instance.spec.web, "game is not an HTTP backend");
+        ensure!(
+            instance.spec.network != crate::config::NetworkPolicy::Internal,
+            "engine cannot route internal game networks"
+        );
+        Ok((std::net::Ipv4Addr::LOCALHOST, instance.port).into())
+    }
 }
 
 pub struct Docker {
@@ -271,11 +282,13 @@ impl Docker {
         } else {
             self.settings.publish_ip.to_string()
         };
-        for protocol in &g.protocols {
-            args.extend([
-                "--publish".into(),
-                format!("{bind}:{}:{}/{protocol}", i.port, g.container_port),
-            ]);
+        if g.network != crate::config::NetworkPolicy::Internal {
+            for protocol in &g.protocols {
+                args.extend([
+                    "--publish".into(),
+                    format!("{bind}:{}:{}/{protocol}", i.port, g.container_port),
+                ]);
+            }
         }
         if g.persistent {
             args.extend([
@@ -314,6 +327,25 @@ impl Docker {
 
 #[async_trait]
 impl Engine for Docker {
+    async fn web_address(
+        &self, id: &str, instance: &Instance, owner: &str,
+    ) -> Result<std::net::SocketAddr> {
+        ensure!(instance.spec.web, "game is not an HTTP backend");
+        if instance.spec.network != crate::config::NetworkPolicy::Internal {
+            return Ok((std::net::Ipv4Addr::LOCALHOST, instance.port).into());
+        }
+        // Internal bridges have no published host port. Caddy runs in the host
+        // network and can reach the owned container directly on its bridge.
+        let object = self.object("container", &instance.name).await?
+            .context("game container disappeared")?;
+        Self::owned(&object, "container", owner, id, Some(&instance.attempt))?;
+        ensure!(Self::status(Some(object.clone())) == Health::Ready, "game container is not ready");
+        let address: std::net::Ipv4Addr = object["NetworkSettings"]["Networks"][&instance.name]["IPAddress"]
+            .as_str().context("game bridge address missing")?.parse()?;
+        ensure!(!address.is_unspecified() && !address.is_loopback() && !address.is_multicast(), "invalid game bridge address");
+        Ok((address, instance.spec.container_port).into())
+    }
+
     async fn preflight(&self) -> Result<()> {
         let v = self.info().await?;
         ensure!(v["OSType"] == "linux", "Linux Docker is required");

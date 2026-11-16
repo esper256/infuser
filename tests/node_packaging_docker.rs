@@ -125,7 +125,11 @@ async fn offline_package_runs_two_players_sleeps_and_restarts_fresh() -> Result<
                 );
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
-            let health: Value = reqwest::get(format!("http://127.0.0.1:{port}/healthz"))
+            let state = controller.snapshot();
+            let address = docker.web_address("fixture", &state.games["fixture"], &owner).await?;
+            // Internal runtimes deliberately expose no unauthenticated host port.
+            assert!(tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).await.is_err());
+            let health: Value = reqwest::get(format!("http://{address}/healthz"))
                 .await?
                 .error_for_status()?
                 .json()
@@ -135,9 +139,9 @@ async fn offline_package_runs_two_players_sleeps_and_restarts_fresh() -> Result<
             }
             previous_boot = Some(health["boot"].clone());
             let (mut first, _) =
-                tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/")).await?;
+                tokio_tungstenite::connect_async(format!("ws://{address}/")).await?;
             let (mut second, _) =
-                tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/")).await?;
+                tokio_tungstenite::connect_async(format!("ws://{address}/")).await?;
             for socket in [&mut first, &mut second] {
                 socket
                     .send(Message::Text(
