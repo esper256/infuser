@@ -47,6 +47,73 @@ It verifies the auth gate, SPA navigation, missing assets, WASM MIME type,
 cross-origin headers and backend routing. It does not contact Google or issue
 real TLS certificates.
 
+A second journey derives routing from `deploy/Caddyfile.example`, substituting
+only local listeners, TLS setup and test upstreams. It checks authentication,
+forged headers, credential/cookie stripping, path/query forwarding and text/binary
+WebSocket frames through the production route composition.
+
+## Publishing and recovery under load
+
+The normal suite includes `activity_storage`, `lifecycle_independence` and
+`server_packaging_journey`: activity writes leave the cold catalog unchanged,
+external writers invalidate cached membership, slow stops do not block other
+starts, late starts cannot undo stops, retirement reclaims ports, and incomplete
+uploads neither fill request memory nor block status reads. A restart after
+durable unpublish must retire registrations while preserving worlds and builds.
+
+To test the migration with an actual previous executable:
+
+```sh
+INFUSER_PREVIOUS_BINARY=/path/to/previous/infuser \
+  cargo test --locked --test activity_storage
+```
+
+This creates disposable state using the old CLI, upgrades, renews a guest launch,
+writes through the old CLI again, and reopens with the current code.
+
+The optional local load case exchanges frames between two clients while uploading
+and publishing a 64 MiB file, with Library/chat polling. The larger synthetic
+catalog has 25 apps, five builds each and 500 files per build:
+
+```sh
+INFUSER_REVIEW_LOAD=1 INFUSER_REVIEW_LARGE_CATALOG=1 \
+INFUSER_REVIEW_CAPTURE_MB=128 \
+  cargo test --locked --test connections_journey -- --nocapture
+```
+
+Omit `INFUSER_REVIEW_CAPTURE_MB` to disable capture; omit the large-catalog flag
+for the small fixture. Results include round-trip percentiles, longest gap, polling
+progress, process high-water RSS, thread count and database/WAL sizes. The process
+includes clients and their upload buffer; these are not production daemon or WAN
+measurements. Run the compiled test in a transient user service with
+`MemoryMax=512M` and `TasksMax=128` to exercise the shipped limits without changing
+installed services. See the [review results](proposals/architecture-improvement-plan.md).
+
+## Firewall renewal
+
+Compile `cargo test --locked --test firewall_journey --no-run`, then run its
+reported test executable in a new user/network namespace:
+
+```sh
+unshare --user --map-root-user --net env INFUSER_FIREWALL_NAMESPACE=1 \
+  /absolute/path/to/firewall_journey-TEST_HASH --ignored --nocapture
+```
+
+The namespace needs `nft` and `ip`. From a distrobox, prefix that command with
+`distrobox-host-exec` if those tools are on the host. Never run it in the host's
+network namespace. It tests first grant, expiry, repeated atomic renewal during
+UDP traffic and IPv6 grants. Tested locally with nftables 1.1.6; repeat on the
+deployment's supported version when changing the rule generator.
+
+## Native cache and run cleanup
+
+`cargo test --manifest-path desktop/Cargo.toml --locked` checks update integrity,
+owner/guest copy isolation and pruning while an orphaned game process remains
+alive. It uses a sleeping subprocess fixture without running a real game.
+Current/previous versions and uncertain live runs survive; known-dead runs are
+removed. This supplements, rather than replaces, Windows/Bazzite installation,
+browser handoff and real-game acceptance.
+
 ## Dedicated Node example
 
 Stage the [Node example](../examples/dedicated-node/README.md) with

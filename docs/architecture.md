@@ -52,12 +52,14 @@ process. Persistent volumes survive shutdown; the game must checkpoint before
 its shutdown deadline. Persistent world does not promise an always-running
 simulation. See [on-demand leases](runtime-sessions.md).
 
-Each game has at most one multiplayer session. A failed/full/closed join never
+Peer-hosted games have one shared room. A dedicated server can declare a shared
+session or multiple explicit runs inside its single container; see
+[dedicated sessions](dedicated-sessions.md). A failed/full/closed Join friend never
 creates another world. Ordinary Play opens the title screen; [Join friend](launch-intents.md)
-is an optional explicit action. Dedicated-server joinability reporting is not
-implemented. Games own their mode selection, waiting screens, and any spectating.
+is an optional explicit action using the game's reported joinability.
+Games own their mode selection, waiting screens, and any spectating.
 
-Updates upload immediately, then wait for the shared multiplayer session to end
+Updates upload immediately, then wait for the current server or peer room to stop
 before activation. Existing browser launches retain their selected artifacts.
 Old clients must reopen before entering a newer build's multiplayer session.
 Preview is a visibility setting, not a parallel branch or a second server.
@@ -77,7 +79,7 @@ binary filesystem synchronization is not implemented.
 
 Guest play starts with empty temporary saves and a separate browser origin or
 native save directory. It never copies or merges the owner's progress. Guest
-multiplayer joins the same shared session using its own identity.
+multiplayer uses its own identity and follows the game's session policy.
 
 Titles, descriptions, covers, tags, reactions, and chat are platform data, separate
 from server lifetime. [Metadata edits](game-metadata.md) do not replace game builds.

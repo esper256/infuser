@@ -220,7 +220,8 @@ pub(super) async fn upload(
     State(p): State<Platform>,
     Path((app, build, path)): Path<(String, String, String)>,
     h: HeaderMap,
-    body: Bytes,
+    axum::Extension(staged): axum::Extension<publication::Staged>,
+    axum::Extension(mutation): axum::Extension<Arc<publication::Mutation>>,
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
     ensure!(
@@ -231,9 +232,14 @@ pub(super) async fn upload(
         )
     );
     ensure!(
-        body.len() <= package::SOURCE_FILE_BYTES,
+        staged.bytes <= package::SOURCE_FILE_BYTES as u64,
         fault(413, "server source file exceeds 8 MiB")
     );
+    tokio::task::spawn_blocking(move || -> Answer {
+    let _mutation = mutation;
+    let key = build_key(&app, &build);
+    let target = p.server_source(&key).join(&path);
+    std::fs::create_dir_all(target.parent().unwrap())?;
     let _guard = p.publishing.lock().unwrap();
     let key = build_key(&app, &build);
     let data = p.db.read()?;
@@ -249,7 +255,7 @@ pub(super) async fn upload(
         )
     );
     let prior = job.files.get(&path).copied().unwrap_or(0);
-    let size = body.len() as u64;
+    let size = staged.bytes;
     ensure!(
         job.files.len() < 4096 || job.files.contains_key(&path),
         fault(413, "too many server source files")
@@ -269,9 +275,8 @@ pub(super) async fn upload(
             >= p.config().controller.disk_reserve_mb * 1024 * 1024 + size * 2,
         fault(507, "host disk reserve would be exhausted")
     );
-    let target = p.server_source(&key).join(&path);
-    std::fs::create_dir_all(target.parent().unwrap())?;
-    crate::private_file::replace(&target, &body)?;
+    std::fs::rename(staged.file.path(), &target)?;
+    std::fs::File::open(target.parent().unwrap())?.sync_all()?;
     p.db.edit(|d| {
         d.server_builds
             .get_mut(&key)
@@ -281,14 +286,17 @@ pub(super) async fn upload(
         Ok(())
     })?;
     Ok(reply(json!({"path":path,"bytes":size})))
+    }).await.map_err(|e| fault(500, &format!("upload worker failed: {e}")))?
 }
 pub(super) async fn start(
     State(p): State<Platform>,
     Path((app, build)): Path<(String, String)>,
     h: HeaderMap,
+    axum::Extension(mutation): axum::Extension<Arc<publication::Mutation>>,
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
-    let _guard = p.publishing.lock().unwrap();
+    tokio::task::spawn_blocking(move || -> Answer {
+    let _mutation = mutation;
     let key = build_key(&app, &build);
     let data = p.db.read()?;
     let job = data
@@ -325,6 +333,7 @@ pub(super) async fn start(
                 "upload the client export before finalizing its paired server"
             )
         );
+        let _guard = p.publishing.lock().unwrap();
         p.db.edit(|d| {
             let job = d.server_builds.get_mut(&key).unwrap();
             job.state = Phase::Queued;
@@ -339,4 +348,5 @@ pub(super) async fn start(
         *response.status_mut() = StatusCode::ACCEPTED;
     }
     Ok(response)
+    }).await.map_err(|e| fault(500, &format!("packaging preparation failed: {e}")))?
 }

@@ -69,8 +69,11 @@ Infuser membership must also pass. Shared public IPs share access; native server
 still validate game tickets. A logout does not revoke another family's shared
 IP; grants expire in the kernel when they stop being refreshed.
 
-Use `MemoryMax=512M` for the main daemon with publishing enabled (uploads are
-serialized and capped at 64 MiB/file). Choose the game budget to leave
+Use `MemoryMax=512M` for the main daemon with publishing enabled. Publisher work
+has two admission slots; game files stream to disk with a 64 MiB/file limit.
+Keep `TasksMax=128`. Installing a new binary does not update an existing service
+unit: apply unit changes separately and run `systemctl daemon-reload`.
+Choose the game budget to leave
 headroom for the daemon, shared services, and operating system.
 The helper only needs 64 MiB. Publishing content has an aggregate disk budget,
 independent of the game's world volumes and Docker images.
@@ -88,7 +91,7 @@ The current auto-updater still checks health and retains the previous binary.
 
 Unpublished builds are retained intentionally so an operator can recover or
 republish them. Remove unused builds through the API to reclaim disk. Guest-save
-cleanup runs during library refresh; personal saves survive unpublish and updates.
+cleanup runs once a minute; personal saves survive unpublish and updates.
 Admin-only preview means hidden from ordinary members, not a separate server.
 
 To create a game pass without opening the website:

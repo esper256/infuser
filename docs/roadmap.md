@@ -2,6 +2,10 @@
 
 Audience: Infuser developers.
 
+- Follow up on the [architectural review results](proposals/architecture-improvement-plan.md):
+  validate the shipped service limits on the production host and native cache
+  cleanup on physical Windows hardware. Use measurements before taking on the
+  deferred catalog, authentication or Docker-client rewrites.
 - Make game-author tools portable: add a Windows publisher executable and provide
   optional integration checks that use prebuilt tools or the project's existing
   runtime. Keep the Cargo/Playwright contributor harness out of the publishing

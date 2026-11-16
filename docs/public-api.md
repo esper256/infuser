@@ -26,6 +26,11 @@ contains `api_url`, `app_id`, and `token`. Use `Authorization: Bearer TOKEN`.
 Credentials can publish only their game, cannot read player saves, invite members,
 or control the host. Admin revocation and member disabling take effect immediately.
 
+Publishing requests can return `503` with `Retry-After` when upload capacity is
+busy. Wait that many seconds and retry the same request. The publisher CLI does
+this automatically with a bounded retry count. A lost connection is different:
+inspect build status before deciding whether to repeat an operation.
+
 | Method | Route | Action |
 |---|---|---|
 | GET | `/api/publisher/capabilities` | Supported runtimes, architecture, limits |

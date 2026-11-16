@@ -3,7 +3,7 @@ use super::*;
 pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
     let (group, inspecting) = p.group_view(&h, &email)?;
-    Ok(reply(p.db.chat_list_group(&email, &group, inspecting)?))
+    Ok(conditional::json(p.db.chat_list_group(&email, &group, inspecting)?, &h))
 }
 
 #[derive(Deserialize)]

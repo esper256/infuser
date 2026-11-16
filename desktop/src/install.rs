@@ -126,23 +126,49 @@ pub fn install(root: &Path, artifact: &Artifact, bytes: &[u8]) -> Result<PathBuf
     fs::rename(stage.path(), &target)?; // Same filesystem: no partial installation.
     Ok(target)
 }
+pub struct Verified<'a> {
+    cache: &'a Path,
+    artifact: &'a Artifact,
+}
+pub fn verified<'a>(cache: &'a Path, artifact: &'a Artifact) -> Result<Verified<'a>> {
+    verify(cache, artifact)?;
+    Ok(Verified { cache, artifact })
+}
+#[cfg(test)]
 pub fn prepare_run(
     cache: &Path,
     artifact: &Artifact,
     runs: &Path,
     namespace: &str,
-) -> Result<tempfile::TempDir> {
+) -> Result<crate::run_storage::Run> {
+    prepare_verified(verified(cache, artifact)?, runs, namespace)
+}
+pub fn prepare_verified(
+    verified: Verified<'_>,
+    runs: &Path,
+    namespace: &str,
+) -> Result<crate::run_storage::Run> {
+    let Verified { cache, artifact } = verified;
     ensure!(
         infuser_native_protocol::safe_path(namespace),
         "invalid save namespace"
     );
-    verify(cache, artifact)?;
     fs::create_dir_all(runs)?;
     let run = tempfile::Builder::new().prefix("game-").tempdir_in(runs)?;
     for name in artifact.files.keys() {
         let target = run.path().join(name);
         fs::create_dir_all(target.parent().unwrap())?;
-        fs::copy(regular_file(cache, name)?, target)?;
+        let source = regular_file(cache, name)?;
+        #[cfg(target_os = "linux")]
+        {
+            let input = fs::File::open(&source)?;
+            let output = fs::File::create(&target)?;
+            if rustix::fs::ioctl_ficlone(&output, &input).is_ok() {
+                fs::set_permissions(&target, input.metadata()?.permissions())?;
+                continue;
+            }
+        }
+        fs::copy(source, target)?;
     }
     executable(&run.path().join(&artifact.entrypoint))?;
     // Godot reads this beside its executable before loading any autoload or
@@ -153,7 +179,7 @@ pub fn prepare_run(
             "[application]\nconfig/use_custom_user_dir=true\nconfig/custom_user_dir_name=\"{namespace}\"\nconfig/project_settings_override=\"\"\n"
         ),
     )?;
-    Ok(run)
+    crate::run_storage::Run::new(run, &artifact.sha256)
 }
 
 #[cfg(test)]
@@ -210,6 +236,8 @@ mod tests {
             fs::read(guest.path().join("override.cfg"))?
         );
         assert_eq!(fs::read(old.join("game"))?, b"old");
+        fs::write(owner.path().join("game"), b"modified by game")?;
+        assert_eq!(fs::read(guest.path().join("game"))?, b"new");
         assert_eq!(fs::read(installed.join("game"))?, b"new");
         Ok(())
     }

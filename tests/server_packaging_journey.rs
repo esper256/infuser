@@ -18,6 +18,9 @@ mod packaging;
 struct Runtime;
 #[async_trait]
 impl Engine for Runtime {
+    async fn web_address(&self, _: &str, _: &Instance, _: &str) -> Result<std::net::SocketAddr> {
+        Ok("127.0.0.1:7000".parse()?)
+    }
     async fn preflight(&self) -> Result<()> {
         Ok(())
     }
@@ -118,6 +121,33 @@ async fn sealing_capacity_retries_recovery_and_pair_activation() -> Result<()> {
         axum::serve(listener, router).await.unwrap()
     }));
     let first = api.create("one").await?;
+    // Hold two incomplete uploads on different apps. Admission must reject a
+    // third mutation before reading its body, while status reads still work.
+    let other_token = p.db.edit(|d| Ok(platform::credential(d, "other", "publish", "fixture")?.1))?;
+    let mut uploads = Vec::new();
+    for (app, token) in [("pond", &api.token), ("other", &other_token)] {
+        use tokio::io::AsyncWriteExt;
+        let mut socket = tokio::net::TcpStream::connect(api.url.trim_start_matches("http://")).await?;
+        socket.write_all(format!("PUT /api/publisher/apps/{app}/builds/one/files/slow.bin HTTP/1.1\r\nHost: games.example.com\r\nAuthorization: Bearer {token}\r\nContent-Length: 1024\r\n\r\nx").as_bytes()).await?;
+        uploads.push(socket);
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while std::fs::read_dir(root.path().join("upload-staging"))?.count() != 2 {
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    }).await??;
+    let busy = api.call("POST", &format!("{first}/server-build")).send().await?;
+    assert_eq!(busy.status(), 503);
+    assert_eq!(busy.headers()["retry-after"], "1");
+    tokio::time::timeout(std::time::Duration::from_secs(1), api.job(&first)).await??;
+    drop(uploads);
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while std::fs::read_dir(root.path().join("upload-staging"))?.count() != 0 {
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    }).await??;
     let diagnostics = api.call("GET", "/api/publisher/apps/pond/server-diagnostics")
         .send().await?.error_for_status()?.json::<Value>().await?;
     assert_eq!(diagnostics["version"], 1);
@@ -284,6 +314,32 @@ async fn sealing_capacity_retries_recovery_and_pair_activation() -> Result<()> {
     p.packaging_step().await?;
     assert!(!p.db.read()?.server_builds.contains_key("pond/one"));
     assert!(!root.path().join("server-sources/pond/one").exists());
+    // Simulate controller registration being persisted before a catalog commit.
+    let published = controller.snapshot().published_games["pond"].clone();
+    let mut interrupted = published.clone();
+    interrupted.image = format!("sha256:{}", "f".repeat(64));
+    controller.register("pond", interrupted.clone())?;
+    p.reconcile_publications()?;
+    assert_eq!(controller.snapshot().published_games["pond"], published);
+    controller.register("orphan", interrupted)?;
+    p.reconcile_publications()?;
+    assert!(!controller.snapshot().games.contains_key("orphan"));
+    // A durable unpublish followed by a crash must retire the old registration
+    // on reopen, without removing the retained world or build.
+    let world = root.path().join("volumes/pond");
+    std::fs::create_dir_all(&world)?;
+    std::fs::write(world.join("world.save"), b"retained world")?;
+    p.db.edit(|d| { d.apps.remove("pond"); Ok(()) })?;
+    drop(_server);
+    tokio::task::yield_now().await;
+    drop(p);
+    drop(controller);
+    let controller = Arc::new(Controller::open(cfg, Arc::new(Runtime))?);
+    let reopened = portal::Platform::open(controller.clone())?;
+    assert!(!controller.snapshot().published_games.contains_key("pond"));
+    assert!(!controller.snapshot().games.contains_key("pond"));
+    assert!(reopened.db.read()?.builds.contains_key("pond/two"));
+    assert_eq!(std::fs::read(world.join("world.save"))?, b"retained world");
     Ok(())
 }
 

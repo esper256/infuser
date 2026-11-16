@@ -6,6 +6,62 @@ The [documentation index](README.md) links to the
 current user-facing contracts. These notes describe storage and implementation
 constraints, not additional steps for game authors.
 
+## Catalog and activity storage
+
+`platform_catalog` holds cold catalog JSON. Launches and presence use small
+`runtime_launches` and `runtime_presence` rows; heartbeats and Library reads do
+not rewrite file inventories. Presence remains durable to keep rollback simple.
+A cached catalog shares immutable file maps. SQLite revision triggers invalidate
+it after catalog or side-table changes, including writes by a separate CLI.
+Authorization still reads current activity and membership; there is no auth TTL.
+
+Migration runs in one SQLite transaction. The old `platform` table becomes a
+writable compatibility view that reconstructs the original JSON. Its triggers
+translate old INSERT/UPDATE operations into the authoritative tables, preserving
+renewals when an older daemon or CLI writes. This supports binary rollback without
+a two-release migration or a second stale catalog copy. It does not make older
+binaries support newer SDK features. SQLite keeps `synchronous=FULL`.
+
+## Publication and runtime recovery
+
+Publisher mutations share two admission slots before reading request bodies and
+serialize per app. Artifact bodies stream to private temporary files, with size,
+time and disk limits. Cancellation removes staging files; startup removes abandoned
+staging. Captures stream from the same file into SQLite blobs. Blocking validation,
+hashing and file work retain admission until complete even if the caller disconnects.
+Global commits still serialize disk-budget accounting and matched-build activation.
+Bulk artifact writes and deletion do not hold the gameplay coordination lock.
+
+The catalog's published app/build is authoritative. On startup and periodic
+reconciliation, a controller registration written before an interrupted catalog
+commit is restored to the catalog's version. A mismatched running attempt stops
+before replacement. A missing publication means retirement: stop, confirm cleanup,
+then unregister and reclaim its port. Retained artifacts, saves and world volumes
+are untouched; operator-configured games are never retired this way. Pending
+promotions remain durable and retry after the current server sleeps.
+
+The lifecycle loop runs at most two independent engine operations, one per app,
+with round-robin scheduling. Completion requires the same attempt and phase;
+a stop request wins over a late start. Ready upstream addresses are verified once
+per lifecycle observation and cached for requests. Stop/replacement invalidates
+them; restart rebuilds them. Publication and minute-based expired-launch/save
+cleanup run separately, so one slow Docker operation cannot hold up either loop.
+
+## Native run storage
+
+Infuser Play holds its per-game install lock through verification, run preparation
+and pruning. Warm launches verify once. Linux uses copy-on-write file clones where
+available, with ordinary copies as the fallback; writable hardlinks are not used.
+Current and previous cache versions, plus versions needed by active runs, survive
+pruning. Run markers identify the companion and game by PID and process start
+identity, so parent death or PID reuse alone does not justify deleting files.
+
+Known-dead runs and interrupted staging directories are reclaimed on later launches.
+Legacy runs without markers, unreadable liveness, and a crash during the uncertain
+spawn window are retained conservatively. These exceptions can require manual
+cleanup; this is not an absolute disk quota. Personal and guest saves are outside
+this pruning policy. Actual Windows installation/play acceptance remains manual.
+
 ## SDK route compatibility
 
 Major 1 modules live under `sdk/v1/`; their HTTP route adapter is

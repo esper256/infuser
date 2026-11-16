@@ -276,20 +276,36 @@ async fn main() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+    let maintenance = platform.clone();
+    let maintenance_worker = tokio::spawn(async move {
+        loop {
+            let p = maintenance.clone();
+            tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                p.db.cleanup()?;
+                if p.cleanup_feedback().is_err() {tracing::warn!("feedback retention cleanup failed");}
+                Ok(())
+            }).await??;
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
+        #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
+    });
+    let publication_worker = tokio::spawn(async move {
+        loop {
+            let p = publications.clone();
+            tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                p.reconcile_publications()?;
+                p.activate_pending()
+            }).await??;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+        #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
+    });
     let background = tokio::spawn(async move {
-        let mut last_cleanup = 0;
         loop {
             tokio::time::sleep(Duration::from_secs(config.controller.tick_seconds)).await;
             // Persistence failure is fatal: continuing would lose resource accounting.
-            runner.reconcile(now()).await?;
-            publications.activate_pending()?;
-            if now().saturating_sub(last_cleanup) >= 60 {
-                publications.db.cleanup()?;
-                if publications.cleanup_feedback().is_err() {
-                    tracing::warn!("feedback retention cleanup failed");
-                }
-                last_cleanup = now();
-            }
+            runner.reconcile_step(now()).await?;
+
         }
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
@@ -303,6 +319,8 @@ async fn main() -> Result<()> {
         tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
     });
     tokio::select! {
+        result = maintenance_worker => { result??; bail!("maintenance worker stopped"); },
+        result = publication_worker => { result??; bail!("publication worker stopped"); },
         result = package_worker => { result?; anyhow::bail!("server packaging worker stopped"); },
         result = push_worker => { result?; anyhow::bail!("notification worker stopped"); },
         result = server => { result?; },

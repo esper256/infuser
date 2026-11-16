@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
                 cross_origin_isolation: std::env::args().any(|a| a == "--threaded"),
                 ready: true,
                 created: now(),
-                files,
+                files: files.into(),
             },
         );
         d.apps.insert(

@@ -4,6 +4,8 @@
 mod client;
 #[path = "../src/install.rs"]
 mod install;
+#[path = "../src/run_storage.rs"]
+mod run_storage;
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     anyhow::ensure!(args.len() == 4, "acceptance ROOT CA_FILE LAUNCH_URL");

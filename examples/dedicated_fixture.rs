@@ -230,7 +230,7 @@ async fn main() -> Result<()> {
             cross_origin_isolation: false,
             ready: true,
             created: now(),
-            files,
+            files: files.into(),
         };
         build.manifest.validate()?;
         d.builds.insert("dedicated-lab/one".into(), build);

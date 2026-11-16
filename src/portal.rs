@@ -29,7 +29,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-use tower::{ServiceExt, limit::ConcurrencyLimitLayer};
+use tower::ServiceExt;
 use tower_http::services::ServeFile;
 mod avatars;
 mod capture;
@@ -37,6 +37,7 @@ mod card_art;
 mod chat;
 mod client;
 mod connections;
+mod conditional;
 mod dedicated;
 mod feedback;
 mod groups;
@@ -45,6 +46,7 @@ mod metadata;
 mod native;
 mod peerjs;
 mod presence;
+mod publication;
 mod pwa;
 mod runtime;
 mod sdk_v1;
@@ -113,8 +115,10 @@ pub struct Platform {
     pub controller: Arc<Controller>,
     pub db: Arc<Database>,
     http: reqwest::Client,
-    grants: Arc<Mutex<BTreeMap<IpAddr, u64>>>,
+    grants: Arc<Mutex<BTreeMap<IpAddr, Arc<tokio::sync::Mutex<u64>>>>>,
     publishing: Arc<Mutex<()>>,
+    publication_slots: Arc<tokio::sync::Semaphore>,
+    app_mutations: Arc<Mutex<BTreeMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>>,
     peers: Arc<crate::peers::Rooms>,
     relay: Option<Arc<crate::peers::Relay>>,
     feedback_lock: Arc<Mutex<()>>,
@@ -132,6 +136,10 @@ impl Platform {
         self.peers.clone()
     }
     pub fn open(controller: Arc<Controller>) -> Result<Self> {
+        let staging = controller.config.controller.state_dir.join("upload-staging");
+        // Controller ownership is exclusive. No previous uploader can still own
+        // these disposable files after process recovery.
+        if staging.exists() {std::fs::remove_dir_all(staging)?;}
         let db = Arc::new(Database::open(&controller.config.controller.state_dir)?);
         anyhow::ensure!(
             db.read()?.groups.names.len() <= 1 || controller.config.controller.private_groups,
@@ -159,7 +167,7 @@ impl Platform {
         } else {
             0
         };
-        Ok(Self {
+        let platform = Self {
             connection_signer: Arc::new(crate::connections::Signer::open(
                 &controller.config.controller.state_dir,
             )?),
@@ -183,9 +191,13 @@ impl Platform {
                 .build()?,
             grants: Arc::new(Mutex::new(BTreeMap::new())),
             publishing: Arc::new(Mutex::new(())),
+            publication_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            app_mutations: Default::default(),
             peers: Arc::new(crate::peers::Rooms::recovering(resume_after)),
             relay,
-        })
+        };
+        platform.reconcile_publications()?;
+        Ok(platform)
     }
     fn config(&self) -> &Config {
         &self.controller.config
@@ -284,26 +296,16 @@ impl Platform {
         else {
             return false;
         };
-        if self
-            .grants
-            .lock()
-            .unwrap()
-            .get(&ip)
-            .is_some_and(|t| *t + 60 > now())
-        {
-            return true;
-        }
+        let grant = {
+            let mut grants = self.grants.lock().unwrap();
+            grants.retain(|_,g|Arc::strong_count(g)>1 || g.try_lock().map(|t|*t+1800>now()).unwrap_or(true));
+            grants.entry(ip).or_default().clone()
+        };
+        let mut refreshed = grant.lock().await;
+        if *refreshed + 60 > now() {return true;}
         match crate::firewall::grant(socket, ip).await {
-            Ok(()) => {
-                let mut g = self.grants.lock().unwrap();
-                g.retain(|_, t| *t + 1800 > now());
-                g.insert(ip, now());
-                true
-            }
-            Err(e) => {
-                tracing::warn!(error=%e,"game port admission unavailable");
-                false
-            }
+            Ok(()) => {*refreshed=now();true},
+            Err(e) => {tracing::warn!(error=%e,"game port admission unavailable");false},
         }
     }
     fn game(&self, h: &HeaderMap) -> Result<(String, Launch)> {
@@ -362,18 +364,7 @@ impl Platform {
         {
             status["endpoint"] = json!({"url":format!("https://{}/_infuser/server",launch.host)});
         }
-        self.db.edit(|d| {
-            let l = d
-                .launches
-                .get_mut(id)
-                .ok_or_else(|| fault(410, "game session expired"))?;
-            l.seen = now();
-            l.expires = now() + 300;
-            if !l.guest {
-                d.presence.insert(l.email.clone(), now());
-            }
-            Ok(())
-        })?;
+        self.db.renew_launch(id, now())?;
         Ok(status)
     }
 }
@@ -476,8 +467,8 @@ pub fn router(platform: Platform) -> Router {
             platform.clone(),
             capture::record,
         ))
-        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
-        .layer(ConcurrencyLimitLayer::new(1));
+        .layer(DefaultBodyLimit::max(96 * 1024))
+        .layer(axum::middleware::from_fn_with_state(platform.clone(), publication::admit));
     Router::new()
         .merge(publishing)
         .merge(native::routes())
@@ -1156,7 +1147,7 @@ async fn create_build(
                 cross_origin_isolation: body.cross_origin_isolation,
                 ready: false,
                 created: now(),
-                files: BTreeMap::new(),
+                files: Default::default(),
             },
         );
         if let Some(recipe) = body.server_recipe {
@@ -1203,13 +1194,22 @@ async fn upload(
     State(p): State<Platform>,
     Path((app, build, path)): Path<(String, String, String)>,
     h: HeaderMap,
-    body: Bytes,
+    axum::Extension(staged): axum::Extension<publication::Staged>,
+    axum::Extension(mutation): axum::Extension<Arc<publication::Mutation>>,
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
     ensure!(
         slug(&app) && slug(&build) && valid_path(&path),
         fault(400, "invalid artifact path")
     );
+    tokio::task::spawn_blocking(move || -> Answer {
+    let _mutation = mutation;
+    if path == crate::card_art::PATH {
+        crate::card_art::validate(&std::fs::read(staged.file.path())?).map_err(|e| fault(422, &format!("{e:#}")))?;
+    }
+    let dir = p.root().join(&app).join(&build);
+    let target = dir.join(&path);
+    std::fs::create_dir_all(target.parent().unwrap())?;
     let _guard = p.publishing.lock().unwrap();
     let data = p.db.read()?;
     let key = build_key(&app, &build);
@@ -1227,11 +1227,9 @@ async fn upload(
             "paired build inputs are sealed; upload a new build to change them"
         )
     );
-    if path == crate::card_art::PATH {
-        crate::card_art::validate(&body).map_err(|e| fault(422, &format!("{e:#}")))?;
-    }
+
     let prior = b.files.get(&path).copied().unwrap_or(0);
-    let size = body.len() as u64;
+    let size = staged.bytes;
     ensure!(
         b.files.len() < 4096 || b.files.contains_key(&path),
         fault(413, "too many files")
@@ -1250,22 +1248,14 @@ async fn upload(
         disk.f_bavail * disk.f_frsize >= p.config().controller.disk_reserve_mb * 1024 * 1024 + size,
         fault(507, "host disk reserve would be exhausted")
     );
-    let dir = p.root().join(&app).join(&build);
-    let target = dir.join(&path);
-    std::fs::create_dir_all(target.parent().unwrap())?;
-    let staged = dir.join(format!(".upload-{}", secret()));
-    std::fs::write(&staged, &body)?;
-    std::fs::File::open(&staged)?.sync_all()?;
-    std::fs::rename(staged, target)?;
+    std::fs::rename(staged.file.path(), &target)?;
+    std::fs::File::open(target.parent().unwrap())?.sync_all()?;
     p.db.edit(|d| {
-        d.builds
-            .get_mut(&key)
-            .unwrap()
-            .files
-            .insert(path.clone(), size);
+        Arc::make_mut(&mut d.builds.get_mut(&key).unwrap().files).insert(path.clone(), size);
         Ok(())
     })?;
     Ok(reply(json!({"path":path,"bytes":size})))
+    }).await.map_err(|e| fault(500, &format!("upload worker failed: {e}")))?
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1277,9 +1267,13 @@ async fn publish(
     State(p): State<Platform>,
     Path((app, build)): Path<(String, String)>,
     h: HeaderMap,
+    axum::Extension(mutation): axum::Extension<Arc<publication::Mutation>>,
     body: Option<Json<Promotion>>,
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
+    tokio::task::spawn_blocking(move || -> Answer {
+    let _mutation = mutation;
+    p.validate_promotion(&app, &build)?;
     let _guard = p.publishing.lock().unwrap();
     let state = p.promote(&app, &build, body.as_ref().is_none_or(|b| b.listed))?;
     let slug = p.db.read()?.game_urls[&app].slug.clone();
@@ -1290,15 +1284,15 @@ async fn publish(
         *response.status_mut() = StatusCode::ACCEPTED;
     }
     Ok(response)
+    }).await.map_err(|e| fault(500, &format!("publication worker failed: {e}")))?
 }
 impl Platform {
-    // Callers hold the publication lock, also used by player launches. Never switch
-    // the client pointer while its shared server is still on the previous build.
-    fn promote(&self, app: &str, build: &str, listed: bool) -> Result<&'static str> {
+    // The caller holds the per-app mutation lock. Files cannot change while the
+    // expensive validation runs, but players can still renew and forward frames.
+    fn validate_promotion(&self, app: &str, build: &str) -> Result<()> {
         let key = build_key(app, build);
-        self.db.edit(|d| {
-            let b = d.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?.clone();
-            anyhow::ensure!(d.server_builds.get(&key).is_none_or(|j| j.state == crate::server_package::Phase::Ready && b.server.is_some()),fault(409,"server packaging has not passed readiness checks"));
+        let data = self.db.read()?;
+        let b = data.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?;
             anyhow::ensure!(b.files.contains_key("index.html"), fault(422,"web build needs index.html"));
             let index = std::fs::read_to_string(self.root().join(&key).join("index.html"))?;
             if let Some(sdk) = &b.manifest.sdk { sdk.admit(&crate::sdk_contract::with_peerjs(self.relay.is_some(), self.config().controller.peerjs_port.is_some())).map_err(|e|fault(422,&e.to_string()))?; }
@@ -1310,6 +1304,15 @@ impl Platform {
                 crate::card_art::validate(&bytes).map_err(|e| fault(422, &format!("{e:#}")))?;
             }
             crate::native::validate(&self.root().join(&key), &b.files).map_err(|e|fault(422,&format!("{e:#}")))?;
+        Ok(())
+    }
+    // Callers hold the publication lock, also used by player launches. Never switch
+    // the client pointer while its shared server is still on the previous build.
+    fn promote(&self, app: &str, build: &str, listed: bool) -> Result<&'static str> {
+        let key = build_key(app, build);
+        self.db.edit(|d| {
+            let b = d.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?.clone();
+            anyhow::ensure!(d.server_builds.get(&key).is_none_or(|j| j.state == crate::server_package::Phase::Ready && b.server.is_some()),fault(409,"server packaging has not passed readiness checks"));
             crate::game_urls::assign(d, app, &b.manifest.title);
             for credential in d.credentials.values_mut().filter(|c|c.app==app && c.role=="publish" && c.label=="Existing game") { credential.label=b.manifest.title.clone(); }
             let changes_server = b.server.is_some() || d.apps.get(app).is_some_and(|a| d.builds[&build_key(app,&a.build)].server.is_some());
@@ -1340,10 +1343,31 @@ impl Platform {
             Ok("published")
         })
     }
-    pub fn activate_pending(&self) -> Result<()> {
+    /// The catalog is publication intent; controller state is recoverable runtime
+    /// accounting. Repair either side of an interrupted promotion or retirement.
+    pub fn reconcile_publications(&self) -> Result<()> {
         let _guard = self.publishing.lock().unwrap();
+        let data = self.db.read()?;
+        let desired: BTreeMap<_,_> = data.apps.iter().filter_map(|(id,app)|
+            data.builds.get(&build_key(id,&app.build)).and_then(|b|b.server.clone()).map(|s|(id.clone(),s))).collect();
+        let state = self.controller.snapshot();
+        for id in state.published_games.keys() {
+            if !desired.contains_key(id) {
+                self.controller.stop(id)?;
+                self.controller.unregister(id)?;
+            }
+        }
+        for (id, server) in desired {
+            if state.games.get(&id).is_some_and(|i|i.spec != server && i.reserved()) {
+                self.controller.stop(&id)?;
+            } else if state.published_games.get(&id) != Some(&server) {self.controller.register(&id,server)?;}
+        }
+        Ok(())
+    }
+    pub fn activate_pending(&self) -> Result<()> {
         let pending = self.db.read()?.pending_promotions;
         for (app, promotion) in pending {
+            let Ok(_app) = self.app_lock(&app).try_lock_owned() else { continue; };
             if self
                 .controller
                 .snapshot()
@@ -1354,6 +1378,13 @@ impl Platform {
                 continue;
             }
             // Persisted requests survive restarts; failed activation remains queued.
+            if let Err(error) = self.validate_promotion(&app, &promotion.build) {
+                tracing::warn!(app, %error, "Queued game update failed validation");
+                continue;
+            }
+            let _guard = self.publishing.lock().unwrap();
+            // Unpublish can cancel a pending update between snapshots.
+            if self.db.read()?.pending_promotions.get(&app).is_none_or(|p|p.build != promotion.build) {continue;}
             match self.promote(&app, &promotion.build, promotion.listed) {
                 Ok("published") => {
                     tracing::info!(app, build = promotion.build, "Activated queued game update")
@@ -1387,10 +1418,14 @@ async fn unpublish(State(p): State<Platform>, Path(app): Path<String>, h: Header
 async fn remove_build(
     State(p): State<Platform>,
     Path((app, build)): Path<(String, String)>,
+    axum::Extension(mutation): axum::Extension<Arc<publication::Mutation>>,
     h: HeaderMap,
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
     ensure!(slug(&app) && slug(&build), fault(400, "invalid ID"));
+    tokio::task::spawn_blocking(move || -> Result<()> {
+    let _mutation = mutation;
+    {
     let _guard = p.publishing.lock().unwrap();
     p.db.edit(|d| {
         ensure!(
@@ -1414,10 +1449,13 @@ async fn remove_build(
         d.builds.remove(&build_key(&app, &build));
         Ok(())
     })?;
+    }
     let path = p.root().join(&app).join(&build);
     if path.exists() {
         std::fs::remove_dir_all(path)?;
     }
+    Ok(())
+    }).await.map_err(anyhow::Error::from)??;
     Ok(reply(json!({"ok":true})))
 }
 #[derive(Deserialize)]
@@ -1723,7 +1761,7 @@ async fn proxy_auth(State(p): State<Platform>, h: HeaderMap) -> Answer {
         "get",
         now(),
     )?;
-    let upstream = p.controller.engine.web_address(&l.app, i, &state.owner).await?;
+    let upstream = p.controller.web_address(&l.app, &i.attempt)?;
     Ok((
         [
             ("X-Infuser-Port", i.port.to_string()),

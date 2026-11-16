@@ -1,0 +1,113 @@
+use anyhow::Result;
+use infuser::platform::{self, Database};
+use serde_json::json;
+
+#[test]
+fn activity_is_small_and_legacy_writers_remain_authoritative() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db = Database::open(dir.path())?;
+    let time = infuser::controller::now();
+    db.edit(|d| {
+        d.members.insert("player@example.test".into(),serde_json::from_value(json!({"name":"Player","admin":false,"enabled":true}))?);
+        d.launches.insert("test-launch".into(),serde_json::from_value(json!({"app":"pond","build":"one","email":"player@example.test","guest":true,"host":"pond.games.example.com","token_hash":"fixture","exchanged":true,"expires":time+10,"grant_expires":time+10,"seen":time,"lease_id":null,"lease_token":null}))?);
+        Ok(())
+    })?;
+    // Warm the snapshot, then verify activity never changes its revision or bytes.
+    db.read()?;
+    let before: (String, u64) = db.connection.lock().unwrap().query_row(
+        "SELECT data,revision FROM platform_catalog,catalog_revision",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    db.see_member("player@example.test", time + 1)?;
+    db.renew_launch("test-launch", time + 1)?;
+    let after: (String, u64) = db.connection.lock().unwrap().query_row(
+        "SELECT data,revision FROM platform_catalog,catalog_revision",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    assert_eq!(before, after, "activity rewrote the durable catalog");
+    let other = rusqlite::Connection::open(dir.path().join("platform.sqlite"))?;
+    // The old database initialization and read/edit pattern still work.
+    other.execute_batch("CREATE TABLE IF NOT EXISTS platform(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL);")?;
+    other.execute(
+        "INSERT OR IGNORE INTO platform VALUES(1,?1)",
+        [serde_json::to_string(&platform::Data::default())?],
+    )?;
+    let mut legacy: serde_json::Value = serde_json::from_str(&other.query_row::<String, _, _>(
+        "SELECT data FROM platform WHERE id=1",
+        [],
+        |r| r.get(0),
+    )?)?;
+    assert_eq!(legacy["launches"]["test-launch"]["expires"], time + 301);
+    legacy["members"]["player@example.test"]["enabled"] = false.into();
+    other.execute(
+        "UPDATE platform SET data=?1 WHERE id=1",
+        [legacy.to_string()],
+    )?;
+    assert!(
+        !db.read()?.members["player@example.test"].enabled,
+        "external writer did not invalidate the snapshot"
+    );
+    assert_eq!(db.read()?.launches["test-launch"].expires, time + 301);
+    // Old insert must not reset runtime state; expired cleanup must not erase a renewed guest.
+    db.cleanup()?;
+    assert!(db.read()?.launches.contains_key("test-launch"));
+    Ok(())
+}
+
+#[test]
+fn previous_binary_can_write_after_upgrade_and_renewal() -> Result<()> {
+    let Some(binary) = std::env::var_os("INFUSER_PREVIOUS_BINARY") else {
+        return Ok(());
+    };
+    let root = tempfile::tempdir()?;
+    let cfg = root.path().join("config.toml");
+    let state = root.path().join("state");
+    std::fs::write(
+        &cfg,
+        format!("[controller]\nstate_dir={:?}", state.to_str().unwrap()),
+    )?;
+    let old_member = |name: &str| -> Result<()> {
+        let result = std::process::Command::new(&binary)
+            .arg("member")
+            .arg(&cfg)
+            .args(["player@example.test", name])
+            .output()?;
+        anyhow::ensure!(
+            result.status.success(),
+            "old binary failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        Ok(())
+    };
+    old_member("Before upgrade")?;
+    let old = rusqlite::Connection::open(state.join("platform.sqlite"))?;
+    assert_eq!(
+        old.query_row::<String, _, _>(
+            "SELECT type FROM sqlite_master WHERE name='platform'",
+            [],
+            |r| r.get(0)
+        )?,
+        "table"
+    );
+    let db = Database::open(&state)?;
+    let time = infuser::controller::now();
+    db.edit(|d| {
+        d.launches.insert("guest".into(),serde_json::from_value(json!({"app":"pond","build":"one","email":"player@example.test","guest":true,"host":"pond.games.example.com","token_hash":"fixture","exchanged":true,"expires":time+1,"grant_expires":time+1,"seen":time,"lease_id":null,"lease_token":null}))?); Ok(())
+    })?;
+    db.renew_launch("guest", time)?;
+    db.read()?;
+    old_member("Written by previous binary")?;
+    assert_eq!(
+        db.read()?.members["player@example.test"].name,
+        "Written by previous binary"
+    );
+    assert_eq!(db.read()?.launches["guest"].expires, time + 300);
+    drop(db);
+    assert_eq!(
+        Database::open(&state)?.read()?.launches["guest"].expires,
+        time + 300
+    );
+    Ok(())
+}

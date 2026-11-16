@@ -39,6 +39,13 @@ fn connect(settings: &Settings) -> Result<Connection> {
 }
 /// Record before handling, so interruption leaves an explicit unknown outcome.
 pub fn begin(settings: &Settings, request: &Request, body: &[u8]) -> Result<Option<i64>> {
+    begin_reader(settings, request, &mut std::io::Cursor::new(body), body.len() as u64, digest(body))
+}
+/// The upload has already been spooled and hashed; copy it into SQLite in chunks.
+pub fn begin_file(settings: &Settings, request: &Request, path: &Path, bytes: u64, sha256: &str) -> Result<Option<i64>> {
+    begin_reader(settings, request, &mut fs::File::open(path)?, bytes, sha256.to_owned())
+}
+fn begin_reader(settings: &Settings, request: &Request, input: &mut impl std::io::Read, bytes: u64, hash: String) -> Result<Option<i64>> {
     if settings.publish_capture_mb == 0 {
         return Ok(None);
     }
@@ -48,14 +55,13 @@ pub fn begin(settings: &Settings, request: &Request, body: &[u8]) -> Result<Opti
         .context("capture budget overflow")?;
     let mut c = connect(settings)?;
     let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let hash = digest(body);
     let exists: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM bodies WHERE sha256=?1)",
         [&hash],
         |r| r.get(0),
     )?;
     let request = serde_json::to_string(request)?;
-    let cost = request.len() as u64 + 512 + if exists { 0 } else { body.len() as u64 + 256 };
+    let cost = request.len() as u64 + 512 + if exists { 0 } else { bytes + 256 };
     let used: u64 = tx.query_row("SELECT bytes FROM capture_usage WHERE id=1", [], |r| {
         r.get(0)
     })?;
@@ -72,7 +78,11 @@ pub fn begin(settings: &Settings, request: &Request, body: &[u8]) -> Result<Opti
         return Ok(None);
     }
     if !exists {
-        tx.execute("INSERT INTO bodies VALUES(?1,?2)", params![hash, body])?;
+        tx.execute("INSERT INTO bodies VALUES(?1,?2)", params![hash, rusqlite::blob::ZeroBlob(bytes)])?;
+        let row = tx.last_insert_rowid();
+        let mut blob = tx.blob_open("main", "bodies", "body", row, false)?;
+        ensure!(std::io::copy(input, &mut blob)? == bytes, "capture body size changed");
+        blob.close()?;
     }
     tx.execute("INSERT INTO requests(at,controller_build,request,body_sha256,status) VALUES(?1,?2,?3,?4,NULL)",params![crate::controller::now(),crate::BUILD_SHA,request,hash])?;
     let id = tx.last_insert_rowid();

@@ -108,7 +108,7 @@ impl Manifest {
                 );
                 let name = path.to_ascii_lowercase();
                 ensure!(
-                    name != "override.cfg" && name != "infuser-launch.json",
+                    name != "override.cfg" && name != "infuser-launch.json" && name != ".infuser-run.json",
                     "reserved launcher file"
                 );
                 ensure!(folded.insert(name), "case-colliding native files");

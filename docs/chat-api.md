@@ -8,7 +8,10 @@ These member-only APIs are separate from publishing and the game SDK.
 
 All require the existing enabled-member session on the Library host. Writes also
 require its exact HTTPS Origin; game launch and publisher tokens do not grant access.
-Responses are `Cache-Control: no-store` and expose opaque player IDs, never emails.
+Responses expose opaque player IDs, never emails. Chat reads use
+`Cache-Control: private, no-cache` and an ETag. Send `If-None-Match` to revalidate;
+an unchanged authorized view returns 304. Membership and group access are checked
+before every response, including 304. Mutations use `no-store`.
 
 - `GET /api/chat` → `{messages:[{id, text, created, author:{id,name,avatar}, can_delete}]}`,
   in chronological ID order. `created` is Unix seconds.
