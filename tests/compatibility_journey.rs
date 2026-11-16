@@ -80,7 +80,8 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
             .header("host", HOST)
             .bearer_auth(&token)
     };
-    let manifest = json!({"schema_version":1,"app_id":"pond","title":"Moon Pond","play_modes":["solo"],"solo_runtime":"client_only"});
+    let manifest = json!({"schema_version":1,"app_id":"pond","title":"Moon Pond","play_modes":["solo"],"solo_runtime":"client_only",
+        "cloud_saves":{"groups":[{"id":"campaign","label":"Campaign","files":[{"path":"progress.json","format":"json"},{"path":"world.bin","format":"binary"}]}]}});
     let caps = value(publisher(Method::GET, "/api/publisher/capabilities")).await?;
     assert_eq!(caps["sdk"]["majors"], json!([1]));
     assert_eq!(caps["sdk"]["status"], "preview");
