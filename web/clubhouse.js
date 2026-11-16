@@ -343,17 +343,46 @@ function profileAvatar(name,id,picture,size=128) {
   const avatar=el('span',initials.toLocaleUpperCase(),'avatar tone-'+tone+(initials?'':' avatar-unknown'));avatar.setAttribute('aria-hidden','true');return avatar;
 }
 let presenceSignature='',presenceLayoutKey='',presenceSlots=0;
-let chatAuthors=new Set(),chatReordering=false;
+let chatPresence=null,chatPresenceOrder=[],chatReordering=false,presenceMetrics;
 const presenceItems=new WeakMap(),presenceMotions=new Map(),presenceGhosts=new Set();
-function prioritizeChatAuthors(ids){
-  const next=new Set(ids);
-  if(next.size===chatAuthors.size&&[...next].every(id=>chatAuthors.has(id)))return;
-  chatAuthors=next;chatReordering=true;if(library)renderPresence();chatReordering=false;
+function arrangeChatParticipants(context){
+  chatPresence=context;if(!context)chatPresenceOrder=[];
+  chatReordering=true;try{if(library)renderPresence();}finally{chatReordering=false;}
+}
+function chatPresenceLayout(people,count,list){
+  const byId=new Map(people.map(person=>[person.id,person]));
+  const order=chatPresenceOrder.filter(id=>byId.has(id)),known=new Set(order);
+  for(const person of people)if(!known.has(person.id))order.push(person.id);
+  const {base,first,step,badge}=presenceMetrics||{base:0,first:0,step:1,badge:0};
+  const start=list.getBoundingClientRect().left+base+first-badge/2;
+  const slots=Array.from({length:count},(_,index)=>index).filter(index=>chatPresence.left===null||start+index*step>=chatPresence.left&&start+index*step<=chatPresence.right);
+  const visible=new Set(chatPresence.visible.filter(id=>byId.has(id))),reserved=new Set();
+  // Speakers already able to connect keep their places, even at the right edge.
+  for(const slot of slots)if(visible.has(order[slot]))reserved.add(slot);
+  function place(id){
+    const from=order.indexOf(id);if(from<0)return;
+    if(slots.includes(from)){reserved.add(from);return;}
+    const free=slots.filter(slot=>!reserved.has(slot));if(!free.length)return;
+    // Balance a consistent per-person spot with short travel and breathing room.
+    // This never moves a speaker who can already connect from their current spot.
+    let hash=2166136261;
+    for(const char of id)hash=Math.imul(hash^char.codePointAt(0),16777619);
+    hash=Math.imul(hash^(hash>>>16),0x45d9f3b);hash^=hash>>>16;
+    const preferred=slots[0]+(.15+.7*((hash>>>0)/4294967296))*(slots.at(-1)-slots[0]);
+    const cost=slot=>.7*Math.abs(slot-preferred)+.3*Math.abs(slot-from)+[...reserved].reduce((sum,other)=>sum+(Math.abs(slot-other)===1 ? .6 : 0),0);
+    const target=free.reduce((best,slot)=>cost(slot)<cost(best)?slot:best,free[0]);
+    [order[from],order[target]]=[order[target],order[from]];reserved.add(target);
+  }
+  for(const id of visible)place(id);
+  // Predictions use only spare connecting slots and can never evict a speaker.
+  for(const id of chatPresence.upcoming)if(!visible.has(id))place(id);
+  chatPresenceOrder=order;
+  return order.map(id=>byId.get(id));
 }
 function animatePresence(list,before){
   for(const animation of presenceMotions.values())animation.cancel();presenceMotions.clear();
   for(const ghost of presenceGhosts)ghost.remove();presenceGhosts.clear();
-  if(reactionMotion.matches||document.hidden||!chatReordering&&!chatAuthors.size)return;
+  if(reactionMotion.matches||document.hidden||!chatReordering&&!chatPresence)return;
   const overflow=list.querySelector('.presence-more')?.getBoundingClientRect();
   let moving=false;
   for(const item of list.children){
@@ -396,16 +425,17 @@ function visiblePresenceCount(people){
   const probe=!badge;if(probe){badge=el('li',undefined,'presence-person');list.append(badge);}
   const first=outerWidth(badge);
   const next=el('li',undefined,'presence-person');list.append(next);
-  const step=outerWidth(next);next.remove();if(probe)badge.remove();
+  const step=outerWidth(next);presenceMetrics={base,first,step,badge:badge.offsetWidth};next.remove();if(probe)badge.remove();
   const slots=Math.max(0,Math.floor((room-base-first+.5)/Math.max(1,step))+1);presenceSlots=slots;
   return people.length<=slots?people.length:Math.max(0,slots-1);
 }
 const presenceResize=new ResizeObserver(()=>{if(library)renderPresence();});
 
 function renderPresence() {
-  const people=(library.friends||[]).filter(person=>person.id!==me.player_id).sort((a,b)=>Number(chatAuthors.has(b.id))-Number(chatAuthors.has(a.id))),list=$('friends');
+  let people=(library.friends||[]).filter(person=>person.id!==me.player_id);const list=$('friends');
   // Leave menus and keyboard focus intact when a poll has no presence changes.
   const visibleCount=visiblePresenceCount(people);
+  if(chatPresence)people=chatPresenceLayout(people,visibleCount,list);
   const signature=JSON.stringify([me.inspecting,people,visibleCount]);
   if(signature===presenceSignature)return;
   presenceSignature=signature;
@@ -727,7 +757,7 @@ $('profile-form').onsubmit=async event=>{
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});$('recent-menu').hidden=false;
-  initChat({me, api, profileAvatar,onVisibleAuthors:prioritizeChatAuthors});
+  initChat({me, api, profileAvatar,onSpeakerContext:arrangeChatParticipants});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
   initClientUpdates({api});

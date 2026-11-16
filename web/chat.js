@@ -1,6 +1,6 @@
 import { openHomeChat } from '/assets/groups.js';
 // Shared Library room. All message text stays text, never markup or links.
-export function initChat({me, api, profileAvatar,onVisibleAuthors=()=>{}}) {
+export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const root=document.createElement('aside');root.id='library-chat';root.setAttribute('aria-label','Library chat');
   root.innerHTML=`<button id="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-panel" title="Show chat"><span class="chat-icon" aria-hidden="true">···</span><span class="sr-only">Chat</span><span id="chat-unread" hidden></span></button>
@@ -18,7 +18,7 @@ export function initChat({me, api, profileAvatar,onVisibleAuthors=()=>{}}) {
   if(me.inspecting)$('form').hidden=true;
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
-  let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,positionFrame,positionSignature,visibleAuthorSignature;
+  let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,positionFrame,positionSignature,speakerSignature,scrollDirection=0,scrollSpeed=0,lastScrollTop=0,lastScrollAt=0;
   const motion=matchMedia('(prefers-reduced-motion: reduce)');
   const setText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
   const setHidden=(node,hidden)=>{if(node.hidden!==hidden)node.hidden=hidden;};
@@ -48,13 +48,23 @@ export function initChat({me, api, profileAvatar,onVisibleAuthors=()=>{}}) {
       root.style.setProperty('--chat-height',panelHeight+'px');
     }
     if(latest||stick&&(log.clientHeight!==height||log.clientWidth!==widthBefore))log.scrollTop=log.scrollHeight;
-    const bounds=log.getBoundingClientRect(),visible=new Set();
+    const bounds=log.getBoundingClientRect(),viewStart=bounds.top+log.clientTop,viewEnd=viewStart+log.clientHeight;
+    const visible=new Set(),ahead=new Map();
+    // Prepare about half a second of travel, bounded to one screen of history.
+    const lookahead=Math.min(log.clientHeight,Math.max(log.clientHeight*.4,scrollSpeed*500));
     for(const message of log.querySelectorAll('.chat-message')){
-      const rect=message.getBoundingClientRect();
-      if(rect.height&&rect.bottom>bounds.top+log.clientTop&&rect.top<bounds.top+log.clientTop+log.clientHeight)visible.add(message.dataset.authorId);
+      const rect=message.getBoundingClientRect(),id=message.dataset.authorId;
+      if(!rect.height)continue;
+      if(rect.bottom>viewStart&&rect.top<viewEnd)visible.add(id);
+      else{
+        const distance=scrollDirection>0?rect.top-viewEnd:scrollDirection<0?viewStart-rect.bottom:Infinity;
+        if(distance>=0&&distance<lookahead)ahead.set(id,Math.min(ahead.get(id)??Infinity,distance));
+      }
     }
-    const authors=[...visible].sort(),authorSignature=JSON.stringify(authors);
-    if(authorSignature!==visibleAuthorSignature){visibleAuthorSignature=authorSignature;onVisibleAuthors(authors);}
+    const upcoming=[...ahead].filter(([id])=>!visible.has(id)).sort((a,b)=>a[1]-b[1]).slice(0,3).map(([id])=>id);
+    const context={visible:[...visible].sort(),upcoming,left:compact()?null:left+12,right:compact()?null:left+width-12};
+    const contextSignature=JSON.stringify(context);
+    if(contextSignature!==speakerSignature){speakerSignature=contextSignature;onSpeakerContext(context);}
     const existing=new Map([...$('pointers').children].map(pointer=>[pointer.dataset.playerId,pointer]));
     let moving=false;
     for(const badge of compact()?[]:presence.querySelectorAll('[data-player-id]')){
@@ -96,14 +106,14 @@ export function initChat({me, api, profileAvatar,onVisibleAuthors=()=>{}}) {
     $('toggle').classList.toggle('has-unread',unread>0);
     // This runs during scrolling. Updating the unread badge must never scroll the log.
   }
-  function scrollLatest(){log.scrollTop=log.scrollHeight;markRead();}
+  function scrollLatest(){log.scrollTop=log.scrollHeight;lastScrollTop=log.scrollTop;scrollDirection=0;scrollSpeed=0;markRead();schedulePosition();}
   function setOpen(open,restoreFocus=true) {
     root.hidden=!open;$('panel').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));$('toggle').title=open?'Hide chat':'Show chat';
     updateToggle();
-    if(open){position(true);scrollLatest();schedulePosition();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}
+    if(open){scrollDirection=0;scrollSpeed=0;position(true);scrollLatest();schedulePosition();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}
     else{
-      cancelAnimationFrame(positionFrame);positionFrame=null;visibleAuthorSignature=null;
-      $('pointers').replaceChildren();onVisibleAuthors([]);
+      cancelAnimationFrame(positionFrame);positionFrame=null;speakerSignature=null;scrollDirection=0;scrollSpeed=0;
+      $('pointers').replaceChildren();onSpeakerContext(null);
       if(restoreFocus)$('toggle').focus({preventScroll:true});
     }
   }
@@ -112,7 +122,15 @@ export function initChat({me, api, profileAvatar,onVisibleAuthors=()=>{}}) {
   $('toggle').addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();setOpen(false);}});
   document.addEventListener('pointerdown',event=>{if(isOpen()&&!root.contains(event.target)&&!$('toggle').contains(event.target))setOpen(false,false);});
   $('new').onclick=scrollLatest;
-  log.addEventListener('scroll',()=>{if(bottom()&&isOpen())markRead();schedulePosition();},{passive:true});
+  log.addEventListener('scroll',()=>{
+    const now=performance.now(),delta=log.scrollTop-lastScrollTop;
+    if(delta){
+      const direction=Math.sign(delta),speed=Math.abs(delta)/Math.max(16,Math.min(200,now-lastScrollAt));
+      scrollSpeed=direction===scrollDirection ? .5*scrollSpeed+.5*speed : speed;scrollDirection=direction;
+    }
+    lastScrollTop=log.scrollTop;lastScrollAt=now;
+    if(bottom()&&isOpen())markRead();schedulePosition();
+  },{passive:true});
   input.oninput=()=>{
     $('limit').textContent=Array.from(input.value).length+' / 280';
     $('send').disabled=sending||!input.value.trim();

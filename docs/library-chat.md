@@ -12,12 +12,17 @@ messages. Reading older messages keeps your place; **New messages ↓** returns
 to the latest ones.
 
 While chat is open, online friends with messages currently visible in the
-history move toward the left of the presence row. Scroll to follow a different
-part of the conversation and the row follows along. Your own profile control
-stays in place. On desktop, speech tails open toward the visible speakers as
-their pictures finish moving; closing chat restores the usual order. Reduced
-motion skips the animation. The compact phone layout keeps its full-height
-conversation without speech tails.
+history settle into places where their pictures can connect to the chat window.
+They keep their places whenever possible, spreading across the row rather than
+packing against the left edge. Scrolling also prepares nearby upcoming speakers
+in the direction you're reading, using spare places without displacing visible
+speakers. Your own profile control stays in place.
+
+On desktop, speech tails appear only for messages in view, regardless of when
+they were posted. Upcoming speakers get no tail until their message appears.
+Tails open as the pictures finish moving; closing chat restores the usual order.
+Reduced motion skips the animation. The compact phone layout keeps its
+full-height conversation without speech tails.
 
 You can remove your own messages; admins can remove anyone's. Chat keeps
 recent conversation for up to seven days. Older messages may disappear sooner
