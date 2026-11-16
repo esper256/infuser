@@ -156,6 +156,8 @@ function renderGames() {
   if(!library.apps.length)nextCards.push(emptyState('No games yet','Add a game to get started.'));
   const query=$('game-search').value.trim().toLowerCase();
   const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?g.author?.id===selectedAuthor:!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  // Stable sort keeps equal timestamps in catalog order across refreshes.
+  matching.sort((a,b)=>(b.updated||0)-(a.updated||0));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
   setText($('game-count'),(visible===total?visible:visible+' / '+total)+' games');
   if(library.apps.length&&!matching.length)nextCards.push(emptyState('No matches','Try another tag or clear your search.'));
