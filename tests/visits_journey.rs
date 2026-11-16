@@ -320,6 +320,35 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         ok(host_game.call(Method::GET, "/_infuser/saves/progress")).await?["data"],
         Value::Null
     );
+    // Host moderation of a borrowed game only deletes the host deployment copy.
+    let reaction_path = format!("/api/apps/{brought}/reaction");
+    ok(w.member("visitor", Method::PUT, &reaction_path)
+        .json(&json!({"emoji":"⭐","text":"Source group"})))
+    .await?;
+    ok(w.member("visitor", Method::PUT, &reaction_path)
+        .header("x-infuser-visit", &visit)
+        .json(&json!({"emoji":"🚀","text":"Host group"})))
+    .await?;
+    let moderation = format!(
+        "/api/admin/apps/{brought}/reactions/{}",
+        platform::hash("visitor@example.com")
+    );
+    denied(
+        w.member("visitor", Method::DELETE, &moderation)
+            .header("x-infuser-visit", &visit),
+    )
+    .await?;
+    assert_eq!(
+        p.db.read()?.reactions[context["deployment_id"].as_str().unwrap()].len(),
+        1
+    );
+    ok(w.member("operator", Method::DELETE, &moderation)).await?;
+    let moderated = p.db.read()?;
+    assert!(moderated.reactions[context["deployment_id"].as_str().unwrap()].is_empty());
+    assert_eq!(
+        moderated.reactions[&brought]["visitor@example.com"].text,
+        "Source group"
+    );
     let chat = ok(w
         .member("visitor", Method::GET, "/api/chat")
         .header("x-infuser-visit", &visit))

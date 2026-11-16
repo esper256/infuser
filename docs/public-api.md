@@ -167,6 +167,12 @@ be used as a player login.
   Opted-in peer and dedicated games also accept an optional [Join friend intent](launch-intents.md).
 - `GET /api/launches/ID` — owner-only startup polling/renewal.
 - `PUT /api/apps/APP/reaction` with `{"emoji":"🚀","text":"Loved it!"}`; DELETE to remove your own.
+- `DELETE /api/admin/apps/APP/reactions/PLAYER` removes a reaction and its note.
+  Requires an admin in their home view, with same-origin protection. `PLAYER` is
+  the opaque reaction author ID from the Library. Library games expose
+  `can_moderate_reactions`; the website offers deletion through each reaction’s
+  **⋯** menu in game details. Moderation affects only the current group’s deployment,
+  including borrowed games; it never deletes the source group’s reactions.
 - Admin-only `PUT /api/admin/apps/APP/visibility` with `{"listed":true}` or
   `{"listed":false}` changes the active game's visibility without publishing a build.
   Requires the exact HTTPS Origin. In the game's Play dropdown, choose **Make visible**

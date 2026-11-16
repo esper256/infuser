@@ -11,7 +11,7 @@ let noticeTimer,adminLoaded=false,adminLoading=false,networkHealthBusy=false;
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
-let entryGame, detailGameId, detailReturnFocus, detailSignature;
+let entryGame, detailGameId, detailReturnFocus, detailSignature, removingReaction=null;
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
 const entryApp=new URLSearchParams(location.search).get('app');
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
@@ -279,7 +279,7 @@ function renderGameDetail(){
   if(!detailGameId)return;
   const game=library?.apps.find(g=>g.id===detailGameId),dialog=$('game-detail');
   if(!game){dialog.close();return;}
-  if(dialog.querySelector('[data-launching],.play-menu[open]')||$('reaction-dialog').open||$('tags-dialog').open)return;
+  if(removingReaction===detailGameId||dialog.querySelector('[data-launching],.play-menu[open],.feedback-actions[open]')||$('reaction-dialog').open||$('tags-dialog').open)return;
   const signature=JSON.stringify(game);
   if(signature===detailSignature)return;
   detailSignature=signature;
@@ -320,7 +320,25 @@ function renderGameDetail(){
       const row=el('article',undefined,'game-feedback-row');row.dataset.reaction=reactionKey(reaction);row.tabIndex=-1;
       const person=el('div',undefined,'feedback-author');person.title=reaction.name;person.append(profileAvatar(reaction.name,reaction.id||reaction.name,reaction.avatar));person.append(el('span',reaction.name));
       const bubble=el('div',undefined,'feedback-bubble'),emoji=el('span',reaction.emoji,'feedback-emoji');emoji.setAttribute('aria-label',emojis.find(e=>e[0]===reaction.emoji)?.[1]||reaction.emoji);bubble.append(emoji);
-      if(reaction.text)bubble.append(el('p',reaction.text));row.append(person,bubble);feedback.append(row);
+      if(reaction.text)bubble.append(el('p',reaction.text));row.append(person,bubble);
+      if(game.can_moderate_reactions&&me.admin&&!me.inspecting&&reaction.id){
+        const actions=el('details',undefined,'feedback-actions'),trigger=el('summary','⋯'),remove=el('button','Delete reaction'),error=el('p',undefined,'feedback-action-error');
+        trigger.setAttribute('aria-label','Actions for '+reaction.name+'’s reaction');remove.type='button';error.setAttribute('role','alert');
+        actions.append(trigger,remove);row.append(actions);bubble.append(error);
+        actions.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();actions.open=false;trigger.focus();}};
+        remove.onclick=async()=>{
+          if(removingReaction)return;
+          removingReaction=game.id;remove.disabled=true;actions.open=false;error.textContent='';let deleted=false;
+          try{
+            await api(`/api/admin/apps/${encodeURIComponent(game.id)}/reactions/${encodeURIComponent(reaction.id)}`,{method:'DELETE',signal:AbortSignal.timeout(12000)});
+            deleted=true;
+            const current=library.apps.find(g=>g.id===game.id);if(current)current.reactions=current.reactions.filter(r=>r.id!==reaction.id);
+            renderGames();renderFeed();await refresh();
+          }catch(problem){error.textContent=problem.message;trigger.focus({preventScroll:true});}
+          finally{removingReaction=null;remove.disabled=false;renderGameDetail();if(deleted&&dialog.open&&detailGameId===game.id)$('game-feedback').focus({preventScroll:true});}
+        };
+      }
+      feedback.append(row);
     }
   }
   info.append(feedback);
