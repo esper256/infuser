@@ -295,14 +295,34 @@ function profileAvatar(name,id,picture,size=128) {
   const avatar=el('span',initials.toLocaleUpperCase(),'avatar tone-'+tone+(initials?'':' avatar-unknown'));avatar.setAttribute('aria-hidden','true');return avatar;
 }
 let presenceSignature='';
+function visiblePresenceCount(people){
+  const list=$('friends'),cluster=list.closest('.presence-chat');
+  if(!cluster||!people.length)return people.length;
+  const room=cluster.clientWidth-$('chat-toggle').offsetWidth-parseFloat(getComputedStyle(cluster).columnGap);
+  const self=list.querySelector('.presence-self');
+  const outerWidth=node=>{const style=getComputedStyle(node);return node.offsetWidth+parseFloat(style.marginLeft)+parseFloat(style.marginRight);};
+  const base=self?outerWidth(self):0;
+  // Measure the actual themed badge and overlap; don't impose a fixed friend cap.
+  let badge=list.querySelector('.presence-person:not(.presence-self)');
+  const probe=!badge;if(probe){badge=el('li',undefined,'presence-person');list.append(badge);}
+  const first=outerWidth(badge);
+  const next=el('li',undefined,'presence-person');list.append(next);
+  const step=outerWidth(next);next.remove();if(probe)badge.remove();
+  const slots=Math.max(0,Math.floor((room-base-first+.5)/Math.max(1,step))+1);
+  return people.length<=slots?people.length:Math.max(0,slots-1);
+}
+const presenceResize=new ResizeObserver(()=>{if(library)renderPresence();});
+
 function renderPresence() {
   const people=(library.friends||[]).filter(person=>person.id!==me.player_id),list=$('friends');
   // Leave menus and keyboard focus intact when a poll has no presence changes.
-  const signature=JSON.stringify([me.inspecting,people]);
+  const visibleCount=visiblePresenceCount(people);
+  const signature=JSON.stringify([me.inspecting,people,visibleCount]);
   if(signature===presenceSignature)return;
   presenceSignature=signature;
-  const opened=list.querySelector('.friend-menu[open]')?.dataset.key;
-  const focused=document.activeElement.closest('.friend-menu')?.dataset.key;
+  const menuKey=key=>people.slice(visibleCount).some(person=>person.id===key)?'overflow':key;
+  const opened=menuKey(list.querySelector('.friend-menu[open]')?.dataset.key);
+  const focused=menuKey(document.activeElement.closest('.friend-menu')?.dataset.key);
   const focusAction=document.activeElement.dataset.friendAction;
   for(const item of [...list.children])if(!item.classList.contains('presence-self'))item.remove();
   list.hidden=false;
@@ -340,8 +360,8 @@ function renderPresence() {
     if(opened===key){menu.open=true;position();}
     if(focused===key){([...panel.querySelectorAll('button')].find(b=>b.dataset.friendAction===focusAction)||trigger).focus();}
   }
-  if(people.length)addMenu(people[0].id,[people[0]]);
-  if(people.length>1)addMenu('overflow',people.slice(1),true);
+  for(const person of people.slice(0,visibleCount))addMenu(person.id,[person]);
+  if(people.length>visibleCount)addMenu('overflow',people.slice(visibleCount),true);
   if(focused&&!list.querySelector('.friend-menu summary:focus,.friend-menu button:focus'))$('account-trigger')?.focus();
 }
 for(const event of ['resize','scroll'])window.addEventListener(event,()=>{for(const menu of document.querySelectorAll('.friend-menu[open]'))menu.open=false;},{passive:true});
@@ -563,6 +583,8 @@ try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar});
+  presenceResize.observe($('friends').closest('.presence-chat'));
+  window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
   initClientUpdates({api});
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
   if(me.admin){$('admin').hidden=false;await adminRefresh();}

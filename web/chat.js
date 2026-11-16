@@ -28,11 +28,11 @@ export function initChat({me, api, profileAvatar}) {
     const viewTop=viewport?.offsetTop||0, viewBottom=viewTop+(viewport?.height||innerHeight);
     const badges=[...presence.querySelectorAll('[data-player-id]')];
     const anchor=(badges[0]||$('toggle')).getBoundingClientRect();
-    const width=Math.min(380,document.documentElement.clientWidth-24);
+    const width=Math.min(437,document.documentElement.clientWidth-24);
     const left=Math.max(12,Math.min(anchor.left-16,document.documentElement.clientWidth-width-12));
     const top=Math.max(viewTop+12,Math.min(anchor.bottom+18,viewBottom-260));
     root.style.left=left+'px';root.style.top=top+'px';
-    root.style.setProperty('--chat-height',Math.min(560,viewBottom-top-12)+'px');
+    root.style.setProperty('--chat-height',Math.min(672,viewBottom-top-12)+'px');
     const recent=new Set([...messages].reverse().slice(0,12).filter(m=>Date.now()/1000-m.created<300).map(m=>m.author.id));
     const pointers=[];
     for(const badge of badges){
@@ -53,7 +53,7 @@ export function initChat({me, api, profileAvatar}) {
   const markRead=()=>{lastRead=Math.max(lastRead,...messages.map(m=>m.id));$('new').hidden=true;updateToggle();};
   function updateToggle() {
     const unread=messages.filter(m=>m.id>lastRead&&m.author.id!==me.player_id).length;
-    $('unread').textContent=unread>9?'9+':String(unread);$('unread').hidden=!unread;
+    $('unread').textContent=String(unread);$('unread').hidden=!unread;
     $('toggle').setAttribute('aria-label',(isOpen()?'Hide chat':'Show chat')+(unread?`, ${unread} unread messages`:''));
     $('toggle').classList.toggle('has-unread',unread>0);
     // This runs during scrolling. Updating the unread badge must never scroll the log.

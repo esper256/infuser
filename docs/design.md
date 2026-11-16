@@ -72,8 +72,10 @@ player portraits. Recently entries open the referenced game and reaction. Keep
 feedback positive and qualitative. The shared dialog stacks on phones, retains
 scroll and focus during refresh, and uses the active theme's materials.
 
-Online players appear as overlapping avatars beside the logo. Filters and search
-share a row, with the game count after the final filter. Search matches game
+Online players appear as overlapping avatars beside the logo. Use all available
+header space before replacing players with a +N overflow badge; reserve room for
+Chat, Recently, and adult tools. The overflow badge aligns with other players.
+Filters and search share a row, with the game count after the final filter. Search matches game
 titles, tags, and author handles, case-insensitively. The “Find a game…” combobox
 suggests games and gamers as you type; focusing an empty field previews up to
 two real authors. Choosing a gamer clears the category filter and selects their
