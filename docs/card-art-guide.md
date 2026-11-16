@@ -1,6 +1,7 @@
 # Infuser card hero art
 
-This guide specifies the image for a Library card. `infuser publish` automatically includes the
+This guide applies to **all games**, regardless of engine, web/native delivery,
+or multiplayer mode. It specifies the image for a Library card. `infuser publish` automatically includes the
 delivery image described below. No artwork field in `infuser.game.json` is needed.
 
 Read the game description from the [metadata API](game-metadata.md), then inspect

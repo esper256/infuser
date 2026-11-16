@@ -80,7 +80,7 @@ identity and storage; the game must use them.
 Choose up to eight initial tags from the prompt or `GET /api/publisher/tags` and
 put them in `infuser.game.json`. Later publications preserve author tag edits.
 
-Choose **one** Library art handoff:
+For **every game type and engine**, web or native, choose **one** Library art handoff:
 
 - Upload high-quality cover art meeting the [art spec](card-art-guide.md), at
   `infuser-art/card-hero.webp`, if you have suitable artwork or capable image tools.

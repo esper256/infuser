@@ -43,7 +43,7 @@ Example patch:
 
 ## Either an image or a prompt
 
-A game agent should **either upload high-quality artwork meeting the spec or
+For every game type and engine, the agent should **either upload high-quality artwork meeting the spec or
 store an art prompt**, not improvise an inferior placeholder. Prefer the prompt
 when high-quality image generation is not your strength. Do not spend time staging
 screenshots; only an exceptionally readable, well-composed capture with no UI,
