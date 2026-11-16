@@ -12,26 +12,26 @@ export function initFeedback(button, closeMenu, api, admin=false) {
     <p class="feedback-diagnostics-note" hidden>Only online status, secure context, browser capability flags and a coarse window size. No logs or game data.</p>
     <button type="submit" class="feedback-preview">Review draft</button></form>
     <section hidden class="feedback-review"><h3>Review exactly what will be shared</h3><pre tabindex="0"></pre>
-    <label class="feedback-check"><input type="checkbox" name="consent"><span class="feedback-consent-text"></span></label>
+    <label class="feedback-check"><input type="checkbox" name="consent"><strong class="feedback-consent-text">I have reviewed the feedback</strong></label>
     <div class="dialog-actions"><button type="button" class="feedback-edit">Edit</button><button type="button" class="feedback-send" disabled>Send to admins</button></div></section>
     <p class="feedback-status" role="status" aria-live="polite"></p>`;
   document.body.append(dialog);
   const $=selector=>dialog.querySelector(selector), form=$('form'),review=$('.feedback-review'),queue=$('.feedback-queue');
   const close=$('.close'),send=$('.feedback-send'),edit=$('.feedback-edit'),consent=$('[name=consent]');
-  let report,requestId,reviewId=null,snapshot=null,pending=false,finished=false,locked=false,available=false;
+  let report,requestId,reviewId=null,snapshot=null,pending=false,finished=false,locked=false,available=false,closeTimer;
+  const cancelAutoClose=()=>{clearTimeout(closeTimer);closeTimer=null;};
   const message=text=>{$('.feedback-status').textContent=text;};
   const updateSend=()=>{send.disabled=!consent.checked||pending||finished||locked||!!reviewId&&!available;};
   function updateKind(){const bug=form.elements.kind.value==='bug';form.elements.include.closest('label').hidden=!bug;$('.feedback-diagnostics-note').hidden=!bug;}
-  function reset(){form.reset();form.hidden=false;review.hidden=true;report=null;requestId=null;snapshot=null;pending=false;finished=false;locked=false;consent.checked=false;consent.disabled=false;edit.disabled=false;updateKind();updateSend();}
+  function reset(){cancelAutoClose();form.reset();form.hidden=false;review.hidden=true;report=null;requestId=null;snapshot=null;pending=false;finished=false;locked=false;consent.checked=false;consent.disabled=false;edit.disabled=false;updateKind();updateSend();}
   function copy(){
     $('.feedback-intro').textContent=reviewId?'Admin review: edit out private information. Only the report below will become a public GitHub issue when you explicitly approve it.':'Your feedback goes privately to your group’s admins. An admin can edit and approve it before anything is posted publicly on GitHub.';
-    $('.feedback-consent-text').textContent=reviewId?'I am approving this reviewed, edited report for public posting on GitHub.':'I agree to share this draft with my group’s admins for review and possible public posting after their approval.';
     $('.feedback-preview').textContent=reviewId?'Review public issue':'Review draft';send.textContent=reviewId?'Post public issue':'Send to admins';
   }
   button.onclick=()=>{closeMenu();reviewId=null;queue.hidden=true;reset();copy();dialog.showModal();message('Nothing is sent to GitHub without admin approval.');};
   close.onclick=()=>{if(!pending)dialog.close();};
   dialog.addEventListener('cancel',event=>{if(pending)event.preventDefault();});
-  dialog.addEventListener('close',()=>button.closest('details')?.querySelector('summary')?.focus());
+  dialog.addEventListener('close',()=>{cancelAutoClose();button.closest('details')?.querySelector('summary')?.focus();});
   form.elements.kind.onchange=updateKind;
   form.onsubmit=event=>{
     event.preventDefault();
@@ -57,6 +57,7 @@ export function initFeedback(button, closeMenu, api, admin=false) {
       const body=reviewId?{report,public_consent:true}:{request_id:requestId,report};
       await api(path,{method:'POST',body:JSON.stringify(body),signal:controller.signal});finished=true;
       message(reviewId?'Your approved public issue was posted.':'Sent privately to your group’s admins. Nothing has been posted on GitHub.');
+      closeTimer=setTimeout(()=>dialog.close(),3000);
     }catch(error){
       // Intake retries reuse the same ID and immutable report. Public posting is
       // durably claimed server-side; ambiguous results must never trigger retries.
@@ -70,6 +71,7 @@ export function initFeedback(button, closeMenu, api, admin=false) {
   };
   async function loadQueue(){
     if(pending)return;
+    cancelAutoClose();
     form.hidden=true;review.hidden=true;reviewId=null;$('.feedback-entries').replaceChildren();message('Loading private feedback…');
     try{
       const data=await api('/api/feedback/review');available=data.available;
