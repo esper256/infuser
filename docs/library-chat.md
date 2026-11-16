@@ -13,8 +13,8 @@ banner shows who is visiting. Visitors can read messages from their admission
 onward until the visit ends. Hosts keep that conversation afterward; returning
 visitors start a new chat window.
 
-Close chat with Escape or a click outside; on phones, use **×** beside the
-composer. Your draft stays while the page is open. If sending fails, retry without
+Close chat with Escape or a click outside; on phones, use the floating **×** in the
+upper-right corner. Your draft stays while the page is open. If sending fails, retry without
 retyping. The badge counts unread messages. Reading older messages keeps your place; **New messages ↓** returns
 to the latest ones.
 
@@ -31,7 +31,10 @@ Tails open as the pictures finish moving; closing chat restores the usual order.
 Reduced motion skips the animation. The compact phone layout keeps its
 full-height conversation without speech tails.
 
-You can remove your own messages; admins can remove anyone's. Chat keeps
+You can remove your own messages; admins can remove anyone's. On a phone,
+press and hold a message to open its actions. With a mouse, hover over its bubble
+to reveal Delete; it becomes clickable after half a second. Keyboard users can
+focus a message and press Shift+F10 for its actions. Chat keeps
 recent conversation for up to seven days. Older messages may disappear sooner
 as the room fills up; it is not a permanent archive.
 
