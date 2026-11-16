@@ -28,6 +28,7 @@ export function initChat({me, api, profileAvatar}) {
   // Only allow rounding error, not a "near bottom" zone that traps small gestures.
   const bottom=()=>log.scrollHeight-log.scrollTop-log.clientHeight<=1;
   const isOpen=()=>!$('panel').hidden;
+  const compact=()=>matchMedia('(max-width: 650px), (pointer: coarse) and (max-height: 500px)').matches;
   function position() {
     if(!isOpen())return;
     const stick=bottom(), height=log.clientHeight, widthBefore=log.clientWidth, viewport=window.visualViewport;
@@ -36,11 +37,13 @@ export function initChat({me, api, profileAvatar}) {
     const anchor=(badges[0]||$('toggle')).getBoundingClientRect();
     const width=Math.min(437,document.documentElement.clientWidth-24);
     const left=Math.max(12,Math.min(anchor.left-16,document.documentElement.clientWidth-width-12));
-    const top=Math.max(viewTop+12,Math.min(anchor.bottom+18,viewBottom-260));
+    // Phones need the visible viewport, especially while the keyboard is open.
+    // Keep the badge-anchored popover on desktop.
+    const top=compact()?viewTop+12:Math.max(viewTop+12,Math.min(anchor.bottom+18,viewBottom-260));
     const panelHeight=Math.min(672,viewBottom-top-12);
     const recent=new Set([...messages].reverse().slice(0,12).filter(m=>Date.now()/1000-m.created<300).map(m=>m.author.id));
     const pointers=[];
-    for(const badge of badges){
+    for(const badge of compact()?[]:badges){
       const bounds=badge.getBoundingClientRect(), center=bounds.left+bounds.width/2;
       if(!recent.has(badge.dataset.playerId)||bounds.top<viewTop||bounds.bottom+4>=top)continue;
       pointers.push([badge.dataset.playerId,center-left,top-bounds.bottom-4]);
@@ -75,7 +78,7 @@ export function initChat({me, api, profileAvatar}) {
   function setOpen(open,restoreFocus=true) {
     root.hidden=!open;$('panel').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));$('toggle').title=open?'Hide chat':'Show chat';
     updateToggle();
-    if(open){position();scrollLatest();(me.inspecting?log:input).focus({preventScroll:true});poll();}else if(restoreFocus)$('toggle').focus({preventScroll:true});
+    if(open){position();scrollLatest();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}else if(restoreFocus)$('toggle').focus({preventScroll:true});
   }
   $('toggle').onclick=()=>setOpen(!isOpen());$('close').onclick=()=>setOpen(false);
   root.addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();event.stopPropagation();setOpen(false);}});

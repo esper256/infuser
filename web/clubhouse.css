@@ -419,6 +419,13 @@ img.avatar { object-fit: cover; }
 #chat-error:empty, #chat-connection:empty { display: none; }
 #chat-new { align-self: center; flex: none; padding: 6px 14px; min-height: 34px; margin: 5px; border-radius: 20px; font-size: 12px; }
 @keyframes chat-unread-wiggle { 0%,10%,100% { transform: rotate(0); } 2%,6% { transform: rotate(-7deg); } 4%,8% { transform: rotate(6deg); } }
+@media (max-width: 650px), (pointer: coarse) and (max-height: 500px) {
+  .chat-heading { padding: 8px 12px; }
+  .chat-heading h2 { font-size: 18px; }
+  #chat-form { padding: 8px 12px; }
+  #chat-text { height: 44px; padding: 8px 12px; }
+  #chat-send { min-height: 44px; }
+}
 @media (max-width: 520px) {
   #chat-log { padding: 16px 12px; }
   .chat-meta { gap: 5px; }
