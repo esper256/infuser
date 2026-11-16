@@ -138,7 +138,7 @@ Use the [peer manifest](../peer-hosting.md), including both modes if applicable,
 client.Event += (kind, json) => { /* peer_state, peer_message, peer_end */ };
 // Consume once after loading progress; ordinary Play has no intent.
 var launch = await client.ConsumeLaunchIntentAsync();
-// On a multiplayer selection, or when launch.intent is present:
+// On a multiplayer selection, or when launch.intent?.kind == "join_friend":
 var room = await client.JoinPeersAsync(new PeerOptions {
     intent = launch.intent, relayOnly = false, joinable = false
 });

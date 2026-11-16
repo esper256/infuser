@@ -40,7 +40,7 @@ public sealed class BeaconGarden : MonoBehaviour
                 await save.LoadAsync();
                 progress = save.Value ?? new Progress(); Validate(progress);
                 var launch = await client.ConsumeLaunchIntentAsync();
-                if (launch.intent != null) await Join(launch.intent);
+                if (launch.intent?.kind == "join_friend") await Join(launch.intent);
             }
             else
             {

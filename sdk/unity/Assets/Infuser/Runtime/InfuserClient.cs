@@ -60,7 +60,14 @@ namespace Infuser.Unity
         [DllImport("__Internal")] private static extern void Infuser_Dispose();
 #endif
         public Task<Identity> ReadyAsync() => CallAsync<Identity>("ready");
-        public Task<LaunchRequest> ConsumeLaunchIntentAsync() => CallAsync<LaunchRequest>("launch_intent");
+        public async Task<LaunchRequest> ConsumeLaunchIntentAsync()
+        {
+            var launch = await CallAsync<LaunchRequest>("launch_intent");
+            // Inline serializable classes can materialize with default fields.
+            // Ordinary Play must still have no target after Unity deserialization.
+            if (launch.intent != null && string.IsNullOrEmpty(launch.intent.kind)) launch.intent = null;
+            return launch;
+        }
         public Task<string> PresenceAsync() => CallJsonAsync("presence");
         public Task<PeerRoom> JoinPeersAsync(PeerOptions options)
         {
