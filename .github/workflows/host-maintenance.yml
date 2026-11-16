@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'deploy/services/**'
+      - 'deploy/Caddyfile*.example'
+      - 'deploy/sites-available/**'
       - 'deploy/*reboot*'
       - 'deploy/*maintenance*'
       - 'tests/reboot_journey.mjs'

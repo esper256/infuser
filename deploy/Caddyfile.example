@@ -1,3 +1,4 @@
+# Infuser's site fragment; install as sites-enabled/infuser.caddy under the host Caddyfile.
 # Replace example.com in private installation configuration only.
 # Requires Caddy built with the DNS provider used for wildcard certificates.
 example.com {

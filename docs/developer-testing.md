@@ -16,7 +16,8 @@ curl, jq and flock; it never executes the host's reboot command.
 
 Build `docker build -t infuser-caddy:acceptance deploy/services/caddy`, then run
 `bash tests/service_images_journey.sh` for the DNS module/HTTP and service binary
-smoke checks. The manual Docker/Caddy workflow uses this same build for its full
+smoke checks, including two domains and adding/removing one site's configuration
+without changing the other. The manual Docker/Caddy workflow uses this same build for its full
 authentication and forwarding journey. The scoped host-maintenance workflow
 gives early feedback on image and reboot-script PRs.
 
@@ -42,7 +43,10 @@ Run `bash tests/monitoring_journey.sh` on Linux with Docker, curl and jq. It sta
 resource-limited, disposable Grafana/Prometheus containers and a local webhook
 receiver using the images selected by the monitoring Compose file. It checks
 actual firing/recovery delivery, bearer-token handling, separate heartbeat
-routing, and heartbeat cutoff/recovery when collector data goes stale. Shortened
+routing, and heartbeat cutoff/recovery when collector data goes stale. The fixture
+includes an unrelated failed project and a separate policy tree:
+Infuser alerts stay healthy, other-project notifications reach their own receiver,
+and provisioning reload preserves that tree. Shortened
 evaluation intervals keep it to a few minutes; it is opt-in, outside normal CI.
 No real notification destination or production state is used. Ports 13000, 19090
 and 19095 must be free; `INFUSER_TEST_GRAFANA_PORT`, `INFUSER_TEST_PROMETHEUS_PORT`

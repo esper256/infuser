@@ -1,0 +1,2 @@
+# Host-owned entry point. Keep global options here, outside project site files.
+import /etc/caddy/sites-enabled/*.caddy

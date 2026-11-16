@@ -5,4 +5,10 @@ providers:
     type: file
     disableDeletion: true
     options:
-      path: /var/lib/grafana/dashboards
+      path: /var/lib/grafana/dashboards/infuser
+  - name: Host
+    folder: Host
+    type: file
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana/dashboards/host

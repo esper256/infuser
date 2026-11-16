@@ -23,8 +23,22 @@ project. Other applications can bind loopback ports and receive traffic through
 Caddy without inheriting Infuser's Google login or game authorization. Allocate
 ports outside the configured Infuser game/relay range and existing service ports.
 The Infuser ingress table protects its configured range; it is not a general
-firewall policy for unrelated applications. Prefer a host-owned root Caddyfile
-importing per-project site files before multiple projects start editing routing.
+firewall policy for unrelated applications.
+
+Use `deploy/Caddyfile.host.example` as the host-owned entry point. It imports
+`/etc/caddy/sites-enabled/*.caddy`; put Infuser's existing site configuration in
+`infuser.caddy` and keep Caddy's global options in the root file. Mount the whole
+sites directory read-only into Caddy, so adding a file does not require a new
+container. Keep certificate volumes and DNS credentials unchanged.
+
+For another domain, point its DNS at the same host, add a new `.caddy` file using
+`deploy/sites-available/project.caddy.example`, and choose an unused local
+upstream port. Configure that project's authentication in its own site. Inside
+the Caddy container, run `caddy validate --config /etc/caddy/Caddyfile`, then
+`caddy reload --config /etc/caddy/Caddyfile`. Reload applies routing without
+restarting other applications. Validate the combined config before every reload;
+an invalid fragment must not replace the running configuration. No placeholder
+domain should be enabled or request a certificate before its DNS is ready.
 
 Grafana, Prometheus, node_exporter and blackbox_exporter can also be shared.
 Separate project dashboards, scrape targets and alerts using folders and stable
@@ -32,20 +46,16 @@ project/service labels. These labels organize a trusted operator's monitoring;
 they are not access isolation between unrelated tenants. Keep host-wide memory,
 disk and monitoring-pipeline alerts under host ownership.
 
-Before adding the second project, remove these current single-project assumptions:
+Infuser's alerts now select their own contacts directly and leave the shared
+policy tree alone. Follow [monitoring setup](monitoring-operations.md) for new
+scrape files, dashboard folders and the one-time migration from older policy
+provisioning. Another project's failed target does not become an Infuser failure.
 
-- **Alert routing:** `render-notifications.sh` currently provisions the entire
-  Grafana notification policy tree. Do not use it over another project's policies.
-  Move policy-tree ownership to host configuration and make Infuser contribute
-  only its own rules/contact points. Scope its broad scrape/website queries so
-  another application's failure is not attributed to Infuser.
-- **Reboot admission:** the current timer checks Infuser activity only. Other
-  projects must be able to block shutdown with systemd shutdown inhibitors and
-  coordinate maintenance through the shared host lock. Do not restart Docker or
-  the host as though only Infuser is affected.
-- **Recovery:** a whole-volume snapshot includes colocated data but remains
-  crash-consistent. Infuser's application backup covers its own data, not another
-  project's database. Give every project an explicit backup/restore plan.
+Infuser retains ownership of scheduled host reboots. Other projects inherit that
+maintenance window and should stop cleanly; existing systemd shutdown inhibitors
+are still honored. No additional project admission framework is required.
+Resource allocation and each project's application backup plan can be settled
+when that project is added; this setup does not expand Infuser's backup scope.
 
 No separate VM, Docker daemon or monitoring stack is necessary for this model.
 All projects still share the host's capacity and the effects of kernel/Docker
