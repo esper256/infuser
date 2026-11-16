@@ -5,34 +5,19 @@ Audience: server operators.
 Infuser can download and install published releases automatically. The updater
 runs on your server; no external service needs SSH access or your Google credentials.
 
-## Build and publication
+## What is updated
 
-`Build and release` tests and builds both Linux server architectures and both
-Infuser Play platforms. It publishes a complete `build-<commit>` release with
-same-commit binaries, installers, manifests and checksums. Existing updater URLs
-and installer aliases are retained. No Mac job is on this critical path.
+The server and Windows/Linux Infuser Play assets are published together after
+checks pass. Mac publisher downloads have a separate release channel; a delayed
+Mac build does not hold up server updates. Failed builds leave the current
+published release available. See [CI and release builds](ci.md#release-builds)
+for contributor workflow details.
 
-A running build finishes while new pushes replace only the pending run, so a
-burst consumes one running build plus the newest pending candidate rather than
-continually cancelling useful work. A tested ancestor of main may publish even
-if main advances. Publication checks ancestry and the current latest release;
-an older rerun cannot replace a newer release. Missing assets, failed tests,
-unknown ancestry or upload failure leave the release unpublished. Published
-assets are never replaced. A queued candidate can still fail and require a retry.
-
-`Mac publisher release` follows successful main server workflows and builds the
-exact upstream commit. Its independent queue publishes the two tested Mac
-architectures as `macos-<commit>` with its own manifest and checksums. These are
-marked pre-release to prevent them becoming the server/Play `latest` release;
-this is channel separation, not a waiver of tests. Mac capacity delays affect
-only Mac publisher availability. Use the releases list, not `latest/download`,
-for Mac downloads. Manual dispatch on main can retry that channel independently.
-
-Both tracks use standard GitHub-hosted runners and no paid service. Linux
-server publication still waits for Windows/Linux Play packaging to preserve
-compatibility with existing clients that share GitHub's single latest channel.
-Publication does not prove host installation: the updater may defer for active
-games or roll back a failed activation. Verify the host build separately.
+This updater installs the controller executable. It does not update shared
+service images, systemd units, Caddy routing, monitoring files or the separate
+backup/recovery executable. Follow [host maintenance](host-maintenance.md) for
+service changes and [backup operations](backup-operations.md#enable-and-verify)
+for the backup worker. Keep these changes explicit when adopting a release.
 
 ## Release path
 

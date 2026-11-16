@@ -1,10 +1,18 @@
-# Install the player platform
+# Set up the website and Google login
 
 Audience: server operators.
 
-The `infuser` daemon serves the Library, public publishing API, static games,
-and player services on its existing loopback port. Front it with Caddy using
-[`deploy/Caddyfile.example`](../deploy/Caddyfile.example). Do not expose the daemon
+First install the controller using [the installation guide](operations.md).
+This page adds the website, login and player access.
+
+The daemon serves the Library, public publishing API, static games,
+and player services on its existing loopback port. Use
+[`deploy/Caddyfile.host.example`](../deploy/Caddyfile.host.example) as Caddy's
+root configuration and an edited copy of
+[`deploy/Caddyfile.example`](../deploy/Caddyfile.example) as
+`/etc/caddy/sites-enabled/infuser.caddy`. Keep global Caddy options in the root
+file. Follow [shared domain setup](host-maintenance.md#sharing-a-host-with-other-projects)
+for mounts, validation and reloads. Do not expose the daemon
 port or route `/v1/*` publicly. Configure an apex and wildcard DNS record and
 wildcard certificate. Existing legacy `render-caddy` output is for operator-staged
 sites and is not the player-platform routing template.
@@ -80,10 +88,9 @@ independent of the game's world volumes and Docker images.
 
 ## Data and updates
 
-Back up the controller state directory, including `platform.sqlite` with its WAL
-(or use SQLite's backup API), `content/`, and `server-keys/`, plus Docker world
-volumes. Do not copy only the main SQLite file while writes are active. Stop the
-service briefly for a simple filesystem backup.
+Use [backup and recovery](backup-operations.md) for a consistent snapshot of
+platform state, configuration and owned game volumes. A copy of the live SQLite
+file alone is not a backup of the platform or its game worlds.
 
 Once publishing-managed servers exist, do not roll back to pre-platform binaries that
 cannot read their catalog. Keep a pre-upgrade backup for such a manual rollback.

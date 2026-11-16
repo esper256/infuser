@@ -1,6 +1,31 @@
-# Run Infuser
+# Install and run Infuser
 
 Audience: server operators.
+
+Start here for a new host. Use templates from the same release as the binary;
+keep your edited configuration outside the source checkout.
+
+## Installation order
+
+1. Install and start the controller using the commands below.
+2. Follow [website setup](clubhouse-operations.md) for Caddy, Google login,
+   invitations and the game-port firewall. Verify sign-in.
+3. Enable [automatic binary updates](deployment.md). Its bootstrap creates
+   `/opt/infuser/current`, used by the monitoring and backup instructions.
+4. Add the game services you need: [TURN/PeerJS](relay-operations.md) and
+   [managed Node servers](server-packaging-operations.md). Test a game launch
+   for each hosting mode you enable.
+5. Set up [monitoring and alert delivery](monitoring-operations.md), then
+   [backups and a verified restore](backup-operations.md) when storage is ready.
+   Leave backup monitoring disabled until a backup destination is configured.
+6. Install [host maintenance](host-maintenance.md) after the update and backup
+   units you intend to use. It coordinates their jobs with required reboots.
+
+Existing installations should use the relevant guide's upgrade section, not
+repeat account creation, secret generation or repository initialization.
+Binary updates do not install new service units, routing or monitoring files.
+
+## Controller
 
 Use a Linux host with Docker Engine, the Docker CLI, and working cgroup memory,
 swap, CPU and PID limits. The controller checks those capabilities on startup.
@@ -45,14 +70,16 @@ state before restarting; unknown managed containers cause startup to fail rather
 than disappear from resource accounting. Restarting the controller leaves games
 running. Do not run two controllers against one Docker daemon.
 
-Port allocation is stable for installed apps, including sleeping apps. To change
+For operator-staged games, port allocation is stable, including sleeping apps. To change
 or remove a server manifest, stop that app through the API, wait for cleanup,
 restart the controller with the edited catalog, then regenerate/reload Caddy.
 Game removal never deletes its persistent volume.
+Published games use the publishing API instead; their updates do not require
+editing the controller configuration or regenerating Caddy routes.
 
 ## Web hosting and Google login
 
-Follow [Infuser installation](clubhouse-operations.md) for the current Caddy,
+Follow [website setup](clubhouse-operations.md) for the current Caddy,
 Google OAuth, membership, and firewall setup. Use DNS for the main domain and a
 wildcard beneath it. Published games run at the root of isolated game/build/guest
 hostnames; no path rewriting or per-game DNS changes are needed. The production

@@ -2,81 +2,46 @@
 
 Audience: Infuser developers.
 
-- [Chat channel foundations](proposals/chat-channels.md) separate conversation
-  identity from private groups and share access policy across messages and push.
-  The existing group chat remains the only website conversation; visit windows
-  and host history are preserved. Design direct messages, custom chats, temporary
-  channels, and their notification preferences before exposing new UI or APIs.
+This page lists unfinished work. Use [feature tests](developer-testing.md) for
+acceptance evidence and limits, and the linked contracts for implemented behavior.
+Keep individual deployments' configuration and status in private operator records.
 
-- Keep game titles and URL slugs independent of stable game and deployment IDs.
-  Favor easy renaming over permanently pretty URLs. Renaming must preserve saves,
-  publishing credentials, visit progress, and existing active launches; use aliases
-  or redirects when changing a slug rather than treating it as a new game.
+## Stabilize the current platform
 
-- Exercise the [temporary-visit preview](proposals/temporary-visits.md) with real
-  groups before freezing SDK ownership and access semantics. Operator-selected
-  visits, isolated persistent deployments, chat windows and connection expiry
-  are implemented. Complete physical sleep and Windows companion acceptance;
-  keep unsupported direct-port servers out of visits.
+- Complete the [SDK 1.0 stabilization plan](proposals/sdk-1.0-stabilization.md).
+  Freeze the candidate contract and versioned clients before declaring stability.
+  Major-version admission exists; the overall contract remains a preview.
+- Exercise [visits](proposals/temporary-visits.md) with real groups before freezing
+  ownership and access semantics. Keep unsupported direct-port servers out of visits.
+- Finish [Godot web](engines/godot-web.md) checks on Windows browsers, physical
+  laptop sleep and full-duration TURN renewal. Accelerated recovery tests do not
+  replace these checks.
+- Finish [Infuser Play](engines/godot-native.md) acceptance on physical Windows,
+  including installation, browser-login handoff, cache cleanup and guest saves.
+  Keep native support limited to the documented single-player preview meanwhile.
+- Playtest Lanternfall with [dedicated sessions](dedicated-sessions.md) and test
+  the [PeerJS adapter](peerjs.md) against an existing user's game. Platform fixtures
+  and source review do not prove those games' integrations.
+- Add a Windows publisher executable. Keep author checks usable with prebuilt
+  tools or the game's existing runtime; do not require the contributor toolchain.
+  Evaluate disposable hosted checks without sharing a user's Google login.
 
-- Continue the [SDK 1.0 stabilization plan](proposals/sdk-1.0-stabilization.md).
-  Record the candidate contract and freeze versioned clients before declaring any
-  capability stable. The public binary-save helper exports are fixed and verified
-  through the main SDK import. SDK major 1
-  and capability admission exist; the overall contract remains a preview.
-  Preserve published games and saves; Firefly Drift is listed and its active
-  build must not be replaced merely to rerun a fixture.
+Preserve published games and saves during these checks. Firefly Drift's listed
+active build must not be replaced merely to rerun a fixture.
 
-- Setup deferred at the operator's request: encrypted off-server backup authorization.
-  The [unattended operations](proposals/unattended-operations.md) implementation
-  is deployed. ARM64 monitoring uses approximately 321 MiB combined; service limits
-  and health checks were verified. Grafana → ntfy delivery and scheduled
-  Healthchecks heartbeats are configured and verified, including phone receipt.
-  Cloud snapshot scheduling and volume-level restoration were reported complete
-  in private operator records; mounted/application restore acceptance remains open.
-  Outside HTTPS probing is also reported configured in private operator records;
-  keep its delivery and account-maintenance ownership separate from the VM.
-  Local backup/restore fixtures do not prove that remote backups are configured.
+## Design before expanding
 
-- [Host maintenance](host-maintenance.md) now provides conditional, idle-only OS
-  reboot windows and tracked shared-service image updates. Preserve game-aware
-  admission and recovery hooks when changing deployment units. Shared-service
-  image PRs require explicit rollout; they are separate from binary auto-updates.
-  Shared Caddy site fragments and project-scoped monitoring support fixed
-  independent Compose stacks alongside Infuser's dynamic games. Infuser alerts
-  leave the shared notification policy tree intact. Infuser retains host reboot
-  ownership; settle other projects' resources and backups when they are added.
-
-- Follow up on the [architectural review results](proposals/architecture-improvement-plan.md):
-  validate native cache cleanup on physical Windows hardware. Use measurements before taking on the
-  deferred catalog, authentication or Docker-client rewrites.
-- Make game-author tools portable: add a Windows publisher executable and provide
-  optional integration checks that use prebuilt tools or the project's existing
-  runtime. Keep the Cargo/Playwright contributor harness out of the publishing
-  journey. Evaluate a disposable hosted test session for checks that need the real
-  platform, without requiring the user's Google login or a local Infuser install.
-- Integrate and playtest Lanternfall using [dedicated sessions](dedicated-sessions.md).
-  The platform supplies verified identity, discovery, Join Friend, reconnects and
-  queued updates. Shared and multiple-run fixtures exercise the generic contract;
-  reviewing Lanternfall's source is not a playtest or an adaptation of that game.
-- Finish [Godot web](engines/godot-web.md) acceptance on actual Windows browsers,
-  physical laptop sleep, and full-duration TURN credential renewal. Bazzite
-  Flatpak Chrome has passed threaded/single-threaded exports, forced relay,
-  background/recovery checks, saves, conflicts, and Join friend. The adapted
-  upstream Dodge the Creeps project has passed gameplay, saves, and guest isolation.
-- Finish [Infuser Play](engines/godot-native.md) acceptance on physical Windows
-  hardware and the installed browser-login handoff. Keep the native preview
-  limited to single-player Godot on Windows/Linux, including Bazzite.
-- Validate the [PeerJS adapter](peerjs.md) against an existing user's game when
-  its source is available. The independent fixture has passed real PeerJS
-  DataConnections, standalone play, forced TURN, renewal, and recovery. This
-  does not prove an unavailable project's exact integration.
+- Design direct messages, custom chats, temporary channels and notification
+  preferences on the [channel foundations](proposals/chat-channels.md) before
+  exposing new UI or APIs. Preserve visit access windows and host history.
+- Keep game names and URL slugs independent of stable IDs. Future rename flows
+  must preserve saves, credentials, visit progress and active launches, using
+  aliases or redirects where needed.
 - Expand engine-server recipes after the Node path is solid. Native multiplayer
-  remains a separate study. Bevy is paused.
-- Review achievements before introducing persistent achievement IDs and behavior.
+  needs a separate study; Bevy remains paused.
+- Review achievements before introducing persistent IDs or game-facing behavior.
 
-Implemented foundations include conditional JSON slots and retained JSON/binary checkpoints,
-isolated guest play, on-demand managed servers, peer presence/joinability,
-Join friend on cards and avatars, Infuser Play self-updates, readable game URLs,
-metadata/art updates, and agent issue reporting.
-Use their linked contracts rather than treating old design notes as future work.
+Use measurements before revisiting the catalog, authentication or Docker-client
+rewrites deferred by the [architectural review](proposals/architecture-improvement-plan.md).
+Per-project resources and backup policies can be settled when another project is
+added to a shared host; they are not prerequisites for the current platform.

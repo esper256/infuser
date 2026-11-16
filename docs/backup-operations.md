@@ -45,8 +45,9 @@ Tokens can still be revoked; backup freshness alerts detect lost access.
 
 ## Enable and verify
 
-First deploy the maintenance-aware daemon. Install a stable operations binary
-from that working release:
+First complete [controller and updater setup](operations.md#installation-order),
+which creates `/opt/infuser/current`. Install a stable operations binary from
+that working release:
 
 ```sh
 sudo install -d -m 0755 /usr/local/libexec
@@ -62,6 +63,13 @@ sudo systemctl enable --now infuser-backup.timer
 `backup-init` is only for a new empty repository; do not reinitialize an existing
 backup. A successful backup writes `/var/lib/infuser-backup/last-healthy.json`.
 Enable `backup_work_dir` in the [monitoring configuration](monitoring-operations.md).
+
+The operations binary is intentionally separate from the auto-updated daemon.
+After a release changes backup code or its configuration format, verify it with
+your configuration and restore checks, then explicitly replace
+`/usr/local/libexec/infuser-operations` using the install command above while no
+backup is running. Keep the previous executable for recovery. Do not assume a
+daemon update has updated the backup worker or its systemd units.
 
 The timer retries approximately hourly. It defers while games or publishing are
 active. After acquiring an admission lease, it stops the controller, checks that
