@@ -33,6 +33,7 @@ export function initChat({me, api, profileAvatar}) {
     if(!isOpen())return;
     const stick=bottom(), height=log.clientHeight, widthBefore=log.clientWidth, viewport=window.visualViewport;
     const viewTop=viewport?.offsetTop||0, viewBottom=viewTop+(viewport?.height||innerHeight);
+    root.toggleAttribute('data-short',compact()&&viewBottom-viewTop<400);
     const badges=[...presence.querySelectorAll('[data-player-id]')];
     const anchor=(badges[0]||$('toggle')).getBoundingClientRect();
     const width=Math.min(437,document.documentElement.clientWidth-24);

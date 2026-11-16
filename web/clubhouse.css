@@ -431,6 +431,14 @@ img.avatar { object-fit: cover; }
   .chat-meta { gap: 5px; }
   .chat-remove { min-height: 32px; width: 30px; }
 }
+/* A landscape keyboard can leave less height than the layout viewport reports. */
+#library-chat[data-short] .chat-audience, #library-chat[data-short] #chat-limit { display: none; }
+#library-chat[data-short] .chat-heading { padding: 2px 12px; }
+#library-chat[data-short] #chat-log { padding: 8px 12px; }
+#library-chat[data-short] #chat-form { display: flex; align-items: center; gap: 8px; }
+#library-chat[data-short] #chat-text { flex: 1; min-width: 0; }
+#library-chat[data-short] .chat-compose-actions { flex: none; margin: 0; }
+#library-chat[data-short] #chat-error, #library-chat[data-short] #chat-connection { flex: none; padding: 3px 12px; }
 @media (prefers-reduced-motion: reduce) { #chat-toggle.has-unread[aria-expanded="false"] { animation: none; } }
 @media (forced-colors: active) { .chat-bubble::before { background: Canvas; border-color: CanvasText; } .chat-pointer { border-bottom-color: CanvasText; } .chat-pointer::after { border-bottom-color: Canvas; } #chat-toggle { border: 1px solid ButtonText; } }
 

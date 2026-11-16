@@ -71,6 +71,29 @@ try {
     await settle();await geometry(72,360,130);
     assert(Math.abs(await log.evaluate(e=>e.scrollTop)-scroll)<=1,'viewport pan preserves history position');
     assert.equal(await page.locator('#chat-text').inputValue(),'Keep my draft');
+    if(size.width===844){
+     await page.evaluate(()=>{
+      window.testViewport.height=280;
+      document.querySelector('#chat-connection').textContent='Reconnecting…';
+      document.querySelector('#chat-error').textContent='Message failed. Try again.';
+      document.querySelector('#chat-new').hidden=false;
+      window.dispatchEvent(new Event('resize'));
+     });
+     await settle();
+     const short=await geometry(72,280,50);
+     console.log(`  short landscape with both status bars and latest button: log ${short.log.height}px`);
+     await page.locator('#chat-text').fill('Draft in landscape');
+     assert(await page.locator('#chat-send').isEnabled());
+     for(const id of ['chat-close','chat-text','chat-send','chat-new','chat-error','chat-connection']){
+      const box=await page.locator('#'+id).boundingBox();
+      assert(box.y>=84&&box.y+box.height<=341,`${id} remains inside short viewport`);
+     }
+     await page.evaluate(()=>{
+      document.querySelector('#chat-connection').textContent='';
+      document.querySelector('#chat-error').textContent='';
+      document.querySelector('#chat-new').hidden=true;
+     });
+    }
     await page.evaluate(()=>{delete window.visualViewport;window.dispatchEvent(new Event('resize'));});
     await settle();await geometry(0,size.height,180);
     if(size.width===390){
