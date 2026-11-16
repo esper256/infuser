@@ -83,6 +83,8 @@ pub struct Report {
     #[serde(default)]
     pub backup_verified_at: u64,
     #[serde(default)]
+    pub backup_configured: bool,
+    #[serde(default)]
     pub maintenance: bool,
 }
 impl Report {
@@ -110,6 +112,10 @@ impl Report {
                 self.backup_verified_at,
             ),
             ("infuser_maintenance", u64::from(self.maintenance)),
+            (
+                "infuser_backup_configured",
+                u64::from(self.backup_configured),
+            ),
             ("infuser_recovery_timestamp_seconds", self.last_restart),
         ] {
             text.push_str(&format!("# TYPE {name} gauge\n{name} {value}\n"));
@@ -349,6 +355,7 @@ pub async fn collect(settings: &Settings) -> Result<Report> {
             "Inspect this shared service's logs and restart policy.",
         ));
     }
+    report.backup_configured = settings.backup_work_dir.is_some();
     if let Some(work) = &settings.backup_work_dir {
         let healthy: Option<Value> = fs::read(work.join("last-healthy.json"))
             .ok()

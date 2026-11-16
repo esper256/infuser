@@ -36,6 +36,7 @@ export function initGroups({me,api}) {
       const status=await api('/api/operator/health');healthBody.replaceChildren();
       if(!status.configured){healthBody.append(el('p','Host monitoring is not configured.'));return;}
       healthBody.append(el('p',status.stale?'Monitoring data is stale. Check the host health timer.':'Checked '+new Date(status.report.at*1000).toLocaleString()));
+      if(!status.report.backup_configured)healthBody.append(el('p','Backup monitoring is not configured.'));
       for(const check of status.report.checks){
         const row=el('p',(check.ok?'✓ ':'⚠ ')+check.detail);
         if(!check.ok)row.append(el('br'),document.createTextNode(check.action));
