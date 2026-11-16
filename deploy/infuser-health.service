@@ -5,7 +5,9 @@ ConditionPathExists=/etc/infuser/operations.toml
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/libexec/infuser-operations doctor /etc/infuser/operations.toml --quiet
+# Follow the activated release: an old collector cannot parse newer controller settings.
+# Collection remains a separate process/timer even when the daemon is unavailable.
+ExecStart=/opt/infuser/current/infuser doctor /etc/infuser/operations.toml --quiet
 User=root
 UMask=0022
 TimeoutStartSec=50

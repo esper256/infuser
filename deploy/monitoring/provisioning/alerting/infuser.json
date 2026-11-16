@@ -19,7 +19,8 @@
             "severity": "warning"
           },
           "annotations": {
-            "summary": "Read the matching check and suggested action in Infuser operator tools."
+            "summary": "Read the matching check and suggested action in Infuser operator tools.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
           },
           "data": [
             {
@@ -88,7 +89,8 @@
             "severity": "warning"
           },
           "annotations": {
-            "summary": "Inspect infuser-health.timer and infuser-health.service."
+            "summary": "Inspect infuser-health.timer and infuser-health.service.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
           },
           "data": [
             {
@@ -157,7 +159,8 @@
             "severity": "warning"
           },
           "annotations": {
-            "summary": "Inspect the affected monitoring service."
+            "summary": "Inspect the affected monitoring service.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
           },
           "data": [
             {
@@ -219,14 +222,15 @@
           "title": "Website unavailable",
           "condition": "B",
           "for": "3m",
-          "noDataState": "OK",
+          "noDataState": "Alerting",
           "execErrState": "Alerting",
           "labels": {
             "service": "infuser",
-            "severity": "warning"
+            "severity": "critical"
           },
           "annotations": {
-            "summary": "Check DNS, Caddy and the controller. Planned maintenance may briefly interrupt the website."
+            "summary": "Check DNS, Caddy and the controller. A missing website target also triggers this alert.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
           },
           "data": [
             {
@@ -295,7 +299,8 @@
             "severity": "warning"
           },
           "annotations": {
-            "summary": "Inspect Caddy certificate renewal and DNS-provider access."
+            "summary": "Inspect Caddy certificate renewal and DNS-provider access.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
           },
           "data": [
             {
@@ -364,7 +369,8 @@
             "severity": "warning"
           },
           "annotations": {
-            "summary": "Review game and service memory use."
+            "summary": "Review game and service memory use.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
           },
           "data": [
             {
@@ -433,7 +439,8 @@
             "severity": "warning"
           },
           "annotations": {
-            "summary": "Review storage categories; do not prune game saves or worlds."
+            "summary": "Review storage categories; do not prune game saves or worlds.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
           },
           "data": [
             {
@@ -502,7 +509,8 @@
             "severity": "warning"
           },
           "annotations": {
-            "summary": "Inspect backup service and staging disk space; its stop hook must resume Infuser."
+            "summary": "Inspect backup service and staging disk space; its stop hook must resume Infuser.",
+            "runbook_url": "https://github.com/esper256/infuser/blob/main/docs/monitoring-operations.md#responding-to-an-alert"
           },
           "data": [
             {
