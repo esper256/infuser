@@ -21,7 +21,7 @@ impl Platform {
             return Ok((d.groups.member(email).into(), false));
         };
         ensure!(
-            h.get_all(INSPECT).iter().count() == 1 && d.groups.operator(email),
+            h.get_all(INSPECT).iter().count() == 1 && d.operator(email),
             fault(403, "Operator inspection is unavailable.")
         );
         let group = value.to_str().map_err(|_| fault(400, "Invalid group."))?;
@@ -50,7 +50,7 @@ impl Platform {
     pub(super) async fn operator(&self, h: &HeaderMap, write: bool) -> Result<String> {
         let email = self.member(h, write).await?;
         ensure!(
-            self.db.read()?.groups.operator(&email),
+            self.db.read()?.operator(&email),
             fault(403, "Operator access required.")
         );
         Ok(email)

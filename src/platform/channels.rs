@@ -72,6 +72,9 @@ impl Channel {
     }
 
     pub fn access(&self, data: &Data, email: &str, inspecting: bool, time: u64) -> Option<Access> {
+        if !data.profile_enabled(email) {
+            return None;
+        }
         let member = data.members.get(email).filter(|m| m.enabled)?;
         if self.expires.is_some_and(|end| end <= time) {
             return None;
@@ -81,7 +84,7 @@ impl Channel {
                 return None;
             }
             if inspecting {
-                return data.groups.operator(email).then_some(Access {
+                return data.operator(email).then_some(Access {
                     after_message: 0,
                     writable: false,
                     moderate: false,

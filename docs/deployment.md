@@ -23,13 +23,14 @@ for the backup worker. Keep these changes explicit when adopting a release.
 
 1. A host timer checks the latest published manifest approximately once a minute.
 2. The updater downloads the host's binary, checks its digest and validates the
-   installed configuration with the candidate executable.
+   installed configuration and identity-state compatibility with the candidate executable.
 3. It waits for games and publishing to become idle, then closes new admission
    briefly. The verified candidate remains cached while it waits.
 4. It atomically switches `current`, restarts the controller, and checks `/healthz`
    for the exact new build ID. Game containers continue running; peer rooms end
    when the controller restarts, so their players must rejoin.
-5. If activation fails, it restores the previous binary and verifies its health.
+5. If activation fails, it checks the previous binary can read current state,
+   restores it and verifies its health. An incompatible rollback is blocked.
    The failed release is held until a newer build arrives or an operator clears
    the local `failed-release` file to retry it.
 
@@ -57,6 +58,11 @@ when a candidate daemon will not run. Updater changes can be installed explicitl
 with `sudo install -m 0755 /opt/infuser/current/infuser /usr/local/libexec/infuser-updater`
 after a version is known to work. The timer uses root only for installation and
 systemd restart; the daemon continues running as the `infuser` service user.
+
+**First identity-genesis deployment:** upgrade the stable updater before activating
+the migration. Follow the [identity migration procedure](identity-operations.md),
+including the on-host rehearsal and retained snapshot. Genesis is the oldest
+supported rollback target after migration.
 
 Install the maintenance-aware daemon before replacing an older stable updater:
 the new updater requires `/v1/maintenance` and fails closed if it is unavailable.

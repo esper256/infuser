@@ -6,6 +6,11 @@ The [documentation index](README.md) links to the
 current user-facing contracts. These notes describe storage and implementation
 constraints, not additional steps for game authors.
 
+All binary-rollback claims below apply only to identity-genesis or newer
+compatible releases. The [identity foundation](proposals/identity-foundation.md)
+preserves player IDs and storage handles but deliberately rejects pre-genesis
+writers. It is the new minimum recovery baseline.
+
 ## Catalog and activity storage
 
 `platform_catalog` holds cold catalog JSON. Launches and presence use small
@@ -18,7 +23,7 @@ Authorization still reads current activity and membership; there is no auth TTL.
 Migration runs in one SQLite transaction. The old `platform` table becomes a
 writable compatibility view that reconstructs the original JSON. Its triggers
 translate old INSERT/UPDATE operations into the authoritative tables, preserving
-renewals when an older daemon or CLI writes. This supports binary rollback without
+renewals when a compatible older daemon or CLI writes. This supports binary rollback without
 a two-release migration or a second stale catalog copy. It does not make older
 binaries support newer SDK features. SQLite keeps `synchronous=FULL`.
 

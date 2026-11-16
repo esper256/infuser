@@ -392,7 +392,12 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
             auth_listener,
             Router::new().route(
                 "/oauth2/auth",
-                get(|| async { [("x-auth-request-email", "a@example.test")] }),
+                get(|| async {
+                    [
+                        ("x-auth-request-email", "a@example.test"),
+                        ("X-Auth-Request-User", "a@example.test"),
+                    ]
+                }),
             ),
         )
         .await

@@ -179,10 +179,16 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
             if h.get("cookie").is_some_and(|v| v == "member=yes") {
                 (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "user@example.com")],
+                    [
+                        ("X-Auth-Request-Email", "user@example.com"),
+                        ("X-Auth-Request-User", "user@example.com"),
+                    ],
                 )
             } else {
-                (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")])
+                (
+                    StatusCode::UNAUTHORIZED,
+                    [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
+                )
             }
         }),
     ))

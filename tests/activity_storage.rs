@@ -3,7 +3,7 @@ use infuser::platform::{self, Database};
 use serde_json::json;
 
 #[test]
-fn activity_is_small_and_legacy_writers_remain_authoritative() -> Result<()> {
+fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let db = Database::open(dir.path())?;
     let time = infuser::controller::now();
@@ -28,7 +28,7 @@ fn activity_is_small_and_legacy_writers_remain_authoritative() -> Result<()> {
     )?;
     assert_eq!(before, after, "activity rewrote the durable catalog");
     let other = rusqlite::Connection::open(dir.path().join("platform.sqlite"))?;
-    // The old database initialization and read/edit pattern still work.
+    // The view remains writable by genesis-aware CLI processes.
     other.execute_batch("CREATE TABLE IF NOT EXISTS platform(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL);")?;
     other.execute(
         "INSERT OR IGNORE INTO platform VALUES(1,?1)",
@@ -40,7 +40,7 @@ fn activity_is_small_and_legacy_writers_remain_authoritative() -> Result<()> {
         |r| r.get(0),
     )?)?;
     assert_eq!(legacy["launches"]["test-launch"]["expires"], time + 301);
-    legacy["members"]["player@example.test"]["enabled"] = false.into();
+    legacy["profiles"]["player@example.test"]["enabled"] = false.into();
     other.execute(
         "UPDATE platform SET data=?1 WHERE id=1",
         [legacy.to_string()],
@@ -57,8 +57,8 @@ fn activity_is_small_and_legacy_writers_remain_authoritative() -> Result<()> {
 }
 
 #[test]
-fn previous_binary_can_write_after_upgrade_and_renewal() -> Result<()> {
-    let Some(binary) = std::env::var_os("INFUSER_PREVIOUS_BINARY") else {
+fn pre_genesis_binary_cannot_write_after_migration() -> Result<()> {
+    let Some(binary) = std::env::var_os("INFUSER_PRE_GENESIS_BINARY") else {
         return Ok(());
     };
     let root = tempfile::tempdir()?;
@@ -83,14 +83,6 @@ fn previous_binary_can_write_after_upgrade_and_renewal() -> Result<()> {
     };
     old_member("Before upgrade")?;
     let old = rusqlite::Connection::open(state.join("platform.sqlite"))?;
-    assert_eq!(
-        old.query_row::<String, _, _>(
-            "SELECT type FROM sqlite_master WHERE name='platform'",
-            [],
-            |r| r.get(0)
-        )?,
-        "table"
-    );
     let db = Database::open(&state)?;
     let time = infuser::controller::now();
     db.edit(|d| {
@@ -98,11 +90,15 @@ fn previous_binary_can_write_after_upgrade_and_renewal() -> Result<()> {
     })?;
     db.renew_launch("guest", time)?;
     db.read()?;
-    old_member("Written by previous binary")?;
+    assert!(old_member("Must be rejected").is_err());
     assert_eq!(
         db.read()?.members["player@example.test"].name,
-        "Written by previous binary"
+        "Before upgrade"
     );
+    let raw: String = old.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
+    let catalog: serde_json::Value = serde_json::from_str(&raw)?;
+    assert_eq!(catalog["identity_version"], 1);
+    assert!(catalog.get("members").is_none());
     assert_eq!(db.read()?.launches["guest"].expires, time + 300);
     drop(db);
     assert_eq!(

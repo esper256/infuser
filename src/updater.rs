@@ -107,6 +107,9 @@ pub trait Service: Send + Sync {
         Ok(true)
     }
     async fn check(&self, binary: &Path) -> Result<()>;
+    async fn check_rollback(&self, _binary: &Path) -> Result<()> {
+        Ok(())
+    }
     async fn restart(&self) -> Result<()>;
     async fn healthy(&self, commit: &str) -> Result<bool>;
 }
@@ -145,7 +148,24 @@ impl Service for Systemd {
                 .take(300)
                 .collect::<String>()
         );
+        let compatibility = tokio::time::timeout(
+            Duration::from_secs(15),
+            tokio::process::Command::new(binary)
+                .arg("state-check")
+                .arg(&self.config.controller_config)
+                .stdin(Stdio::null())
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await??;
+        ensure!(
+            compatibility.status.success(),
+            "Release cannot read the current identity state. Pre-genesis versions are not supported; use a compatible release or restore a complete pre-migration backup."
+        );
         Ok(())
+    }
+    async fn check_rollback(&self, binary: &Path) -> Result<()> {
+        self.check(binary).await
     }
     async fn restart(&self) -> Result<()> {
         let status = tokio::time::timeout(
@@ -295,6 +315,7 @@ pub async fn update(
                 pending.commit
             ));
         }
+        service.check_rollback(&old.join("infuser")).await.context("Interrupted update cannot roll back across the identity genesis boundary; current selection and pending recovery record retained")?;
         atomic_link(&old, &current)?;
         service.restart().await?;
         ensure!(
@@ -445,6 +466,7 @@ pub async fn update(
     }
     .await;
     if let Err(error) = activated {
+        service.check_rollback(&previous_dir.join("infuser")).await.context("Activation failed and the previous release cannot read current state; rollback blocked, current selection and pending recovery record retained")?;
         atomic_link(&previous_dir, &current)?;
         service
             .restart()

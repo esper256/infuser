@@ -107,9 +107,20 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
             let email = match h.get("cookie").and_then(|v| v.to_str().ok()) {
                 Some("member=host") => "host@example.com",
                 Some("member=friend") => "friend@example.com",
-                _ => return (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
+                _ => {
+                    return (
+                        StatusCode::UNAUTHORIZED,
+                        [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
+                    );
+                }
             };
-            (StatusCode::ACCEPTED, [("X-Auth-Request-Email", email)])
+            (
+                StatusCode::ACCEPTED,
+                [
+                    ("X-Auth-Request-Email", email),
+                    ("X-Auth-Request-User", email),
+                ],
+            )
         }),
     ))
     .await?;

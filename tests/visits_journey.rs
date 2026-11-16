@@ -142,10 +142,16 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         get(|h: HeaderMap| async move {
             (
                 axum::http::StatusCode::ACCEPTED,
-                [(
-                    "X-Auth-Request-Email",
-                    h.get("cookie").unwrap().to_str().unwrap().to_owned(),
-                )],
+                [
+                    (
+                        "X-Auth-Request-Email",
+                        h.get("cookie").unwrap().to_str().unwrap().to_owned(),
+                    ),
+                    (
+                        "X-Auth-Request-User",
+                        h.get("cookie").unwrap().to_str().unwrap().to_owned(),
+                    ),
+                ],
             )
         }),
     ))

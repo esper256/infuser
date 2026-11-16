@@ -47,17 +47,29 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
             match h.get("cookie").and_then(|v| v.to_str().ok()) {
                 Some("member=admin") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "admin@example.com")],
+                    [
+                        ("X-Auth-Request-Email", "admin@example.com"),
+                        ("X-Auth-Request-User", "admin@example.com"),
+                    ],
                 ),
                 Some("member=one") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "one@example.com")],
+                    [
+                        ("X-Auth-Request-Email", "one@example.com"),
+                        ("X-Auth-Request-User", "one@example.com"),
+                    ],
                 ),
                 Some("member=two") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "two@example.com")],
+                    [
+                        ("X-Auth-Request-Email", "two@example.com"),
+                        ("X-Auth-Request-User", "two@example.com"),
+                    ],
                 ),
-                _ => (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
+                _ => (
+                    StatusCode::UNAUTHORIZED,
+                    [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
+                ),
             }
         }),
     ))

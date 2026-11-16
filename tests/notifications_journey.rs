@@ -47,11 +47,17 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
             match who.strip_prefix("member=") {
                 Some(who @ ("admin" | "one" | "two" | "away")) => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", format!("{who}@example.com"))],
+                    [
+                        ("X-Auth-Request-Email", format!("{who}@example.com")),
+                        ("X-Auth-Request-User", format!("{who}@example.com")),
+                    ],
                 ),
                 _ => (
                     StatusCode::UNAUTHORIZED,
-                    [("X-Auth-Request-Email", String::new())],
+                    [
+                        ("X-Auth-Request-Email", String::new()),
+                        ("X-Auth-Request-User", String::new()),
+                    ],
                 ),
             }
         }),

@@ -28,7 +28,7 @@ impl Data {
     pub fn visit_access(&self, id: &str, email: &str, time: u64) -> Option<&Visit> {
         self.visits.get(id).filter(|v| {
             v.active(time)
-                && self.members.get(email).is_some_and(|m| m.enabled)
+                && self.profile_enabled(email)
                 && (self.groups.member(email) == v.host || v.participant(email))
         })
     }
@@ -38,7 +38,7 @@ impl Data {
             .find(|(_, v)| v.host == host && v.active(time))
     }
     pub fn launch_allowed(&self, launch: &Launch, time: u64) -> bool {
-        if !self.members.get(&launch.email).is_some_and(|m| m.enabled) {
+        if !self.profile_enabled(&launch.email) {
             return false;
         }
         if self.source_app(launch.runtime_id()) != launch.app {
@@ -56,7 +56,7 @@ impl Data {
         }
     }
     pub fn group_participant(&self, email: &str, group: &str, time: u64) -> bool {
-        self.members.get(email).is_some_and(|m| m.enabled)
+        self.profile_enabled(email)
             && (self.groups.member(email) == group
                 || self
                     .active_visit(group, time)

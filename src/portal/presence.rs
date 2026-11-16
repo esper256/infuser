@@ -35,7 +35,7 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     let own_id = if launch.guest {
         format!("guest-{id}")
     } else {
-        hash(&launch.email)
+        data.player_id(&launch.email)
     };
     let mut players = BTreeMap::new();
     for (email, seen) in &data.presence {
@@ -45,7 +45,7 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
             continue;
         }
         if let Some(member) = data.members.get(email).filter(|m| m.enabled) {
-            let player = hash(email);
+            let player = data.player_id(email);
             players.insert(
                 player.clone(),
                 json!({"player_id":player,"name":member.name,"guest":false,
@@ -62,7 +62,7 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
         let player = if l.guest {
             format!("guest-{id}")
         } else {
-            hash(&l.email)
+            data.player_id(&l.email)
         };
         let name = if l.guest {
             "Guest"

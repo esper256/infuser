@@ -508,7 +508,7 @@ mod tests {
                 "/ok",
                 post(|headers: HeaderMap, Json(body): Json<Value>| async move {
                     assert_eq!(headers["authorization"], "Bearer test-token");
-                    for key in ["cookie", "origin", "x-infuser-verified-email"] {
+                    for key in ["cookie", "origin", "x-infuser-verified-profile"] {
                         assert!(!headers.contains_key(key));
                     }
                     assert_eq!(body, json!({"title":"test","body":"reviewed"}));
@@ -602,7 +602,7 @@ mod tests {
             h.insert("host", "games.example.com".parse().unwrap());
             h.insert("origin", "https://games.example.com".parse().unwrap());
             h.insert(
-                "x-infuser-verified-email",
+                "x-infuser-verified-profile",
                 "admin@example.com".parse().unwrap(),
             );
             let approval = || {

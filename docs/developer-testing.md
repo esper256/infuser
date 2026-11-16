@@ -169,12 +169,15 @@ durable unpublish must retire registrations while preserving worlds and builds.
 To test the migration with an actual previous executable:
 
 ```sh
-INFUSER_PREVIOUS_BINARY=/path/to/previous/infuser \
+INFUSER_PRE_GENESIS_BINARY=/path/to/pre-genesis/infuser \
   cargo test --locked --test activity_storage
 ```
 
-This creates disposable state using the old CLI, upgrades, renews a guest launch,
-writes through the old CLI again, and reopens with the current code.
+This creates disposable state using the old CLI, migrates to identity genesis,
+renews a guest launch, proves the old CLI can no longer write, and reopens with
+the current code. `identity_journey` covers stable Google subjects, email changes,
+preserved saves, profile isolation and version rejection. `update_journey` covers
+the rollback floor during failed activation and interrupted recovery.
 
 The optional local load case exchanges frames between two clients while uploading
 and publishing a 64 MiB file, with Library/chat polling. The larger synthetic

@@ -16,6 +16,7 @@ struct TestService {
     bad: String,
     restarts: Mutex<usize>,
     busy: std::sync::atomic::AtomicBool,
+    rollback_allowed: std::sync::atomic::AtomicBool,
 }
 
 const CANDIDATE: &[u8] = b"#!/bin/sh\nexit 0\n";
@@ -41,6 +42,14 @@ impl Service for TestService {
     }
     async fn restart(&self) -> Result<()> {
         *self.restarts.lock().unwrap() += 1;
+        Ok(())
+    }
+    async fn check_rollback(&self, _binary: &Path) -> Result<()> {
+        ensure!(
+            self.rollback_allowed
+                .load(std::sync::atomic::Ordering::Relaxed),
+            "incompatible identity state"
+        );
         Ok(())
     }
     async fn healthy(&self, commit: &str) -> Result<bool> {
@@ -102,6 +111,7 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
         bad: bad.clone(),
         restarts: Mutex::new(0),
         busy: std::sync::atomic::AtomicBool::new(false),
+        rollback_allowed: std::sync::atomic::AtomicBool::new(true),
     };
     let http = reqwest::Client::new();
     // A checksum mismatch must fail before activation or service restart.
@@ -185,6 +195,33 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
         good.as_str()
     );
     assert!(!state.join("pending.json").exists());
+    // A migrated state must never fall back to an incompatible previous binary.
+    service
+        .rollback_allowed
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    fs::remove_file(state.join("failed-release"))?;
+    let before = *service.restarts.lock().unwrap();
+    let error = updater::update(&config, &source, "linux-amd64", &http, &service)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("rollback blocked"));
+    assert_eq!(
+        *service.restarts.lock().unwrap(),
+        before + 1,
+        "no incompatible restart"
+    );
+    assert_eq!(
+        fs::read_link(install.join("current"))?.file_name().unwrap(),
+        bad.as_str()
+    );
+    assert!(state.join("pending.json").exists());
+    let before = *service.restarts.lock().unwrap();
+    let error = updater::update(&config, &source, "linux-amd64", &http, &service)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("genesis boundary"));
+    assert_eq!(*service.restarts.lock().unwrap(), before);
+    assert!(state.join("pending.json").exists());
     server.abort();
     Ok(())
 }

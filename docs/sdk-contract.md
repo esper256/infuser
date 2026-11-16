@@ -29,6 +29,10 @@ home-group saves and games stay compatible.
 
 Approved product decisions:
 
+- Player IDs identify permanent group profiles, not Google accounts or email
+  addresses. Existing IDs and save ownership survive the identity migration.
+  Games must treat them as opaque; provider linking and profile selection belong
+  to Infuser. Separate profiles have separate IDs, games and progress.
 - The game-making agent owns building and deciding when to publish. Infuser
   provides an agent-invoked CLI/API accepting runnable artifacts, validation,
   immutable releases, and safe activation. Build detection is an optional shortcut;
