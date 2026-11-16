@@ -1,6 +1,6 @@
 import { openHomeChat } from '/assets/groups.js';
 // Shared Library room. All message text stays text, never markup or links.
-export function initChat({me, api, profileAvatar}) {
+export function initChat({me, api, profileAvatar,onVisibleAuthors=()=>{}}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const root=document.createElement('aside');root.id='library-chat';root.setAttribute('aria-label','Library chat');
   root.innerHTML=`<button id="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-panel" title="Show chat"><span class="chat-icon" aria-hidden="true">···</span><span class="sr-only">Chat</span><span id="chat-unread" hidden></span></button>
@@ -18,7 +18,8 @@ export function initChat({me, api, profileAvatar}) {
   if(me.inspecting)$('form').hidden=true;
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
-  let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,positionFrame,positionSignature;
+  let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,positionFrame,positionSignature,visibleAuthorSignature;
+  const motion=matchMedia('(prefers-reduced-motion: reduce)');
   const setText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
   const setHidden=(node,hidden)=>{if(node.hidden!==hidden)node.hidden=hidden;};
   function schedulePosition(){
@@ -28,42 +29,62 @@ export function initChat({me, api, profileAvatar}) {
   // Only allow rounding error, not a "near bottom" zone that traps small gestures.
   const bottom=()=>log.scrollHeight-log.scrollTop-log.clientHeight<=1;
   const isOpen=()=>!$('panel').hidden;
-  const compact=()=>matchMedia('(max-width: 650px), (pointer: coarse) and (max-height: 500px)').matches;
-  function position() {
+  const compactQuery=matchMedia('(max-width: 650px), (pointer: coarse) and (max-height: 500px)');
+  const compact=()=>compactQuery.matches;
+  function position(latest=false) {
     if(!isOpen())return;
     const stick=bottom(), height=log.clientHeight, widthBefore=log.clientWidth, viewport=window.visualViewport;
     const viewTop=viewport?.offsetTop||0, viewBottom=viewTop+(viewport?.height||innerHeight);
     root.toggleAttribute('data-short',compact()&&viewBottom-viewTop<400);
-    const badges=[...presence.querySelectorAll('[data-player-id]')];
-    const anchor=(badges[0]||$('toggle')).getBoundingClientRect();
+    // Anchor to the row, not an avatar's animated position.
+    const anchor=presence.getBoundingClientRect();
     const width=Math.min(437,document.documentElement.clientWidth-24);
     const left=Math.max(12,Math.min(anchor.left-16,document.documentElement.clientWidth-width-12));
-    // Phones need the visible viewport, especially while the keyboard is open.
-    // Keep the badge-anchored popover on desktop.
     const top=compact()?viewTop+12:Math.max(viewTop+12,Math.min(anchor.bottom+18,viewBottom-260));
     const panelHeight=Math.min(672,viewBottom-top-12);
-    const recent=new Set([...messages].reverse().slice(0,12).filter(m=>Date.now()/1000-m.created<300).map(m=>m.author.id));
-    const pointers=[];
-    for(const badge of compact()?[]:badges){
-      const bounds=badge.getBoundingClientRect(), center=bounds.left+bounds.width/2;
-      if(!recent.has(badge.dataset.playerId)||bounds.top<viewTop||bounds.bottom+4>=top)continue;
-      pointers.push([badge.dataset.playerId,center-left,top-bounds.bottom-4]);
-    }
-    const signature=JSON.stringify([left,top,panelHeight,pointers]);
+    const signature=JSON.stringify([left,top,panelHeight]);
     if(signature!==positionSignature){
       positionSignature=signature;root.style.left=left+'px';root.style.top=top+'px';
       root.style.setProperty('--chat-height',panelHeight+'px');
-      $('pointers').replaceChildren(...pointers.map(([id,x,height])=>{
-        const pointer=document.createElement('span');pointer.className='chat-pointer';pointer.dataset.playerId=id;
-        pointer.style.left=x+'px';pointer.style.setProperty('--tail-height',height+'px');return pointer;
-      }));
     }
-    if(stick&&(log.clientHeight!==height||log.clientWidth!==widthBefore))log.scrollTop=log.scrollHeight;
+    if(latest||stick&&(log.clientHeight!==height||log.clientWidth!==widthBefore))log.scrollTop=log.scrollHeight;
+    const bounds=log.getBoundingClientRect(),visible=new Set();
+    for(const message of log.querySelectorAll('.chat-message')){
+      const rect=message.getBoundingClientRect();
+      if(rect.height&&rect.bottom>bounds.top+log.clientTop&&rect.top<bounds.top+log.clientTop+log.clientHeight)visible.add(message.dataset.authorId);
+    }
+    const authors=[...visible].sort(),authorSignature=JSON.stringify(authors);
+    if(authorSignature!==visibleAuthorSignature){visibleAuthorSignature=authorSignature;onVisibleAuthors(authors);}
+    const existing=new Map([...$('pointers').children].map(pointer=>[pointer.dataset.playerId,pointer]));
+    let moving=false;
+    for(const badge of compact()?[]:presence.querySelectorAll('[data-player-id]')){
+      const animation=badge.getAnimations().find(animation=>animation.id==='presence-reorder'&&animation.playState!=='finished');
+      if(animation)moving=true;
+      // At 65% of this ease-in/out movement, the portrait is ~90% home and slowing.
+      const settling=!animation||Number(animation.currentTime)/Number(animation.effect.getTiming().duration)>=.65;
+      const rect=badge.getBoundingClientRect(),center=rect.left+rect.width/2;
+      if(!visible.has(badge.dataset.playerId)||!settling||rect.top<viewTop||rect.bottom+4>=top||center<left+12||center>left+width-12)continue;
+      let pointer=existing.get(badge.dataset.playerId);
+      if(!pointer){
+        pointer=document.createElement('span');pointer.className='chat-pointer';pointer.dataset.playerId=badge.dataset.playerId;
+        $('pointers').append(pointer);
+        if(!motion.matches)pointer.animate([{opacity:0,transform:'translateX(-50%) scaleY(0)'},{opacity:1,transform:'translateX(-50%) scaleY(1)'}],{duration:140,easing:'ease-out'});
+      }
+      const x=(center-left)+'px',tail=(top-rect.bottom-4)+'px';
+      if(pointer.style.left!==x)pointer.style.left=x;
+      if(pointer.style.getPropertyValue('--tail-height')!==tail)pointer.style.setProperty('--tail-height',tail);
+      existing.delete(badge.dataset.playerId);
+    }
+    for(const pointer of existing.values())pointer.remove();
+    // Only run frames while a finite avatar movement is in flight; idle chat sleeps.
+    if(moving)schedulePosition();
   }
   // Follow badge replacement, theme changes, wrapping and the mobile keyboard.
-  new ResizeObserver(schedulePosition).observe(document.querySelector('body > header'));
+  const resize=new ResizeObserver(schedulePosition);resize.observe(document.querySelector('body > header'));resize.observe(log);
   new MutationObserver(schedulePosition).observe(presence,{childList:true});
   new MutationObserver(schedulePosition).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+  window.addEventListener('infuser-presence-motion',schedulePosition);
+  motion.addEventListener('change',schedulePosition);
   window.addEventListener('resize',schedulePosition);window.addEventListener('scroll',schedulePosition,{passive:true});
   window.visualViewport?.addEventListener('resize',schedulePosition);window.visualViewport?.addEventListener('scroll',schedulePosition);
   const markRead=()=>{lastRead=Math.max(lastRead,...messages.map(m=>m.id));setHidden($('new'),true);updateToggle();};
@@ -79,14 +100,19 @@ export function initChat({me, api, profileAvatar}) {
   function setOpen(open,restoreFocus=true) {
     root.hidden=!open;$('panel').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));$('toggle').title=open?'Hide chat':'Show chat';
     updateToggle();
-    if(open){position();scrollLatest();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}else if(restoreFocus)$('toggle').focus({preventScroll:true});
+    if(open){position(true);scrollLatest();schedulePosition();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}
+    else{
+      cancelAnimationFrame(positionFrame);positionFrame=null;visibleAuthorSignature=null;
+      $('pointers').replaceChildren();onVisibleAuthors([]);
+      if(restoreFocus)$('toggle').focus({preventScroll:true});
+    }
   }
   $('toggle').onclick=()=>setOpen(!isOpen());$('close').onclick=()=>setOpen(false);
   root.addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();event.stopPropagation();setOpen(false);}});
   $('toggle').addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();setOpen(false);}});
   document.addEventListener('pointerdown',event=>{if(isOpen()&&!root.contains(event.target)&&!$('toggle').contains(event.target))setOpen(false,false);});
   $('new').onclick=scrollLatest;
-  log.addEventListener('scroll',()=>{if(bottom()&&isOpen())markRead();},{passive:true});
+  log.addEventListener('scroll',()=>{if(bottom()&&isOpen())markRead();schedulePosition();},{passive:true});
   input.oninput=()=>{
     $('limit').textContent=Array.from(input.value).length+' / 280';
     $('send').disabled=sending||!input.value.trim();
@@ -96,7 +122,7 @@ export function initChat({me, api, profileAvatar}) {
   });
   function row(message) {
     const own=message.author.id===me.player_id, article=document.createElement('article');
-    article.className='chat-message'+(own?' own':'');article.dataset.id=message.id;
+    article.className='chat-message'+(own?' own':'');article.dataset.id=message.id;article.dataset.authorId=message.author.id;
     const portrait=profileAvatar(message.author.name,message.author.id,message.author.avatar);
     portrait.classList.add('chat-portrait');portrait.title=message.author.name;
     const bubble=document.createElement('div');bubble.className='chat-bubble';

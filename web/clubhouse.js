@@ -343,6 +343,44 @@ function profileAvatar(name,id,picture,size=128) {
   const avatar=el('span',initials.toLocaleUpperCase(),'avatar tone-'+tone+(initials?'':' avatar-unknown'));avatar.setAttribute('aria-hidden','true');return avatar;
 }
 let presenceSignature='',presenceLayoutKey='',presenceSlots=0;
+let chatAuthors=new Set(),chatReordering=false;
+const presenceItems=new WeakMap(),presenceMotions=new Map(),presenceGhosts=new Set();
+function prioritizeChatAuthors(ids){
+  const next=new Set(ids);
+  if(next.size===chatAuthors.size&&[...next].every(id=>chatAuthors.has(id)))return;
+  chatAuthors=next;chatReordering=true;if(library)renderPresence();chatReordering=false;
+}
+function animatePresence(list,before){
+  for(const animation of presenceMotions.values())animation.cancel();presenceMotions.clear();
+  for(const ghost of presenceGhosts)ghost.remove();presenceGhosts.clear();
+  if(reactionMotion.matches||document.hidden||!chatReordering&&!chatAuthors.size)return;
+  const overflow=list.querySelector('.presence-more')?.getBoundingClientRect();
+  let moving=false;
+  for(const item of list.children){
+    const key=item.dataset.playerId||'overflow',previous=before.get(key),to=item.getBoundingClientRect();
+    const from=previous?.bounds||before.get('overflow')?.bounds;
+    if(!from)continue;
+    const x=from.left-to.left,y=from.top-to.top;
+    if(Math.hypot(x,y)<.5&&previous?.item===item)continue;
+    const animation=item.animate([{transform:`translate(${x}px,${y}px)`,opacity:previous?1:0},{transform:'translate(0,0)',opacity:1}],{duration:420,easing:'cubic-bezier(.45,0,.2,1)'});
+    animation.id='presence-reorder';presenceMotions.set(item,animation);moving=true;
+    animation.onfinish=()=>{if(presenceMotions.get(item)===animation)presenceMotions.delete(item);};
+  }
+  // Let avatars leaving the visible slots glide back to the overflow badge.
+  for(const [key,{item,bounds}] of before){
+    if(key==='overflow'||list.contains(item)||list.querySelector(`[data-player-id="${CSS.escape(key)}"]`))continue;
+    const portrait=item.querySelector('.avatar');if(!portrait)continue;
+    const ghost=el('span',undefined,'presence-ghost');ghost.setAttribute('aria-hidden','true');ghost.append(portrait.cloneNode(true));
+    Object.assign(ghost.style,{left:bounds.left+'px',top:bounds.top+'px',width:bounds.width+'px',height:bounds.height+'px'});
+    document.body.append(ghost);presenceGhosts.add(ghost);
+    const x=overflow?overflow.left-bounds.left:0,y=overflow?overflow.top-bounds.top:0;
+    const animation=ghost.animate([{transform:'translate(0,0)',opacity:1},{transform:`translate(${x}px,${y}px)`,opacity:0}],{duration:300,easing:'cubic-bezier(.45,0,.2,1)'});
+    animation.onfinish=()=>{ghost.remove();presenceGhosts.delete(ghost);};
+  }
+  if(moving)window.dispatchEvent(new Event('infuser-presence-motion'));
+}
+reactionMotion.addEventListener('change',()=>{if(reactionMotion.matches){for(const animation of presenceMotions.values())animation.cancel();presenceMotions.clear();for(const ghost of presenceGhosts)ghost.remove();presenceGhosts.clear();}});
+
 function visiblePresenceCount(people){
   const list=$('friends'),cluster=list.closest('.presence-chat');
   if(!cluster||!people.length)return people.length;
@@ -365,7 +403,7 @@ function visiblePresenceCount(people){
 const presenceResize=new ResizeObserver(()=>{if(library)renderPresence();});
 
 function renderPresence() {
-  const people=(library.friends||[]).filter(person=>person.id!==me.player_id),list=$('friends');
+  const people=(library.friends||[]).filter(person=>person.id!==me.player_id).sort((a,b)=>Number(chatAuthors.has(b.id))-Number(chatAuthors.has(a.id))),list=$('friends');
   // Leave menus and keyboard focus intact when a poll has no presence changes.
   const visibleCount=visiblePresenceCount(people);
   const signature=JSON.stringify([me.inspecting,people,visibleCount]);
@@ -374,10 +412,13 @@ function renderPresence() {
   const menuKey=key=>people.slice(visibleCount).some(person=>person.id===key)?'overflow':key;
   const opened=menuKey(list.querySelector('.friend-menu[open]')?.dataset.key);
   const focused=menuKey(document.activeElement.closest('.friend-menu')?.dataset.key);
-  const focusAction=document.activeElement.dataset.friendAction;
-  for(const item of [...list.children])if(!item.classList.contains('presence-self'))item.remove();
+  const focusedElement=document.activeElement,focusAction=focusedElement.dataset.friendAction;
+  const before=new Map([...list.children].map(item=>[item.dataset.playerId||'overflow',{item,bounds:item.getBoundingClientRect()}]));
+  const nextItems=[...list.children].filter(item=>item.classList.contains('presence-self'));
   list.hidden=false;
   function addMenu(key,persons,overflow=false){
+    const signature=JSON.stringify([me.inspecting,persons]),previous=before.get(key)?.item;
+    if(previous&&presenceItems.get(previous)===signature){nextItems.push(previous);return;}
     const item=el('li',undefined,'presence-person'+(overflow?' presence-more':''));
     const menu=el('details',undefined,'header-menu friend-menu');menu.dataset.key=key;
     const trigger=el('summary'),panel=el('div',undefined,'account-menu friend-actions');
@@ -402,18 +443,25 @@ function renderPresence() {
       }
     }
     function position(){
+      // A transformed ancestor would change the fixed menu's containing block.
+      presenceMotions.get(item)?.finish();
       const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
       panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
       panel.style.top=(bounds.bottom+10)+'px';panel.style.maxHeight=Math.max(44,innerHeight-bounds.bottom-26)+'px';
     }
     trigger.addEventListener('click',position);menu.addEventListener('toggle',position);
-    menu.append(trigger,panel);item.append(menu);list.append(item);
-    if(opened===key){menu.open=true;position();}
-    if(focused===key){([...panel.querySelectorAll('button')].find(b=>b.dataset.friendAction===focusAction)||trigger).focus();}
+    menu.append(trigger,panel);item.append(menu);nextItems.push(item);presenceItems.set(item,signature);
+    if(opened===key)menu.open=true;
   }
   for(const person of people.slice(0,visibleCount))addMenu(person.id,[person]);
   if(people.length>visibleCount)addMenu('overflow',people.slice(visibleCount),true);
-  if(focused&&!list.querySelector('.friend-menu summary:focus,.friend-menu button:focus'))$('account-trigger')?.focus();
+  reconcileChildren(list,nextItems);
+  animatePresence(list,before);
+  if(focused){
+    const menu=[...list.querySelectorAll('.friend-menu')].find(menu=>menu.dataset.key===focused);
+    const target=focusedElement.isConnected?focusedElement:menu&&([...menu.querySelectorAll('button')].find(button=>button.dataset.friendAction===focusAction)||menu.querySelector('summary'));
+    (target||$('account-trigger'))?.focus({preventScroll:true});
+  }
 }
 for(const event of ['resize','scroll'])window.addEventListener(event,()=>{for(const menu of document.querySelectorAll('.friend-menu[open]'))menu.open=false;},{passive:true});
 
@@ -679,7 +727,7 @@ $('profile-form').onsubmit=async event=>{
 try {
   me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});$('recent-menu').hidden=false;
-  initChat({me, api, profileAvatar});
+  initChat({me, api, profileAvatar,onVisibleAuthors:prioritizeChatAuthors});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
   initClientUpdates({api});

@@ -11,6 +11,14 @@ is open. If sending fails, retry without retyping. The badge counts unread
 messages. Reading older messages keeps your place; **New messages ↓** returns
 to the latest ones.
 
+While chat is open, online friends with messages currently visible in the
+history move toward the left of the presence row. Scroll to follow a different
+part of the conversation and the row follows along. Your own profile control
+stays in place. On desktop, speech tails open toward the visible speakers as
+their pictures finish moving; closing chat restores the usual order. Reduced
+motion skips the animation. The compact phone layout keeps its full-height
+conversation without speech tails.
+
 You can remove your own messages; admins can remove anyone's. Chat keeps
 recent conversation for up to seven days. Older messages may disappear sooner
 as the room fills up; it is not a permanent archive.
