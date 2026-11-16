@@ -325,6 +325,14 @@ Chromium service worker, notification, fullscreen and sign-out journey, set
 [development](development.md)). The test substitutes browser-provider registration;
 actual iPhone/Android background delivery must also be checked on a phone.
 
+Channel storage and access: `cargo test --locked --test chat_channels_journey`.
+This upgrades populated legacy stores, including active visits and queued push,
+checks atomic migration failure/retry, and verifies explicit participant and
+channel expiration through the same policy. Run `chat_journey`,
+`notifications_journey`, and `visits_journey` alongside it for the unchanged
+website contract. See [channel foundations](proposals/chat-channels.md) for the
+storage compatibility and rollback boundary.
+
 ## Feedback
 
 Tests: `cargo test --locked --lib portal::feedback`,

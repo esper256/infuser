@@ -1,34 +1,9 @@
-//! A bounded shared room, independent of the legacy catalog and game saves.
+//! Bounded channel messages. Group methods preserve the existing website API.
 use super::*;
 use crate::portal::fault;
 use serde_json::{Value, json};
 
 const RETENTION: u64 = 7 * 24 * 60 * 60;
-
-pub(super) fn initialize(c: &Connection) -> Result<()> {
-    c.execute_batch(
-        "CREATE TABLE IF NOT EXISTS library_chat (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        author TEXT NOT NULL, client_id TEXT NOT NULL, text TEXT,
-        created INTEGER NOT NULL, UNIQUE(author,client_id)
-    );",
-    )?;
-    let columns = c
-        .prepare("PRAGMA table_info(library_chat)")?
-        .query_map([], |r| r.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if !columns.iter().any(|c| c == "private_group") {
-        c.execute(
-            "ALTER TABLE library_chat ADD COLUMN private_group TEXT NOT NULL DEFAULT 'home'",
-            [],
-        )?;
-    }
-    c.execute(
-        "CREATE INDEX IF NOT EXISTS library_chat_group ON library_chat(private_group,id)",
-        [],
-    )?;
-    Ok(())
-}
 
 fn members(db: &Database, c: &Connection, email: &str) -> Result<Data> {
     let data = db.cached_catalog(c)?;
@@ -45,26 +20,28 @@ impl Database {
         self.chat_list_group(email, &group, false)
     }
     pub fn chat_list_group(&self, email: &str, group: &str, inspecting: bool) -> Result<Value> {
+        self.chat_list_channel(email, &self.default_chat_channel(group)?, inspecting)
+    }
+    pub fn chat_list_channel(
+        &self,
+        email: &str,
+        channel_id: &str,
+        inspecting: bool,
+    ) -> Result<Value> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         let data = members(self, &tx, email)?;
-        ensure!(
-            if inspecting {
-                data.groups.operator(email)
-            } else {
-                data.chat_boundary(email, group, now()).is_some()
-            },
-            fault(403, "Group access denied.")
-        );
-        let floor = if inspecting {
-            0
-        } else {
-            data.chat_boundary(email, group, now())
-                .ok_or_else(|| fault(403, "Visit access ended."))?
-        };
-        let mut statement = tx.prepare("SELECT id,author,text,created FROM library_chat WHERE private_group=?2 AND text IS NOT NULL AND created>?1 AND id>?3 ORDER BY id")?;
+        let channel = channels::Channel::load(&tx, channel_id)?;
+        let access = channel
+            .access(&data, email, inspecting, now())
+            .ok_or_else(|| fault(403, "Group access denied."))?;
+        let mut statement = tx.prepare("SELECT id,author,text,created FROM library_chat WHERE channel_id=?2 AND text IS NOT NULL AND created>?1 AND id>?3 ORDER BY id")?;
         let rows = statement.query_map(
-            params![now().saturating_sub(RETENTION), group, floor],
+            params![
+                now().saturating_sub(RETENTION),
+                channel.id,
+                access.after_message
+            ],
             |r| {
                 Ok((
                     r.get::<_, u64>(0)?,
@@ -80,7 +57,7 @@ impl Database {
             if let Some(member) = data.members.get(&author).filter(|m| m.enabled) {
                 messages.push(json!({"id":id,"text":text,"created":created,
                     "author":{"id":hash(&author),"name":member.name,"avatar":member.avatar},
-                    "can_delete":!inspecting&&(author==email||(data.groups.member(email)==group&&data.members[email].admin))}));
+                    "can_delete":access.can_delete(email, &author)}));
             }
         }
         Ok(json!({"messages":messages}))
@@ -94,6 +71,15 @@ impl Database {
         &self,
         email: &str,
         group: &str,
+        client_id: &str,
+        text: &str,
+    ) -> Result<Value> {
+        self.chat_send_channel(email, &self.default_chat_channel(group)?, client_id, text)
+    }
+    pub fn chat_send_channel(
+        &self,
+        email: &str,
+        channel_id: &str,
         client_id: &str,
         text: &str,
     ) -> Result<Value> {
@@ -114,18 +100,20 @@ impl Database {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let data = members(self, &tx, email)?;
-        let floor = data
-            .chat_boundary(email, group, now())
+        let channel = channels::Channel::load(&tx, channel_id)?;
+        let access = channel
+            .access(&data, email, false, now())
+            .filter(|a| a.writable)
             .ok_or_else(|| fault(403, "Group access ended."))?;
         let time = now();
         tx.execute(
-            "DELETE FROM library_chat WHERE private_group=?2 AND created<=?1",
-            params![time.saturating_sub(RETENTION), group],
+            "DELETE FROM library_chat WHERE channel_id=?2 AND created<=?1",
+            params![time.saturating_sub(RETENTION), channel.id],
         )?;
         // Retrying a lost response must not create a duplicate or resurrect a removed message.
-        if let Some((id, original, original_group)) = tx
+        if let Some((id, original, original_channel)) = tx
             .query_row(
-                "SELECT id,text,private_group FROM library_chat WHERE author=?1 AND client_id=?2",
+                "SELECT id,text,channel_id FROM library_chat WHERE author=?1 AND client_id=?2",
                 params![email, client_id],
                 |r| {
                     Ok((
@@ -138,8 +126,8 @@ impl Database {
             .optional()?
         {
             ensure!(
-                original_group == group
-                    && id > floor
+                original_channel == channel.id
+                    && access.sees(id)
                     && original.as_deref().is_none_or(|s| s == text),
                 fault(409, "Message ID already used.")
             );
@@ -155,12 +143,12 @@ impl Database {
             fault(429, "Give it a moment. Try again in a minute.")
         );
         tx.execute(
-            "INSERT INTO library_chat(author,client_id,text,created,private_group) VALUES(?1,?2,?3,?4,?5)",
-            params![email, client_id, text, time,group],
+            "INSERT INTO library_chat(author,client_id,text,created,private_group,channel_id) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![email, client_id, text, time, channel.legacy_group(), channel.id],
         )?;
         let id = tx.last_insert_rowid();
-        crate::notifications::enqueue(&tx, &data, email, group, id, time)?;
-        tx.execute("DELETE FROM library_chat WHERE private_group=?1 AND id NOT IN (SELECT id FROM library_chat WHERE private_group=?1 ORDER BY id DESC LIMIT 100)", [group])?;
+        crate::notifications::enqueue(&tx, &data, email, &channel, id, time)?;
+        tx.execute("DELETE FROM library_chat WHERE channel_id=?1 AND id NOT IN (SELECT id FROM library_chat WHERE channel_id=?1 ORDER BY id DESC LIMIT 100)", [&channel.id])?;
         tx.commit()?;
         Ok(json!({"id":id}))
     }
@@ -170,23 +158,28 @@ impl Database {
         self.chat_remove_group(email, &group, id)
     }
     pub fn chat_remove_group(&self, email: &str, group: &str, id: u64) -> Result<()> {
+        self.chat_remove_channel(email, &self.default_chat_channel(group)?, id)
+    }
+    pub fn chat_remove_channel(&self, email: &str, channel_id: &str, id: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let data = members(self, &tx, email)?;
-        let floor = data
-            .chat_boundary(email, group, now())
+        let channel = channels::Channel::load(&tx, channel_id)?;
+        let access = channel
+            .access(&data, email, false, now())
+            .filter(|a| a.writable)
             .ok_or_else(|| fault(403, "Group access ended."))?;
-        ensure!(id > floor, fault(404, "Message not found."));
+        ensure!(access.sees(id), fault(404, "Message not found."));
         let author: String = tx
             .query_row(
-                "SELECT author FROM library_chat WHERE id=?1 AND private_group=?2",
-                params![id, group],
+                "SELECT author FROM library_chat WHERE id=?1 AND channel_id=?2",
+                params![id, channel.id],
                 |r| r.get(0),
             )
             .optional()?
             .ok_or_else(|| fault(404, "Message not found."))?;
         ensure!(
-            author == email || (data.groups.member(email) == group && data.members[email].admin),
+            access.can_delete(email, &author),
             fault(403, "Only the sender or an admin can remove this message.")
         );
         // Keep a bounded tombstone for retries and rate limiting.

@@ -2,16 +2,11 @@
 
 Audience: Infuser developers.
 
-- Next implementation task after visits: refactor chat around channels with stable
-  conversation IDs independent of private-group IDs. Keep each group's current
-  chat as its default channel, with no new UI or user-visible behavior. Use one
-  small model for channel access, message storage, and notification routing that
-  can later support direct messages, custom group chats, and temporary channels
-  with explicit participants and expiration. Migrate existing messages and pending
-  notifications safely. Preserve message ordering, retention, retries, group
-  isolation, visit admission windows, and hosts' uninterrupted visit history;
-  expired visitors must not receive queued notifications. Choose the simplest
-  foundation that supports these requirements; new channel features come later.
+- [Chat channel foundations](proposals/chat-channels.md) separate conversation
+  identity from private groups and share access policy across messages and push.
+  The existing group chat remains the only website conversation; visit windows
+  and host history are preserved. Design direct messages, custom chats, temporary
+  channels, and their notification preferences before exposing new UI or APIs.
 
 - Keep game titles and URL slugs independent of stable game and deployment IDs.
   Favor easy renaming over permanently pretty URLs. Renaming must preserve saves,
