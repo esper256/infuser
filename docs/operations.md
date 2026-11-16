@@ -19,7 +19,9 @@ sudo chmod 0640 /etc/infuser/control.secret
 ```
 
 Edit the private config: domain, advertised host, budgets and game/site entries.
-Stage game images with `docker pull` or a local build. Wake requests never perform
+For managed Node games, enable the [source-packaging recipe](server-packaging.md).
+Stage images manually only for other runtimes or the advanced image route.
+Wake requests never perform
 a network image pull or compile a game. This keeps launches predictable.
 
 ```sh
@@ -74,7 +76,14 @@ host mounts, capabilities or Docker flags.
 The free-disk threshold blocks **new starts**. It is not a disk quota: image caches
 and persistent saves can still grow while games run. Monitor disk space and back
 up worlds. Do not blindly prune game volumes. Images are staged and cleaned up by
-the operator until the publisher manages build retention.
+the operator for staged-image games. Managed Node builds have bounded image
+retention and remove unused images through the publishing API.
+
+## Diagnosing game failures
+
+Use [server diagnostics](server-diagnostics.md) for app-scoped build/runtime logs,
+retained shutdown/crash evidence, and controller journal commands. Give the game's
+agent its existing publishing credential, never the controller key or SSH access.
 
 ## Verification
 

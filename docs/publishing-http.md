@@ -105,6 +105,14 @@ The CLI normally injects it; this route must include it explicitly. Do not inclu
 the legacy SDK script as well. Integrate the relevant runtime APIs—the script
 alone does not implement saves or multiplayer for the game.
 
+For a managed Node server, follow the [Node recipe](engines/node-server.md) and
+require `server_packaging.enabled`. In the build request, replace `server:null`
+with `server_recipe` containing the recipe fields (`runtime`, `node_major`,
+`entry`, `health_path`, and any resource limits). **Omit `dir`**: it is a CLI-local
+folder setting, not an API field. Use the game's actual play modes and
+`server_start:"on_demand"` in its manifest. Do not send both a staged image server
+and a source recipe.
+
 ## Upload and publish
 
 Choose a fresh lowercase slug build ID beginning with a letter, at most 48
@@ -137,7 +145,22 @@ curl --silent --show-error --fail --proto '=https' \
 
 Check **every** upload's exit status and response. On interruption, GET
 `$BUILD_URL` to inspect the inventory and resume the same draft; don't activate a
-partial build. Once all files are uploaded, write `.local/publish.json` containing
+partial build.
+
+For a managed server, also upload each server source file to
+`$BUILD_URL/server/files/$UPLOAD_PATH`, using the same raw-file PUT pattern.
+Keep paths relative to the server source folder. Include package/lock files and
+shared modules; exclude credentials, hidden files and `node_modules`. These files
+are private and must not be sent to the public `/files/` endpoint.
+
+POST `$BUILD_URL/server-build` without a body to seal the client/server inputs and
+queue packaging. Poll GET on that URL about once a second until `ready` or `failed`.
+Use a bounded wait; on timeout, report the existing build ID and resume checking
+that job. Do not publish before `ready`. Read `logs`/`error` on failure and follow
+[server diagnostics](server-diagnostics.md). Changed source requires a new build;
+repeating finalization of unchanged inputs does not create a duplicate job.
+
+Once all files and any server packaging are ready, write `.local/publish.json` containing
 `{"listed":true}` (`false` for adult-only previews), then:
 
 ```sh

@@ -2,6 +2,11 @@
 
 **Direction accepted; detailed interfaces remain a proposal.** See the [SDK decisions](../sdk-1.0-decisions.md). This does not declare the existing SDK stable or change production behavior. It builds on the implementation at `11a24df` and the supplied Lanternfall feature request. Names in proposed API examples are illustrative until the wire contract is reviewed.
 
+**Implementation update:** [managed Node packaging and hosting](../engines/node-server.md)
+are now available and tested. Use that recipe's actual fields and endpoints.
+Verified browser-to-server identity, dedicated session discovery and Join Friend
+remain future work; their absence does not block publishing a Node/WebSocket game.
+
 Infuser should give a game a dependable identity, storage, hosting and social environment while leaving its simulation and networking messages intact. An agent should be able to publish a browser client and a dedicated server together, without Docker expertise or an operator building an image. That publishing experience should also accommodate future Godot servers, Rust servers and other runtimes.
 
 The recommendation is **one active deployment per game and private group, containing a matched client and server release, with game-owned gameplay sessions and Infuser-controlled access**. Start with a managed Node recipe and WebSocket adapter. Freeze the durable ownership and lifecycle rules before calling the SDK 1.0; engine recipes can keep evolving independently.

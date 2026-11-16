@@ -437,6 +437,7 @@ impl Controller {
                 if i.attempt != instance.attempt || i.phase != instance.phase {
                     return Ok(());
                 }
+                let before = i.phase.clone();
                 match result {
                     Ok(_) if instance.phase == Phase::Stopping => {
                         i.phase = if i.error.is_some() {
@@ -467,6 +468,10 @@ impl Controller {
                             i.error = Some(error.to_string());
                         }
                     }
+                }
+                if i.phase != before {
+                    tracing::info!(app_id = %id, attempt = %i.attempt, image = %i.spec.image,
+                        from = ?before, to = ?i.phase, error = ?i.error, "Game lifecycle transition");
                 }
                 Ok(())
             })?;

@@ -137,6 +137,7 @@ impl Platform {
             job.log("Packaging started.");
             Ok(())
         })?;
+        tracing::info!(job = %key, attempt = job.attempt + 1, "Server packaging started");
         let db = self.db.clone();
         let progress_key = key.clone();
         let progress: Progress = Arc::new(move |state, line| {
@@ -183,11 +184,14 @@ impl Platform {
             let job = d.server_builds.get_mut(&key).ok_or_else(|| fault(404,"server build disappeared"))?;
             match result {
                 Ok(artifact) => {
+                    tracing::info!(job = %key, image = %artifact.image, "Server packaging ready");
                     d.builds.get_mut(&key).ok_or_else(|| fault(404,"build disappeared"))?.server = Some(job.recipe.game(artifact.image.clone()));
                     job.artifact = Some(artifact); job.state = Phase::Ready; job.error = None;
                     job.log("Server image passed readiness checks. The paired build is ready to publish.");
                 }
                 Err(error) => {
+                    // Detailed output remains in the app-scoped job log.
+                    tracing::warn!(job = %key, "Server packaging failed; inspect publisher job logs");
                     job.state = Phase::Failed; job.artifact = None; job.error = Some("packaging_failed".into());
                     job.log(&format!("{error:#}"));
                 }

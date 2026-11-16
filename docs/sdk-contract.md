@@ -75,6 +75,9 @@ experimentally. A targeted peer join binds to the observed session ID; it never
 creates a replacement world. [Join friend launch intents](launch-intents.md) are
 opt-in and consumed once by the game, with guarded friend/session admission.
 Dedicated-server joinability reports are not implemented yet.
+Dedicated Node/WebSocket **hosting is implemented** through the
+[managed Node recipe](engines/node-server.md), including multiple game-owned rooms
+inside one server. It does not depend on those future social/identity interfaces.
 
 ## Compatibility foundation and promise for 1.0
 

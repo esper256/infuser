@@ -29,10 +29,14 @@ configure hosting, manage credentials, or create a GitHub account.
 | --- | --- |
 | Three.js, Vite, or plain HTML/JavaScript | [Browser games](engines/threejs-vite.md) |
 | Browser game using PeerJS | [PeerJS adapter](peerjs.md), including standalone play |
+| Browser game with a Node HTTP/WebSocket server | [Managed Node hosting](engines/node-server.md): upload source; Infuser packages and runs it |
 | Godot web | [Web export and saves](engines/godot-web.md), then [multiplayer](engines/godot-multiplayer.md) if needed |
 | Godot native, single-player Windows/Linux | [Infuser Play preview](engines/godot-native.md) |
 
 Godot and PeerJS adapters are previews with the limitations in their recipes.
+Managed Node hosting is implemented and tested. Check this installation's
+`server_packaging` capability; an old proposal or missing dedicated Join Friend
+support is not a reason to reject Node/WebSocket hosting.
 [Bevy](engines/bevy.md) has no validated integration yet. Do not promise support
 based only on an engine's ability to export a web page.
 
@@ -96,6 +100,10 @@ unless the game has changed. This gives future agents context for artwork and
 updates. Cover, description, and Library-title edits do not require a new build.
 
 ## Publish and verify
+
+For a server-backed game, use the current [publisher download](publisher-install.md).
+On failure, read its build log or [runtime diagnostics](server-diagnostics.md)
+before asking the child for help. Reuse the existing app and credentials.
 
 Use the project's existing build tools, then publish from its root with the
 built output path. For example, after building a Vite game:

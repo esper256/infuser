@@ -1,6 +1,6 @@
 # Browser game with a Node server
 
-Use this preview recipe for plain JavaScript servers using HTTP/WebSocket, including
+**Implemented and tested; SDK 1.0 remains a preview.** Use this recipe for plain JavaScript servers using HTTP/WebSocket, including
 Three.js games using `ws`. Keep the game's networking messages and room logic.
 The publisher uploads the client and server together; the author needs no Docker.
 
@@ -64,6 +64,10 @@ play. A failed Infuser launch must not fall back to an unrelated public server.
 
 Publish normally:
 
+Use a [current publisher executable](../publisher-install.md). Older downloads may
+only understand operator-staged images. The [HTTP route](../publishing-http.md)
+also supports server source uploads without installing a CLI.
+
 ```sh
 infuser publish .local/game.credentials.json /path/to/project
 ```
@@ -73,6 +77,9 @@ publishes the matched client/server pair. A failure leaves the current release
 active. The agent can inspect `/api/publisher/apps/APP/builds/BUILD/server-build`;
 do not request another setup code for a packaging error. Fix source in a new build.
 An interrupted build can retry its sealed inputs by POSTing that same URL.
+For startup failures, crashes, or lost connections after publication, read
+[server diagnostics](../server-diagnostics.md). The same publishing credential
+can retrieve this game's live and recently stopped server logs.
 
 The recipe installs registry dependencies from npm lockfiles v2/v3, offline, with
 install scripts disabled. It does not support native compilation, Git/local/URL

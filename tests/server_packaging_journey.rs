@@ -118,6 +118,14 @@ async fn sealing_capacity_retries_recovery_and_pair_activation() -> Result<()> {
         axum::serve(listener, router).await.unwrap()
     }));
     let first = api.create("one").await?;
+    let diagnostics = api.call("GET", "/api/publisher/apps/pond/server-diagnostics")
+        .send().await?.error_for_status()?.json::<Value>().await?;
+    assert_eq!(diagnostics["version"], 1);
+    assert_eq!(diagnostics["recent"], json!([]));
+    assert_eq!(api.call("GET", "/api/publisher/apps/another-game/server-diagnostics")
+        .send().await?.status(), 401);
+    assert_eq!(api.http.get(format!("{}/api/publisher/apps/pond/server-diagnostics", api.url))
+        .header("host", "games.example.com").send().await?.status(), 401);
     assert_eq!(
         api.call("POST", &format!("{first}/publish"))
             .send()

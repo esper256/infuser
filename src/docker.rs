@@ -8,6 +8,8 @@ use tokio::process::Command;
 const OWNER: &str = "org.infuser.controller";
 const GAME: &str = "org.infuser.game";
 const ATTEMPT: &str = "org.infuser.attempt";
+mod diagnostics;
+pub use diagnostics::{retained as retained_diagnostics, capabilities as diagnostics_capabilities};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Health {
@@ -24,6 +26,9 @@ pub trait Engine: Send + Sync {
     async fn ensure(&self, id: &str, instance: &Instance, owner: &str) -> Result<Health>;
     async fn health(&self, instance: &Instance, owner: &str, id: &str) -> Result<Health>;
     async fn remove(&self, id: &str, instance: &Instance, owner: &str) -> Result<()>;
+    async fn diagnostics(&self, _id: &str, _instance: &Instance, _owner: &str) -> Result<Option<Value>> {
+        Ok(None)
+    }
     async fn web_address(
         &self, id: &str, instance: &Instance, owner: &str,
     ) -> Result<std::net::SocketAddr> {
@@ -327,6 +332,9 @@ impl Docker {
 
 #[async_trait]
 impl Engine for Docker {
+    async fn diagnostics(&self, id: &str, instance: &Instance, owner: &str) -> Result<Option<Value>> {
+        self.capture_diagnostics(id, instance, owner).await
+    }
     async fn web_address(
         &self, id: &str, instance: &Instance, owner: &str,
     ) -> Result<std::net::SocketAddr> {
@@ -448,6 +456,17 @@ impl Engine for Docker {
                     i.spec.stop_seconds + 15,
                 )
                 .await?;
+            }
+            // Keep a bounded report after stop (including shutdown output) and
+            // before removal. A logging failure must not prevent cleanup.
+            match self.capture_diagnostics(id, i, owner).await {
+                Ok(Some(report)) => {
+                    if let Err(error) = diagnostics::retain(&self.settings, id, report) {
+                        tracing::warn!(app_id = id, attempt = %i.attempt, %error, "Could not retain game diagnostics");
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(app_id = id, attempt = %i.attempt, %error, "Could not capture game diagnostics"),
             }
             self.cmd(&["container", "rm", "--volumes", &i.name]).await?;
         }

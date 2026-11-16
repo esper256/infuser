@@ -38,6 +38,7 @@ or control the host. Admin revocation and member disabling take effect immediate
 | PUT | `/api/publisher/apps/APP/builds/BUILD/files/PATH` | Upload raw file body |
 | PUT | `/api/publisher/apps/APP/builds/BUILD/server/files/PATH` | Upload private managed-server source |
 | POST / GET | `/api/publisher/apps/APP/builds/BUILD/server-build` | Seal/queue server packaging, or inspect its state/logs |
+| GET | `/api/publisher/apps/APP/server-diagnostics` | Private live/recent runtime logs, health, exit status and build correlation |
 | POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for adult-only preview |
 | DELETE | `/api/publisher/apps/APP/builds/BUILD` | Remove an unused build |
 | DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |

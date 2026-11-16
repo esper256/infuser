@@ -42,7 +42,10 @@ async fn bounded(mut reader: impl AsyncRead + Unpin, limit: usize) -> Result<Vec
         if read == 0 {
             break;
         }
-        result.extend_from_slice(&buffer[..read.min(limit.saturating_sub(result.len()))]);
+        result.extend_from_slice(&buffer[..read]);
+        if result.len() > limit {
+            result.drain(..result.len() - limit);
+        }
     }
     Ok(result)
 }
