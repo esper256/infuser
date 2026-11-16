@@ -6,6 +6,33 @@ Start with [development setup](development.md). Run commands from the repository
 root. These harnesses test the platform. Historical results below record what was
 exercised, not certification of every game or device.
 
+## Unattended operation
+
+Fast checks: `cargo test --locked --test operations_journey --test host_health_journey --test update_journey`.
+These cover maintenance admission, active-player deferral, bounded recovery,
+planned backup downtime, the recovery hook, staged-release cleanup and rollback.
+`groups_journey` verifies operator-only health access; set
+`INFUSER_GROUP_BROWSER_NODE=/path/to/node` to include its browser flow.
+
+The encrypted restore journey is opt-in:
+`INFUSER_TEST_RESTIC=/path/to/restic cargo test --locked --test backup_journey -- --ignored`.
+It verifies replacement retention, restored files/worlds and a restored game and
+save served through HTTP. Use restic 0.19.1 or newer for the tested command set.
+
+The manual Docker/Caddy integration workflow also runs a root-only backup fixture
+against uniquely owned volumes and the demo image. It checks surviving-container
+rejection, required images, world ownership, permissions, links and directories.
+Its `lifecycle_rounds` input enables 2–100 real wake/serve/sleep cycles without
+slowing PR CI. Twenty cycles are a useful first endurance check; they are not a
+multi-day soak or proof that every game's save format tolerates abrupt shutdown.
+
+Validate the monitoring Compose configuration and Grafana provisioning in a
+disposable installation. Check actual Prometheus scraping, alert firing and
+recovery, not just JSON syntax. Do not configure a real notification destination
+in that fixture. Production acceptance additionally needs an ARM64 memory
+measurement, a destination-specific test notification and an external uptime
+probe. Never restart the production Docker engine to exercise a test scenario.
+
 ## Library refresh performance
 
 Run the mocked browser journey with Playwright and Chromium:

@@ -40,7 +40,9 @@ idle_seconds = 1
     let c = Controller::open(config, engine.clone())?;
     engine.preflight().await?;
     let journey = async {
-        for round in 0..2 {
+        let rounds=std::env::var("INFUSER_TEST_ROUNDS").ok().map(|v|v.parse::<usize>()).transpose()?.unwrap_or(2);
+        ensure!((2..=100).contains(&rounds),"INFUSER_TEST_ROUNDS must be 2–100");
+        for round in 0..rounds {
             let lease = c.acquire("demo", "test-player", now())?;
             let lease_id = lease["lease_id"].as_str().unwrap();
             let token = lease["lease_token"].as_str().unwrap();

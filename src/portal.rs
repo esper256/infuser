@@ -589,6 +589,7 @@ pub fn router(platform: Platform) -> Router {
         .fallback(game_file)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .layer(axum::middleware::from_fn_with_state(platform.clone(),session_auth))
+        .layer(axum::middleware::from_fn_with_state(platform.controller.maintenance.clone(),crate::maintenance::admission))
         .with_state(platform)
 }
 async fn session_auth(

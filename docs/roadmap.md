@@ -2,6 +2,14 @@
 
 Audience: Infuser developers.
 
+- Complete rollout acceptance for [unattended operations](proposals/unattended-operations.md):
+  authorize the off-server backup destination, configure and test notification
+  delivery, add an independent uptime probe, and measure the monitoring stack on
+  ARM64. The implementation includes verified replacement backups, shared idle
+  maintenance admission, bounded recovery, conservative release cleanup and
+  Prometheus/Grafana provisioning. Destination-specific validation remains separate
+  from the local fixtures. SDK 1.0 review is the next design milestone.
+
 - Follow up on the [architectural review results](proposals/architecture-improvement-plan.md):
   validate the shipped service limits on the production host and native cache
   cleanup on physical Windows hardware. Use measurements before taking on the

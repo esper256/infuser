@@ -15,11 +15,15 @@ struct TestService {
     install: PathBuf,
     bad: String,
     restarts: Mutex<usize>,
+    busy: std::sync::atomic::AtomicBool,
 }
 
 const CANDIDATE: &[u8] = b"#!/bin/sh\nexit 0\n";
 #[async_trait]
 impl Service for TestService {
+    async fn ready_to_update(&self) -> Result<bool> {
+        Ok(!self.busy.load(std::sync::atomic::Ordering::Relaxed))
+    }
     async fn check(&self, binary: &Path) -> Result<()> {
         ensure!(fs::read(binary)? == CANDIDATE, "wrong download");
         ensure!(
@@ -97,6 +101,7 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
         install: install.clone(),
         bad: bad.clone(),
         restarts: Mutex::new(0),
+        busy: std::sync::atomic::AtomicBool::new(false),
     };
     let http = reqwest::Client::new();
     // A checksum mismatch must fail before activation or service restart.
@@ -127,6 +132,23 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
         .get_mut("linux-amd64")
         .unwrap()
         .sha256 = expected;
+    service
+        .busy
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let obsolete = install.join("releases").join("d".repeat(40));
+    fs::create_dir(&obsolete)?;
+    let unrelated = install.join("releases/manual-notes");
+    fs::create_dir(&unrelated)?;
+    let deferred = updater::update(&config, &source, "linux-amd64", &http, &service).await?;
+    assert!(deferred.contains("waiting for games"));
+    assert_eq!(*service.restarts.lock().unwrap(), 0);
+    assert!(config.state_dir.join("deferred-release").exists());
+    assert!(!obsolete.exists());
+    assert!(unrelated.exists());
+    assert!(install.join("releases").join(&initial).exists());
+    service
+        .busy
+        .store(false, std::sync::atomic::Ordering::Relaxed);
     updater::update(&config, &source, "linux-amd64", &http, &service).await?;
     assert_eq!(
         fs::read_link(install.join("current"))?.file_name().unwrap(),

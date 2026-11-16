@@ -27,6 +27,8 @@ try {
   assert.equal(await page.locator('#operator-groups').isVisible(),false);
   await page.locator('#admin > details > summary').click();
   await page.locator('#admin .admin-panel').getByRole('button',{name:'Groups',exact:true}).click();
+  await page.getByText('Host health',{exact:true}).click();
+  await page.getByText('Monitoring data is stale. Check the host health timer.',{exact:true}).waitFor();
   const family=page.locator('.group-row').filter({hasText:'Other family'});
   await family.getByRole('button',{name:'View',exact:true}).click();
   await page.locator('#group-inspection').waitFor();

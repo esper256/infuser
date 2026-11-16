@@ -1,0 +1,89 @@
+# Linux host deployment. All HTTP listeners bind loopback; no public ingress needed.
+# Run with --project-name infuser-monitoring. See docs/operations.md.
+x-service: &service
+  restart: unless-stopped
+  network_mode: host
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  logging:
+    driver: local
+    options: {max-size: 5m, max-file: '2'}
+
+services:
+  prometheus:
+    <<: *service
+    image: prom/prometheus:v3.16.0
+    mem_limit: 512m
+    cpus: 0.35
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=127.0.0.1:9090
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./targets.json:/etc/prometheus/targets.json:ro
+      - prometheus:/prometheus
+  node-exporter:
+    <<: *service
+    image: prom/node-exporter:v1.12.1
+    mem_limit: 96m
+    cpus: 0.1
+    pid: host
+    command:
+      - --web.listen-address=127.0.0.1:9100
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.loadavg
+      - --collector.stat
+      - --collector.filesystem
+      - --collector.uname
+      - --collector.textfile
+      - --collector.textfile.directory=/textfile
+    volumes:
+      - /:/host:ro,rslave
+      - /var/lib/infuser-monitor/textfile:/textfile:ro
+  blackbox:
+    <<: *service
+    image: prom/blackbox-exporter:v0.29.1
+    mem_limit: 96m
+    cpus: 0.1
+    command:
+      - --web.listen-address=127.0.0.1:9115
+      - --config.file=/etc/blackbox.yml
+    volumes:
+      - ./blackbox.yml:/etc/blackbox.yml:ro
+  grafana:
+    <<: *service
+    image: grafana/grafana:13.3.1
+    mem_limit: 768m
+    cpus: 0.5
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: '3000'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_LOG_MODE: console
+    secrets: [grafana_admin_password]
+    volumes:
+      - grafana:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+    tmpfs: [/tmp]
+
+secrets:
+  grafana_admin_password:
+    file: ${GRAFANA_ADMIN_PASSWORD_FILE:?Set an absolute private password-file path}
+volumes:
+  prometheus:
+  grafana:

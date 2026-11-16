@@ -10,10 +10,12 @@ runs on your server; no external service needs SSH access or your Google credent
 1. A host timer checks the latest published manifest approximately once a minute.
 2. The updater downloads the host's binary, checks its digest and validates the
    installed configuration with the candidate executable.
-3. It atomically switches `current`, restarts the controller, and checks `/healthz`
+3. It waits for games and publishing to become idle, then closes new admission
+   briefly. The verified candidate remains cached while it waits.
+4. It atomically switches `current`, restarts the controller, and checks `/healthz`
    for the exact new build ID. Game containers continue running; peer rooms end
    when the controller restarts, so their players must rejoin.
-4. If activation fails, it restores the previous binary and verifies its health.
+5. If activation fails, it restores the previous binary and verifies its health.
    The failed release is held until a newer build arrives or an operator clears
    the local `failed-release` file to retry it.
 
@@ -42,8 +44,15 @@ with `sudo install -m 0755 /opt/infuser/current/infuser /usr/local/libexec/infus
 after a version is known to work. The timer uses root only for installation and
 systemd restart; the daemon continues running as the `infuser` service user.
 
+Install the maintenance-aware daemon before replacing an older stable updater:
+the new updater requires `/v1/maintenance` and fails closed if it is unavailable.
+An operator can explicitly allow interruption with
+`sudo /usr/local/libexec/infuser-updater update /etc/infuser/update.toml --force`.
+Automatic updates never use that override. A deferred update over 24 hours or a
+failed release appears in [host monitoring](monitoring-operations.md).
+
 Keep `/etc/infuser` and platform data outside release directories. The updater
-retains the current and previous version; it does not overwrite configuration,
+retains current, previous and the latest candidate while waiting; it does not overwrite configuration,
 credentials, worlds or saves. Automatic binary rollback requires state formats
 to remain backward-compatible. A release with an irreversible data migration
 must use a separately planned maintenance path.

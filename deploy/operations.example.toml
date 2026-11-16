@@ -1,0 +1,11 @@
+# Private installation configuration. All paths must be absolute.
+controller_config = "/etc/infuser/infuser.toml"
+services = ["infuser.service", "infuser-update.timer"]
+containers = ["infuser-web", "infuser-login", "infuser-turn", "infuser-peerjs"]
+metrics_dir = "/var/lib/infuser-monitor/textfile"
+updater_state_dir = "/var/lib/infuser-updater"
+# Enable only once the backup repository and timer are configured.
+# backup_work_dir = "/var/lib/infuser-backup"
+# After three failed readiness checks, request at most one restart per five minutes.
+# Planned backup downtime and unavailable Docker never trigger this recovery.
+recover_unresponsive_daemon = true

@@ -1,0 +1,20 @@
+[Unit]
+Description=Infuser host health collection and bounded recovery
+After=network-online.target
+ConditionPathExists=/etc/infuser/operations.toml
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/infuser-operations doctor /etc/infuser/operations.toml --quiet
+User=root
+UMask=0022
+TimeoutStartSec=50
+MemoryMax=192M
+TasksMax=64
+Nice=10
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/infuser /var/lib/infuser-monitor
+

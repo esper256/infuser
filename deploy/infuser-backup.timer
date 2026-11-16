@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry idle Infuser backups
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

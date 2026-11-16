@@ -158,16 +158,21 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     };
     // Existing admins do not automatically gain installation-wide authority.
     denied(c.member("frizz", Method::GET, "/api/operator/groups")).await?;
+    denied(c.member("frizz", Method::GET, "/api/operator/health")).await?;
     p.db.edit(|d| {
         d.groups.operators.insert("frizz@example.com".into());
         Ok(())
     })?;
     assert_eq!(p.db.read()?.groups.member("frizz@example.com"), "home");
+    assert_eq!(ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["configured"],false);
+    std::fs::write(temp.path().join("host-health.json"),serde_json::to_vec(&infuser::host_health::Report::default())?)?;
+    assert_eq!(ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["stale"],true);
     let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Other family","admin_email":"admin@example.com","admin_name":"Other admin"}))).await?["id"].as_str().unwrap().to_owned();
     ok(c.member("admin", Method::POST, "/api/admin/members")
         .json(&json!({"email":"user@example.com","name":"Other user"})))
     .await?;
     denied(c.member("admin", Method::GET, "/api/operator/groups")).await?;
+    denied(c.member("admin", Method::GET, "/api/operator/health")).await?;
     denied(
         c.member("admin", Method::GET, "/api/library")
             .header("x-infuser-inspect-group", "home"),

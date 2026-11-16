@@ -10,6 +10,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit};
 
 pub(super) struct Mutation {
+    _maintenance: Option<Arc<crate::maintenance::Work>>,
     _slot: OwnedSemaphorePermit,
     _app: OwnedMutexGuard<()>,
 }
@@ -81,6 +82,7 @@ pub(super) async fn admit(State(p): State<Platform>, request: Request, next: Nex
     let guard =
         match tokio::time::timeout(std::time::Duration::from_secs(5), lock.lock_owned()).await {
             Ok(lock) => Arc::new(Mutation {
+                _maintenance: parts.extensions.get::<Arc<crate::maintenance::Work>>().cloned(),
                 _slot: slot,
                 _app: lock,
             }),

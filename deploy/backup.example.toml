@@ -1,0 +1,12 @@
+# Separate private config; do not put real credentials in the repository.
+controller_config = "/etc/infuser/infuser.toml"
+config_dir = "/etc/infuser"
+work_dir = "/var/lib/infuser-backup"
+repository_file = "/etc/infuser/backup.repository"
+password_file = "/etc/infuser/backup.password"
+# For Google Drive: a separate OAuth app, scope drive.file only.
+# rclone_config = "/etc/infuser/backup-rclone.conf"
+restic = "/usr/bin/restic"
+service = "infuser.service"
+# Additional static operator configuration directories; never live databases.
+extra_paths = []
