@@ -81,6 +81,16 @@ const AVATARS: &[Avatar] = &[
     avatar!("secret-key", "Secret Key"),
     avatar!("stardust-deck", "Stardust Deck"),
     avatar!("tideglass", "Tideglass"),
+    avatar!("pixel-combo-stick", "Combo Stick"),
+    avatar!("pixel-turbo-cart", "Turbo Cartridge"),
+    avatar!("pixel-save-disk", "Save Disk"),
+    avatar!("pixel-mana-flask", "Mana Flask"),
+    avatar!("pixel-bonus-heart", "Bonus Heart"),
+    avatar!("pixel-loot-chest", "Loot Chest"),
+    avatar!("pixel-portal-door", "Portal Door"),
+    avatar!("pixel-rocket-boots", "Rocket Boots"),
+    avatar!("pixel-neon-pinball", "Neon Pinball"),
+    avatar!("pixel-checkpoint", "Checkpoint Flag"),
 ];
 
 pub(super) fn catalog() -> Value {
