@@ -2,7 +2,7 @@
 
 Audience: Infuser developers.
 
-Fifty-one original AI-generated pictures for Infuser's profile picker, generated
+Seventy-one original AI-generated pictures for Infuser's profile picker, generated
 for this project rather than sourced from a stock library or an existing game
 franchise. The collection mixes characters with object-only gaming artwork.
 
@@ -27,6 +27,13 @@ franchise. The collection mixes characters with object-only gaming artwork.
   Monster Truck.
 - More creatures: Astro Sloth, Moon Moth, Ink Captain (octopus), Cobalt Cobra.
 - Magic, humor, and music: Spell Hat, Ghost Toast, Power Chord (electric guitar).
+- Explorers: Star Cartographer, Cloud Rider.
+- More companions: Comet Otter, Aurora Lynx, Lantern Dragon, Nebula Jelly,
+  Copper Kestrel.
+- Adventure objects: Secret Key, Stardust Deck (handheld game console), Tideglass
+  (glass seashell).
+- Retro pixel gaming objects: Combo Stick, Turbo Cartridge, Save Disk, Mana Flask,
+  Bonus Heart, Loot Chest, Portal Door, Rocket Boots, Neon Pinball, Checkpoint Flag.
 
 Each `NAME.png` is a 512×512 square source export. The `NAME-128.webp` files serve
 the 34–36px header, presence, and creator circles; `NAME-256.webp` serves the 88px
@@ -42,7 +49,7 @@ for source in *.png; do
   name="${source%.png}"
   for size in 128 256; do
     case "$name" in
-      pixel-panther|moon-wolf|loot-raccoon|byte-gecko|ember-raven)
+      pixel-*|moon-wolf|loot-raccoon|byte-gecko|ember-raven)
         magick "$name.png" -filter point -resize "${size}x${size}" -strip \
           -define webp:lossless=true "$name-$size.webp" ;;
       *) magick "$name.png" -resize "${size}x${size}" -quality 86 -strip "$name-$size.webp" ;;
@@ -55,7 +62,18 @@ Pixel-art source exports and WebP sizes use nearest-neighbor scaling. Their WebP
 exports are lossless to avoid introducing blur or ringing along pixel edges.
 All source exports are opaque; the circle is a CSS crop, not baked transparency.
 
-The latest twenty originals were generated in four aligned sheets of five, then
+The preceding twenty originals were generated in four aligned sheets of five, then
 exported together into the existing square PNG and WebP sizes. They expand sports,
 dinosaurs, construction, science, music, and fantasy themes with strong silhouettes for
 the small circular badges.
+
+The ten adventure additions were generated individually on 2026-11-16 and imported
+as one batch. They mix capable explorer portraits, animal and fantasy companions,
+and object-only designs. Like every option, they appear in the shared picker
+without demographic labels. Sources are opaque 512px PNGs, with the same 128px and
+256px WebP exports as the rest of the catalog.
+
+The ten retro object additions were generated individually on 2026-11-16 and
+imported as one batch. All are inanimate gaming objects, with no characters or
+faces. Their `pixel-*` sources and exports use nearest-neighbor resizing; both
+WebP sizes are lossless, preserving the artwork’s hard pixel edges.
