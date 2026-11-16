@@ -75,9 +75,7 @@ async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create
             d.active_visit(&body.host_group, time).is_none(),
             fault(409, "This group already has an active visit.")
         );
-        let after: u64 = tx.query_row("SELECT coalesce(max(id),0) FROM library_chat", [], |r| {
-            r.get(0)
-        })?;
+        let after = crate::platform::channels::admission_boundary(tx, &body.host_group)?;
         let mut participants = BTreeMap::new();
         let mut source_groups = BTreeSet::new();
         for player in &body.participants {

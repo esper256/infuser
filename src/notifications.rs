@@ -1,7 +1,7 @@
 //! Device subscriptions and a bounded, coalescing chat notification outbox.
 use crate::{
     controller::now,
-    platform::{Data, Database},
+    platform::{Data, Database, channels::Channel},
     portal::fault,
 };
 use anyhow::{Result, ensure};
@@ -10,7 +10,7 @@ use ring::{
     rand::SystemRandom,
     signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair},
 };
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -110,11 +110,11 @@ pub fn initialize(c: &Connection) -> Result<()> {
     )?;
     Ok(())
 }
-pub fn enqueue(
+pub(crate) fn enqueue(
     c: &Connection,
     data: &Data,
     sender: &str,
-    group: &str,
+    channel: &Channel,
     id: i64,
     time: u64,
 ) -> Result<()> {
@@ -123,10 +123,9 @@ pub fn enqueue(
     for row in rows {
         let (endpoint, email) = row?;
         if email != sender
-            && data.members.get(&email).is_some_and(|m| m.enabled)
-            && data
-                .chat_boundary(&email, group, time)
-                .is_some_and(|floor| id as u64 > floor)
+            && channel
+                .access(data, &email, false, time)
+                .is_some_and(|access| access.sees(id as u64))
         {
             c.execute("INSERT INTO push_outbox(endpoint,message_id,created,due) VALUES(?1,?2,?3,?3)
                 ON CONFLICT(endpoint) DO UPDATE SET message_id=excluded.message_id,created=excluded.created",
@@ -192,8 +191,9 @@ impl Database {
         Ok(())
     }
     pub fn push_targets(&self) -> Result<Vec<(String, u64, Subscription)>> {
-        let data = self.read()?;
-        let c = self.connection.lock().unwrap();
+        let mut connection = self.connection.lock().unwrap();
+        let c = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let data = self.cached_catalog(&c)?;
         c.execute(
             "DELETE FROM push_outbox WHERE created<?1 OR attempts>=3",
             [now().saturating_sub(300)],
@@ -205,7 +205,7 @@ impl Database {
         )?;
         c.execute("DELETE FROM push_outbox WHERE endpoint NOT IN (SELECT endpoint FROM push_subscriptions)",[])?;
         let mut s = c.prepare(
-            "SELECT s.endpoint,o.message_id,s.email,coalesce(m.private_group,s.private_group),s.subscription,m.author,m.text
+            "SELECT s.endpoint,o.message_id,s.email,m.channel_id,s.subscription,m.author,m.text
             FROM push_outbox o JOIN push_subscriptions s USING(endpoint)
             LEFT JOIN library_chat m ON m.id=o.message_id
             WHERE o.due<=?1 ORDER BY o.due LIMIT 32",
@@ -215,7 +215,7 @@ impl Database {
                 r.get::<_, String>(0)?,
                 r.get::<_, u64>(1)?,
                 r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
+                r.get::<_, Option<String>>(3)?,
                 r.get::<_, String>(4)?,
                 r.get::<_, Option<String>>(5)?,
                 r.get::<_, Option<String>>(6)?,
@@ -223,11 +223,12 @@ impl Database {
         })?;
         let mut targets = Vec::new();
         for row in rows {
-            let (endpoint, id, email, group, subscription, author, text) = row?;
+            let (endpoint, id, email, channel_id, subscription, author, text) = row?;
+            let channel = channel_id.map(|id| Channel::load(&c, &id)).transpose()?;
             let member_ok = |email: &str| data.members.get(email).is_some_and(|m| m.enabled);
-            if data
-                .chat_boundary(&email, &group, now())
-                .is_some_and(|floor| id > floor)
+            if channel
+                .and_then(|ch| ch.access(&data, &email, false, now()))
+                .is_some_and(|access| access.sees(id))
                 && author.as_deref().is_some_and(member_ok)
                 && text.is_some()
             {
@@ -239,6 +240,8 @@ impl Database {
                 )?;
             }
         }
+        drop(s);
+        c.commit()?;
         Ok(targets)
     }
     pub fn push_result(&self, endpoint: &str, id: u64, status: Option<u16>) -> Result<()> {

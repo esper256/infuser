@@ -62,16 +62,4 @@ impl Data {
                     .active_visit(group, time)
                     .is_some_and(|(_, v)| v.participant(email)))
     }
-    pub fn chat_boundary(&self, email: &str, group: &str, time: u64) -> Option<u64> {
-        if !self.members.get(email).is_some_and(|m| m.enabled) {
-            return None;
-        }
-        if self.groups.member(email) == group {
-            return Some(0);
-        }
-        self.active_visit(group, time)
-            .and_then(|(_, v)| v.participants.get(email))
-            .filter(|p| !p.ended)
-            .map(|p| p.after_message)
-    }
 }

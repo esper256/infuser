@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
 mod activity;
+pub(crate) mod channels;
 mod chat;
 pub mod deployments;
 pub mod groups;
@@ -341,7 +342,7 @@ impl Database {
         metadata::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS deployments(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO deployments VALUES(1,'{}');")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO visits VALUES(1,'{}');")?;
-        chat::initialize(&c)?;
+        channels::initialize(&mut c)?;
         crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
