@@ -28,16 +28,12 @@ Plain Node/WebSocket servers have a capability-gated [managed packaging recipe](
 Other custom server images currently need operator staging. Peer-hosted
 multiplayer must have relay fallback; direct-only networking is unsupported.
 
-```sh
-cargo build --locked --release --bin infuser
-cargo test --locked
-infuser publish /private/game.credentials.json /path/to/vite-game --solo
-```
-
-Requires Rust 1.89+ to build. Releases provide Linux AMD64/ARM64 executables and
-[macOS Apple Silicon/Intel publishing CLIs](docs/publisher-install.md).
-Game agents do not need Rust or Docker; [HTTP publishing](docs/publishing-http.md)
-also works with existing tools.
+**Publishing a game:** start with the [agent instructions](docs/agents.md).
+Use a [prebuilt publisher](docs/publisher-install.md) on Mac/Linux or
+[HTTP publishing](docs/publishing-http.md) with existing tools on Windows,
+Mac or Linux. No Rust compiler, Docker installation or Infuser repository checkout
+is required. Building Infuser and running this repository's platform test suite
+are tasks for [Infuser contributors](docs/development.md), not game authors.
 An existing Vite project needs its usual Node tooling on the game-making machine,
 not on the Infuser host. Godot exports likewise use the creator's Godot toolchain.
 

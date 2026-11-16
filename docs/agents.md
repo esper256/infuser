@@ -135,7 +135,11 @@ complete publication and check its result. Only adult admins can play `--preview
 publications; do not hide a child's game from them by using it. Queued updates wait
 for the active session to end; do not describe them as live yet.
 
-Run available local checks. If an authorized game test session is already
+Run the game's available local checks. Infuser's Cargo test harnesses and repository
+browser journeys are contributor tools, not publishing prerequisites. Do not
+install Rust, Docker, WSL, or a new browser-test stack merely to run them. Use
+prebuilt tools or the HTTP API; do not build Infuser from source to work around a
+missing download. If an authorized game test session is already
 available, also check launch, save/reload, guest isolation, and declared multiplayer
 modes. Otherwise, report those live checks as untested and finish the handoff.
 Publisher credentials are not a player login. **Do not ask the child to log in

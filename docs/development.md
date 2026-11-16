@@ -1,5 +1,10 @@
 # Development checks
 
+This page is for changing Infuser itself. Game-making agents should use the
+[integration instructions](agents.md), their game's existing checks and the
+publisher's results. Do not install these development tools or run this test
+suite merely to integrate, publish or verify a game.
+
 Use Rust 1.89+ and Node 24. The desktop app is a separate Cargo package; checking
 only the root package misses it. Private configs and test artifacts belong in
 ignored `.local/` files.

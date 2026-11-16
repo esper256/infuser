@@ -20,7 +20,16 @@ The fixture exercises verified identity, guest isolation, multiple and single-pl
 runs, Join Friend, reconnects, idle shutdown and queued updates. It keeps the same
 gameplay messages in standalone and hosted modes. Room labels are not passwords.
 
-For local development without Google or Docker, stage it, run `npm ci --ignore-scripts`
+## Infuser contributor acceptance test
+
+The commands below test changes to Infuser itself. They require its Rust development
+environment and browser-test dependencies. **Game-making agents do not need this
+harness, Rust, or a browser download to integrate or publish their own game.**
+Use the source above as an example, run your project's existing checks, then follow
+the [publishing verification instructions](../../docs/agents.md#publish-and-verify).
+This harness is not currently shipped as a portable game-author tool.
+
+For contributors testing locally without Google or Docker, stage it, run `npm ci --ignore-scripts`
 in the staged `server` folder, then run:
 
 ```sh

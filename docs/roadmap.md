@@ -1,5 +1,10 @@
 # Remaining work
 
+- Make game-author tools portable: add a Windows publisher executable and provide
+  optional integration checks that use prebuilt tools or the project's existing
+  runtime. Keep the Cargo/Playwright contributor harness out of the publishing
+  journey. Evaluate a disposable hosted test session for checks that need the real
+  platform, without requiring the child's Google login or a local Infuser install.
 - Integrate and playtest Lanternfall using [dedicated sessions](dedicated-sessions.md).
   The platform supplies verified identity, discovery, Join Friend, reconnects and
   queued updates. Shared and multiple-run fixtures exercise the generic contract;

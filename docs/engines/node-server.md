@@ -94,6 +94,8 @@ room membership. Use the dedicated-session helper for those features; do not
 declare peer-hosted capabilities for a dedicated game. Both routes preserve the
 game's own message protocol.
 
-Use the [dedicated fixture](../../examples/dedicated-node) to test cold startup,
-multiple connections, guest launches, reconnection, idle shutdown and updates.
+Read the [dedicated fixture](../../examples/dedicated-node) as a complete integration
+example. Its Cargo/Playwright acceptance harness is for Infuser contributors;
+running it is not a requirement for adapting or publishing your game. Use your
+project's existing tests and the [publication checks](../agents.md#publish-and-verify).
 Report platform failures using [the agent issue instructions](../agents.md#reporting-platform-problems).
