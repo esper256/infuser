@@ -2,7 +2,7 @@
 
 Audience: Infuser developers.
 
-Seventy-one original AI-generated pictures for Infuser's profile picker, generated
+Eighty-one original AI-generated pictures for Infuser's profile picker, generated
 for this project rather than sourced from a stock library or an existing game
 franchise. The collection mixes characters with object-only gaming artwork.
 
@@ -34,6 +34,9 @@ franchise. The collection mixes characters with object-only gaming artwork.
   (glass seashell).
 - Retro pixel gaming objects: Combo Stick, Turbo Cartridge, Save Disk, Mana Flask,
   Bonus Heart, Loot Chest, Portal Door, Rocket Boots, Neon Pinball, Checkpoint Flag.
+- Tiny secret worlds: Rooftop Arcade, Moon Greenhouse, Lantern Treehouse,
+  Deepsea Observatory, Sky Garden, Snow Radio, Midnight Bazaar, Crystal Refuge,
+  Ember Workshop, Orbit Hideout.
 
 Each `NAME.png` is a 512×512 square source export. The `NAME-128.webp` files serve
 the 34–36px header, presence, and creator circles; `NAME-256.webp` serves the 88px
@@ -77,3 +80,8 @@ The ten retro object additions were generated individually on 2026-11-16 and
 imported as one batch. All are inanimate gaming objects, with no characters or
 faces. Their `pixel-*` sources and exports use nearest-neighbor resizing; both
 WebP sizes are lossless, preserving the artwork’s hard pixel edges.
+
+The ten secret-world additions were generated individually on 2026-11-16 and
+imported as one batch. They depict miniature imaginative hideouts without people
+or faces, using distinct architectural silhouettes and luminous color palettes.
+Opaque 512px PNG sources have the standard 128px and 256px WebP exports.
