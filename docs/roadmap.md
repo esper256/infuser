@@ -2,17 +2,23 @@
 
 Audience: Infuser developers.
 
-- Complete rollout acceptance for [unattended operations](proposals/unattended-operations.md):
-  authorize the off-server backup destination, configure and test notification
-  delivery, add an independent uptime probe, and measure the monitoring stack on
-  ARM64. The implementation includes verified replacement backups, shared idle
-  maintenance admission, bounded recovery, conservative release cleanup and
-  Prometheus/Grafana provisioning. Destination-specific validation remains separate
-  from the local fixtures. SDK 1.0 review is the next design milestone.
+- Next: follow the [SDK 1.0 stabilization plan](proposals/sdk-1.0-stabilization.md).
+  Record the candidate contract and freeze versioned clients before declaring any
+  capability stable. The public binary-save helper exports are fixed and verified
+  through the main SDK import. SDK major 1
+  and capability admission exist; the overall contract remains a preview.
+  Preserve published games and saves; Firefly Drift is listed and its active
+  build must not be replaced merely to rerun a fixture.
+
+- Setup deferred at the operator's request: off-server backup authorization,
+  cloud snapshot policy, notification delivery, and an independent uptime probe.
+  The [unattended operations](proposals/unattended-operations.md) implementation
+  is deployed. ARM64 monitoring uses approximately 321 MiB combined; service limits
+  and health checks were verified. Destination-specific acceptance remains open;
+  local backup/restore fixtures do not prove that remote backups are configured.
 
 - Follow up on the [architectural review results](proposals/architecture-improvement-plan.md):
-  validate the shipped service limits on the production host and native cache
-  cleanup on physical Windows hardware. Use measurements before taking on the
+  validate native cache cleanup on physical Windows hardware. Use measurements before taking on the
   deferred catalog, authentication or Docker-client rewrites.
 - Make game-author tools portable: add a Windows publisher executable and provide
   optional integration checks that use prebuilt tools or the project's existing
@@ -35,10 +41,6 @@ Audience: Infuser developers.
   its source is available. The independent fixture has passed real PeerJS
   DataConnections, standalone play, forced TURN, renewal, and recovery. This
   does not prove an unavailable project's exact integration.
-- Review the [SDK 1.0 contract](sdk-contract.md) using these results. SDK major 1
-  and capability admission exist, but the overall contract remains a preview.
-  Preserve published games and saves; Firefly Drift is listed and its active
-  build must not be replaced merely to rerun a fixture.
 - Expand engine-server recipes after the Node path is solid. Native multiplayer
   remains a separate study. Bevy is paused.
 - Review achievements before introducing persistent achievement IDs and behavior.

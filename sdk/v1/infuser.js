@@ -1,5 +1,6 @@
 // Pre-1.0 Infuser browser SDK; see docs/sdk-contract.md before extending this contract.
 // Import it, or include it as a module script for automatic heartbeats.
+import {cloud as checkpoints} from '/_infuser/sdk/v1/cloud.js';
 export class InfuserError extends Error {
   constructor(message, status) { super(typeof message === 'string' ? message : message?.message || 'Infuser request failed'); this.status = status; if(message?.code)this.code=message.code; }
 }
@@ -31,8 +32,12 @@ export async function leave() { stopped = true; clearInterval(timer); await requ
 // Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
 export const peers = { join: async options => (await import('/_infuser/sdk/v1/peers.js')).join(options) };
 export const peerjs = { join: async options => (await import('/_infuser/sdk/v1/peerjs.js')).join(options) };
-const checkpoint = method => async (...args) => (await import('/_infuser/sdk/v1/cloud.js')).cloud[method](...args);
-export const cloud = {load:checkpoint('load'),read:checkpoint('read'),history:checkpoint('history'),commit:checkpoint('commit'),resolve:checkpoint('resolve')};
+const checkpoint = method => async (...args) => checkpoints[method](...args);
+export const cloud = {
+  load:checkpoint('load'),read:checkpoint('read'),history:checkpoint('history'),commit:checkpoint('commit'),resolve:checkpoint('resolve'),
+  // Conversion is synchronous, matching the standalone cloud module and guide.
+  encodeBinary:checkpoints.encodeBinary,decodeBinary:checkpoints.decodeBinary
+};
 // Managed backends only. Peer-hosted games continue to use peers.join().
 // acquire() returns starting/ready; poll status() before connecting. Keep the
 // returned session_id for release so an old retry cannot end a newer session.

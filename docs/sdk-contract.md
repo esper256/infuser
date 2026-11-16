@@ -12,9 +12,12 @@ short design review before release: concrete request/response examples, failure
 behavior, and what happens to an older game. This is a focused review of durable
 interfaces, not an approval process for ordinary UI changes.
 
-The [accepted SDK 1.0 decisions](sdk-1.0-decisions.md) and
-[dedicated-server proposal](proposals/sdk-1.0-dedicated-servers.md) guide the next
-implementation slice. Publishing inputs can be retained as
+The [accepted SDK 1.0 decisions](sdk-1.0-decisions.md) guide the
+[stabilization plan](proposals/sdk-1.0-stabilization.md), which separates implemented
+preview contracts from the evidence needed to freeze them. The
+[dedicated-server proposal](proposals/sdk-1.0-dedicated-servers.md) records the
+earlier design; [dedicated sessions](dedicated-sessions.md) describes the shipped
+candidate. Publishing inputs can be retained as
 [private importer fixtures](publication-capture.md).
 
 ## Review before calling the SDK 1.0
@@ -45,8 +48,8 @@ Approved product decisions:
   their behavior. Games can select an optional platform integration at launch and
   keep their standalone workflow. A failed hosted session must not silently fall
   back to public matchmaking or a different save namespace.
-- Multiplayer updates upload immediately and activate after the shared session
-  ends and its server shuts down. Queued publication is implemented; a force-restart
+- Multiplayer updates upload immediately and activate after the active sessions
+  end and their managed server shuts down, or the peer room ends. Queued publication is implemented; a force-restart
   action is reserved for admin administration.
 - Online, game open, and joinable multiplayer are separate states. The game must
   explicitly report joinability. A title screen does not create a multiplayer room.
@@ -56,7 +59,7 @@ Approved product decisions:
 | Identity and guest play | Stable opaque player IDs; guest lifetime and identity; app scoping; which identity a game server may trust |
 | Cloud saves | Empty saves, compare-and-swap conflicts, error codes, limits, game-owned schema migrations, recovery and rollback behavior |
 | Sessions | Title-screen startup, explicit backend acquisition/release, readiness, reconnect, timeout and session expiry |
-| Multiplayer and presence | Online friends versus players in this game versus a joinable multiplayer session; capacity and joinability; one shared session; tickets and relay availability |
+| Multiplayer and presence | Online versus game-open versus joinable; shared peer room or shared/multiple dedicated runs; atomic capacity, tickets and relay availability |
 | Launch intent | Ordinary Play opens the game's title screen; optional Join friend intent only for games declaring support; unavailable/full sessions show an error and return to the title screen |
 | Compatibility | Manifest declaration of required SDK/API major and optional capabilities; versioned SDK and HTTP routes; admission rules for unsupported requirements |
 
@@ -64,7 +67,7 @@ Presence must not equate “has this game open” with “playing multiplayer.�
 screen can show friends and joinability without creating a server. The game
 requests its backend when the player chooses a mode; leaving multiplayer releases
 that need without ending an unrelated single-player run. Join friend is a request
-to join the existing shared session, never permission to create another world.
+to join the exact observed session, never permission to create another world.
 The linked contract pages describe implemented preview methods and payloads.
 
 Today, Play has no mode picker; the game owns that choice. Managed games can opt

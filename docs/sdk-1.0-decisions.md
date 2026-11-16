@@ -2,6 +2,10 @@
 
 Audience: Infuser developers.
 
+Next review: [stabilization plan](proposals/sdk-1.0-stabilization.md). It proposes
+the release boundary, remaining acceptance evidence, and implementation order;
+it does not mark the candidate stable.
+
 **Accepted direction; SDK 1.0 is still a candidate.** Keep publishing and learning
 from real games. A small catalog makes coordinated migrations possible, but does
 not justify silently changing identities, save ownership or session semantics.

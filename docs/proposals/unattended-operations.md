@@ -2,8 +2,10 @@
 
 Audience: Infuser developers.
 
-Status: implementation and automated acceptance complete; destination configuration
-and production rollout acceptance remain. SDK 1.0 design is a separate next task.
+Status: implementation, automated acceptance, and ARM64 deployment complete.
+Backup destinations, cloud snapshot policy, notification delivery, and independent
+uptime setup are deferred at the operator's request. Continue with the
+[SDK 1.0 stabilization plan](sdk-1.0-stabilization.md).
 
 ## Delivery order
 
@@ -86,7 +88,9 @@ Prometheus/Grafana stack loads the dashboard and all eight alert rules and passe
 a real failure/firing/recovery cycle; its local AMD64 test used approximately
 355 MB combined. The manual Docker lane passed 20 wake/serve/sleep cycles, world
 ownership and image snapshots, encrypted restore, managed Node hosting and Caddy.
-ARM64 deployment and destination-specific acceptance are recorded separately.
+ARM64 deployment passed health checks and uses approximately 321 MiB combined for
+the four monitoring containers. Private rollout details are recorded separately;
+destination-specific acceptance remains open.
 
 References: [restic repositories](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html),
 [restoring backups](https://restic.readthedocs.io/en/stable/050_restore.html),
