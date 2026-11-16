@@ -2,6 +2,55 @@
 
 Audience: server operators.
 
+## Sharing a host with other projects
+
+Infuser does not require a dedicated VM. It can create game containers dynamically
+while other projects use fixed, independently named Compose stacks on the same
+Docker engine. Keep each project's networks, volumes, credentials and deployment
+files separate. Reserve `org.infuser.*` labels for Infuser: its game inventory and
+destructive operations use ownership labels, not a list of all Docker containers.
+An exception list is not required to protect unrelated containers from game cleanup.
+Avoid host-wide Docker pruning in any project's deployment scripts.
+
+Keep a private host inventory listing each project, Compose project name, domains,
+local ports, CPU/RAM limits, persistent data, backup owner and maintenance needs.
+This is an operator record, not a new Infuser registry or container scheduler.
+Infuser's game budget excludes other projects and shared services; lower it when
+reserving capacity for another workload. Present idle memory is not a reservation.
+
+Share one Caddy for ports 80/443, with a separate domain/site definition per
+project. Other applications can bind loopback ports and receive traffic through
+Caddy without inheriting Infuser's Google login or game authorization. Allocate
+ports outside the configured Infuser game/relay range and existing service ports.
+The Infuser ingress table protects its configured range; it is not a general
+firewall policy for unrelated applications. Prefer a host-owned root Caddyfile
+importing per-project site files before multiple projects start editing routing.
+
+Grafana, Prometheus, node_exporter and blackbox_exporter can also be shared.
+Separate project dashboards, scrape targets and alerts using folders and stable
+project/service labels. These labels organize a trusted operator's monitoring;
+they are not access isolation between unrelated tenants. Keep host-wide memory,
+disk and monitoring-pipeline alerts under host ownership.
+
+Before adding the second project, remove these current single-project assumptions:
+
+- **Alert routing:** `render-notifications.sh` currently provisions the entire
+  Grafana notification policy tree. Do not use it over another project's policies.
+  Move policy-tree ownership to host configuration and make Infuser contribute
+  only its own rules/contact points. Scope its broad scrape/website queries so
+  another application's failure is not attributed to Infuser.
+- **Reboot admission:** the current timer checks Infuser activity only. Other
+  projects must be able to block shutdown with systemd shutdown inhibitors and
+  coordinate maintenance through the shared host lock. Do not restart Docker or
+  the host as though only Infuser is affected.
+- **Recovery:** a whole-volume snapshot includes colocated data but remains
+  crash-consistent. Infuser's application backup covers its own data, not another
+  project's database. Give every project an explicit backup/restore plan.
+
+No separate VM, Docker daemon or monitoring stack is necessary for this model.
+All projects still share the host's capacity and the effects of kernel/Docker
+maintenance; keep the setup sized and operated accordingly.
+
 ## Required reboots
 
 Keep Ubuntu unattended security package updates enabled. Infuser can schedule
