@@ -4,16 +4,18 @@ Audience: players and admins.
 
 Open **Chat** beside the online players at the top of the Library. Everyone in
 your private group shares the room. Enter sends a message; Shift+Enter adds a
-line. Messages can contain up to 280 characters, with no attachments or links.
+line. The arrow inside the message box also sends. Messages can contain up to
+280 characters; a small count appears near the arrow for the last 40 characters.
+There are no attachments or links.
 
 During a visit, the host room also includes its selected visitors. The Library
 banner shows who is visiting. Visitors can read messages from their admission
 onward until the visit ends. Hosts keep that conversation afterward; returning
 visitors start a new chat window.
 
-Close chat with **×**, Escape, or a click outside. Your draft stays while the page
-is open. If sending fails, retry without retyping. The badge counts unread
-messages. Reading older messages keeps your place; **New messages ↓** returns
+Close chat with Escape or a click outside; on phones, use **×** beside the
+composer. Your draft stays while the page is open. If sending fails, retry without
+retyping. The badge counts unread messages. Reading older messages keeps your place; **New messages ↓** returns
 to the latest ones.
 
 While chat is open, online friends with messages currently visible in the

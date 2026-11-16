@@ -80,7 +80,7 @@ try {
    messages.push({id:messages.length+1,author,text:'Follow this at the bottom',created:Date.now()/1000,can_delete:false});
    await refresh();assert(await gap()<=1,'new messages still follow at bottom');
    await log.focus();await page.keyboard.press('ArrowUp');await page.waitForTimeout(150);assert(await gap()>1,'keyboard scroll moves into history');
-   await page.locator('#chat-close').click();
+   await page.locator('#chat-log').press('Escape');
   }
  }
  assert.deepEqual(errors,[]);

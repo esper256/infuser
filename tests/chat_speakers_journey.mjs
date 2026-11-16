@@ -91,7 +91,7 @@ try{
  // No per-frame JavaScript or DOM work once motion has settled.
  await page.evaluate(()=>{window.chatMutations=0;window.rafCallbacks=0;window.chatObserver=new MutationObserver(records=>chatMutations+=records.length);chatObserver.observe(document.body,{childList:true,subtree:true,attributes:true});});
  await pause(250);assert.equal(await page.evaluate(()=>chatMutations),0);assert.equal(await page.evaluate(()=>rafCallbacks),0,'no animation loop survives at idle');await page.evaluate(()=>chatObserver.disconnect());
- await page.locator('#chat-close').click();await pause(500);
+ await page.locator('#chat-log').press('Escape');await pause(500);
  assert.deepEqual((await order()).slice(1),friends.slice(0,(await order()).length-1).map(f=>f.id),'closing restores ordinary presence order');
  // Directional lookahead prepares an author before their first visible message.
  messages=Array.from({length:60},(_,i)=>({id:i+1,author:friends[i<20||i>=40?19:25],text:'A message tall enough for viewport boundaries. '.repeat(3),created:Date.now()/1000-86400+i,can_delete:false}));
@@ -114,7 +114,7 @@ try{
  await log.evaluate(e=>e.scrollTop-=160);await pause(550);
  assert.deepEqual(await pointers(),['t']);assert.equal(await slot('z'),preparedSlot);
  await page.screenshot({path:new URL('.local/chat-speakers/prediction.png',root).pathname});
- await page.locator('#chat-close').click();await pause(450);
+ await page.locator('#chat-log').press('Escape');await pause(450);
  // Return to the two-author fixture for overflow, themes and reduced motion.
  messages=Array.from({length:40},(_,i)=>({id:i+1,author:friends[i<20?19:25],text:'Message '.repeat(15),created:Date.now()/1000-86400+i,can_delete:false}));
  await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.chat-message').length===40);
@@ -130,7 +130,7 @@ try{
    await fs.mkdir(new URL('.local/chat-speakers/',root),{recursive:true});
    await page.screenshot({path:new URL('.local/chat-speakers/mobile.png',root).pathname});
   }
-  await page.locator('#chat-close').click();await pause(450);
+  await page.locator('#chat-log').press('Escape');await pause(450);
  }
  await page.setViewportSize({width:1500,height:1000});await pause(100);await page.emulateMedia({reducedMotion:'reduce'});await page.locator('#chat-toggle').click();await pause(100);
  await mounted('z');assert(await page.locator('#chat-pointers [data-player-id="z"]').isVisible());
