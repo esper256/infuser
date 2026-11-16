@@ -6,6 +6,23 @@ Start with [development setup](development.md). Run commands from the repository
 root. These harnesses test the platform. Historical results below record what was
 exercised, not certification of every game or device.
 
+## Library refresh performance
+
+Run the mocked browser journey with Playwright and Chromium:
+
+```sh
+INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs \
+INFUSER_CHROMIUM=/path/to/chromium node tests/library_refresh_journey.mjs
+```
+
+It loads 40 games and 40 friends in both themes at 320–1200px, checks that resize
+observers settle at idle, and requires unchanged library/chat responses to cause
+zero DOM mutations or layouts. It also checks live updates, retained focus and
+chat drafts, menu stability, a real 12-second library timeout and recovery, and
+single-request/background limits for admin diagnostics. Browser task time is
+reported rather than asserted because it depends on the machine. This does not
+profile game tabs, extensions, GPU load or the user's whole computer.
+
 ## Docker and Caddy
 
 `cargo test --locked` runs the fast API lifecycle journeys. To exercise Docker too:

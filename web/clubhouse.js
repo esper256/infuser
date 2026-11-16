@@ -8,21 +8,27 @@ const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
 let noticeTimer;
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
-let seenEvents;
-let selectedAuthor=null, searchChoices=[], searchActive=-1;
+let seenEvents,filterSignature;
+let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
 let entryGame, detailGameId, detailReturnFocus, detailSignature;
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const reactionMotion=matchMedia('(prefers-reduced-motion: reduce)');
 reactionMotion.addEventListener('change',event=>{if(event.matches)document.querySelector('.reaction-burst')?.remove();});
 const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea']];
+function setText(node,text){text=String(text);if(node.textContent!==text)node.textContent=text;}
+function reconcileChildren(container,children){
+  const retained=new Set(children);
+  for(const child of [...container.children])if(!retained.has(child))child.remove();
+  children.forEach((child,index)=>{if(container.children[index]!==child)container.insertBefore(child,container.children[index]||null);});
+}
 function el(tag, text, cls) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(cls) node.className = cls; return node; }
 // Fit tag rows without scrolling or covering their text. Overflow keeps the same
 // buttons and handlers in a top-layer popover, including the tag editor action.
-const tagRows=new Map();
+const tagRows=new Map(),tagTargets=new Map();
 let tagPanelId=0;
 const tagResize=new ResizeObserver(entries=>{
-  for(const {target} of entries){const state=tagRows.get(target);if(state){state.close();fitTagRow(target,state);}}
+  for(const {target} of entries){const row=tagTargets.get(target),state=tagRows.get(row);if(state)fitTagRow(row,state);}
 });
 function prepareTagRow(row,suffix){
   const previous=tagRows.get(row);if(previous)previous.close();
@@ -49,13 +55,21 @@ function prepareTagRow(row,suffix){
   panel.addEventListener('toggle',()=>{more.setAttribute('aria-expanded',String(panel.matches(':popover-open')));});
   row.onfocusout=()=>{setTimeout(()=>{if(!row.contains(document.activeElement)&&!more.matches(':hover')&&!panel.matches(':hover'))close();},0);};
   panel.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();returningFocus=true;panel.hidePopover();more.focus();returningFocus=false;}};
-  const state={buttons,strip,more,panel,suffix,close};tagRows.set(row,state);tagResize.observe(row);
+  // A fit-content tag row changes its own width as tags move. Observe the
+  // available space instead, so fitting cannot feed back into its observer.
+  const target=row.classList.contains('game-tags')?row.parentElement:row;
+  const state={buttons,strip,more,panel,suffix,close,target};tagRows.set(row,state);tagTargets.set(target,row);tagResize.observe(target);
 }
-function fitTagRow(row,{buttons,strip,more,panel,suffix}){
-  if(!row.isConnected||panel.matches(':popover-open'))return;
-  strip.append(...buttons);more.hidden=true;strip.style.width='auto';
+function fitTagRow(row,state){
+  const {buttons,strip,more,panel,suffix,target}=state;
+  if(!row.isConnected||!target.clientWidth||panel.matches(':popover-open'))return;
   const style=getComputedStyle(row),gap=parseFloat(style.columnGap)||0;
-  const room=row.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-(suffix?suffix.getBoundingClientRect().width+parseFloat(getComputedStyle(suffix).marginLeft)+parseFloat(getComputedStyle(suffix).marginRight)+gap:0);
+  const room=target.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-(suffix?suffix.getBoundingClientRect().width+parseFloat(getComputedStyle(suffix).marginLeft)+parseFloat(getComputedStyle(suffix).marginRight)+gap:0);
+  const layoutKey=JSON.stringify([room,innerWidth,document.documentElement.dataset.theme]);
+  if(state.layoutKey===layoutKey)return;
+  state.layoutKey=layoutKey;
+  const focused=document.activeElement;
+  strip.append(...buttons);more.hidden=true;strip.style.width='auto';
   const widths=buttons.map(button=>button.getBoundingClientRect().width),sum=widths.reduce((a,b)=>a+b,0);
   const spacing=row.id==='tag-filters'?10:4;
   strip.style.setProperty('--tag-spacing',spacing+'px');
@@ -69,17 +83,18 @@ function fitTagRow(row,{buttons,strip,more,panel,suffix}){
   }
   strip.style.width=Math.max(0,width)+'px';
   more.classList.toggle('selected',buttons.slice(count).some(button=>button.classList.contains('selected')));
+  if(buttons.includes(focused)){if(panel.contains(focused))more.focus({preventScroll:true});else focused.focus({preventScroll:true});}
 }
 function layoutTagRows(){
   for(const [row,state] of tagRows){
-    if(!row.isConnected){tagResize.unobserve(row);tagRows.delete(row);continue;}
+    if(!row.isConnected){tagResize.unobserve(state.target);tagTargets.delete(state.target);tagRows.delete(row);continue;}
     fitTagRow(row,state);
   }
 }
 window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(layoutTagRows));
 window.addEventListener('resize',()=>{for(const {close} of tagRows.values())close();layoutTagRows();});
 window.addEventListener('scroll',()=>{for(const {close} of tagRows.values())close();},{passive:true});
-document.fonts.ready.then(layoutTagRows);
+document.fonts.ready.then(()=>{for(const state of tagRows.values())state.layoutKey=null;layoutTagRows();});
 
 function notice(message) {
   clearTimeout(noticeTimer);
@@ -97,7 +112,7 @@ function showError(error) { notice(error.message); }
 async function refresh() {
   if (refreshing) return; refreshing = true;
   try {
-    library = await api('/api/library');
+    library = await api('/api/library',{signal:AbortSignal.timeout(12000)});
     const self=(library.friends||[]).find(person=>person.id===me.player_id);
     if(self&&self.name!==me.name){me.name=self.name;renderAccount();}
     if(entrySlug && !entryGame){entryGame=await api('/api/games/'+encodeURIComponent(entrySlug));history.replaceState(null,'',new URL(entryGame.url).pathname);document.title=entryGame.title+' · Infuser';}
@@ -111,9 +126,12 @@ function describeArt(art,game){
   if(game.card_art_pending&&!game.card_art_url){art.removeAttribute('aria-hidden');art.setAttribute('role','img');art.setAttribute('aria-label','Artwork being generated');}
   else{art.setAttribute('aria-hidden','true');art.removeAttribute('role');art.removeAttribute('aria-label');}
 }
-function gameBuzz(game){
+function recentReactions(game){
   const now=Date.now()/1000,cutoff=now-28*86400;
-  const recent=(game.reactions||[]).filter(r=>Number.isFinite(r.updated)&&r.updated>=cutoff&&r.updated<=now&&emojis.some(([emoji])=>emoji===r.emoji)).sort((a,b)=>b.updated-a.updated);
+  return (game.reactions||[]).filter(r=>Number.isFinite(r.updated)&&r.updated>=cutoff&&r.updated<=now&&emojis.some(([emoji])=>emoji===r.emoji)).sort((a,b)=>b.updated-a.updated);
+}
+function gameBuzz(game){
+  const recent=recentReactions(game);
   if(!recent.length)return null;
   // Diminishing growth: 8 reactions -> 4 faces, 12 -> 5, capped at 6.
   const count=Math.min(recent.length,6,Math.ceil(Math.sqrt(2*recent.length))),seen=new Set(),distinct=[],rest=[];
@@ -123,6 +141,7 @@ function gameBuzz(game){
   for(const reaction of [...distinct,...rest].slice(0,count)){const face=el('span',reaction.emoji);face.setAttribute('aria-hidden','true');stack.append(face);}
   stack.onclick=()=>openGameDetail(game,recent[0]);return stack;
 }
+const cardStates=new WeakMap();
 function renderGames() {
   const games = $('games');
   // Preserve ongoing launch controls and selections during presence polling.
@@ -130,16 +149,47 @@ function renderGames() {
   cancelTagHold();
   const previousCards = new Map([...games.querySelectorAll('.game')].map(card=>[card.dataset.app,card]));
   const nextCards = [], hiddenCards=[];
-  if(!library.apps.length) {
-    const empty = el('div',undefined,'empty'); empty.append(el('h2','No games yet'),el('p','Add a game to get started.')); nextCards.push(empty);
+  function emptyState(title,text){
+    const previous=games.querySelector('.empty');if(previous?.querySelector('h2')?.textContent===title)return previous;
+    const empty=el('div',undefined,'empty');empty.append(el('h2',title),el('p',text));return empty;
   }
+  if(!library.apps.length)nextCards.push(emptyState('No games yet','Add a game to get started.'));
   const query=$('game-search').value.trim().toLowerCase();
   const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?g.author?.id===selectedAuthor:!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
-  $('game-count').textContent=(visible===total?visible:visible+' / '+total)+' games';
-  if(library.apps.length&&!matching.length){const empty=el('div',undefined,'empty');empty.append(el('h2','No matches'),el('p','Try another tag or clear your search.'));nextCards.push(empty);}
-  for(const game of matching) {
-    const card = previousCards.get(game.id) || el('article',undefined,'game');
+  setText($('game-count'),(visible===total?visible:visible+' / '+total)+' games');
+  if(library.apps.length&&!matching.length)nextCards.push(emptyState('No matches','Try another tag or clear your search.'));
+  for(const incoming of matching) {
+    const card = previousCards.get(incoming.id) || el('article',undefined,'game');
+    let state=cardStates.get(card);
+    if(!state){state={game:{}};cardStates.set(card,state);}
+    // Event handlers keep a live object, even when their DOM is retained.
+    const game=state.game;
+    for(const key of Object.keys(game))if(!(key in incoming))delete game[key];
+    Object.assign(game,incoming);
+    const {players,reactions,join_targets,...metadata}=game;
+    const signature=JSON.stringify([metadata,(game.tags||[]).map(tagLabel),me.admin,me.inspecting,me.avatars]);
+    const actionSignature=JSON.stringify([players,reactions,join_targets]);
+    const buzzSignature=JSON.stringify(recentReactions(game));
+    if(state.signature===signature){
+      if(state.actionSignature!==actionSignature){
+        const actions=card.querySelector('.actions'),focused=document.activeElement;
+        const index=[...actions.querySelectorAll('button,summary')].indexOf(focused);
+        const replacement=gameActions(game,card);actions.replaceWith(replacement);
+        if(index>=0)(replacement.querySelectorAll('button,summary')[index]||replacement.querySelector('button')).focus({preventScroll:true});
+      }
+      if(state.buzzSignature!==buzzSignature){
+        const previous=card.querySelector('.game-buzz'),focused=previous===document.activeElement,buzz=gameBuzz(game);
+        if(previous){if(buzz)previous.replaceWith(buzz);else previous.remove();}
+        else if(buzz){if(game.preview)card.append(buzz);else card.querySelector('.game-bottom').prepend(buzz);}
+        if(focused)(buzz||card.querySelector('.game-open')).focus({preventScroll:true});
+      }
+      state.actionSignature=actionSignature;state.buzzSignature=buzzSignature;
+      (game.preview?hiddenCards:nextCards).push(card);continue;
+    }
+    state.signature=signature;state.actionSignature=actionSignature;state.buzzSignature=buzzSignature;
+    const focused=document.activeElement;
+    const focusIndex=[...card.querySelectorAll('button,summary')].indexOf(focused);
     card.dataset.app=game.id;card.classList.toggle('hidden-game',!!game.preview);
     // Keep loaded (or still loading) covers connected across presence refreshes.
     // Recreating an img resets has-game-art and briefly paints the fallback.
@@ -160,16 +210,12 @@ function renderGames() {
     if(game.preview)dock.append(el('p','Hidden','game-visibility'));else card.insertBefore(meta,bottom);
     const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags&&!me.inspecting){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}if(!game.preview){meta.append(tags);prepareTagRow(tags);}
     heading.append(creatorButton(game));dock.append(heading,gameActions(game,card));
+    if(focusIndex>=0)(card.querySelectorAll('button,summary')[focusIndex]||open).focus({preventScroll:true});
     (game.preview?hiddenCards:nextCards).push(card);
   }
   // Retain mounted covers while sorting visible games and the admin-only shelf.
-  function reconcile(container,cards){
-    const retained=new Set(cards);
-    for(const child of [...container.children])if(!retained.has(child))child.remove();
-    cards.forEach((card,index)=>{if(container.children[index]!==card)container.insertBefore(card,container.children[index]||null);});
-  }
-  reconcile($('visible-games'),nextCards);reconcile($('hidden-game-list'),hiddenCards);
-  $('hidden-games').hidden=!hiddenCards.length;$('hidden-game-count').textContent=hiddenCards.length;
+  reconcileChildren($('visible-games'),nextCards);reconcileChildren($('hidden-game-list'),hiddenCards);
+  if($('hidden-games').hidden!==!hiddenCards.length)$('hidden-games').hidden=!hiddenCards.length;setText($('hidden-game-count'),hiddenCards.length);
   layoutTagRows();
 }
 function gameActions(game,card){
@@ -294,7 +340,7 @@ function profileAvatar(name,id,picture,size=128) {
   const tone=Array.from(id||name||'').reduce((value,ch)=>(value+ch.codePointAt(0))%6,0);
   const avatar=el('span',initials.toLocaleUpperCase(),'avatar tone-'+tone+(initials?'':' avatar-unknown'));avatar.setAttribute('aria-hidden','true');return avatar;
 }
-let presenceSignature='';
+let presenceSignature='',presenceLayoutKey='',presenceSlots=0;
 function visiblePresenceCount(people){
   const list=$('friends'),cluster=list.closest('.presence-chat');
   if(!cluster||!people.length)return people.length;
@@ -302,13 +348,16 @@ function visiblePresenceCount(people){
   const self=list.querySelector('.presence-self');
   const outerWidth=node=>{const style=getComputedStyle(node);return node.offsetWidth+parseFloat(style.marginLeft)+parseFloat(style.marginRight);};
   const base=self?outerWidth(self):0;
+  const layoutKey=JSON.stringify([room,base,innerWidth,document.documentElement.dataset.theme]);
+  if(layoutKey===presenceLayoutKey)return people.length<=presenceSlots?people.length:Math.max(0,presenceSlots-1);
+  presenceLayoutKey=layoutKey;
   // Measure the actual themed badge and overlap; don't impose a fixed friend cap.
   let badge=list.querySelector('.presence-person:not(.presence-self)');
   const probe=!badge;if(probe){badge=el('li',undefined,'presence-person');list.append(badge);}
   const first=outerWidth(badge);
   const next=el('li',undefined,'presence-person');list.append(next);
   const step=outerWidth(next);next.remove();if(probe)badge.remove();
-  const slots=Math.max(0,Math.floor((room-base-first+.5)/Math.max(1,step))+1);
+  const slots=Math.max(0,Math.floor((room-base-first+.5)/Math.max(1,step))+1);presenceSlots=slots;
   return people.length<=slots?people.length:Math.max(0,slots-1);
 }
 const presenceResize=new ResizeObserver(()=>{if(library)renderPresence();});
@@ -438,17 +487,39 @@ async function startDesktop(game,button,card,{guest=false}={}){
 }
 document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open]'))if(!menu.contains(event.target))menu.open=false;});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
+let feedSignature;
 function renderFeed() {
-  const feed=$('feed');feed.replaceChildren();const entries=[];
+  const feed=$('feed');const entries=[];
   for(const game of library.apps){entries.push({game,at:game.updated,emoji:'↗',title:game.author?.name?game.author.name+' updated '+game.title:game.title+' updated',text:'',person:game.author});for(const r of game.reactions)entries.push({game,reaction:r,at:r.updated,emoji:r.emoji,title:r.name+' reacted to '+game.title,text:r.text,person:{id:r.id,name:r.name,avatar:r.avatar}});}
   entries.sort((a,b)=>b.at-a.at);
   const keys=new Set(entries.slice(0,12).map(entry=>JSON.stringify([entry.at,entry.title,entry.text])));
   if(!seenEvents||$('recent-menu').open)seenEvents=keys;
   const unseen=[...keys].some(key=>!seenEvents.has(key));
   $('recent-toggle').classList.toggle('has-updates',unseen);
-  $('recent-toggle').setAttribute('aria-label',unseen?'Recently · new events':'Recently');
-  if(!entries.length)feed.append(el('p','Game updates and reactions show up here.','quiet'));
-  for(const entry of entries.slice(0,12)){const row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');row.onclick=()=>{$('recent-menu').open=false;openGameDetail(entry.game,entry.reaction);};body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));mark.append(el('span',entry.emoji,'feed-emoji'));row.append(mark,body);feed.append(row);}
+  const label=unseen?'Recently · new events':'Recently';
+  if($('recent-toggle').getAttribute('aria-label')!==label)$('recent-toggle').setAttribute('aria-label',label);
+  const signature=JSON.stringify(entries.slice(0,12).map(({game,...entry})=>[game.id,entry]));
+  if(signature===feedSignature)return;feedSignature=signature;
+  const previous=new Map([...feed.children].map(row=>[row.dataset.key,row])),rows=[],focused=document.activeElement;
+  let replacementFocus;
+  if(!entries.length)rows.push(el('p','Game updates and reactions show up here.','quiet'));
+  for(const entry of entries.slice(0,12)){
+    const key=JSON.stringify([entry.game.id,entry.reaction?entry.reaction.id||entry.reaction.name:null]);
+    const signature=JSON.stringify([entry.at,entry.title,entry.text,entry.emoji,entry.person]);
+    const old=previous.get(key);
+    if(old?.dataset.signature===signature){rows.push(old);continue;}
+    const row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');
+    row.dataset.key=key;row.dataset.signature=signature;
+    row.onclick=()=>{$('recent-menu').open=false;const game=library.apps.find(game=>game.id===entry.game.id);if(game)openGameDetail(game,entry.reaction);};
+    body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));
+    const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
+    if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));
+    mark.append(el('span',entry.emoji,'feed-emoji'));row.append(mark,body);rows.push(row);
+    if(old===focused)replacementFocus=row;
+  }
+  const hadFocus=feed.contains(focused);
+  reconcileChildren(feed,rows);
+  if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.append(radio,el('span',emoji));$('emoji').append(l);}
 function openReaction(game,selectedEmoji){
@@ -648,7 +719,24 @@ $('copy-prompt').onclick=async()=>{
 $('refresh-setup').onclick=refreshSetup;
 $('another-game').onclick=()=>{if(setupPending)return;newGameConnection=null;prepareGame();};
 function tagLabel(id){return library?.tags?.find(t=>t.id===id)?.label||id.split('-').map(w=>w[0]?.toUpperCase()+w.slice(1)).join(' ');}
-function renderFilters(){const nav=$('tag-filters');if(nav.querySelector('.tag-overflow-panel:popover-open'))return;nav.replaceChildren();const all=el('button','All games','tag-filter'+(!activeTag?' selected':''));all.setAttribute('aria-pressed',String(!activeTag));all.onclick=()=>{activeTag='';renderFilters();renderGames();};nav.append(all);for(const tag of library.tags||[]){if(!tag.count&&activeTag!==tag.id)continue;const button=el('button',tag.label,'tag-filter'+(activeTag===tag.id?' selected':''));button.setAttribute('aria-pressed',String(activeTag===tag.id));button.onclick=()=>{activeTag=activeTag===tag.id?'':tag.id;renderFilters();renderGames();};nav.append(button);}prepareTagRow(nav,gameCount);layoutTagRows();}
+function renderFilters(){
+  const nav=$('tag-filters');if(nav.querySelector('.tag-overflow-panel:popover-open'))return;
+  const tags=(library.tags||[]).filter(tag=>tag.count||activeTag===tag.id);
+  const signature=JSON.stringify([activeTag,tags.map(({id,label})=>[id,label])]);
+  if(signature===filterSignature)return;filterSignature=signature;
+  const focused=document.activeElement,focusedId=focused.dataset.tag;
+  nav.replaceChildren();
+  for(const tag of [{id:'',label:'All games'},...tags]){
+    const selected=activeTag===tag.id,button=el('button',tag.label,'tag-filter'+(selected?' selected':''));
+    button.dataset.tag=tag.id;button.setAttribute('aria-pressed',String(selected));
+    button.onclick=()=>{activeTag=activeTag===tag.id?'':tag.id;renderFilters();renderGames();};nav.append(button);
+  }
+  prepareTagRow(nav,gameCount);layoutTagRows();
+  if(focusedId!==undefined){
+    const button=[...nav.querySelectorAll('[data-tag]')].find(button=>button.dataset.tag===focusedId);
+    (button?.closest('.tag-strip')?button:button?nav.querySelector('.tag-more'):nav.querySelector('button')).focus({preventScroll:true});
+  }
+}
 // One shared combobox for both themes; suggestions use only authorized library data.
 function closeSearchOptions(){
   $('search-options').hidden=true;$('game-search').setAttribute('aria-expanded','false');
@@ -680,6 +768,8 @@ function renderSearchOptions(){
   const people=[...authors.values()].filter(p=>!query||p.name.toLowerCase().includes(query));
   searchChoices=people.slice(0,query?4:2).map(person=>({kind:'gamer',person,key:'gamer:'+person.id}));
   if(query)searchChoices.push(...library.apps.filter(g=>g.title.toLowerCase().includes(query)).slice(0,6).map(game=>({kind:'game',game,key:'game:'+game.id})));
+  const signature=JSON.stringify(searchChoices.map(choice=>choice.kind==='gamer'?[choice.key,choice.person]:[choice.key,choice.game.title,choice.game.author?.name]));
+  if(!panel.hidden&&signature===searchSignature)return;searchSignature=signature;
   panel.replaceChildren();
   for(const [i,choice] of searchChoices.entries()){
     const row=el('div',undefined,'search-option');row.id='search-option-'+i;row.tabIndex=-1;row.setAttribute('role','option');row.setAttribute('aria-selected','false');
@@ -691,7 +781,7 @@ function renderSearchOptions(){
       const mark=el('span','▸','search-game-mark');mark.setAttribute('aria-hidden','true');row.append(mark);
       text.append(el('strong',choice.game.title),el('small','Game'+(choice.game.author?.name?' · '+choice.game.author.name:'')));
     }
-    row.append(text);row.onmousedown=event=>event.preventDefault();row.onclick=()=>chooseSearchOption(choice);panel.append(row);
+    row.append(text);row.onmousedown=event=>event.preventDefault();row.onclick=()=>chooseSearchOption(searchChoices.find(current=>current.key===choice.key));panel.append(row);
   }
   if(!searchChoices.length){closeSearchOptions();$('search-status').textContent='No suggestions';return;}
   panel.hidden=false;input.setAttribute('aria-expanded','true');
@@ -738,11 +828,13 @@ function reactionBurst(target,emoji){
   hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
   setTimeout(()=>burst.remove(),950);
 }
+let networkHealthBusy=false;
 async function refreshNetworkHealth(){
-  if(!me?.admin||!$('admin').querySelector('details')?.open)return;
+  if(networkHealthBusy||document.hidden||!me?.admin||!$('admin').querySelector('details')?.open)return;
+  networkHealthBusy=true;
   let box=$('network-health');if(!box){box=el('section');box.id='network-health';$('admin').querySelector('.admin-panel').append(box);}
   try{
-    const data=await api('/api/admin/peer-health');box.replaceChildren(el('h3','Network diagnostics'));
+    const data=await api('/api/admin/peer-health',{signal:AbortSignal.timeout(12000)});box.replaceChildren(el('h3','Network diagnostics'));
     if(!data.sessions.length){box.append(el('p','No active peer sessions.','quiet'));return;}
     const milliseconds=value=>typeof value==='number'&&Number.isFinite(value)?Math.round(value)+' ms':'measuring';
     for(const session of data.sessions){
@@ -756,6 +848,7 @@ async function refreshNetworkHealth(){
     }
     box.append(el('p','Browser-reported network round trips. Rendering and game simulation can add delay.','quiet'));
   }catch{box.replaceChildren(el('h3','Network diagnostics'),el('p','Diagnostics unavailable. Games can keep running.','quiet'));}
+  finally{networkHealthBusy=false;}
 }
 $('admin').querySelector('details').addEventListener('toggle',refreshNetworkHealth);
 setInterval(refreshNetworkHealth,5000);
