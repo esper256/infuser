@@ -138,6 +138,12 @@ be used as a player login.
   a build ID or override content hash. Images require membership and use private
   revalidation caching. Hidden images require admin membership; inactive or
   replaced image URLs return 404.
+- `GET /api/profile` — returns `{"users":[{"name":"Alex","avatar":"circuit-fox"}]}`
+  for profile-picker usage badges. Requires active membership; includes enabled
+  accounts in the current group, including offline accounts, with a selected
+  picture. Initials-only accounts are omitted. Operator inspection uses the
+  inspected group. No emails or account permissions are exposed. The picker
+  refreshes this information when opened; shared pictures remain selectable.
 - `PUT /api/profile` with `{"avatar":"circuit-fox"}` — saves the signed-in member's
   picture; `{"avatar":""}` restores initials. Returns `{"avatar":ID_OR_NULL}`.
   Unknown IDs return 400; missing/null values and extra fields are rejected.

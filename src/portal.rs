@@ -523,7 +523,7 @@ pub fn router(platform: Platform) -> Router {
         )
         .route("/api/me", get(me))
         .route("/assets/avatars/{id}/{size}", get(avatars::image))
-        .route("/api/profile", put(avatars::update).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/profile", get(avatars::usage).put(avatars::update).layer(DefaultBodyLimit::max(1024)))
         .route("/api/library", get(library::list))
         .route("/api/client-state", get(client::state))
         .route("/assets/client-updates.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/client-updates.js")) }))
