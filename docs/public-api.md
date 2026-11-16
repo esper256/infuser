@@ -133,6 +133,8 @@ be used as a player login.
   presence; no email is exposed. `avatar` is a curated picture ID or `null` for
   initials. Friends and `/api/me` include the same optional `avatar` field.
   `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog.
+  Its mixed display order is stable across sessions; new pictures slot in without
+  changing existing pictures' relative order. Clients should preserve this order.
   Library games include `description` (nullable plain text) and `card_art_url`
   (null for the fallback). Use the returned cover URL as-is: its revision can be
   a build ID or override content hash. Images require membership and use private
