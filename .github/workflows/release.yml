@@ -27,14 +27,15 @@ jobs:
     env:
       INFUSER_BUILD_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
+          package-manager-cache: false
       - name: Fast journeys
         run: cargo test --locked
       - name: Fast SDK journeys
@@ -49,7 +50,7 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/infuser "dist/infuser-linux-$ARCH"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: infuser-linux-${{ matrix.arch }}
           path: dist/infuser-linux-${{ matrix.arch }}
@@ -68,7 +69,7 @@ jobs:
     env:
       INFUSER_BUILD_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -83,7 +84,7 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/infuser-publisher "dist/infuser-macos-$ARCH"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: infuser-macos-${{ matrix.arch }}
           path: dist/infuser-macos-${{ matrix.arch }}
@@ -98,7 +99,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -124,7 +125,7 @@ jobs:
           mkdir -p dist
           sh desktop/packaging/build-flatpak.sh desktop/target/release/infuser-desktop "$PWD/dist/Infuser-Play.flatpak"
           cp desktop/target/release/infuser-desktop dist/infuser-play-linux-x86_64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: infuser-desktop-${{ runner.os }}
           path: dist/*
@@ -141,7 +142,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: infuser-*
           path: dist
