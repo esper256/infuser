@@ -74,9 +74,19 @@ const AVATARS: &[Avatar] = &[
 ];
 
 pub(super) fn catalog() -> Value {
+    // Fixed FNV-1a ranks scatter creation batches without a per-session shuffle.
+    // Rank only persistent IDs: additions slot in without reordering existing art.
+    // Keep the algorithm/seed fixed so releases and display-name edits stay stable.
+    let mut ordered: Vec<_> = AVATARS.iter().collect();
+    ordered.sort_unstable_by_key(|a| {
+        let rank = a.id.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+        });
+        (rank, a.id)
+    });
     json!(
-        AVATARS
-            .iter()
+        ordered
+            .into_iter()
             .map(|a| json!({"id":a.id,"name":a.name}))
             .collect::<Vec<_>>()
     )
