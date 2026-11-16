@@ -7,6 +7,7 @@ struct View<'a> {
     email: &'a str,
     group: &'a str,
     inspecting: bool,
+    moderates_reactions: bool,
     time: u64,
 }
 impl View<'_> {
@@ -162,6 +163,7 @@ impl View<'_> {
             "preview":!listed,
             "players":players,
             "reactions":reactions,
+            "can_moderate_reactions":self.moderates_reactions,
             "join_targets":join_targets,
             "tags":data.tags.get(id).cloned().unwrap_or_default(),
             "can_edit_tags":!self.inspecting && data.groups.allows(self.email,id) && (data.members[self.email].admin || data.owners.get(id).is_some_and(|owner|owner==self.email)),
@@ -217,6 +219,9 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         email: &email,
         group: &group,
         inspecting,
+        moderates_reactions: !inspecting
+            && !h.contains_key(groups::VISIT)
+            && data.members[&email].admin,
         time,
     };
     let apps: Vec<_> = data

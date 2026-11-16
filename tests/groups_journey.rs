@@ -303,6 +303,47 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
             denied(c.member(who, method, &path).json(&body)).await?;
         }
     }
+    // Only a home-group admin may moderate by the opaque reaction author ID.
+    let target = user_identity["player_id"].as_str().unwrap();
+    let moderation = format!("/api/admin/apps/{away}/reactions/{target}");
+    for who in ["user", "frizz", ""] {
+        denied(c.member(who, Method::DELETE, &moderation)).await?;
+    }
+    denied(
+        c.member("admin", Method::DELETE, &moderation)
+            .header("origin", "https://elsewhere.example"),
+    )
+    .await?;
+    let admin_library = ok(c.member("admin", Method::GET, "/api/library")).await?;
+    assert_eq!(admin_library["apps"][0]["can_moderate_reactions"], true);
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["can_moderate_reactions"],
+        false
+    );
+    ok(
+        c.member("admin", Method::PUT, &format!("/api/apps/{away}/reaction"))
+            .json(&json!({"emoji":"⭐","text":"Keep this reaction"})),
+    )
+    .await?;
+    p.db.edit(|d| {
+        d.apps.get_mut(&away).unwrap().listed = false;
+        Ok(())
+    })?;
+    ok(c.member("admin", Method::DELETE, &moderation)).await?;
+    ok(c.member("admin", Method::DELETE, &moderation)).await?; // safe repeated removal
+    let remaining = ok(c.member("admin", Method::GET, "/api/library")).await?;
+    assert_eq!(
+        remaining["apps"][0]["reactions"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        remaining["apps"][0]["reactions"][0]["text"],
+        "Keep this reaction"
+    );
+    p.db.edit(|d| {
+        d.apps.get_mut(&away).unwrap().listed = true;
+        Ok(())
+    })?;
     let members = ok(c.member("admin", Method::GET, "/api/admin/members"))
         .await?
         .to_string();
@@ -494,7 +535,9 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     let chat = ok(inspect(Method::GET, "/api/chat")).await?;
     assert_eq!(chat["messages"][0]["can_delete"], false);
     assert!(chat.to_string().contains("Other family only"));
+    assert_eq!(library["apps"][0]["can_moderate_reactions"], false);
     for (method, path, body) in [
+        (Method::DELETE, moderation.clone(), json!({})),
         (Method::POST, "/api/my-games".to_owned(), json!({})),
         (
             Method::POST,

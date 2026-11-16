@@ -590,6 +590,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/apps/{app}/card-art/{build}", get(card_art::image))
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
+        .route("/api/admin/apps/{app}/reactions/{player}", delete(remove_game_reaction))
         .route("/api/admin/members", get(members).post(invite))
         .route("/api/admin/members/handle", put(rename_member).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/apps/{app}/visibility", put(set_visibility).layer(DefaultBodyLimit::max(1024)))
@@ -956,6 +957,33 @@ async fn unreact(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMa
     p.db.edit(|d| {
         if let Some(r) = d.reactions.get_mut(&app) {
             r.remove(&email);
+        }
+        Ok(())
+    })?;
+    Ok(reply(json!({"ok":true})))
+}
+async fn remove_game_reaction(
+    State(p): State<Platform>,
+    Path((app, player)): Path<(String, String)>,
+    h: HeaderMap,
+) -> Answer {
+    let email = p.admin(&h, true).await?;
+    p.visible_app(&h, &email, &app)?;
+    p.db.edit(|d| {
+        // Moderate the home group's deployment, including games brought by visitors.
+        // Never touch the source group's reactions for a borrowed game.
+        let runtime = d
+            .deployment_for(&app, d.groups.member(&email))
+            .filter(|id| d.deployed(id).is_some())
+            .ok_or_else(|| fault(404, "Game not found."))?
+            .to_owned();
+        if let Some(reactions) = d.reactions.get_mut(&runtime)
+            && let Some(author) = reactions
+                .keys()
+                .find(|author| hash(author) == player)
+                .cloned()
+        {
+            reactions.remove(&author);
         }
         Ok(())
     })?;

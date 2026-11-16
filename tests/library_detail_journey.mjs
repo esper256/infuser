@@ -9,11 +9,11 @@ const avatars=[...String(await readFile(new URL('src/portal/avatars.rs',root))).
 const me={name:'KwamiKwami',player_id:'one',admin:true,avatar:'loot-raccoon',avatars};
 const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'OrbitFox',avatar:'ember-raven'};
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
-const game={id:'firefly-drift',title:'Firefly Drift',description:'A quiet flight through a glowing forest.',author,updated:now-60,card_art_url:'/test-art/firefly',url:'https://library.test/games/firefly-drift',tags:['3d','arcade','chill'],can_edit_tags:true,players:[],join_targets:[{name:'OrbitFox',session_id:'session',player_id:'two'}],reactions:[{...friend,emoji:'👏',text:'Love the atmosphere.',updated:now,mine:false},{...author,emoji:'⭐',text:'',updated:now-10,mine:true}]};
+const game={can_moderate_reactions:true,id:'firefly-drift',title:'Firefly Drift',description:'A quiet flight through a glowing forest.',author,updated:now-60,card_art_url:'/test-art/firefly',url:'https://library.test/games/firefly-drift',tags:['3d','arcade','chill'],can_edit_tags:true,players:[],join_targets:[{name:'OrbitFox',session_id:'session',player_id:'two'}],reactions:[{...friend,emoji:'👏',text:'Love the atmosphere.',updated:now,mine:false},{...author,emoji:'⭐',text:'',updated:now-10,mine:true}]};
 const apps=[game,{...game,id:'nocomgame',title:'NoCOMgame',description:null,author:friend,card_art_url:null,tags:['3d','sandbox','action','survival','exploration'],reactions:[]},{...game,id:'event-horizon',title:'Event Horizon',author:friend,card_art_url:'/test-art/event',reactions:[]},{...game,id:'dodge',title:'Dodge the Creeps',author:null,preview:true,card_art_url:null,reactions:[]},{...game,id:'lantern',title:'Lantern Lake',author:null,preview:true,card_art_url:null,reactions:[]}];
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
-let launches=[],writes=[],reads=0,unauthorized=false;
+let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false;
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
@@ -31,6 +31,10 @@ try {
   else if(path==='/api/profile'){me.avatar=request.postDataJSON().avatar;author.avatar=me.avatar;data={avatar:me.avatar};}
   else if(path.endsWith('/launch')){launches.push(request.postDataJSON());data={state:'ready',url:'https://library.test/game-fixture'};}
   else if(path.endsWith('/visibility')){const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
+  else if(/^\/api\/admin\/apps\/[^/]+\/reactions\//.test(path)){
+   if(failModeration)return route.fulfill({status:503,json:{error:'Please retry deletion.'}});
+   const app=apps.find(g=>g.id===path.split('/')[4]);app.reactions=app.reactions.filter(r=>r.id!==path.split('/')[6]);data={ok:true};
+  }
   else if(path.endsWith('/reaction')){game.reactions=game.reactions.filter(r=>!r.mine);if(method==='PUT')game.reactions.push({...author,...request.postDataJSON(),updated:now+1,mine:true});data={ok:true};}
   else if(path.endsWith('/tags')){game.tags=request.postDataJSON().tags;data={ok:true};}
   else if(path==='/api/my-games')data={api_url:'https://library.test',app_id:'new-game',setup_code:'TEST-ONLY',expires_at:now+10800};
@@ -192,6 +196,20 @@ try {
   await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transform),'none');await page.emulateMedia({reducedMotion:'no-preference'});
  }
  await page.emulateMedia({reducedMotion:'reduce'});await open();await dialog.getByRole('button',{name:'React: Amazing',exact:true}).click();assert.equal(await page.locator('.reaction-burst').count(),0);await page.locator('#close-reaction').click();await close();await page.emulateMedia({reducedMotion:'no-preference'});
+ // Admin moderation deletes the chosen reaction and note, with a recoverable error.
+ const beforeModeration=[...game.reactions];await open();
+ const target=dialog.locator('.game-feedback-row').filter({hasText:'Love the atmosphere.'});
+ await target.locator('.feedback-actions summary').click();failModeration=true;
+ await target.getByRole('button',{name:'Delete reaction',exact:true}).click();
+ await target.getByRole('alert').getByText('Please retry deletion.',{exact:true}).waitFor();
+ assert.equal(game.reactions.length,beforeModeration.length);failModeration=false;
+ await target.locator('.feedback-actions summary').click();await target.getByRole('button',{name:'Delete reaction',exact:true}).click();
+ await target.waitFor({state:'detached'});assert(!game.reactions.some(r=>r.id===friend.id));assert(game.reactions.some(r=>r.id===author.id));
+ assert.equal(await page.locator('#feed').getByText('Love the atmosphere.',{exact:true}).count(),0,'removed reaction also leaves the activity feed');
+ await close();game.reactions=beforeModeration;await page.evaluate(()=>refreshTestLibrary());
+ me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert.equal(await dialog.locator('.feedback-actions').count(),0);await close();
+ me.admin=true;game.can_moderate_reactions=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert.equal(await dialog.locator('.feedback-actions').count(),0,'server capability is required');await close();
+ game.can_moderate_reactions=true;await page.evaluate(()=>refreshTestLibrary());
  // Actual description/text are rendered as text, not interpreted as markup.
  game.description='<img src=x onerror=alert(1)> '+('Long description. '.repeat(80));game.title='An exceptionally long game title that should remain usable on a narrow phone';
  await page.reload();await page.locator('.game-open').first().waitFor();await page.setViewportSize({width:320,height:640});await open();assert.equal(await dialog.locator('.game-description img').count(),0);assert(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth));await close();
