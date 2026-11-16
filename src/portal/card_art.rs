@@ -41,7 +41,6 @@ pub(super) async fn image(
     }
     let email = p.member(&h, false).await?;
     p.visible_app(&h, &email, &app)?;
-    let (_, inspecting) = p.group_view(&h, &email)?;
     {
         let data = p.db.read()?;
         let (group, _) = p.group_view(&h, &email)?;
@@ -51,10 +50,6 @@ pub(super) async fn image(
         let active = data
             .deployed(runtime)
             .ok_or_else(|| fault(404, "game not found"))?;
-        ensure!(
-            active.listed || inspecting || data.members[&email].admin,
-            fault(404, "game not found")
-        );
         if data
             .metadata
             .get(&app)

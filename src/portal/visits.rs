@@ -30,7 +30,7 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     Ok(reply(
         json!({"enabled":p.config().controller.visits,"groups":d.groups.names,
         "members":d.members.iter().filter(|(_,m)|m.enabled).map(|(e,m)|json!({"id":hash(e),"name":m.name,"group":d.groups.member(e)})).collect::<Vec<_>>(),
-        "games":d.apps.iter().filter(|(_,a)|a.listed).map(|(id,a)|json!({"id":id,"group":d.groups.app(id),"title":d.builds[&build_key(id,&a.build)].manifest.title})).collect::<Vec<_>>(),
+        "games":d.apps.iter().filter(|(_,a)|a.listed).map(|(id,a)|json!({"id":id,"group":d.groups.app(id),"title":metadata::title(&d,id,&d.builds[&build_key(id,&a.build)].manifest.title)})).collect::<Vec<_>>(),
         "visits":d.visits.iter().map(|(id,v)|view(&d,id,v)).collect::<Vec<_>>()}),
     ))
 }
