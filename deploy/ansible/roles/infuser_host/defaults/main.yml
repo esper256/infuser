@@ -1,0 +1,42 @@
+---
+infuser_manage_units: true
+infuser_manage_monitoring: true
+infuser_manage_service_sources: true
+infuser_caddy_domain: ''
+infuser_monitoring_dir: /etc/infuser/monitoring
+infuser_notifications_file: /etc/infuser/monitoring-private/notifications.json
+infuser_service_sources_dir: /etc/infuser/service-images
+infuser_systemd_dir: /etc/systemd/system
+infuser_libexec_dir: /usr/local/libexec
+infuser_extra_files: []
+infuser_stacks: []
+infuser_validators: []
+infuser_enabled_timers: []
+# Inventory, credentials, targets, schedules, backup destinations and other
+# projects' configuration are operator-owned. Do not copy whole directories.
+infuser_unit_files:
+  - infuser.service
+  - infuser-update.service
+  - infuser-update.timer
+  - infuser-backup.service
+  - infuser-backup.timer
+  - infuser-health.service
+  - infuser-health.timer
+  - infuser-reboot.service
+  - infuser-reboot.timer
+infuser_monitoring_files:
+  - compose.yaml
+  - prometheus.yml
+  - blackbox.yml
+  - alert-rules.json
+  - render-notifications.sh
+  - dashboards/infuser/infuser.json
+  - dashboards/host/host.json
+  - provisioning/dashboards/infuser.yml
+  - provisioning/datasources/prometheus.yml
+infuser_service_source_files:
+  - compose.yaml
+  - caddy/Dockerfile
+  - caddy/go.mod
+  - caddy/go.sum
+  - caddy/main.go

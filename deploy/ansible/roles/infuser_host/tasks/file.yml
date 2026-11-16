@@ -1,0 +1,36 @@
+---
+- name: Read the installed file checksum
+  ansible.builtin.stat:
+    path: '{{ managed_file.dest }}'
+    checksum_algorithm: sha1
+  register: previous_file
+  no_log: '{{ managed_file.sensitive | default(true) }}'
+- name: Ensure the owned file's parent exists
+  ansible.builtin.file:
+    path: '{{ managed_file.dest | dirname }}'
+    state: directory
+    # Existing directories retain ownership/mode, including private directories.
+    # This role runs locally on the managed host, so the directory test is local.
+    mode: '{{ omit if (managed_file.dest | dirname) is directory else ("0700" if (managed_file.sensitive | default(true)) else "0755") }}'
+- name: Copy the owned file
+  ansible.builtin.copy:
+    src: '{{ managed_file.src }}'
+    dest: '{{ managed_file.dest }}'
+    owner: '{{ managed_file.owner | default("root") }}'
+    group: '{{ managed_file.group | default("root") }}'
+    mode: '{{ managed_file.mode }}'
+    backup: true
+    validate: '{{ managed_file.validate | default("/bin/bash -n %s" if managed_file.src.endswith(".sh") else omit) }}'
+  register: installed_file
+  diff: '{{ not (managed_file.sensitive | default(true)) }}'
+  no_log: '{{ managed_file.sensitive | default(true) }}'
+- name: Record changed component
+  ansible.builtin.set_fact:
+    infuser_changed_components: '{{ (infuser_changed_components | default([])) + [managed_file.component] }}'
+  when:
+    - installed_file.changed
+    - (previous_file.stat.checksum | default('')) != (lookup('ansible.builtin.file', managed_file.src, rstrip=false) | hash('sha1'))
+- name: Report retained rollback file without displaying its contents
+  ansible.builtin.debug:
+    msg: 'Previous configuration retained: {{ installed_file.backup_file }}'
+  when: installed_file.backup_file is defined

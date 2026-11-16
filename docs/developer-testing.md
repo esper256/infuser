@@ -399,3 +399,35 @@ Run the [Godot web fixture](#godot-web-example) with
 The fixture's app ID remains `lantern-lake`; its title and save declaration come
 from the supplied existing project. No real account, public game listing, or
 upstream repository change is required for this study.
+
+## Ansible host maintenance
+
+Install the pinned operator tooling in an isolated environment, then run the
+opt-in journey (no root or Docker required):
+
+```sh
+python3 -m venv .local/ansible-venv
+.local/ansible-venv/bin/pip install -r deploy/ansible/requirements.txt
+ANSIBLE_COLLECTIONS_PATH="$PWD/.local/ansible-collections" \
+  .local/ansible-venv/bin/ansible-galaxy collection install -r deploy/ansible/requirements.yml
+ANSIBLE_COLLECTIONS_PATH="$PWD/.local/ansible-collections" \
+INFUSER_TEST_ANSIBLE="$PWD/.local/ansible-venv/bin/ansible-playbook" \
+INFUSER_TEST_PYTHON="$PWD/.local/ansible-venv/bin/python" \
+  node tests/ansible_host_journey.mjs
+```
+
+It exercises real Ansible preview/apply/idempotence, private diff suppression,
+per-file validation and retained backups in disposable directories. A local HTTP
+fixture and fake systemd exercise busy admission, lock exclusion, failed apply
+and independent recovery after a killed worker. It does not certify real systemd
+or Docker Compose compatibility; verify those on the supported host separately.
+
+With Docker available, run the separate disposable Compose compatibility check:
+
+```sh
+ANSIBLE_COLLECTIONS_PATH="$PWD/.local/ansible-collections" \
+  .local/ansible-venv/bin/ansible-playbook -i localhost, tests/ansible_compose_journey.yml
+```
+
+It verifies selected-service creation, idempotence, check-mode non-mutation and
+preservation of an unselected neighbor, then removes only its temporary project.

@@ -24,6 +24,8 @@ keep your edited configuration outside the source checkout.
 Existing installations should use the relevant guide's upgrade section, not
 repeat account creation, secret generation or repository initialization.
 Binary updates do not install new service units, routing or monitoring files.
+For repeatable updates to those files and fixed Compose stacks, use
+[Ansible host maintenance](ansible-operations.md) after the initial installation.
 
 ## Controller
 

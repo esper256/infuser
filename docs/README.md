@@ -40,6 +40,7 @@ or [HTTP publishing](publishing-http.md); no Infuser build toolchain is required
 - [Private groups](private-groups.md), [feedback posting](feedback-operations.md), [art-agent keys](art-agent-operations.md)
 - [Publication capture](publication-capture.md) and [private lifecycle API](api.md)
 - [Shared domains, host maintenance and service images](host-maintenance.md)
+- [Ansible configuration maintenance](ansible-operations.md)
 
 ## Infuser developers
 
@@ -48,6 +49,7 @@ These pages are for changing the platform, not publishing a game.
 - [Development setup and checks](development.md), [feature tests](developer-testing.md), [CI and releases](ci.md)
 - [Architecture](architecture.md), [implementation and compatibility notes](implementation-notes.md), [roadmap](roadmap.md)
 - [Architectural review improvement plan](proposals/architecture-improvement-plan.md)
+- [Ansible host-maintenance design](proposals/ansible-host-maintenance.md)
 - [SDK design review](sdk-contract.md), [accepted decisions](sdk-1.0-decisions.md),
   [1.0 stabilization plan](proposals/sdk-1.0-stabilization.md),
   [temporary visits](proposals/temporary-visits.md),

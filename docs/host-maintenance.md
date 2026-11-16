@@ -112,6 +112,10 @@ fake shutdown command.
 
 ## Shared service updates
 
+For repeatable configuration installation and selected Compose updates, use
+[Ansible host maintenance](ansible-operations.md). The manual procedure below
+remains available for services not yet adopted into its private inventory.
+
 `deploy/services/compose.yaml` is the tracked image/build definition for Caddy,
 oauth2-proxy and coturn. Merge it with private configuration supplying mounts,
 networking, resource limits, credentials and persistent volumes. It is not a

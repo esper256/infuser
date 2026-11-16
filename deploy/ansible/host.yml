@@ -1,0 +1,24 @@
+---
+- name: Maintain the existing Infuser host installation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    infuser_source_dir: '{{ playbook_dir }}/../..'
+  pre_tasks:
+    - name: Require check mode or the guarded apply entry point
+      ansible.builtin.assert:
+        that:
+          - ansible_check_mode or lookup('ansible.builtin.env', 'INFUSER_HOST_GUARDED') == '1'
+        fail_msg: Use run.sh plan or run.sh apply; apply needs the host lock and idle admission.
+    - name: Check installation prerequisites
+      ansible.builtin.stat:
+        path: /opt/infuser/current/infuser
+      register: installed_controller
+    - name: Require an existing update-managed installation
+      ansible.builtin.assert:
+        that: installed_controller.stat.exists
+        fail_msg: Complete the installation guide first; this playbook adopts an existing host.
+  roles:
+    - infuser_host

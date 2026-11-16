@@ -1,0 +1,45 @@
+---
+- name: Reload changed unit definitions
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: '"units" in (infuser_changed_components | default([]))'
+- name: Refresh only explicitly enabled timers after unit changes
+  ansible.builtin.systemd_service:
+    name: '{{ item }}'
+    state: restarted
+  loop: '{{ infuser_enabled_timers }}'
+  when:
+    - '"units" in (infuser_changed_components | default([]))'
+    - item != 'infuser-health.timer'
+- name: Reconcile selected fixed stacks without orphan or volume removal
+  community.docker.docker_compose_v2:
+    project_src: '{{ item.project_src }}'
+    project_name: '{{ item.name }}'
+    files: '{{ item.files }}'
+    env_files: '{{ item.env_files | default(omit) }}'
+    services: '{{ item.services }}'
+    dependencies: false
+    remove_orphans: false
+    remove_volumes: false
+    state: present
+    # Atomic config copies can change bind-mounted inodes; recreate affected services.
+    recreate: '{{ "always" if (item.components | intersect(infuser_changed_components | default([])) | length > 0) else "auto" }}'
+    build: '{{ "always" if ("services" in item.components and "services" in (infuser_changed_components | default([]))) else "never" }}'
+    pull: policy
+    wait: true
+    wait_timeout: 90
+  loop: '{{ infuser_stacks }}'
+  loop_control:
+    label: '{{ item.name }}'
+  no_log: true
+- name: Check selected service endpoints
+  ansible.builtin.uri:
+    url: '{{ item.1 }}'
+    status_code: 200
+    timeout: 5
+  register: service_health
+  retries: 12
+  delay: 2
+  until: service_health is succeeded
+  loop: '{{ infuser_stacks | subelements("health_urls", skip_missing=True) }}'
+  no_log: true

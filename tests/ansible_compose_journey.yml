@@ -1,0 +1,86 @@
+---
+# Opt-in: real Docker/Compose compatibility, only disposable named test resources.
+- name: Verify Ansible against the installed Compose plugin
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Create a disposable project directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: infuser-ansible-test-
+      register: workspace
+    - name: Set isolated project identity
+      ansible.builtin.set_fact:
+        project: '{{ workspace.path | basename | lower }}'
+    - name: Exercise selected-service reconciliation
+      block:
+        - name: Write initial fixture
+          ansible.builtin.copy:
+            dest: '{{ workspace.path }}/compose.yaml'
+            content: |
+              services:
+                probe:
+                  image: alpine:3.22
+                  command: [sleep, '300']
+                  environment: {REVISION: one}
+                neighbor:
+                  image: alpine:3.22
+                  command: [sleep, '300']
+        - name: Start the unselected neighbor
+          community.docker.docker_compose_v2:
+            project_src: '{{ workspace.path }}'
+            project_name: '{{ project }}'
+            services: [neighbor]
+            dependencies: false
+            wait: true
+        - name: Start only the selected probe
+          community.docker.docker_compose_v2: &probe
+            project_src: '{{ workspace.path }}'
+            project_name: '{{ project }}'
+            services: [probe]
+            dependencies: false
+            remove_orphans: false
+            remove_volumes: false
+            wait: true
+          register: first
+        - name: Repeat without changes
+          community.docker.docker_compose_v2: *probe
+          register: second
+        - name: Require actual change then idempotence
+          ansible.builtin.assert:
+            that: first.changed and not second.changed
+        - name: Change the candidate fixture
+          ansible.builtin.replace:
+            path: '{{ workspace.path }}/compose.yaml'
+            regexp: 'REVISION: one'
+            replace: 'REVISION: two'
+        - name: Preview candidate without recreating containers
+          community.docker.docker_compose_v2: *probe
+          check_mode: true
+          register: preview
+        - name: Read actual running value after preview
+          ansible.builtin.command:
+            argv: [docker, compose, -p, '{{ project }}', -f, '{{ workspace.path }}/compose.yaml', exec, -T, probe, printenv, REVISION]
+          changed_when: false
+          register: actual
+        - name: Verify preview changed nothing
+          ansible.builtin.assert:
+            that: preview.changed and actual.stdout == 'one'
+        - name: Apply the candidate
+          community.docker.docker_compose_v2: *probe
+        - name: Verify unselected neighbor survived
+          ansible.builtin.command:
+            argv: [docker, compose, -p, '{{ project }}', -f, '{{ workspace.path }}/compose.yaml', exec, -T, neighbor, 'true']
+          changed_when: false
+      always:
+        - name: Remove only this disposable fixture stack
+          community.docker.docker_compose_v2:
+            project_src: '{{ workspace.path }}'
+            project_name: '{{ project }}'
+            state: absent
+            remove_volumes: false
+        - name: Remove disposable fixture files
+          ansible.builtin.file:
+            path: '{{ workspace.path }}'
+            state: absent

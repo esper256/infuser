@@ -5,3 +5,5 @@ target/
 *.secret
 infuser.local.toml
 state/
+# Optional local Ansible collection install; inventories belong under .local/.
+deploy/ansible/collections/
