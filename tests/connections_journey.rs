@@ -176,11 +176,20 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
     ))?;
     let auth_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     config.controller.auth_url = format!("http://{}/oauth2/auth", auth_listener.local_addr()?);
-    config.controller.publish_capture_mb = std::env::var("INFUSER_REVIEW_CAPTURE_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    config.controller.publish_capture_mb = std::env::var("INFUSER_REVIEW_CAPTURE_MB")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     let _auth = Running(tokio::spawn(async move {
-        axum::serve(auth_listener, Router::new().route("/oauth2/auth", get(|| async {
-            [("x-auth-request-email", "a@example.test")]
-        }))).await.unwrap();
+        axum::serve(
+            auth_listener,
+            Router::new().route(
+                "/oauth2/auth",
+                get(|| async { [("x-auth-request-email", "a@example.test")] }),
+            ),
+        )
+        .await
+        .unwrap();
     }));
     platform::member(&config, "a@example.test", "River", false, true)?;
     platform::member(&config, "b@example.test", "Sky", false, true)?;
@@ -519,8 +528,13 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
 
 // Opt-in interaction benchmark: real gateway frames, large publication, and UI polling.
 async fn review_load(
-    http: &reqwest::Client, base: &str, db: &platform::Database, root: &std::path::Path,
-    sockets: &mut [tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>],
+    http: &reqwest::Client,
+    base: &str,
+    db: &platform::Database,
+    root: &std::path::Path,
+    sockets: &mut [tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >],
 ) -> Result<()> {
     use std::time::Instant;
     let large = std::env::var_os("INFUSER_REVIEW_LARGE_CATALOG").is_some();
@@ -528,11 +542,21 @@ async fn review_load(
         if large {
             let sample = d.builds["pond/one"].clone();
             for app in 0..25 {
-                d.apps.insert(format!("load-{app}"),App{build:"build-0".into(),listed:true,updated:now()});
+                d.apps.insert(
+                    format!("load-{app}"),
+                    App {
+                        build: "build-0".into(),
+                        listed: true,
+                        updated: now(),
+                    },
+                );
                 for build in 0..5 {
                     let mut item = sample.clone();
-                    item.manifest.app_id=format!("load-{app}");
-                    item.files = (0..500).map(|n| (format!("assets/generated-{n:04}.js"), 16)).collect::<BTreeMap<_,_>>().into();
+                    item.manifest.app_id = format!("load-{app}");
+                    item.files = (0..500)
+                        .map(|n| (format!("assets/generated-{n:04}.js"), 16))
+                        .collect::<BTreeMap<_, _>>()
+                        .into();
                     d.builds.insert(format!("load-{app}/build-{build}"), item);
                 }
             }
@@ -541,61 +565,115 @@ async fn review_load(
     })?;
     let api = format!("{base}/api/publisher/apps/load-publish/builds/one");
     let manifest = json!({"schema_version":1,"app_id":"load-publish","title":"Load fixture","play_modes":["solo"],"solo_runtime":"client_only"});
-    http.put(&api).header("host","games.example.com").bearer_auth(&token)
-        .json(&json!({"manifest":manifest})).send().await?.error_for_status()?;
+    http.put(&api)
+        .header("host", "games.example.com")
+        .bearer_auth(&token)
+        .json(&json!({"manifest":manifest}))
+        .send()
+        .await?
+        .error_for_status()?;
     let bytes = vec![0u8; 64 * 1024 * 1024];
     let publisher = {
-        let http = http.clone(); let token = token.clone(); let api = api.clone();
+        let http = http.clone();
+        let token = token.clone();
+        let api = api.clone();
         tokio::spawn(async move {
-            for (path, body) in [("payload.bin",bytes),("index.html",b"<script type=module src=\"/_infuser/sdk.js\"></script>".to_vec())] {
-                http.put(format!("{api}/files/{path}")).header("host","games.example.com")
-                    .bearer_auth(&token).body(body).send().await?.error_for_status()?;
+            for (path, body) in [
+                ("payload.bin", bytes),
+                (
+                    "index.html",
+                    b"<script type=module src=\"/_infuser/sdk.js\"></script>".to_vec(),
+                ),
+            ] {
+                http.put(format!("{api}/files/{path}"))
+                    .header("host", "games.example.com")
+                    .bearer_auth(&token)
+                    .body(body)
+                    .send()
+                    .await?
+                    .error_for_status()?;
             }
-            http.post(format!("{api}/publish")).header("host","games.example.com")
-                .bearer_auth(&token).send().await?.error_for_status()?;
-            Ok::<_,anyhow::Error>(())
+            http.post(format!("{api}/publish"))
+                .header("host", "games.example.com")
+                .bearer_auth(&token)
+                .send()
+                .await?
+                .error_for_status()?;
+            Ok::<_, anyhow::Error>(())
         })
     };
     let start = Instant::now();
     let polls = {
-        let http = http.clone(); let base = base.to_owned();
+        let http = http.clone();
+        let base = base.to_owned();
         tokio::spawn(async move {
             let mut count = 0;
             while start.elapsed() < Duration::from_secs(4) {
-                for endpoint in ["library","chat"] {
-                    http.get(format!("{base}/api/{endpoint}")).header("host","games.example.com")
-                        .header("cookie","fixture=yes").send().await?.error_for_status()?;
+                for endpoint in ["library", "chat"] {
+                    http.get(format!("{base}/api/{endpoint}"))
+                        .header("host", "games.example.com")
+                        .header("cookie", "fixture=yes")
+                        .send()
+                        .await?
+                        .error_for_status()?;
                     count += 1;
                 }
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            Ok::<_,anyhow::Error>(count)
+            Ok::<_, anyhow::Error>(count)
         })
     };
-    let mut samples = Vec::new(); let mut longest_gap = 0u128; let mut last = Instant::now();
+    let mut samples = Vec::new();
+    let mut longest_gap = 0u128;
+    let mut last = Instant::now();
     while start.elapsed() < Duration::from_secs(4) {
         for socket in sockets.iter_mut() {
-            let sent = Instant::now(); socket.send(Message::Text("load-ping".into())).await?;
+            let sent = Instant::now();
+            socket.send(Message::Text("load-ping".into())).await?;
             loop {
-                match timeout(Duration::from_secs(10),socket.next()).await?.ok_or_else(||anyhow::anyhow!("gateway closed during publication"))?? {
+                match timeout(Duration::from_secs(10), socket.next())
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("gateway closed during publication"))??
+                {
                     Message::Text(text) if text == "load-ping" => break,
-                    Message::Ping(_) => { socket.flush().await?; },
+                    Message::Ping(_) => {
+                        socket.flush().await?;
+                    }
                     Message::Close(_) => anyhow::bail!("gateway closed during publication"),
-                    _ => {},
+                    _ => {}
                 }
             }
             samples.push(sent.elapsed().as_micros());
-            longest_gap = longest_gap.max(last.elapsed().as_micros()); last = Instant::now();
+            longest_gap = longest_gap.max(last.elapsed().as_micros());
+            last = Instant::now();
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    publisher.await??; let polls = polls.await??;
+    publisher.await??;
+    let polls = polls.await??;
     samples.sort_unstable();
-    let percentile = |p:usize| samples[(samples.len()-1)*p/100];
-    let size = |file:&str| std::fs::metadata(root.join(file)).map(|m|m.len()).unwrap_or(0);
-    eprintln!("REVIEW_LOAD large={large} samples={} polls={polls} p50_us={} p95_us={} p99_us={} longest_gap_us={longest_gap} db_bytes={} wal_bytes={}", samples.len(),percentile(50),percentile(95),percentile(99),size("platform.sqlite"),size("platform.sqlite-wal"));
-    if let Ok(status)=std::fs::read_to_string("/proc/self/status") {
-        for line in status.lines().filter(|line|line.starts_with("VmHWM:")||line.starts_with("Threads:")) {eprintln!("REVIEW_LOAD {line}");}
+    let percentile = |p: usize| samples[(samples.len() - 1) * p / 100];
+    let size = |file: &str| {
+        std::fs::metadata(root.join(file))
+            .map(|m| m.len())
+            .unwrap_or(0)
+    };
+    eprintln!(
+        "REVIEW_LOAD large={large} samples={} polls={polls} p50_us={} p95_us={} p99_us={} longest_gap_us={longest_gap} db_bytes={} wal_bytes={}",
+        samples.len(),
+        percentile(50),
+        percentile(95),
+        percentile(99),
+        size("platform.sqlite"),
+        size("platform.sqlite-wal")
+    );
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        for line in status
+            .lines()
+            .filter(|line| line.starts_with("VmHWM:") || line.starts_with("Threads:"))
+        {
+            eprintln!("REVIEW_LOAD {line}");
+        }
     }
     Ok(())
 }

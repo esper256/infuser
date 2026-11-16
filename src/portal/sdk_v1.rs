@@ -13,10 +13,7 @@ pub(super) fn routes() -> Router<Platform> {
                 .delete(connections::cancel)
                 .layer(DefaultBodyLimit::max(1024)),
         )
-        .route(
-            "/connections/v1/{attempt}/socket",
-            get(connections::socket),
-        )
+        .route("/connections/v1/{attempt}/socket", get(connections::socket))
         .route("/context", get(context))
         .route("/heartbeat", post(heartbeat).delete(leave))
         .route("/saves/{slot}", get(save_get).put(save_put))

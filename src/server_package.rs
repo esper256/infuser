@@ -215,7 +215,9 @@ impl Job {
         self.logs.push('\n');
         if self.logs.len() > LOG_BYTES {
             let mut start = self.logs.len() - LOG_BYTES;
-            while !self.logs.is_char_boundary(start) { start += 1; }
+            while !self.logs.is_char_boundary(start) {
+                start += 1;
+            }
             self.logs.drain(..start);
         }
     }
@@ -234,12 +236,18 @@ mod log_tests {
     use super::*;
     #[test]
     fn final_error_survives_verbose_unicode_output() {
-        let recipe = serde_json::from_value(serde_json::json!({"runtime":"node","node_major":24,"entry":"server.js"})).unwrap();
+        let recipe = serde_json::from_value(
+            serde_json::json!({"runtime":"node","node_major":24,"entry":"server.js"}),
+        )
+        .unwrap();
         let mut job = Job::new(recipe);
         job.log(&"🚀".repeat(LOG_BYTES));
         job.log("readiness failed: missing shared module");
         assert!(job.logs.len() <= LOG_BYTES);
-        assert!(job.logs.ends_with("readiness failed: missing shared module\n"));
+        assert!(
+            job.logs
+                .ends_with("readiness failed: missing shared module\n")
+        );
     }
 }
 

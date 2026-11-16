@@ -176,7 +176,8 @@ pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
         if let Some(build) = data.builds.get_mut(&key) {
             let value: serde_json::Value = serde_json::from_str(&declaration)?;
             build.manifest.sessions = serde_json::from_value(value["sessions"].clone())?;
-            build.manifest.server_connection = serde_json::from_value(value["server_connection"].clone())?;
+            build.manifest.server_connection =
+                serde_json::from_value(value["server_connection"].clone())?;
         }
     }
     Ok(data)
@@ -208,7 +209,12 @@ fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
             let declaration = serde_json::json!({"sessions":build.manifest.sessions,"server_connection":build.manifest.server_connection});
             tx.execute("INSERT INTO dedicated_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration", params![key, declaration.to_string()])?;
         }
-        for field in ["sessions", "server_connection"] {value["builds"][key]["manifest"].as_object_mut().unwrap().remove(field);}
+        for field in ["sessions", "server_connection"] {
+            value["builds"][key]["manifest"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        }
         if let Some(sdk) = &build.manifest.sdk {
             tx.execute("INSERT INTO sdk_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(sdk)?])?;
         }
@@ -280,9 +286,14 @@ fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
     }
     let keys = {
         let mut stmt = tx.prepare("SELECT build_key FROM dedicated_manifests")?;
-        stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?
+        stmt.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
-    for key in keys {if !data.builds.contains_key(&key) {tx.execute("DELETE FROM dedicated_manifests WHERE build_key=?1", [key])?;}}
+    for key in keys {
+        if !data.builds.contains_key(&key) {
+            tx.execute("DELETE FROM dedicated_manifests WHERE build_key=?1", [key])?;
+        }
+    }
     Ok(serde_json::to_string(&value)?)
 }
 pub struct Database {
@@ -348,16 +359,23 @@ impl Database {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         let mut data = self.cached_catalog(&tx)?;
-        activity::load(&tx,&mut data)?;
+        activity::load(&tx, &mut data)?;
         tx.commit()?;
         Ok(data)
     }
     pub(crate) fn cached_catalog(&self, c: &Connection) -> Result<Data> {
-        let revision: u64 = c.query_row("SELECT revision FROM catalog_revision WHERE id=1",[],|r|r.get(0))?;
+        let revision: u64 = c.query_row(
+            "SELECT revision FROM catalog_revision WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
         let mut cached = self.catalog.lock().unwrap();
-        if cached.as_ref().is_none_or(|(v,_)|*v!=revision) {
-            let raw: String = c.query_row("SELECT data FROM platform_catalog WHERE id=1",[],|r|r.get(0))?;
-            *cached = Some((revision,decode_catalog(c,&raw)?));
+        if cached.as_ref().is_none_or(|(v, _)| *v != revision) {
+            let raw: String =
+                c.query_row("SELECT data FROM platform_catalog WHERE id=1", [], |r| {
+                    r.get(0)
+                })?;
+            *cached = Some((revision, decode_catalog(c, &raw)?));
         }
         Ok(cached.as_ref().unwrap().1.clone())
     }
@@ -464,10 +482,13 @@ impl Database {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let time = now();
-        tx.execute("DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1",[time])?;
-        tx.execute("DELETE FROM runtime_presence WHERE seen+300<=?1",[time])?;
+        tx.execute(
+            "DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1",
+            [time],
+        )?;
+        tx.execute("DELETE FROM runtime_presence WHERE seen+300<=?1", [time])?;
         let mut data = Data::default();
-        activity::load(&tx,&mut data)?;
+        activity::load(&tx, &mut data)?;
         let active: std::collections::BTreeSet<_> = data
             .launches
             .iter()
