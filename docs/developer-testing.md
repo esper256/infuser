@@ -26,12 +26,21 @@ Its `lifecycle_rounds` input enables 2–100 real wake/serve/sleep cycles withou
 slowing PR CI. Twenty cycles are a useful first endurance check; they are not a
 multi-day soak or proof that every game's save format tolerates abrupt shutdown.
 
-Validate the monitoring Compose configuration and Grafana provisioning in a
-disposable installation. Check actual Prometheus scraping, alert firing and
-recovery, not just JSON syntax. Do not configure a real notification destination
-in that fixture. Production acceptance additionally needs an ARM64 memory
-measurement, a destination-specific test notification and an external uptime
-probe. Never restart the production Docker engine to exercise a test scenario.
+Run `bash tests/monitoring_journey.sh` on Linux with Docker, curl and jq. It starts
+resource-limited, disposable Grafana/Prometheus containers and a local webhook
+receiver using the images selected by the monitoring Compose file. It checks
+actual firing/recovery delivery, bearer-token handling, separate heartbeat
+routing, and heartbeat cutoff/recovery when collector data goes stale. Shortened
+evaluation intervals keep it to a few minutes; it is opt-in, outside normal CI.
+No real notification destination or production state is used. Ports 13000, 19090
+and 19095 must be free; `INFUSER_TEST_GRAFANA_PORT`, `INFUSER_TEST_PROMETHEUS_PORT`
+and `INFUSER_TEST_WEBHOOK_PORT` override them.
+
+Production acceptance additionally needs an ARM64 memory measurement, a real
+destination test and successful scheduled heartbeat delivery. Confirm phone
+receipt and independent outage notifications with the operator. Heartbeats do
+not test inbound HTTPS from another network. Never restart the production Docker
+engine to exercise a test scenario.
 
 ## Visits
 

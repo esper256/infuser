@@ -70,9 +70,13 @@ retention is not a hard filesystem quota. Measure actual ARM64 memory use before
 adjusting caps. Journal and existing container logs suffice; defer Loki and a
 separate Alertmanager until they solve a demonstrated need.
 
-Notification destinations are still unconfigured. A probe on the same VM can
-diagnose local failures but cannot send alerts after a total host/network outage.
-Add an independently hosted uptime probe when an external destination is chosen.
+Private provisioning now routes Grafana problems/recoveries to ntfy and a
+one-minute watchdog to Healthchecks.io. The watchdog stops on failed scrapes,
+stale collection or evaluation errors; Healthchecks alerts independently when
+pings stop. Email remains an independent fallback for missed heartbeats.
+The collector follows the activated binary to avoid configuration-version drift.
+An outside HTTPS probe remains optional: outbound heartbeats do not prove inbound
+reachability from another network. See [operator setup](../monitoring-operations.md).
 
 ## Evidence
 
@@ -89,8 +93,11 @@ a real failure/firing/recovery cycle; its local AMD64 test used approximately
 355 MB combined. The manual Docker lane passed 20 wake/serve/sleep cycles, world
 ownership and image snapshots, encrypted restore, managed Node hosting and Caddy.
 ARM64 deployment passed health checks and uses approximately 321 MiB combined for
-the four monitoring containers. Private rollout details are recorded separately;
-destination-specific acceptance remains open.
+the four monitoring containers. The opt-in monitoring journey additionally
+passed real notification delivery, recovery, bearer-token handling and watchdog
+cutoff/resumption on stale data. Live Grafana test delivery reached ntfy, and
+scheduled watchdog delivery to Healthchecks succeeded. Phone receipt remains an
+operator acceptance step. Private rollout details are recorded separately.
 
 References: [restic repositories](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html),
 [restoring backups](https://restic.readthedocs.io/en/stable/050_restore.html),

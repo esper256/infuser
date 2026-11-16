@@ -1,0 +1,5 @@
+{
+  "webhook_url": "https://ntfy.sh/REPLACE_WITH_PRIVATE_TOPIC?template=grafana",
+  "webhook_bearer_token": "",
+  "heartbeat_url": ""
+}

@@ -27,12 +27,14 @@ Audience: Infuser developers.
   Preserve published games and saves; Firefly Drift is listed and its active
   build must not be replaced merely to rerun a fixture.
 
-- Setup deferred at the operator's request: off-server backup authorization,
-  cloud snapshot policy, notification delivery, and an independent uptime probe.
+- Setup deferred at the operator's request: off-server backup authorization and
+  cloud snapshot policy.
   The [unattended operations](proposals/unattended-operations.md) implementation
   is deployed. ARM64 monitoring uses approximately 321 MiB combined; service limits
-  and health checks were verified. Destination-specific acceptance remains open;
-  local backup/restore fixtures do not prove that remote backups are configured.
+  and health checks were verified. Grafana → ntfy delivery and scheduled
+  Healthchecks heartbeats are configured and verified; phone receipt remains an
+  operator step. An outside HTTPS probe is optional additional coverage.
+  Local backup/restore fixtures do not prove that remote backups are configured.
 
 - Follow up on the [architectural review results](proposals/architecture-improvement-plan.md):
   validate native cache cleanup on physical Windows hardware. Use measurements before taking on the
