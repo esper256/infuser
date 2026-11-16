@@ -89,6 +89,9 @@ impl Platform {
     }
     /// Process at most one durable job. Do not run concurrently with itself.
     pub async fn packaging_step(&self) -> Result<()> {
+        let Ok(_work) = self.controller.maintenance.enter() else {
+            return Ok(());
+        };
         if self.controller.snapshot().build_reservation.is_some() {
             self.recover_packaging().await?;
         }

@@ -1,0 +1,20 @@
+[Unit]
+Description=Create and restore-verify the latest Infuser backup
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathExists=/etc/infuser/backup.toml
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/infuser-operations backup /etc/infuser/backup.toml
+# Runs after failure or termination too; marker prevents starting an unrelated service.
+ExecStopPost=/usr/local/libexec/infuser-operations backup-resume /etc/infuser/backup.toml
+StateDirectory=infuser-backup
+StateDirectoryMode=0700
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=768M
+TasksMax=128
+TimeoutStartSec=30min
+TimeoutStopSec=60

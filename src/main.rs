@@ -17,6 +17,39 @@ async fn main() -> Result<()> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "doctor") {
+        let settings = infuser::host_health::Settings::load(Path::new(
+            args.get(1).context("operations config required")?,
+        ))?;
+        let report = infuser::host_health::collect(&settings).await?;
+        if !args.iter().any(|v| v == "--quiet") {
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        return Ok(());
+    }
+    if args.first().is_some_and(|s| {
+        matches!(s.as_str(), "backup" | "backup-init" | "backup-resume" | "backup-verify")
+    }) {
+        let path = Path::new(
+            args.get(1).context("backup configuration or snapshot path required")?,
+        );
+        if args[0] == "backup-verify" {
+            infuser::backup::verify(path)?;
+            println!("Restored snapshot verified.");
+        } else {
+            let settings = if args[0] == "backup-resume" {
+                infuser::backup::Settings::load_for_resume(path)?
+            } else {
+                infuser::backup::Settings::load(path)?
+            };
+            match args[0].as_str() {
+                "backup-init" => settings.initialize()?,
+                "backup-resume" => infuser::backup::resume(&settings)?,
+                _ => println!("{}", infuser::backup::run(settings).await?),
+            }
+        }
+        return Ok(());
+    }
     if args.first().is_some_and(|s| s == "capture-export") {
         ensure!(
             args.len() == 3,
@@ -196,7 +229,10 @@ async fn main() -> Result<()> {
         let path = args.get(1).context("update configuration path required")?;
         println!(
             "{}",
-            infuser::updater::run(infuser::updater::Settings::load(Path::new(path))?).await?
+            infuser::updater::run_force(
+                infuser::updater::Settings::load(Path::new(path))?,
+                args.iter().any(|a| a == "--force")
+            ).await?
         );
         return Ok(());
     }
@@ -281,6 +317,9 @@ async fn main() -> Result<()> {
         loop {
             let p = maintenance.clone();
             tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                let Ok(_work) = p.controller.maintenance.enter() else {
+                    return Ok(());
+                };
                 p.db.cleanup()?;
                 if p.cleanup_feedback().is_err() {tracing::warn!("feedback retention cleanup failed");}
                 Ok(())
@@ -293,6 +332,9 @@ async fn main() -> Result<()> {
         loop {
             let p = publications.clone();
             tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                let Ok(_work) = p.controller.maintenance.enter() else {
+                    return Ok(());
+                };
                 p.reconcile_publications()?;
                 p.activate_pending()
             }).await??;
@@ -311,6 +353,7 @@ async fn main() -> Result<()> {
         Ok::<(), anyhow::Error>(())
     });
     let app = api::router_with_peers(controller, token, Some(platform.peer_rooms()))
+        .merge(infuser::operations::routes(platform.clone(), token))
         .merge(infuser::portal::router(platform));
     let server = axum::serve(listener, app).with_graceful_shutdown(async {
         let mut terminate =

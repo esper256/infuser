@@ -3,6 +3,7 @@ Description=Infuser game controller
 After=docker.service network-online.target
 Wants=network-online.target
 Requires=docker.service
+PartOf=docker.service
 
 [Service]
 Type=simple

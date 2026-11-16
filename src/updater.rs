@@ -103,6 +103,9 @@ impl Settings {
 
 #[async_trait]
 pub trait Service: Send + Sync {
+    async fn ready_to_update(&self) -> Result<bool> {
+        Ok(true)
+    }
     async fn check(&self, binary: &Path) -> Result<()>;
     async fn restart(&self) -> Result<()>;
     async fn healthy(&self, commit: &str) -> Result<bool>;
@@ -111,9 +114,18 @@ pub trait Service: Send + Sync {
 struct Systemd {
     config: Settings,
     http: reqwest::Client,
+    force: bool,
 }
 #[async_trait]
 impl Service for Systemd {
+    async fn ready_to_update(&self) -> Result<bool> {
+        if self.force {
+            return Ok(true);
+        }
+        let config = crate::config::Config::load(&self.config.controller_config)?;
+        let client = crate::maintenance::Client::new(&config)?;
+        Ok(client.acquire("update", false).await?.is_some())
+    }
     async fn check(&self, binary: &Path) -> Result<()> {
         let output = tokio::time::timeout(
             Duration::from_secs(15),
@@ -220,11 +232,15 @@ async fn download(http: &reqwest::Client, url: &str, max: usize) -> Result<Vec<u
 }
 
 pub async fn run(config: Settings) -> Result<String> {
+    run_force(config, false).await
+}
+pub async fn run_force(config: Settings, force: bool) -> Result<String> {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .user_agent("infuser-updater")
         .build()?;
     let service = Systemd {
+        force,
         config: config.clone(),
         http: reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
@@ -328,6 +344,9 @@ pub async fn update(
         .and_then(|n| n.to_str())
         .context("invalid current release")?
         .to_string();
+    // Run even while a newer release waits for idle players. Otherwise one
+    // staged binary per release could accumulate indefinitely on a busy host.
+    prune_releases(config, &release.commit)?;
     if previous_commit == release.commit {
         return Ok(format!("Already running {}", release.commit));
     }
@@ -340,15 +359,29 @@ pub async fn update(
             release.commit
         ));
     }
-    let bytes = download(
-        http,
-        &format!(
-            "{source}/download/build-{}/{}",
-            release.commit, artifact.file
-        ),
-        64 * 1024 * 1024,
-    )
-    .await?;
+    let candidate_dir = config.install_dir.join("releases").join(&release.commit);
+    let cached = fs::read(candidate_dir.join("infuser"))
+        .ok()
+        .filter(|bytes| {
+            Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+                == artifact.sha256
+        });
+    let bytes = if let Some(bytes) = cached {
+        bytes
+    } else {
+        download(
+            http,
+            &format!(
+                "{source}/download/build-{}/{}",
+                release.commit, artifact.file
+            ),
+            64 * 1024 * 1024,
+        )
+        .await?
+    };
     ensure!(
         Sha256::digest(&bytes)
             .iter()
@@ -357,7 +390,6 @@ pub async fn update(
             == artifact.sha256,
         "release checksum mismatch"
     );
-    let candidate_dir = config.install_dir.join("releases").join(&release.commit);
     fs::create_dir_all(&candidate_dir)?;
     // The updater runs with umask 0077, but the daemon runs as another user.
     // Release binaries are public artifacts; credentials live outside this tree.
@@ -383,6 +415,17 @@ pub async fn update(
             error.context("candidate rejected before activation; current version unchanged")
         );
     }
+    if !service.ready_to_update().await? {
+        let deferred = config.state_dir.join("deferred-release");
+        if fs::read_to_string(&deferred).ok().as_deref() != Some(release.commit.as_str()) {
+            write_atomic(&deferred, release.commit.as_bytes())?;
+        }
+        return Ok(format!(
+            "Staged {}; waiting for games and publishing to become idle",
+            release.commit
+        ));
+    }
+    let _ = fs::remove_file(config.state_dir.join("deferred-release"));
     atomic_link(&previous_dir, &config.install_dir.join("previous"))?;
     write_atomic(
         &pending_file,
@@ -422,17 +465,49 @@ pub async fn update(
         fs::remove_file(failed_file)?;
     }
     fs::remove_file(&pending_file)?;
-    // Retain current and previous. Stale binaries are reproducible release downloads.
-    for entry in fs::read_dir(&releases_dir)? {
+    prune_releases(config, &release.commit)?;
+    Ok(format!("Activated {}", release.commit))
+}
+
+fn prune_releases(config: &Settings, candidate: &str) -> Result<()> {
+    // Interrupted activations must be resolved before deleting any candidates.
+    ensure!(
+        !config.state_dir.join("pending.json").exists(),
+        "resolve pending deployment before pruning releases"
+    );
+    let releases = config.install_dir.join("releases").canonicalize()?;
+    let mut keep = std::collections::BTreeSet::from([candidate.to_owned()]);
+    for name in ["current", "previous"] {
+        let link = config.install_dir.join(name);
+        match fs::read_link(link) {
+            Ok(path) => {
+                let path = if path.is_absolute() {
+                    path
+                } else {
+                    config.install_dir.join(path)
+                }
+                .canonicalize()?;
+                ensure!(
+                    path.parent() == Some(releases.as_path()),
+                    "release link points outside release directory"
+                );
+                keep.insert(
+                    path.file_name()
+                        .context("release directory name missing")?
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && name == "previous" => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    for entry in fs::read_dir(&releases)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if entry.file_type()?.is_dir()
-            && hex(&name, 40)
-            && name != release.commit
-            && name != previous_commit
-        {
+        if entry.file_type()?.is_dir() && hex(&name, 40) && !keep.contains(&name) {
             fs::remove_dir_all(entry.path())?;
         }
     }
-    Ok(format!("Activated {}", release.commit))
+    Ok(())
 }

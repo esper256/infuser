@@ -5,8 +5,8 @@ use serde_json::Value;
 use std::{process::Stdio, time::Duration};
 use tokio::process::Command;
 
-const OWNER: &str = "org.infuser.controller";
-const GAME: &str = "org.infuser.game";
+pub(crate) const OWNER: &str = "org.infuser.controller";
+pub(crate) const GAME: &str = "org.infuser.game";
 const ATTEMPT: &str = "org.infuser.attempt";
 mod diagnostics;
 pub use diagnostics::{retained as retained_diagnostics, capabilities as diagnostics_capabilities};

@@ -2,6 +2,11 @@ name: Docker and Caddy integration (manual)
 
 on:
   workflow_dispatch:
+    inputs:
+      lifecycle_rounds:
+        description: 'Wake/serve/sleep cycles (2–100; 20 for a longer run)'
+        default: '2'
+        type: string
 
 permissions:
   contents: read
@@ -19,9 +24,27 @@ jobs:
       - name: Build the isolated demo image
         run: docker build -f examples/demo/Dockerfile -t infuser-demo .
       - name: Docker lifecycle journey
+        env:
+          INFUSER_TEST_ROUNDS: ${{ inputs.lifecycle_rounds }}
         run: |
           INFUSER_TEST_IMAGE=$(docker image inspect infuser-demo --format '{{.Id}}') \
             cargo test --locked --test docker_journey -- --ignored --nocapture
+      - name: Persistent-world and image snapshot
+        run: |
+          cargo test --locked --test backup_docker_journey --no-run --message-format=json > "$RUNNER_TEMP/backup-build.jsonl"
+          binary=$(jq -r 'select(.target.name == "backup_docker_journey" and .executable != null) | .executable' "$RUNNER_TEMP/backup-build.jsonl")
+          sudo env INFUSER_TEST_IMAGE="$(docker image inspect infuser-demo --format '{{.Id}}')" \
+            "$binary" --ignored --nocapture
+      - name: Encrypted backup and restored-game journey
+        run: |
+          curl --fail --location --output "$RUNNER_TEMP/restic.bz2" https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2
+          curl --fail --location --output "$RUNNER_TEMP/restic-sums" https://github.com/restic/restic/releases/download/v0.19.1/SHA256SUMS
+          expected=$(awk '$2 == "restic_0.19.1_linux_amd64.bz2" {print $1}' "$RUNNER_TEMP/restic-sums")
+          test -n "$expected"
+          printf '%s  %s\n' "$expected" "$RUNNER_TEMP/restic.bz2" | sha256sum --check
+          bunzip2 "$RUNNER_TEMP/restic.bz2"
+          chmod +x "$RUNNER_TEMP/restic"
+          INFUSER_TEST_RESTIC="$RUNNER_TEMP/restic" cargo test --locked --test backup_journey -- --ignored --nocapture
       - name: Extract Caddy 2.10.2
         if: ${{ !cancelled() }}
         run: |

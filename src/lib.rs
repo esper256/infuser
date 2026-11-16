@@ -1,4 +1,5 @@
 pub mod api;
+pub mod backup;
 pub mod caddy;
 pub mod card_art;
 pub mod cloud;
@@ -8,8 +9,11 @@ pub mod dedicated;
 pub mod controller;
 pub mod docker;
 pub mod game_urls;
+pub mod host_health;
 pub mod launch_intent;
 pub mod manifest;
+pub mod maintenance;
+pub mod operations;
 pub mod native;
 pub mod sdk_contract;
 pub mod server_package;

@@ -39,6 +39,8 @@ fn fault(status: u16, message: &str) -> anyhow::Error {
 }
 
 pub struct Controller {
+    pub maintenance: Arc<crate::maintenance::Gate>,
+    pub last_tick: std::sync::atomic::AtomicU64,
     pub config: Config,
     pub engine: Arc<dyn Engine>,
     inner: Mutex<(Store, State)>,
@@ -114,6 +116,8 @@ impl Controller {
         );
         store.save(&state)?;
         Ok(Self {
+            maintenance: Default::default(),
+            last_tick: std::sync::atomic::AtomicU64::new(now()),
             config,
             engine,
             inner: Mutex::new((store, state)),
@@ -599,6 +603,8 @@ impl Controller {
                 );
             }
         }
+        self.last_tick
+            .store(now(), std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 }

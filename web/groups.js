@@ -28,6 +28,22 @@ export function initGroups({me,api}) {
   const close=el('button','×');close.className='close';close.setAttribute('aria-label','Close groups');close.onclick=()=>dialog.close();heading.append(title,close);
   const list=el('div');list.className='group-list';const error=el('p');error.setAttribute('role','status');
   dialog.append(heading,list,error);
+  const health=el('details'),healthBody=el('div');health.id='operator-health';health.append(el('summary','Host health'),healthBody);dialog.append(health);
+  health.addEventListener('toggle',async()=>{
+    if(!health.open)return;
+    healthBody.replaceChildren(el('p','Checking…'));
+    try {
+      const status=await api('/api/operator/health');healthBody.replaceChildren();
+      if(!status.configured){healthBody.append(el('p','Host monitoring is not configured.'));return;}
+      healthBody.append(el('p',status.stale?'Monitoring data is stale. Check the host health timer.':'Checked '+new Date(status.report.at*1000).toLocaleString()));
+      if(!status.report.backup_configured)healthBody.append(el('p','Backup monitoring is not configured.'));
+      for(const check of status.report.checks){
+        const row=el('p',(check.ok?'✓ ':'⚠ ')+check.detail);
+        if(!check.ok)row.append(el('br'),document.createTextNode(check.action));
+        healthBody.append(row);
+      }
+    }catch(problem){healthBody.replaceChildren(el('p',problem.message));}
+  });
   async function load(){
     const result=await api('/api/operator/groups');list.replaceChildren();
     for(const group of result.groups){const row=el('div');row.className='group-row';const view=el('button',group.home?'Home':'View');

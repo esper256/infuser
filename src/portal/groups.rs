@@ -1,4 +1,5 @@
 use super::*;
+use anyhow::Context;
 pub(super) const INSPECT: &str = "x-infuser-inspect-group";
 
 impl Platform {
@@ -42,7 +43,23 @@ impl Platform {
 pub(super) fn routes() -> Router<Platform> {
     Router::new()
         .route("/api/operator/groups", get(list).post(create))
+        .route("/api/operator/health", get(health))
         .layer(DefaultBodyLimit::max(4096))
+}
+async fn health(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.operator(&h, false).await?;
+    let path = p.config().controller.state_dir.join("host-health.json");
+    let report = match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice::<crate::host_health::Report>(&bytes)
+            .context("invalid host health report")?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(reply(json!({"configured":false})));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    Ok(reply(
+        json!({"configured":true,"stale":now().saturating_sub(report.at)>180,"report":report}),
+    ))
 }
 async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.operator(&h, false).await?;
