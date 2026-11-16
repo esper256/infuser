@@ -2,6 +2,9 @@
 
 Audience: game authors and their agents.
 
+`--preview` in this fixture is for admin-only testing. Publish normally when an
+ordinary user needs to play; hidden builds are not available to them.
+
 This small source fixture demonstrates personal star checkpoints, a conflict
 chooser, guest progress, and a shared peer-hosted beacon. It uses built-in Unity
 objects and UI, with no external art or gameplay packages. **It has not yet been
@@ -11,7 +14,8 @@ of engine compatibility. The target is Unity 6 / 6.3 LTS.
 1. Create a separate empty 3D project in your existing Unity Editor, with Web
    Build Support installed. Keep your actual game untouched.
 2. Copy this directory's `Assets` into that project's `Assets`. Copy
-   [`sdk/unity/Assets/Infuser`](../../sdk/unity/Assets/Infuser) there too, and put
+   [`sdk/unity/Assets/Infuser`](../../sdk/unity/Assets/Infuser), including its metadata,
+   there too (or install the package from the [Unity recipe](../../docs/engines/unity-web.md)), and put
    this example's `infuser.game.json` at the project root. Built-in IMGUI, Physics,
    and JSON serialization modules must be enabled (see `Packages/manifest.json`).
 3. Choose **Infuser → Build Beacon Garden Web**. This creates a scene and a gzip

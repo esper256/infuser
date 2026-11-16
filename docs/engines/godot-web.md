@@ -2,12 +2,12 @@
 
 Audience: game authors and their agents.
 
-This is the web export recipe for [step 2 of the agent guide](../agents.md#choose-the-integration).
-Complete that guide's connection step first. Read and apply this recipe, then
-the [Godot multiplayer recipe](godot-multiplayer.md) if needed. Save publish commands
-for step 5 and return to [Explicit play modes](../agents.md#explicit-play-modes).
-The main guide also covers artwork, publication checks, and handing the game back
-without requesting Google account access.
+**Creating a game?** Read this recipe for engine constraints, then return to the
+[creation guide](../create-game.md). Skip connection and publishing commands for now.
+**Integrating an existing game?** Start with the [publishing checklist](../agents.md),
+connect once, then apply this recipe. Return to
+[Explicit play modes](../agents.md#explicit-play-modes) and finish that checklist's
+saves, artwork, publishing, and handoff steps.
 
 This preview supports Godot 4.7.2 standard/GDScript with the Compatibility
 renderer, using single-threaded or threaded web exports. Physical laptop sleep

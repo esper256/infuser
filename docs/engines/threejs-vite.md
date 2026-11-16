@@ -6,9 +6,12 @@ Use this recipe for existing Three.js/Vite or plain HTML/JavaScript games. Other
 browser engines may produce compatible exports, but their adapters have not been
 validated by this recipe.
 
-This is the browser recipe for [step 2 of the agent guide](../agents.md#choose-the-integration).
-Complete that guide's connection step first. Read and apply this recipe, saving
-its publish command for step 5. Then return to [Explicit play modes](../agents.md#explicit-play-modes).
+**Creating a game?** Read this recipe for engine constraints, then return to the
+[creation guide](../create-game.md). Skip connection and publishing commands for now.
+**Integrating an existing game?** Start with the [publishing checklist](../agents.md),
+connect once, then apply this recipe. Return to
+[Explicit play modes](../agents.md#explicit-play-modes) and finish that checklist's
+saves, artwork, publishing, and handoff steps.
 
 ## First publish
 

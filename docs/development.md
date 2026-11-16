@@ -107,3 +107,36 @@ in [implementation notes](implementation-notes.md).
 
 Describe people by their role: user, player, author, admin, or operator. Do not
 infer age or gender in documentation, UI copy, agent prompts, or example accounts.
+
+## Unity adapter checks
+
+These checks are for modifying Infuser's adapter. Game authors use their existing
+Unity Editor and the [Unity recipe](engines/unity-web.md); they do not install .NET
+or run this repository's development harness to publish.
+
+```sh
+node --test tests/unity_sdk.mjs
+dotnet run --project tests/unity_csharp/UnityChecks.csproj
+dotnet run --project tests/unity_csharp/UnityChecks.csproj -p:WebPlayer=true
+```
+
+The C# harness uses .NET 10, C# 9, and explicit Unity test doubles, without NuGet
+test packages. It compiles the adapter's runtime/Editor code and checks save
+retries, conflicts, local validation, typed events, package path resolution,
+and export copying. Both Editor and WebGL conditional branches must compile.
+It does **not** validate Unity APIs, Unity's serializer, IL2CPP, or browser callbacks.
+
+With Unity 6 and its Test Framework installed, enable the package's Editor tests
+by adding `"testables": ["org.infuser.unity-web"]` to the project's package
+manifest, preserving existing testables. Run `Infuser.Unity.Tests` in Test Runner.
+These tests use real JsonUtility and resolve the installed bridge. The copied
+Assets installation also includes the tests, gated by `UNITY_INCLUDE_TESTS`.
+
+Then build [Beacon Garden](../examples/unity-web/README.md) in a separate project.
+Verify import and Web export, hosted/standalone startup, cloud save/reload,
+conflicts, guest isolation, Join Friend, two-client forced relay, host departure,
+and target desktop/mobile browsers. Also test a Unity Web client against the
+managed dedicated-server fixture before claiming compiled socket support.
+Record actual Editor version, build options, browser/device, and outcomes in
+[the Unity review](proposals/unity-agent-experience.md). A C# or JS harness pass
+must never be substituted for these acceptance results.

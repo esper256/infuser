@@ -8,6 +8,9 @@ exercised, not certification of every game or device.
 
 ## Unity Web foundation
 
+For C# compilation, installed-package Editor tests, and the acceptance boundary,
+see [Unity adapter checks](development.md#unity-adapter-checks).
+
 `node --test tests/unity_sdk.mjs` tests the JavaScript bridge and ES5 interop
 boundary: hosted/standalone selection, cloud retries/conflicts, exact Join Friend
 targets, late admission, disconnects, binary/text WebSockets and congestion.

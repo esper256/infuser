@@ -54,7 +54,7 @@ The durable decisions are:
   Additions are capability-gated; incompatible behavior requires a separately
   versioned contract. Do not rely on the number of uploaded games as a substitute.
 
-Stabilize the dedicated Node/WebSocket path against Lanternfall and a small fixture
+Stabilize the dedicated Node/WebSocket path against an independently authored game and a small fixture
 with different admission behavior before declaring these new capabilities stable.
 Capture publication inputs now as [private importer fixtures](publication-capture.md),
 so future importer changes can be tested against actual agent output. Capture is

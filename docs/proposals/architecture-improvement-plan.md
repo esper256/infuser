@@ -4,10 +4,10 @@ Audience: Infuser developers.
 
 Status: core improvements implemented on 2026-11-16; evidence and remaining
 limits are recorded below. The original assessment was against commit `b5154b9` on
-2026-11-15. The input is the locally supplied `ARCHITECTURAL_REVIEW.md`; section
-numbers below refer to that review. Findings were checked against source, not
-against production load measurements. Its latency, memory and effort estimates
-are hypotheses, not benchmark results.
+2026-11-15. This document retains the findings, source checks, and acceptance plan
+needed to evaluate the work; the original review's section numbers are historical
+references. Findings were checked against source, not production load measurements.
+Latency, memory, and effort estimates are hypotheses, not benchmark results.
 
 ## Implementation results
 

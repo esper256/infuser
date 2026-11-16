@@ -13,8 +13,9 @@ one private group or all groups. Keep it out of Git, logs, game exports, and
 player prompts. It cannot publish builds, read saves, or administer members.
 
 Use `Authorization: Bearer TOKEN` over HTTPS. For curl, prepare a private auth
-config using the [HTTP recipe](publishing-http.md#connect-once); do not put the
-secret in command arguments. This key permits only presentation metadata and
+config using the [private auth config instructions](publishing-http.md#private-authentication-config); do not put the
+secret in command arguments. Use the metadata key already supplied; do not claim
+a game setup code. This key permits only presentation metadata and
 covers. It cannot publish/unpublish games, access saves or game sessions, change
 members, or control servers.
 

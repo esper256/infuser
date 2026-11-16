@@ -23,7 +23,8 @@ namespace Infuser.Unity
         {
             public string group, file, expectedRevision, commitId, json, summary, candidateRevision;
         }
-        private readonly InfuserClient client;
+        private readonly Func<string, string, Task<string>> call;
+        private readonly Action<T> validate;
         private readonly string group, file;
         private string revision;
         private Write pending;
@@ -32,7 +33,33 @@ namespace Infuser.Unity
         public T Value { get; private set; }
         public bool HasPending => pending != null;
         public bool HasConflict => conflict != null;
-        public JsonSave(InfuserClient client, string group, string file) { this.client = client; this.group = group; this.file = file; }
+        public JsonSave(InfuserClient client, string group, string file, Action<T> validate = null)
+            : this(client.CallJsonAsync, group, file, validate) { }
+        internal JsonSave(Func<string, string, Task<string>> call, string group, string file, Action<T> validate = null)
+        {
+            this.call = call ?? throw new ArgumentNullException(nameof(call));
+            if (string.IsNullOrWhiteSpace(group) || string.IsNullOrWhiteSpace(file))
+                throw new ArgumentException("Use the group and file declared in the game manifest.");
+            this.group = group; this.file = file; this.validate = validate;
+        }
+        private async Task<R> Call<R>(string operation, string json) => JsonUtility.FromJson<R>(await call(operation, json));
+        private T Decode(string json)
+        {
+            var value = JsonUtility.FromJson<T>(json);
+            if (value == null) throw new ArgumentException("A checkpoint must contain a JSON object.");
+            validate?.Invoke(value);
+            return value;
+        }
+        private static void ValidateSummary(string summary)
+        {
+            int length = 0;
+            for (int i = 0; i < (summary ?? "").Length; i++, length++)
+            {
+                if (char.IsControl(summary[i])) throw new ArgumentException("Save summaries cannot contain control characters.", nameof(summary));
+                if (char.IsHighSurrogate(summary[i]) && i + 1 < summary.Length && char.IsLowSurrogate(summary[i + 1])) i++;
+            }
+            if (length > 80) throw new ArgumentException("Save summaries must be at most 80 characters.", nameof(summary));
+        }
         private void Enter()
         {
             if (busy) throw new InvalidOperationException("Wait for the current save operation.");
@@ -44,8 +71,8 @@ namespace Infuser.Unity
             Enter();
             try
             {
-                var snapshot = await client.CallAsync<SaveSnapshot>("save.load", JsonUtility.ToJson(new Read { group = group, file = file }));
-                var value = snapshot.exists ? JsonUtility.FromJson<T>(snapshot.json) : null;
+                var snapshot = await Call<SaveSnapshot>("save.load", JsonUtility.ToJson(new Read { group = group, file = file }));
+                var value = snapshot.exists ? Decode(snapshot.json) : null;
                 revision = snapshot.revision; Value = value; loaded = true;
                 return snapshot;
             }
@@ -58,8 +85,11 @@ namespace Infuser.Unity
             Enter();
             try
             {
+                ValidateSummary(summary);
+                var json = JsonUtility.ToJson(value);
+                Decode(json); // Validate the serialized snapshot before retaining it for retry.
                 pending = new Write { group = group, file = file, expectedRevision = revision,
-                    commitId = Guid.NewGuid().ToString("N"), json = JsonUtility.ToJson(value), summary = summary };
+                    commitId = Guid.NewGuid().ToString("N"), json = json, summary = summary ?? "" };
                 return await Commit();
             }
             finally { busy = false; }
@@ -73,7 +103,7 @@ namespace Infuser.Unity
         public Task<SaveSnapshot> ReadConflictAsync(bool device)
         {
             if (conflict == null) throw new InvalidOperationException("No save conflict.");
-            return client.CallAsync<SaveSnapshot>("save.read", JsonUtility.ToJson(new Read { group = group, file = file,
+            return Call<SaveSnapshot>("save.read", JsonUtility.ToJson(new Read { group = group, file = file,
                 revision = device ? conflict.candidate_revision : conflict.current_revision }));
         }
         // Show both copies and validate the chosen schema before calling this.
@@ -85,6 +115,8 @@ namespace Infuser.Unity
             try
             {
                 var chosen = await ReadConflictAsync(useDevice);
+                Decode(chosen.json);
+                ValidateSummary(chosen.summary);
                 pending = new Write { group = group, file = file, expectedRevision = conflict.current_revision,
                     candidateRevision = conflict.candidate_revision, commitId = Guid.NewGuid().ToString("N"),
                     json = chosen.json, summary = chosen.summary };
@@ -95,7 +127,7 @@ namespace Infuser.Unity
         }
         private async Task<SaveResult> Commit()
         {
-            var result = await client.CallAsync<SaveResult>("save.commit", JsonUtility.ToJson(pending));
+            var result = await Call<SaveResult>("save.commit", JsonUtility.ToJson(pending));
             if (result.status == "saved")
             {
                 revision = result.revision; Value = JsonUtility.FromJson<T>(pending.json); pending = null; conflict = null;

@@ -2,8 +2,10 @@
 
 Audience: game authors and API tool authors.
 
-The engine recipes are the preferred entry point. These are **pre-1.0** low-level
-building blocks for custom publishing tools and game integrations.
+For a new game, start with the [creation guide](create-game.md); for an existing
+game, follow [integration and publishing](agents.md). This page supplies
+**pre-1.0** low-level building blocks for custom tools. Return to the checklist
+after looking up the request you need here.
 All bodies/responses are JSON unless noted.
 New integrations should use [versioned SDK/API routes](sdk-versioning.md).
 Game routes below use major 1 under `/_infuser/api/v1`; older unversioned routes

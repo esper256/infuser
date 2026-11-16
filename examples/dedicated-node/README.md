@@ -2,6 +2,9 @@
 
 Audience: game authors and their agents.
 
+`--preview` in this fixture is for admin-only testing. Publish normally when an
+ordinary user needs to play; hidden builds are not available to them.
+
 A small authoritative Node/ws simulation using Three.js vectors. It runs at 30 Hz,
 sends 15 snapshots per second, and supports up to eight players per room. Both an
 independent run and a shared run require the server. Use it to see how the server helper fits into a game with existing room logic.

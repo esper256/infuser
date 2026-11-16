@@ -36,7 +36,7 @@ public sealed class BeaconGarden : MonoBehaviour
             identity = await client.ReadyAsync();
             if (identity.hosted)
             {
-                save = new JsonSave<Progress>(client, "progress", "progress.json");
+                save = new JsonSave<Progress>(client, "progress", "progress.json", Validate);
                 await save.LoadAsync();
                 progress = save.Value ?? new Progress(); Validate(progress);
                 var launch = await client.ConsumeLaunchIntentAsync();
