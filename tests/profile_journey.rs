@@ -47,12 +47,30 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
     );
     let (auth_url, _auth) = serve(auth).await?;
     let cfg: Config = toml::from_str(&format!(
-        "[controller]\nstate_dir={:?}\nauth_url={:?}",
+        "[controller]\nstate_dir={:?}\nprivate_groups=true\nauth_url={:?}",
         dir.path().display().to_string(),
         format!("{auth_url}/oauth2/auth")
     ))?;
     platform::member(&cfg, "one@example.com", "One", false, true)?;
     platform::member(&cfg, "two@example.com", "Two", true, true)?;
+    platform::member(&cfg, "offline@example.com", "Offline", false, true)?;
+    platform::member(&cfg, "disabled@example.com", "Disabled", false, false)?;
+    platform::member(&cfg, "outside@example.com", "Outside", false, true)?;
+    platform::Database::open(dir.path())?.edit(|data| {
+        data.groups.names.insert("away".into(), "Away".into());
+        data.groups
+            .members
+            .insert("outside@example.com".into(), "away".into());
+        data.groups.operators.insert("two@example.com".into());
+        for email in [
+            "offline@example.com",
+            "disabled@example.com",
+            "outside@example.com",
+        ] {
+            data.members.get_mut(email).unwrap().avatar = Some("circuit-fox".into());
+        }
+        Ok(())
+    })?;
     let controller = Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -67,6 +85,43 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
             .header("cookie", cookie)
             .header("origin", "https://games.example.com")
     };
+    // Usage includes offline accounts, but never disabled accounts or another group.
+    assert_eq!(
+        request(Method::GET, "/api/profile", "")
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    let usage: Value = request(Method::GET, "/api/profile", "member=one")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        usage,
+        json!({"users":[{"name":"Offline","avatar":"circuit-fox"}]})
+    );
+    assert_eq!(
+        request(Method::GET, "/api/profile", "member=one")
+            .header("x-infuser-inspect-group", "away")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    let inspected: Value = request(Method::GET, "/api/profile", "member=two")
+        .header("x-infuser-inspect-group", "away")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        inspected,
+        json!({"users":[{"name":"Outside","avatar":"circuit-fox"}]})
+    );
     // Theme bootstrap and both stylesheets must be available before authentication.
     for (path, mime, marker) in [
         ("/assets/themes.js", "text/javascript", "InfuserThemes"),
@@ -181,6 +236,19 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .json()
         .await?;
     assert_eq!(saved["avatar"], last_avatar);
+    let usage: Value = request(Method::GET, "/api/profile", "member=two")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(
+        usage["users"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|user| user == &json!({"name":"One","avatar":last_avatar}))
+    );
     let other: Value = request(Method::GET, "/api/me", "member=two")
         .send()
         .await?
@@ -319,6 +387,16 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .json()
         .await?;
     assert!(reset["avatar"].is_null());
+    let usage: Value = request(Method::GET, "/api/profile", "member=one")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        usage,
+        json!({"users":[{"name":"Offline","avatar":"circuit-fox"}]})
+    );
     assert!(
         platform::Database::open(dir.path())?.read()?.members["one@example.com"]
             .avatar
