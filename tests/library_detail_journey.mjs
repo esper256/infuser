@@ -86,6 +86,11 @@ try {
    await page.locator('#hidden-games').evaluate(e=>e.open=true);
    await page.evaluate(()=>document.activeElement.blur());
    assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=p.left+1&&b.top>=h.bottom;})),'reaction stacks must not overlap controls');
+   assert(await page.locator('#games .game').evaluateAll(cards=>cards.every(card=>{
+    const buzz=card.querySelector('.game-buzz');if(!buzz)return true;
+    const c=card.getBoundingClientRect(),face=buzz.firstElementChild.getBoundingClientRect(),hang=(face.bottom-c.bottom)/face.height;
+    return face.left>=c.left&&face.left-c.left<=8&&hang>=.15&&hang<=.25&&buzz.getBoundingClientRect().height>=44;
+   })),'emoji faces should hang 20% below the card, stay inside its left edge, and retain a touch target');
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);

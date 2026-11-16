@@ -75,7 +75,9 @@ scroll and focus during refresh, and uses the active theme's materials.
 Online players appear as overlapping avatars beside the logo. Filters and search
 share a row, with the game count after the final filter. Search matches game
 titles, tags, and author handles, case-insensitively. A small bottom-left stack
-shows reactions updated in the last 28 days: `min(n, 6, ceil(sqrt(2*n)))` faces.
+sits just inside the left edge, with about 20% of each emoji hanging below the
+card. It shows reactions updated in the last 28 days:
+`min(n, 6, ceil(sqrt(2*n)))` faces.
 Prefer varied recent emoji, then fill with repeats. Show none for zero recent
 reactions; retain older feedback in the game view. Keep the stack clear of the
 title and Play controls; clicking it opens the newest recent feedback. Tag editing appears on
