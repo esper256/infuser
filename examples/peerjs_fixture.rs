@@ -11,7 +11,7 @@ use infuser::{
     portal,
 };
 use serde_json::json;
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
                 cross_origin_isolation: false,
                 ready: true,
                 created: now(),
-                files: BTreeMap::new(),
+                files: Default::default(),
             },
         );
         d.apps.insert(

@@ -120,11 +120,13 @@ fn response(response: reqwest::blocking::Response) -> Result<serde_json::Value> 
     response.take(256 * 1024 + 1).read_to_end(&mut bytes)?;
     ensure!(bytes.len() <= 256 * 1024, "Infuser response is too large");
     let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let code = value["error"]["code"].as_str().map(|c|format!(" ({c})")).unwrap_or_default();
     ensure!(
         status.is_success(),
-        "{}",
-        value["error"]
-            .as_str()
+        "{}{code}: {}",
+        status,
+        value["error"]["message"].as_str()
+            .or_else(|| value["error"].as_str())
             .unwrap_or("Infuser could not open this game. Try Play again.")
     );
     Ok(value)
@@ -309,7 +311,14 @@ pub fn run_with_http(
     let versions = game_root.join("versions");
     private_dir(&versions)?;
     let cache = versions.join(&launch.artifact.sha256);
-    if install::verify(&cache, &launch.artifact).is_err() {
+    // The same lock covers verification, repair, run preparation and pruning.
+    // Another player cannot change the cache between verification and copying.
+    let cache_lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false)
+        .open(game_root.join("install.lock"))?;
+    cache_lock.lock()?;
+    let verified = match install::verified(&cache, &launch.artifact) {
+        Ok(verified) => verified,
+        Err(_) => {
         events
             .send(Event::Status(format!("Downloading {}…", launch.title)))
             .ok();
@@ -328,38 +337,35 @@ pub fn run_with_http(
         events
             .send(Event::Status("Checking the update…".into()))
             .ok();
-        // A per-game cache lock serializes concurrent owner/guest installations.
-        let cache_lock = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(game_root.join("install.lock"))?;
-        cache_lock.lock()?;
         install::install(&versions, &launch.artifact, &bytes)?;
-    }
-    events
-        .send(Event::Status(format!("Starting {}…", launch.title)))
-        .ok();
-    let run = install::prepare_run(
-        &cache,
-        &launch.artifact,
-        &game_root.join("runs"),
-        &namespace,
-    )?;
+            install::verified(&cache, &launch.artifact)?
+        }
+    };
+    events.send(Event::Status(format!("Starting {}…", launch.title))).ok();
+    let run = install::prepare_verified(verified, &game_root.join("runs"), &namespace)?;
+    // A cache cleanup failure must not prevent playing an already verified game.
+    let _ = crate::run_storage::prune(&game_root, &launch.artifact.sha256);
+    drop(cache_lock);
     let envelope = run.path().join("infuser-launch.json");
     private_json(
         &envelope,
         &json!({"version":1,"game_origin":launch.game_origin,"token":launch.token,"save_namespace":namespace,"guest":launch.guest}),
     )?;
-    let mut child = Command::new(run.path().join(&launch.artifact.entrypoint))
+    run.spawning()?;
+    let child = Command::new(run.path().join(&launch.artifact.entrypoint))
         .current_dir(run.path())
         .env("INFUSER_LAUNCH_FILE", &envelope)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .context("The game could not start. Its creator may need to update this build.")?;
+        .spawn();
+    let mut child = match child {
+        Ok(child)=>child,
+        Err(error)=>{let _=run.finished();return Err(error).context("The game could not start. Its creator may need to update this build.");}
+    };
+    // If the process exits immediately, keep the uncertain marker until wait
+    // confirms exit; never delete a possibly-running game because inspection failed.
+    let _ = run.started(child.id());
     events.send(Event::Playing).ok();
     let mut heartbeat = Instant::now() - Duration::from_secs(25);
     let exit = loop {
@@ -379,6 +385,7 @@ pub fn run_with_http(
         }
         std::thread::sleep(Duration::from_millis(500));
     };
+    let _ = run.finished();
     let _ = http
         .delete(format!("{}/_infuser/api/v1/heartbeat", launch.game_origin))
         .header("Origin", &launch.game_origin)

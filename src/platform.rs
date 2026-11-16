@@ -10,6 +10,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
+mod activity;
 mod chat;
 pub mod groups;
 mod metadata;
@@ -53,7 +54,7 @@ pub struct Build {
     pub cross_origin_isolation: bool,
     pub ready: bool,
     pub created: u64,
-    pub files: BTreeMap<String, u64>,
+    pub files: std::sync::Arc<BTreeMap<String, u64>>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct App {
@@ -286,11 +287,12 @@ fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
 }
 pub struct Database {
     pub connection: Mutex<Connection>,
+    catalog: Mutex<Option<(u64, Data)>>,
 }
 impl Database {
     pub fn open(root: &Path) -> Result<Self> {
         std::fs::create_dir_all(root)?;
-        let c = Connection::open(root.join("platform.sqlite"))?;
+        let mut c = Connection::open(root.join("platform.sqlite"))?;
         c.busy_timeout(std::time::Duration::from_secs(5))?;
         c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
           CREATE TABLE IF NOT EXISTS platform (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
@@ -316,7 +318,9 @@ impl Database {
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
             [serde_json::to_string(&Data::default())?],
         )?;
+        activity::initialize(&mut c)?;
         let db = Self {
+            catalog: Mutex::new(None),
             connection: Mutex::new(c),
         };
         db.edit(|d| {
@@ -343,10 +347,19 @@ impl Database {
     pub fn read(&self) -> Result<Data> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
-        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
-        let data = decode_catalog(&tx, &raw)?;
+        let mut data = self.cached_catalog(&tx)?;
+        activity::load(&tx,&mut data)?;
         tx.commit()?;
         Ok(data)
+    }
+    pub(crate) fn cached_catalog(&self, c: &Connection) -> Result<Data> {
+        let revision: u64 = c.query_row("SELECT revision FROM catalog_revision WHERE id=1",[],|r|r.get(0))?;
+        let mut cached = self.catalog.lock().unwrap();
+        if cached.as_ref().is_none_or(|(v,_)|*v!=revision) {
+            let raw: String = c.query_row("SELECT data FROM platform_catalog WHERE id=1",[],|r|r.get(0))?;
+            *cached = Some((revision,decode_catalog(c,&raw)?));
+        }
+        Ok(cached.as_ref().unwrap().1.clone())
     }
     pub fn edit<T>(&self, f: impl FnOnce(&mut Data) -> Result<T>) -> Result<T> {
         let mut c = self.connection.lock().unwrap();
@@ -450,11 +463,11 @@ impl Database {
     pub fn cleanup(&self) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
-        let mut data = decode_catalog(&tx, &raw)?;
         let time = now();
-        data.launches.retain(|_, l| l.expires > time);
-        data.presence.retain(|_, t| *t + 300 > time);
+        tx.execute("DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1",[time])?;
+        tx.execute("DELETE FROM runtime_presence WHERE seen+300<=?1",[time])?;
+        let mut data = Data::default();
+        activity::load(&tx,&mut data)?;
         let active: std::collections::BTreeSet<_> = data
             .launches
             .iter()
@@ -472,10 +485,6 @@ impl Database {
             tx.execute("DELETE FROM saves WHERE owner=?1", [&owner])?;
             crate::cloud::delete_owner(&tx, &owner)?;
         }
-        tx.execute(
-            "UPDATE platform SET data=?1 WHERE id=1",
-            [encode_catalog(&tx, &data)?],
-        )?;
         tx.commit()?;
         Ok(())
     }

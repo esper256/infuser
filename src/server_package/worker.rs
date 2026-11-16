@@ -302,22 +302,12 @@ impl DockerWorker {
             30,
         )
         .await?;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(250);
-        loop {
-            let result = self.run(&["exec",&name,"node","-e","const f=require('fs'); console.log(f.existsSync('/work/ready')?'ready':f.existsSync('/work/failed')?'failed':'working')"],10).await?;
-            if result.trim() == "ready" {
-                break;
-            }
-            if result.trim() == "failed" {
-                let log = self.run(&["logs", "--tail", "150", &name], 10).await?;
-                progress(Phase::Packaging, &log)?;
-                anyhow::bail!("offline dependency installation failed; inspect server-build logs");
-            }
-            ensure!(
-                tokio::time::Instant::now() < deadline,
-                "offline dependency installation timed out"
-            );
-            tokio::time::sleep(Duration::from_millis(500)).await;
+        // One tiny shell waiter replaces repeated Docker + Node/V8 startups.
+        // The installer remains alive so its bounded tmpfs can be archived.
+        if let Err(error) = self.run(&["exec", &name, "sh", "-c",
+            "while [ ! -f /work/ready ] && [ ! -f /work/failed ]; do sleep 0.2; done; test -f /work/ready"],250).await {
+            if let Ok(log) = self.run(&["logs", "--tail", "150", &name], 10).await {progress(Phase::Packaging, &log)?;}
+            return Err(error.context("offline dependency installation failed or timed out; inspect server-build logs"));
         }
         let context = staging.path().join("context.tar");
         self.archive(&name, &context).await?;

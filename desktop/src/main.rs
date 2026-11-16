@@ -1,6 +1,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 mod client;
 mod install;
+mod run_storage;
 mod ui;
 mod update;
 use eframe::egui;

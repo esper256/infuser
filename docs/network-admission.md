@@ -39,5 +39,10 @@ reverse proxy must overwrite `X-Infuser-Client-IP` with the connection address,
 as shown in the Caddy template. Do not trust a client-supplied value. Logging out
 does not immediately remove a shared IP; its grant expires unless refreshed.
 
+Renewal applies one atomic nftables transaction, so an existing grant is not
+temporarily removed between commands. Concurrent refreshes for one IP are
+coalesced; failed grants are not recorded as successful. The helper bounds
+command execution time, and the kernel still owns the expiry timer.
+
 References: [Docker packet filtering](https://docs.docker.com/engine/network/firewall-iptables/)
 and [Docker with nftables](https://docs.docker.com/engine/network/firewall-nftables/).

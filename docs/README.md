@@ -43,6 +43,7 @@ These pages are for changing the platform, not publishing a game.
 
 - [Development setup and checks](development.md), [feature tests](developer-testing.md), [CI and releases](ci.md)
 - [Architecture](architecture.md), [implementation and compatibility notes](implementation-notes.md), [roadmap](roadmap.md)
+- [Architectural review improvement plan](proposals/architecture-improvement-plan.md)
 - [SDK design review](sdk-contract.md), [accepted decisions](sdk-1.0-decisions.md),
   [dedicated-server proposal](proposals/sdk-1.0-dedicated-servers.md), [implementation plan](proposals/dedicated-sdk-implementation.md)
 - [UI design](design.md), [themes](themes.md), [branding assets](../assets/branding/README.md),

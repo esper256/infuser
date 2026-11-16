@@ -174,14 +174,9 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     if !inspecting {
         p.admit(&h).await;
     }
-    p.db.cleanup()?;
     let time = now();
-    let data = p.db.edit(|data| {
-        if !inspecting {
-            data.presence.insert(email.clone(), time);
-        }
-        Ok(data.clone())
-    })?;
+    if !inspecting {p.db.see_member(&email,time)?;}
+    let data = p.db.read()?;
     let view = View {
         data: &data,
         email: &email,
@@ -196,9 +191,9 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .map(|(id, app)| view.card(&p, id, app))
         .collect();
     let friends = view.friends(&apps);
-    Ok(reply(json!({
+    Ok(conditional::json(json!({
         "apps":apps,
         "friends":friends,
         "tags":crate::tags::catalog_in_group(&data,data.members[&email].admin||inspecting,&group),
-    })))
+    }), &h))
 }

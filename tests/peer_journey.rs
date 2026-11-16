@@ -151,7 +151,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
                     cross_origin_isolation: false,
                     ready: build == "one",
                     created: now(),
-                    files: BTreeMap::from([("index.html".into(), 64)]),
+                    files: BTreeMap::from([("index.html".into(), 64)]).into(),
                 },
             );
         }

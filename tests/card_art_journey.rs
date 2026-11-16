@@ -38,6 +38,13 @@ fn art(size: u32, alpha: bool) -> Result<Vec<u8>> {
         size,
         color,
     )?;
+    // A valid unknown RIFF chunk makes this larger than the JSON request limit.
+    // Cover uploads must retain their independent 250 KiB limit with capture on.
+    bytes.extend_from_slice(b"JUNK");
+    bytes.extend_from_slice(&(100u32 * 1024).to_le_bytes());
+    bytes.resize(bytes.len() + 100 * 1024, 0);
+    let riff_size = (bytes.len() - 8) as u32;
+    bytes[4..8].copy_from_slice(&riff_size.to_le_bytes());
     Ok(bytes)
 }
 async fn json_ok(request: reqwest::RequestBuilder) -> Result<Value> {
@@ -74,7 +81,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     ))
     .await?;
     let cfg: Config = toml::from_str(&format!(
-        "[controller]\nstate_dir={:?}\nauth_url={:?}\ndisk_reserve_mb=64",
+        "[controller]\nstate_dir={:?}\nauth_url={:?}\ndisk_reserve_mb=64\npublish_capture_mb=16",
         temp.path().display().to_string(),
         format!("{auth}/auth")
     ))?;
@@ -130,7 +137,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     }
     let bytes = art(1024, false)?;
     let mut damaged = bytes.clone();
-    damaged.truncate(damaged.len() / 2);
+    damaged.truncate(24); // Cut image data, not just the trailing test chunk.
     assert_eq!(
         publisher(Method::PUT, upload)
             .body(damaged)
@@ -251,6 +258,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .error_for_status()?;
     assert_eq!(image.headers()["content-type"], "image/webp");
     assert_eq!(image.headers()["cache-control"], "private, no-cache");
+    let etag=image.headers()["etag"].clone();
+    assert_eq!(member(image_url,"admin").header("if-none-match",&etag).send().await?.status(),304);
+    assert_eq!(member(image_url,"none").header("if-none-match",&etag).send().await?.status(),401);
+
     assert_eq!(image.bytes().await?.as_ref(), bytes);
     assert_eq!(
         publisher(Method::PUT, upload)
@@ -572,7 +583,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         let app = d.apps["pond"].clone();
         let mut build = d.builds[&format!("pond/{}", app.build)].clone();
         build.manifest.app_id = "second".into();
-        build.files.remove(infuser::card_art::PATH);
+        Arc::make_mut(&mut build.files).remove(infuser::card_art::PATH);
         d.builds.insert(format!("second/{}", app.build), build);
         d.apps.insert("second".into(), app);
         platform::credential(d, "all-games", "metadata", "Infuser art agent")

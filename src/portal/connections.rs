@@ -303,9 +303,7 @@ pub(super) async fn socket(
             .ok_or_else(|| fault(410, "server ended"))?;
         let address = p
             .controller
-            .engine
-            .web_address(&attempt.identity.app_id, instance, &state.owner)
-            .await?;
+            .web_address(&attempt.identity.app_id, &instance.attempt)?;
         // The engine supplies this address; the browser cannot select an upstream,
         // path, forwarding headers, credentials, or a destination outside its game.
         let mut request = format!("ws://{address}{}", connection.path).into_client_request()?;

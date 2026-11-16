@@ -43,11 +43,16 @@ pub struct Controller {
     pub engine: Arc<dyn Engine>,
     inner: Mutex<(Store, State)>,
     reconcile_lock: tokio::sync::Mutex<()>,
+    operations: Mutex<BTreeMap<String, tokio::task::JoinHandle<Outcome>>>,
+    cursor: Mutex<String>,
+    upstreams: Mutex<BTreeMap<String, (String, std::net::SocketAddr)>>,
+    operator_games: BTreeSet<String>,
 }
 
 impl Controller {
     pub fn open(mut config: Config, engine: Arc<dyn Engine>) -> Result<Self> {
         config.validate()?;
+        let operator_games = config.games.keys().cloned().collect();
         let (store, mut state) = Store::open(&config.controller.state_dir)?;
         for (id, game) in &state.published_games {
             ensure!(
@@ -113,6 +118,10 @@ impl Controller {
             engine,
             inner: Mutex::new((store, state)),
             reconcile_lock: tokio::sync::Mutex::new(()),
+            operations: Default::default(),
+            cursor: Default::default(),
+            upstreams: Default::default(),
+            operator_games,
         })
     }
 
@@ -128,7 +137,7 @@ impl Controller {
         validation.games.insert(id.into(), game.clone());
         validation.validate()?;
         self.mutate(|state| {
-            if self.config.games.contains_key(id) && !state.published_games.contains_key(id) {
+            if self.operator_games.contains(id) {
                 return Err(fault(409, "app belongs to the operator catalog"));
             }
             if let Some(i) = state.games.get_mut(id) {
@@ -170,6 +179,11 @@ impl Controller {
         let result = f(&mut next)?;
         if next != guard.1 {
             guard.0.save(&next)?;
+            self.upstreams.lock().unwrap().retain(|id, (attempt, _)| {
+                next.games
+                    .get(id)
+                    .is_some_and(|i| i.phase == Phase::Ready && &i.attempt == attempt)
+            });
             guard.1 = next;
         }
         Ok(result)
@@ -390,49 +404,82 @@ impl Controller {
         })
     }
 
-    pub async fn reconcile(&self, time: u64) -> Result<()> {
-        let _single = self.reconcile_lock.lock().await;
-        let initial = self.snapshot();
-        for id in initial.games.keys() {
-            let instance = self.mutate(|state| {
-                let i = state.games.get_mut(id).unwrap();
-                let last_expiry = i.leases.values().map(|l| l.expires).max();
-                i.leases.retain(|_, l| l.expires > time);
-                if !i.reserved() {
-                    return Ok(None);
-                }
-                if i.leases.is_empty() && i.idle_since.is_none() {
-                    i.idle_since = Some(last_expiry.unwrap_or(time));
-                }
-                if i.phase != Phase::Stopping {
-                    if i.idle_since
-                        .is_some_and(|since| time >= since.saturating_add(i.spec.idle_seconds))
-                    {
-                        i.phase = Phase::Stopping;
-                    } else if i.phase == Phase::Starting
-                        && time >= i.started.saturating_add(i.spec.startup_seconds)
-                    {
-                        i.phase = Phase::Stopping;
-                        i.error = Some("startup readiness deadline exceeded".into());
-                    }
-                }
-                Ok(Some(i.clone()))
-            })?;
-            let Some(instance) = instance else {
-                continue;
+    /// Read only verified routing for the current attempt. Never inspect Docker on
+    /// the request path, and never reuse a persisted address after restart.
+    pub fn web_address(&self, id: &str, attempt: &str) -> Result<std::net::SocketAddr> {
+        let guard = self.inner.lock().unwrap();
+        ensure!(
+            guard
+                .1
+                .games
+                .get(id)
+                .is_some_and(|i| i.phase == Phase::Ready && i.attempt == attempt),
+            fault(503, "game server is not ready")
+        );
+        self.upstreams
+            .lock()
+            .unwrap()
+            .get(id)
+            .filter(|(a, _)| a == attempt)
+            .map(|(_, a)| *a)
+            .ok_or_else(|| fault(503, "game server routing is warming up"))
+    }
+    /// Release only publisher registrations whose resources are confirmed gone.
+    /// Worlds are deliberately retained and can be adopted by a later publication.
+    pub fn unregister(&self, id: &str) -> Result<bool> {
+        ensure!(
+            !self.operator_games.contains(id),
+            fault(409, "app belongs to the operator catalog")
+        );
+        if self.operations.lock().unwrap().contains_key(id) {
+            return Ok(false);
+        }
+        self.mutate(|s| {
+            if s.games.get(id).is_some_and(Instance::reserved) {
+                return Ok(false);
+            }
+            s.published_games.remove(id);
+            s.games.remove(id);
+            Ok(true)
+        })
+    }
+    fn prepare_operation(&self, id: &str, time: u64) -> Result<Option<Instance>> {
+        self.mutate(|state| {
+            let Some(i) = state.games.get_mut(id) else {
+                return Ok(None);
             };
-            let result = match instance.phase {
-                Phase::Starting => self.engine.ensure(id, &instance, &initial.owner).await,
-                Phase::Ready => self.engine.health(&instance, &initial.owner, id).await,
-                Phase::Stopping => self
-                    .engine
-                    .remove(id, &instance, &initial.owner)
-                    .await
-                    .map(|_| Health::Missing),
-                _ => unreachable!(),
-            };
-            self.mutate(|state| {
-                let i = state.games.get_mut(id).unwrap();
+            let last_expiry = i.leases.values().map(|l| l.expires).max();
+            i.leases.retain(|_, l| l.expires > time);
+            if !i.reserved() {
+                return Ok(None);
+            }
+            if i.leases.is_empty() && i.idle_since.is_none() {
+                i.idle_since = Some(last_expiry.unwrap_or(time));
+            }
+            if i.phase != Phase::Stopping {
+                if i.idle_since
+                    .is_some_and(|since| time >= since.saturating_add(i.spec.idle_seconds))
+                {
+                    i.phase = Phase::Stopping;
+                } else if i.phase == Phase::Starting
+                    && time >= i.started.saturating_add(i.spec.startup_seconds)
+                {
+                    i.phase = Phase::Stopping;
+                    i.error = Some("startup readiness deadline exceeded".into());
+                }
+            }
+            Ok(Some(i.clone()))
+        })
+    }
+    fn apply_operation(&self, outcome: Outcome, time: u64) -> Result<()> {
+        let Outcome {
+            id,
+            instance,
+            result,
+            address,
+        } = outcome;
+        self.mutate(|state| {
+                let Some(i) = state.games.get_mut(&id) else { return Ok(()); };
                 // A stop request may arrive while Docker is working; it wins.
                 if i.attempt != instance.attempt || i.phase != instance.phase {
                     return Ok(());
@@ -475,7 +522,125 @@ impl Controller {
                 }
                 Ok(())
             })?;
+        if let Some(address) = address {
+            let guard = self.inner.lock().unwrap();
+            if guard
+                .1
+                .games
+                .get(&id)
+                .is_some_and(|i| i.phase == Phase::Ready && i.attempt == instance.attempt)
+            {
+                self.upstreams
+                    .lock()
+                    .unwrap()
+                    .insert(id, (instance.attempt, address));
+            }
         }
         Ok(())
+    }
+    /// A complete sweep for explicit operator/test callers. Production uses the
+    /// nonblocking step below, so one Docker stop never delays the next sweep.
+    pub async fn reconcile(&self, time: u64) -> Result<()> {
+        use futures_util::StreamExt;
+        let _single = self.reconcile_lock.lock().await;
+        let state = self.snapshot();
+        let mut work = Vec::new();
+        for id in state.games.keys() {
+            if let Some(instance) = self.prepare_operation(id, time)? {
+                work.push(operate(
+                    self.engine.clone(),
+                    id.clone(),
+                    instance,
+                    state.owner.clone(),
+                ));
+            }
+        }
+        let mut results = futures_util::stream::iter(work).buffer_unordered(2);
+        while let Some(result) = results.next().await {
+            self.apply_operation(result, time)?;
+        }
+        Ok(())
+    }
+    pub async fn reconcile_step(&self, time: u64) -> Result<()> {
+        let _single = self.reconcile_lock.lock().await;
+        let finished: Vec<_> = self
+            .operations
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, task)| task.is_finished())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in finished {
+            let task = self.operations.lock().unwrap().remove(&id).unwrap();
+            self.apply_operation(task.await.context("lifecycle worker failed")?, time)?;
+        }
+        let state = self.snapshot();
+        let cursor = self.cursor.lock().unwrap().clone();
+        let mut ids: Vec<_> = state.games.keys().cloned().collect();
+        ids.sort_by_key(|id| (id <= &cursor, id.clone()));
+        for id in ids {
+            // Expiry and stop transitions continue even while both workers are busy.
+            let instance = self.prepare_operation(&id, time)?;
+            let mut tasks = self.operations.lock().unwrap();
+            if tasks.len() >= 2 || tasks.contains_key(&id) {
+                continue;
+            }
+            if let Some(instance) = instance {
+                *self.cursor.lock().unwrap() = id.clone();
+                tasks.insert(
+                    id.clone(),
+                    tokio::spawn(operate(
+                        self.engine.clone(),
+                        id,
+                        instance,
+                        state.owner.clone(),
+                    )),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+struct Outcome {
+    id: String,
+    instance: Instance,
+    result: Result<Health>,
+    address: Option<std::net::SocketAddr>,
+}
+async fn operate(
+    engine: Arc<dyn Engine>,
+    id: String,
+    instance: Instance,
+    owner: String,
+) -> Outcome {
+    let mut result = match instance.phase {
+        Phase::Starting => engine.ensure(&id, &instance, &owner).await,
+        Phase::Ready => engine.health(&instance, &owner, &id).await,
+        Phase::Stopping => engine
+            .remove(&id, &instance, &owner)
+            .await
+            .map(|_| Health::Missing),
+        _ => unreachable!(),
+    };
+    let mut address = None;
+    if matches!(result, Ok(Health::Ready)) && instance.spec.web {
+        match engine.web_address(&id, &instance, &owner).await {
+            Ok(value) => address = Some(value),
+            Err(error) => result = Err(error),
+        }
+    }
+    Outcome {
+        id,
+        instance,
+        result,
+        address,
+    }
+}
+impl Drop for Controller {
+    fn drop(&mut self) {
+        for task in self.operations.get_mut().unwrap().values() {
+            task.abort();
+        }
     }
 }

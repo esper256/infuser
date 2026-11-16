@@ -17,17 +17,36 @@ struct Connection {
 pub fn supported_engines() -> Value {
     json!([{"id":"threejs-vite","label":"Three.js / Vite"},{"id":"web","label":"plain HTML/JavaScript"},{"id":"godot-web","label":"Godot web (preview)"},{"id":"godot-native","label":"Godot desktop single-player (preview)"}])
 }
+trait PublicationRequest {
+    async fn send_to_infuser(self) -> Result<reqwest::Response>;
+}
+impl PublicationRequest for reqwest::RequestBuilder {
+    async fn send_to_infuser(self) -> Result<reqwest::Response> {
+        for attempt in 0..=10 {
+            let response = self.try_clone().context("publication request cannot be retried")?.send().await?;
+            let delay = response.headers().get("retry-after").and_then(|v|v.to_str().ok()).and_then(|v|v.parse::<u64>().ok());
+            if response.status() != reqwest::StatusCode::SERVICE_UNAVAILABLE || delay.is_none() || attempt == 10 {
+                return Ok(response);
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(delay.unwrap().min(3))).await;
+        }
+        unreachable!()
+    }
+}
 async fn response(r: reqwest::Response) -> Result<Value> {
     let status = r.status();
     let value: Value = r
         .json()
         .await
         .context("Infuser returned a non-JSON response")?;
+    let code = value["error"]["code"].as_str().map(|c|format!(" ({c})")).unwrap_or_default();
     ensure!(
         status.is_success(),
-        "{}: {}",
+        "{}{code}: {}",
         status,
-        value["error"].as_str().unwrap_or("request failed")
+        value["error"]["message"].as_str()
+            .or_else(|| value["error"].as_str())
+            .unwrap_or("request failed")
     );
     Ok(value)
 }
@@ -134,7 +153,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         response(
             http.delete(format!("{api}/api/publisher/apps/{}", connection.app_id))
                 .bearer_auth(&connection.token)
-                .send()
+                .send_to_infuser()
                 .await?,
         )
         .await?;
@@ -233,7 +252,7 @@ pub async fn run(args: &[String]) -> Result<()> {
     let capabilities = response(
         http.get(format!("{api}/api/publisher/capabilities"))
             .bearer_auth(&connection.token)
-            .send()
+            .send_to_infuser()
             .await?,
     )
     .await?;
@@ -496,7 +515,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         http.put(&build_url)
             .bearer_auth(&connection.token)
             .json(&body)
-            .send()
+            .send_to_infuser()
             .await?,
     )
     .await?;
@@ -534,7 +553,7 @@ pub async fn run(args: &[String]) -> Result<()> {
                 .bearer_auth(&connection.token)
                 .header("content-type", "application/octet-stream")
                 .body(bytes)
-                .send()
+                .send_to_infuser()
                 .await?,
         )
         .await
@@ -553,7 +572,7 @@ pub async fn run(args: &[String]) -> Result<()> {
                     .bearer_auth(&connection.token)
                     .header("content-type", "application/octet-stream")
                     .body(std::fs::read(path)?)
-                    .send()
+                    .send_to_infuser()
                     .await?,
             )
             .await
@@ -563,7 +582,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         let mut job = response(
             http.post(&job_url)
                 .bearer_auth(&connection.token)
-                .send()
+                .send_to_infuser()
                 .await?,
         )
         .await?;
@@ -595,7 +614,7 @@ pub async fn run(args: &[String]) -> Result<()> {
             job = response(
                 http.get(&job_url)
                     .bearer_auth(&connection.token)
-                    .send()
+                    .send_to_infuser()
                     .await?,
             )
             .await?;
@@ -605,7 +624,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         http.post(format!("{build_url}/publish"))
             .bearer_auth(&connection.token)
             .json(&json!({"listed":!has(args,"--preview")}))
-            .send()
+            .send_to_infuser()
             .await?,
     )
     .await?;
@@ -679,7 +698,7 @@ pub async fn connect(args: &[String]) -> Result<()> {
     let connection = response(
         http.post(format!("{}/api/publisher/claim", api_url))
             .json(&json!({"token":token,"app_id":app}))
-            .send()
+            .send_to_infuser()
             .await?,
     )
     .await?;
@@ -695,4 +714,27 @@ pub async fn connect(args: &[String]) -> Result<()> {
         output.display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn publishing_retries_admission_busy_and_preserves_structured_errors() -> Result<()> {
+    use axum::{Router,routing::put,response::IntoResponse};
+    use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
+    let calls=Arc::new(AtomicUsize::new(0));let counter=calls.clone();
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url=format!("http://{}/",listener.local_addr()?);
+    let app=Router::new().route("/",put(move |body:String| {let counter=counter.clone();async move {
+        assert_eq!(body,"same upload");
+        if counter.fetch_add(1,Ordering::Relaxed)==0 {
+            (axum::http::StatusCode::SERVICE_UNAVAILABLE,[("retry-after","0")],"busy").into_response()
+        } else {
+            (axum::http::StatusCode::UNPROCESSABLE_ENTITY,axum::Json(json!({"error":{"code":"fixture_rejected","message":"Missing game entry file"}}))).into_response()
+        }
+    }}));
+    let server=tokio::spawn(async move {axum::serve(listener,app).await.unwrap();});
+    let result=response(reqwest::Client::new().put(url).body("same upload").send_to_infuser().await?).await;
+    server.abort();let message=result.unwrap_err().to_string();
+    assert!(message.contains("422") && message.contains("fixture_rejected") && message.contains("Missing game entry file"));
+    assert_eq!(calls.load(Ordering::Relaxed),2);Ok(())
 }

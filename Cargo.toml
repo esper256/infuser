@@ -19,11 +19,11 @@ tokio-tungstenite = "0.30"
 rand = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rustix = { version = "1", features = ["fs"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 sha2 = "0.11"
 subtle = "2"
-rusqlite = { version = "0.42", default-features = false, features = ["bundled", "cache", "fallible_uint"] }
+rusqlite = { version = "0.42", default-features = false, features = ["bundled", "cache", "fallible_uint", "blob"] }
 tower = { version = "0.5", features = ["util", "limit"] }
 tower-http = { version = "0.7", features = ["fs"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "net", "signal", "sync", "io-util", "fs"] }

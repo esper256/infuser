@@ -30,9 +30,8 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn members(c: &Connection, email: &str) -> Result<Data> {
-    let raw: String = c.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
-    let data = decode_catalog(c, &raw)?;
+fn members(db: &Database, c: &Connection, email: &str) -> Result<Data> {
+    let data = db.cached_catalog(c)?;
     ensure!(
         data.members.get(email).is_some_and(|m| m.enabled),
         fault(403, "Membership is disabled.")
@@ -48,7 +47,7 @@ impl Database {
     pub fn chat_list_group(&self, email: &str, group: &str, inspecting: bool) -> Result<Value> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
-        let data = members(&tx, email)?;
+        let data = members(self, &tx, email)?;
         ensure!(
             if inspecting {
                 data.groups.operator(email)
@@ -99,7 +98,7 @@ impl Database {
         );
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let data = members(&tx, email)?;
+        let data = members(self, &tx, email)?;
         let group = data.groups.member(email);
         let time = now();
         tx.execute(
@@ -144,7 +143,7 @@ impl Database {
     pub fn chat_remove(&self, email: &str, id: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let data = members(&tx, email)?;
+        let data = members(self, &tx, email)?;
         let author: String = tx
             .query_row(
                 "SELECT author FROM library_chat WHERE id=?1 AND private_group=?2",
