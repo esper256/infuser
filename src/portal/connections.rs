@@ -161,7 +161,8 @@ pub(super) async fn prepare(
         .ok_or_else(|| fault(409, "acquire the game backend first"))?;
     let data = p.db.read()?;
     let attempt = Attempt {
-        identity: Identity { deployment_id: launch.deployment.clone(),
+        identity: Identity {
+            deployment_id: launch.deployment.clone(),
             iss: format!("https://{}", p.domain()),
             aud: "infuser-server-connection".into(),
             iat: now(),

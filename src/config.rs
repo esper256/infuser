@@ -202,7 +202,10 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
-        ensure!(!s.visits || s.private_groups, "visits require private_groups");
+        ensure!(
+            !s.visits || s.private_groups,
+            "visits require private_groups"
+        );
         if let Some(packaging) = &s.node_packaging {
             packaging.validate()?;
             ensure!(

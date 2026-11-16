@@ -11,16 +11,24 @@ struct View<'a> {
 }
 impl View<'_> {
     fn includes(&self, id: &str, app: &App) -> bool {
-        (self.data.groups.app(id) == self.group || self.data.active_visit(self.group,self.time).is_some_and(|(_,v)|v.games.contains(id)))
-            && self.data.deployment_for(id,self.group).is_some()
-            && (app.listed || self.inspecting || (self.data.groups.app(id)==self.group && self.data.groups.member(self.email)==self.group && self.data.members[self.email].admin))
+        (self.data.groups.app(id) == self.group
+            || self
+                .data
+                .active_visit(self.group, self.time)
+                .is_some_and(|(_, v)| v.games.contains(id)))
+            && self.data.deployment_for(id, self.group).is_some()
+            && (app.listed
+                || self.inspecting
+                || (self.data.groups.app(id) == self.group
+                    && self.data.groups.member(self.email) == self.group
+                    && self.data.members[self.email].admin))
     }
 
     fn card(&self, p: &Platform, id: &str, app: &App) -> Value {
         let data = self.data;
         let listed = app.listed;
-        let runtime=data.deployment_for(id,self.group).unwrap_or(id);
-        let app=data.deployed(runtime).unwrap_or(app);
+        let runtime = data.deployment_for(id, self.group).unwrap_or(id);
+        let app = data.deployed(runtime).unwrap_or(app);
         let build = &data.builds[&build_key(id, &app.build)];
         let players: Vec<_> = data
             .launches
@@ -28,7 +36,7 @@ impl View<'_> {
             .filter(|launch| {
                 launch.runtime_id() == runtime
                     && launch.seen + 90 > self.time
-                    && data.launch_allowed(launch,self.time)
+                    && data.launch_allowed(launch, self.time)
                     && data
                         .members
                         .get(&launch.email)
@@ -48,10 +56,9 @@ impl View<'_> {
             .into_iter()
             .flat_map(|r| r.iter())
             .filter(|(email, _)| {
-                data
-                        .members
-                        .get(*email)
-                        .is_some_and(|member| member.enabled)
+                data.members
+                    .get(*email)
+                    .is_some_and(|member| member.enabled)
             })
             .map(|(email, reaction)| {
                 json!({
@@ -65,8 +72,11 @@ impl View<'_> {
                 })
             })
             .collect();
-        p.peers
-            .retain_launches(runtime, &presence::live_launches(data, runtime, self.time), self.time);
+        p.peers.retain_launches(
+            runtime,
+            &presence::live_launches(data, runtime, self.time),
+            self.time,
+        );
         let room = p.peers.discovery(runtime, &app.build, self.time);
         let mut join_targets: Vec<_> = if !self.inspecting
             && build
@@ -92,11 +102,23 @@ impl View<'_> {
         } else {
             vec![]
         };
-        if !self.inspecting && build.manifest.dedicated_sessions()
-            && build.manifest.launch_intents.contains(&crate::launch_intent::Kind::JoinFriend) {
-            for session in dedicated::live_sessions(p,data,runtime,&app.build,self.time) {
-                if session["joinable"] != true || session["activity"] != "multiplayer" {continue;}
-                for player in session["players"].as_array().unwrap().iter().filter(|player|player["player_id"] != hash(self.email)) {
+        if !self.inspecting
+            && build.manifest.dedicated_sessions()
+            && build
+                .manifest
+                .launch_intents
+                .contains(&crate::launch_intent::Kind::JoinFriend)
+        {
+            for session in dedicated::live_sessions(p, data, runtime, &app.build, self.time) {
+                if session["joinable"] != true || session["activity"] != "multiplayer" {
+                    continue;
+                }
+                for player in session["players"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|player| player["player_id"] != hash(self.email))
+                {
                     join_targets.push(json!({"session_id":session["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]}));
                 }
             }
@@ -111,9 +133,12 @@ impl View<'_> {
             if self.inspecting {
                 format!("{url}?inspect_group={}", self.group)
             } else {
-                if data.groups.member(self.email)!=self.group {
-                    data.active_visit(self.group,self.time).map_or(url.clone(),|(id,_)|format!("{url}?visit={id}"))
-                } else {url}
+                if data.groups.member(self.email) != self.group {
+                    data.active_visit(self.group, self.time)
+                        .map_or(url.clone(), |(id, _)| format!("{url}?visit={id}"))
+                } else {
+                    url
+                }
             }
         });
         json!({
@@ -149,7 +174,7 @@ impl View<'_> {
             .iter()
             .filter(|(email, seen)| {
                 **seen + 90 > self.time
-                    && self.data.group_participant(email,self.group,self.time)
+                    && self.data.group_participant(email, self.group, self.time)
                     && self
                         .data
                         .members
@@ -183,7 +208,9 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         p.admit(&h).await;
     }
     let time = now();
-    if !inspecting {p.db.see_member(&email,time)?;}
+    if !inspecting {
+        p.db.see_member(&email, time)?;
+    }
     let data = p.db.read()?;
     let view = View {
         data: &data,
@@ -199,10 +226,13 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .map(|(id, app)| view.card(&p, id, app))
         .collect();
     let friends = view.friends(&apps);
-    Ok(conditional::json(json!({
-        "apps":apps,
-        "friends":friends,
-        "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.members.get(*e).is_some_and(|m|m.enabled)).map(|(e,_)|json!({"id":hash(e),"name":data.members[e].name})).collect::<Vec<_>>()})),
-        "tags":crate::tags::catalog_for_apps(&data,apps.iter().filter_map(|a|a["id"].as_str())),
-    }), &h))
+    Ok(conditional::json(
+        json!({
+            "apps":apps,
+            "friends":friends,
+            "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.members.get(*e).is_some_and(|m|m.enabled)).map(|(e,_)|json!({"id":hash(e),"name":data.members[e].name})).collect::<Vec<_>>()})),
+            "tags":crate::tags::catalog_for_apps(&data,apps.iter().filter_map(|a|a["id"].as_str())),
+        }),
+        &h,
+    ))
 }

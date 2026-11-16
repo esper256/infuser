@@ -123,11 +123,13 @@ async fn sealing_capacity_retries_recovery_and_pair_activation() -> Result<()> {
     let first = api.create("one").await?;
     // Hold two incomplete uploads on different apps. Admission must reject a
     // third mutation before reading its body, while status reads still work.
-    let other_token = p.db.edit(|d| Ok(platform::credential(d, "other", "publish", "fixture")?.1))?;
+    let other_token =
+        p.db.edit(|d| Ok(platform::credential(d, "other", "publish", "fixture")?.1))?;
     let mut uploads = Vec::new();
     for (app, token) in [("pond", &api.token), ("other", &other_token)] {
         use tokio::io::AsyncWriteExt;
-        let mut socket = tokio::net::TcpStream::connect(api.url.trim_start_matches("http://")).await?;
+        let mut socket =
+            tokio::net::TcpStream::connect(api.url.trim_start_matches("http://")).await?;
         socket.write_all(format!("PUT /api/publisher/apps/{app}/builds/one/files/slow.bin HTTP/1.1\r\nHost: games.example.com\r\nAuthorization: Bearer {token}\r\nContent-Length: 1024\r\n\r\nx").as_bytes()).await?;
         uploads.push(socket);
     }
@@ -136,8 +138,12 @@ async fn sealing_capacity_retries_recovery_and_pair_activation() -> Result<()> {
             tokio::task::yield_now().await;
         }
         Ok::<_, anyhow::Error>(())
-    }).await??;
-    let busy = api.call("POST", &format!("{first}/server-build")).send().await?;
+    })
+    .await??;
+    let busy = api
+        .call("POST", &format!("{first}/server-build"))
+        .send()
+        .await?;
     assert_eq!(busy.status(), 503);
     assert_eq!(busy.headers()["retry-after"], "1");
     tokio::time::timeout(std::time::Duration::from_secs(1), api.job(&first)).await??;
@@ -147,15 +153,36 @@ async fn sealing_capacity_retries_recovery_and_pair_activation() -> Result<()> {
             tokio::task::yield_now().await;
         }
         Ok::<_, anyhow::Error>(())
-    }).await??;
-    let diagnostics = api.call("GET", "/api/publisher/apps/pond/server-diagnostics")
-        .send().await?.error_for_status()?.json::<Value>().await?;
+    })
+    .await??;
+    let diagnostics = api
+        .call("GET", "/api/publisher/apps/pond/server-diagnostics")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Value>()
+        .await?;
     assert_eq!(diagnostics["version"], 1);
     assert_eq!(diagnostics["recent"], json!([]));
-    assert_eq!(api.call("GET", "/api/publisher/apps/another-game/server-diagnostics")
-        .send().await?.status(), 401);
-    assert_eq!(api.http.get(format!("{}/api/publisher/apps/pond/server-diagnostics", api.url))
-        .header("host", "games.example.com").send().await?.status(), 401);
+    assert_eq!(
+        api.call("GET", "/api/publisher/apps/another-game/server-diagnostics")
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    assert_eq!(
+        api.http
+            .get(format!(
+                "{}/api/publisher/apps/pond/server-diagnostics",
+                api.url
+            ))
+            .header("host", "games.example.com")
+            .send()
+            .await?
+            .status(),
+        401
+    );
     assert_eq!(
         api.call("POST", &format!("{first}/publish"))
             .send()
@@ -329,7 +356,10 @@ async fn sealing_capacity_retries_recovery_and_pair_activation() -> Result<()> {
     let world = root.path().join("volumes/pond");
     std::fs::create_dir_all(&world)?;
     std::fs::write(world.join("world.save"), b"retained world")?;
-    p.db.edit(|d| { d.apps.remove("pond"); Ok(()) })?;
+    p.db.edit(|d| {
+        d.apps.remove("pond");
+        Ok(())
+    })?;
     drop(_server);
     tokio::task::yield_now().await;
     drop(p);

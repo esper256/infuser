@@ -165,19 +165,37 @@ async fn play(
     Json(body): Json<PlayRequest>,
 ) -> Answer {
     let email = p.member(&h, true).await?;
-    let (group,_)=p.group_view(&h,&email)?;
-    p.visible_app(&h,&email,&app)?;
-    if !p.db.read()?.visits.is_empty(){p.reconcile_publications()?;}
+    let (group, _) = p.group_view(&h, &email)?;
+    p.visible_app(&h, &email, &app)?;
+    if !p.db.read()?.visits.is_empty() {
+        p.reconcile_publications()?;
+    }
     p.admit(&h).await;
     let id = secret();
     p.db.native_edit(|d, n| {
-        let runtime=d.deployment_for(&app,&group).ok_or_else(||fault(404,"Game not found."))?;
-        let deployment=(runtime!=app).then(||runtime.to_owned());
-        let visit=if deployment.is_some() || d.groups.member(&email)!=group {Some(d.active_visit(&group,now()).filter(|(id,_)|d.visit_access(id,&email,now()).is_some()).ok_or_else(||fault(403,"Visit access ended."))?.0.clone())}else{None};
-        let active = d.deployed(runtime)
+        let runtime = d
+            .deployment_for(&app, &group)
+            .ok_or_else(|| fault(404, "Game not found."))?;
+        let deployment = (runtime != app).then(|| runtime.to_owned());
+        let visit = if deployment.is_some() || d.groups.member(&email) != group {
+            Some(
+                d.active_visit(&group, now())
+                    .filter(|(id, _)| d.visit_access(id, &email, now()).is_some())
+                    .ok_or_else(|| fault(403, "Visit access ended."))?
+                    .0
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        let active = d
+            .deployed(runtime)
             .ok_or_else(|| fault(404, "game not found"))?;
         ensure!(
-            d.apps.get(&app).is_some_and(|a|a.listed) || (deployment.is_none()&&d.groups.member(&email)==group&&d.members[&email].admin),
+            d.apps.get(&app).is_some_and(|a| a.listed)
+                || (deployment.is_none()
+                    && d.groups.member(&email) == group
+                    && d.members[&email].admin),
             fault(404, "game not found")
         );
         let b = &d.builds[&build_key(&app, &active.build)];
@@ -205,7 +223,8 @@ async fn play(
         n.requests.insert(
             hash(&id),
             Play {
-                deployment,visit,
+                deployment,
+                visit,
                 email,
                 app,
                 build: active.build.clone(),

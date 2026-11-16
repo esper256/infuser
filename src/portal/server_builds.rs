@@ -239,57 +239,59 @@ pub(super) async fn upload(
         fault(413, "server source file exceeds 8 MiB")
     );
     tokio::task::spawn_blocking(move || -> Answer {
-    let _mutation = mutation;
-    let key = build_key(&app, &build);
-    let target = p.server_source(&key).join(&path);
-    std::fs::create_dir_all(target.parent().unwrap())?;
-    let _guard = p.publishing.lock().unwrap();
-    let key = build_key(&app, &build);
-    let data = p.db.read()?;
-    let job = data
-        .server_builds
-        .get(&key)
-        .ok_or_else(|| fault(404, "create a build with server_recipe first"))?;
-    ensure!(
-        job.state == Phase::Uploading && data.builds.get(&key).is_some_and(|b| !b.ready),
-        fault(
-            409,
-            "server build inputs are sealed; upload a new build to change them"
-        )
-    );
-    let prior = job.files.get(&path).copied().unwrap_or(0);
-    let size = staged.bytes;
-    ensure!(
-        job.files.len() < 4096 || job.files.contains_key(&path),
-        fault(413, "too many server source files")
-    );
-    ensure!(
-        job.files.values().sum::<u64>() - prior + size <= package::SOURCE_BYTES,
-        fault(413, "server source exceeds 64 MiB")
-    );
-    ensure!(
-        content_bytes(&data) - prior + size
-            <= p.config().controller.content_budget_mb * 1024 * 1024,
-        fault(507, "installation content budget is full")
-    );
-    let disk = rustix::fs::statvfs(&p.config().controller.state_dir)?;
-    ensure!(
-        disk.f_bavail.saturating_mul(disk.f_frsize)
-            >= p.config().controller.disk_reserve_mb * 1024 * 1024 + size * 2,
-        fault(507, "host disk reserve would be exhausted")
-    );
-    std::fs::rename(staged.file.path(), &target)?;
-    std::fs::File::open(target.parent().unwrap())?.sync_all()?;
-    p.db.edit(|d| {
-        d.server_builds
-            .get_mut(&key)
-            .unwrap()
-            .files
-            .insert(path.clone(), size);
-        Ok(())
-    })?;
-    Ok(reply(json!({"path":path,"bytes":size})))
-    }).await.map_err(|e| fault(500, &format!("upload worker failed: {e}")))?
+        let _mutation = mutation;
+        let key = build_key(&app, &build);
+        let target = p.server_source(&key).join(&path);
+        std::fs::create_dir_all(target.parent().unwrap())?;
+        let _guard = p.publishing.lock().unwrap();
+        let key = build_key(&app, &build);
+        let data = p.db.read()?;
+        let job = data
+            .server_builds
+            .get(&key)
+            .ok_or_else(|| fault(404, "create a build with server_recipe first"))?;
+        ensure!(
+            job.state == Phase::Uploading && data.builds.get(&key).is_some_and(|b| !b.ready),
+            fault(
+                409,
+                "server build inputs are sealed; upload a new build to change them"
+            )
+        );
+        let prior = job.files.get(&path).copied().unwrap_or(0);
+        let size = staged.bytes;
+        ensure!(
+            job.files.len() < 4096 || job.files.contains_key(&path),
+            fault(413, "too many server source files")
+        );
+        ensure!(
+            job.files.values().sum::<u64>() - prior + size <= package::SOURCE_BYTES,
+            fault(413, "server source exceeds 64 MiB")
+        );
+        ensure!(
+            content_bytes(&data) - prior + size
+                <= p.config().controller.content_budget_mb * 1024 * 1024,
+            fault(507, "installation content budget is full")
+        );
+        let disk = rustix::fs::statvfs(&p.config().controller.state_dir)?;
+        ensure!(
+            disk.f_bavail.saturating_mul(disk.f_frsize)
+                >= p.config().controller.disk_reserve_mb * 1024 * 1024 + size * 2,
+            fault(507, "host disk reserve would be exhausted")
+        );
+        std::fs::rename(staged.file.path(), &target)?;
+        std::fs::File::open(target.parent().unwrap())?.sync_all()?;
+        p.db.edit(|d| {
+            d.server_builds
+                .get_mut(&key)
+                .unwrap()
+                .files
+                .insert(path.clone(), size);
+            Ok(())
+        })?;
+        Ok(reply(json!({"path":path,"bytes":size})))
+    })
+    .await
+    .map_err(|e| fault(500, &format!("upload worker failed: {e}")))?
 }
 pub(super) async fn start(
     State(p): State<Platform>,
@@ -299,57 +301,59 @@ pub(super) async fn start(
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
     tokio::task::spawn_blocking(move || -> Answer {
-    let _mutation = mutation;
-    let key = build_key(&app, &build);
-    let data = p.db.read()?;
-    let job = data
-        .server_builds
-        .get(&key)
-        .ok_or_else(|| fault(404, "build has no managed server recipe"))?;
-    ensure!(
-        data.builds.contains_key(&key),
-        fault(404, "build was removed")
-    );
-    if matches!(job.state, Phase::Uploading | Phase::Failed) {
-        job.recipe
-            .validate(p.config())
+        let _mutation = mutation;
+        let key = build_key(&app, &build);
+        let data = p.db.read()?;
+        let job = data
+            .server_builds
+            .get(&key)
+            .ok_or_else(|| fault(404, "build has no managed server recipe"))?;
+        ensure!(
+            data.builds.contains_key(&key),
+            fault(404, "build was removed")
+        );
+        if matches!(job.state, Phase::Uploading | Phase::Failed) {
+            job.recipe
+                .validate(p.config())
+                .map_err(|e| fault(422, &e.to_string()))?;
+            let source = p.server_source(&key);
+            ensure!(
+                job.files.contains_key(&job.recipe.entry)
+                    && job.files.contains_key("package.json")
+                    && job.files.contains_key("package-lock.json"),
+                fault(
+                    422,
+                    "upload the entry file, package.json and package-lock.json before finalizing"
+                )
+            );
+            package::dependencies(
+                &std::fs::read(source.join("package.json"))?,
+                &std::fs::read(source.join("package-lock.json"))?,
+            )
             .map_err(|e| fault(422, &e.to_string()))?;
-        let source = p.server_source(&key);
-        ensure!(
-            job.files.contains_key(&job.recipe.entry)
-                && job.files.contains_key("package.json")
-                && job.files.contains_key("package-lock.json"),
-            fault(
-                422,
-                "upload the entry file, package.json and package-lock.json before finalizing"
-            )
-        );
-        package::dependencies(
-            &std::fs::read(source.join("package.json"))?,
-            &std::fs::read(source.join("package-lock.json"))?,
-        )
-        .map_err(|e| fault(422, &e.to_string()))?;
-        ensure!(
-            data.builds[&key].files.contains_key("index.html"),
-            fault(
-                422,
-                "upload the client export before finalizing its paired server"
-            )
-        );
-        let _guard = p.publishing.lock().unwrap();
-        p.db.edit(|d| {
-            let job = d.server_builds.get_mut(&key).unwrap();
-            job.state = Phase::Queued;
-            job.error = None;
-            job.logs.clear();
-            job.log("Queued; packaging starts when host capacity is available.");
-            Ok(())
-        })?;
-    }
-    let mut response = reply(json!(p.db.read()?.server_builds[&key]));
-    if p.db.read()?.server_builds[&key].state != Phase::Ready {
-        *response.status_mut() = StatusCode::ACCEPTED;
-    }
-    Ok(response)
-    }).await.map_err(|e| fault(500, &format!("packaging preparation failed: {e}")))?
+            ensure!(
+                data.builds[&key].files.contains_key("index.html"),
+                fault(
+                    422,
+                    "upload the client export before finalizing its paired server"
+                )
+            );
+            let _guard = p.publishing.lock().unwrap();
+            p.db.edit(|d| {
+                let job = d.server_builds.get_mut(&key).unwrap();
+                job.state = Phase::Queued;
+                job.error = None;
+                job.logs.clear();
+                job.log("Queued; packaging starts when host capacity is available.");
+                Ok(())
+            })?;
+        }
+        let mut response = reply(json!(p.db.read()?.server_builds[&key]));
+        if p.db.read()?.server_builds[&key].state != Phase::Ready {
+            *response.status_mut() = StatusCode::ACCEPTED;
+        }
+        Ok(response)
+    })
+    .await
+    .map_err(|e| fault(500, &format!("packaging preparation failed: {e}")))?
 }

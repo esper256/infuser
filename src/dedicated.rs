@@ -175,7 +175,9 @@ pub struct Report {
     pub retired: BTreeSet<String>,
 }
 impl Scope {
-    pub fn runtime_id(&self) -> &str {self.deployment_id.as_deref().unwrap_or(&self.app_id)}
+    pub fn runtime_id(&self) -> &str {
+        self.deployment_id.as_deref().unwrap_or(&self.app_id)
+    }
 }
 #[derive(Default)]
 pub struct Directory(pub BTreeMap<String, Report>);

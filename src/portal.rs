@@ -36,8 +36,8 @@ mod capture;
 mod card_art;
 mod chat;
 mod client;
-mod connections;
 mod conditional;
+mod connections;
 mod dedicated;
 mod feedback;
 mod groups;
@@ -89,8 +89,12 @@ impl IntoResponse for Error {
                 .into_response();
         }
         if let Some(f) = self.0.downcast_ref::<crate::dedicated::Fault>() {
-            return (StatusCode::from_u16(f.status).unwrap(), [("Cache-Control", "no-store")],
-                Json(json!({"error":{"code":f.code,"message":f.message}}))).into_response();
+            return (
+                StatusCode::from_u16(f.status).unwrap(),
+                [("Cache-Control", "no-store")],
+                Json(json!({"error":{"code":f.code,"message":f.message}})),
+            )
+                .into_response();
         }
         let (status, message) = match self.0.downcast_ref::<Fault>() {
             Some(f) => (f.status, f.message.clone()),
@@ -137,13 +141,21 @@ impl Platform {
         self.peers.clone()
     }
     pub fn open(controller: Arc<Controller>) -> Result<Self> {
-        let staging = controller.config.controller.state_dir.join("upload-staging");
+        let staging = controller
+            .config
+            .controller
+            .state_dir
+            .join("upload-staging");
         // Controller ownership is exclusive. No previous uploader can still own
         // these disposable files after process recovery.
-        if staging.exists() {std::fs::remove_dir_all(staging)?;}
+        if staging.exists() {
+            std::fs::remove_dir_all(staging)?;
+        }
         let db = Arc::new(Database::open(&controller.config.controller.state_dir)?);
-        anyhow::ensure!(db.read()?.visits.is_empty() || controller.config.controller.visits,
-            "keep controller.visits enabled after creating visits");
+        anyhow::ensure!(
+            db.read()?.visits.is_empty() || controller.config.controller.visits,
+            "keep controller.visits enabled after creating visits"
+        );
         anyhow::ensure!(
             db.read()?.groups.names.len() <= 1 || controller.config.controller.private_groups,
             "enable controller.private_groups before serving multiple groups"
@@ -254,7 +266,10 @@ impl Platform {
     }
     async fn admin(&self, h: &HeaderMap, write: bool) -> Result<String> {
         let email = self.member(h, write).await?;
-        ensure!(!h.contains_key(groups::VISIT),fault(403,"Return home for administration."));
+        ensure!(
+            !h.contains_key(groups::VISIT),
+            fault(403, "Return home for administration.")
+        );
         ensure!(
             self.db.read()?.members[&email].admin
                 || (!write
@@ -302,14 +317,24 @@ impl Platform {
         };
         let grant = {
             let mut grants = self.grants.lock().unwrap();
-            grants.retain(|_,g|Arc::strong_count(g)>1 || g.try_lock().map(|t|*t+1800>now()).unwrap_or(true));
+            grants.retain(|_, g| {
+                Arc::strong_count(g) > 1 || g.try_lock().map(|t| *t + 1800 > now()).unwrap_or(true)
+            });
             grants.entry(ip).or_default().clone()
         };
         let mut refreshed = grant.lock().await;
-        if *refreshed + 60 > now() {return true;}
+        if *refreshed + 60 > now() {
+            return true;
+        }
         match crate::firewall::grant(socket, ip).await {
-            Ok(()) => {*refreshed=now();true},
-            Err(e) => {tracing::warn!(error=%e,"game port admission unavailable");false},
+            Ok(()) => {
+                *refreshed = now();
+                true
+            }
+            Err(e) => {
+                tracing::warn!(error=%e,"game port admission unavailable");
+                false
+            }
         }
     }
     fn game(&self, h: &HeaderMap) -> Result<(String, Launch)> {
@@ -328,7 +353,10 @@ impl Platform {
             data.members.get(&l.email).is_some_and(|m| m.enabled),
             fault(403, "Membership is disabled.")
         );
-        ensure!(data.launch_allowed(l,now()), fault(403,"Game authorization ended."));
+        ensure!(
+            data.launch_allowed(l, now()),
+            fault(403, "Game authorization ended.")
+        );
         Ok((id.clone(), l.clone()))
     }
     fn refresh(&self, id: &str) -> Result<Value> {
@@ -342,8 +370,11 @@ impl Platform {
             .get(id)
             .filter(|l| l.expires > now())
             .ok_or_else(|| fault(410, "game session expired"))?;
-        ensure!(data.members.get(&launch.email).is_some_and(|m|m.enabled)
-            && data.launch_allowed(launch,now()),fault(401,"Game authorization ended."));
+        ensure!(
+            data.members.get(&launch.email).is_some_and(|m| m.enabled)
+                && data.launch_allowed(launch, now()),
+            fault(401, "Game authorization ended.")
+        );
         let mut status = json!({"state":"ready","endpoint":null});
         let on_demand = data.builds[&build_key(&launch.app, &launch.build)]
             .manifest
@@ -369,8 +400,8 @@ impl Platform {
             status["endpoint"] = json!({"url":format!("https://{}/_infuser/server",launch.host)});
         }
         self.db.renew_launch(id, now())?;
-        if let Some(visit)=launch.visit.as_ref().and_then(|id|data.visits.get(id)) {
-            status["visit"]=json!({"expires_at":visit.expires,"authorization_seconds":30});
+        if let Some(visit) = launch.visit.as_ref().and_then(|id| data.visits.get(id)) {
+            status["visit"] = json!({"expires_at":visit.expires,"authorization_seconds":30});
         }
         Ok(status)
     }
@@ -447,7 +478,10 @@ pub fn router(platform: Platform) -> Router {
             put(urls::publisher_rename),
         )
         .route("/api/publisher/apps/{app}", delete(unpublish))
-        .route("/api/publisher/apps/{app}/server-diagnostics", get(server_diagnostics::get))
+        .route(
+            "/api/publisher/apps/{app}/server-diagnostics",
+            get(server_diagnostics::get),
+        )
         .route(
             "/api/publisher/apps/{app}/builds/{build}",
             put(create_build).get(build_status).delete(remove_build),
@@ -475,7 +509,10 @@ pub fn router(platform: Platform) -> Router {
             capture::record,
         ))
         .layer(DefaultBodyLimit::max(96 * 1024))
-        .layer(axum::middleware::from_fn_with_state(platform.clone(), publication::admit));
+        .layer(axum::middleware::from_fn_with_state(
+            platform.clone(),
+            publication::admit,
+        ));
     Router::new()
         .merge(publishing)
         .merge(native::routes())
@@ -699,28 +736,55 @@ async fn launch(
     Json(body): Json<LaunchRequest>,
 ) -> Answer {
     let email = p.member(&h, true).await?;
-    let (group,_) = p.group_view(&h,&email)?;
+    let (group, _) = p.group_view(&h, &email)?;
     p.admit(&h).await;
-    if !p.db.read()?.visits.is_empty() {p.reconcile_publications()?;}
+    if !p.db.read()?.visits.is_empty() {
+        p.reconcile_publications()?;
+    }
     let _publishing = p.publishing.lock().unwrap();
     let data = p.db.read()?;
-    p.visible_app(&h,&email,&app)?;
-    let borrowed=data.groups.app(&app)!=group;
-    let visit=if borrowed || data.groups.member(&email)!=group {
-        Some(data.active_visit(&group,now()).filter(|(id,v)|data.visit_access(id,&email,now()).is_some() && (!borrowed||v.games.contains(&app)))
-            .ok_or_else(||fault(403,"Visit access ended."))?.0.clone())
-    }else{None};
-    let deployment=if borrowed {Some(data.deployments.iter().find(|(_,d)|d.app==app&&d.group==group).ok_or_else(||fault(503,"Visit game is preparing. Try again."))?.0.clone())}else{None};
-    let runtime_id=deployment.as_deref().unwrap_or(&app);
-    let selected = data.deployed(runtime_id)
+    p.visible_app(&h, &email, &app)?;
+    let borrowed = data.groups.app(&app) != group;
+    let visit = if borrowed || data.groups.member(&email) != group {
+        Some(
+            data.active_visit(&group, now())
+                .filter(|(id, v)| {
+                    data.visit_access(id, &email, now()).is_some()
+                        && (!borrowed || v.games.contains(&app))
+                })
+                .ok_or_else(|| fault(403, "Visit access ended."))?
+                .0
+                .clone(),
+        )
+    } else {
+        None
+    };
+    let deployment = if borrowed {
+        Some(
+            data.deployments
+                .iter()
+                .find(|(_, d)| d.app == app && d.group == group)
+                .ok_or_else(|| fault(503, "Visit game is preparing. Try again."))?
+                .0
+                .clone(),
+        )
+    } else {
+        None
+    };
+    let runtime_id = deployment.as_deref().unwrap_or(&app);
+    let selected = data
+        .deployed(runtime_id)
         .ok_or_else(|| fault(404, "unknown game"))?;
     ensure!(
-        data.apps.get(&app).is_some_and(|a|a.listed) || (!borrowed && data.groups.member(&email)==group && data.members[&email].admin),
+        data.apps.get(&app).is_some_and(|a| a.listed)
+            || (!borrowed && data.groups.member(&email) == group && data.members[&email].admin),
         fault(404, "unknown game")
     );
     let b = &data.builds[&build_key(&app, &selected.build)];
-    if visit.is_some() && let Some(reason) = b.visit_unavailable() {
-        return Err(fault(422,reason).into());
+    if visit.is_some()
+        && let Some(reason) = b.visit_unavailable()
+    {
+        return Err(fault(422, reason).into());
     }
     if let Some(sdk) = &b.manifest.sdk {
         sdk.admit(&crate::sdk_contract::with_peerjs(
@@ -777,7 +841,9 @@ async fn launch(
         hash(&format!("{email}/{app}/{}", selected.build))[..32].into()
     };
     let gamehost = crate::game_urls::host(&data, &app, &host_id, p.domain());
-    let l = Launch { deployment, visit,
+    let l = Launch {
+        deployment,
+        visit,
         intent: body.intent,
         app,
         build: selected.build.clone(),
@@ -821,7 +887,10 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
         l.email == email && l.expires > now(),
         fault(403, "not your active launch")
     );
-    ensure!(data.launch_allowed(l,now()),fault(403,"Game authorization ended."));
+    ensure!(
+        data.launch_allowed(l, now()),
+        fault(403, "Game authorization ended.")
+    );
     // Startup may take longer than the initial grant window. Only the authenticated
     // launcher can extend the unused, single-use exchange token.
     p.db.edit(|d| {
@@ -848,8 +917,12 @@ async fn react(
 ) -> Answer {
     let email = p.member(&h, true).await?;
     p.visible_app(&h, &email, &app)?;
-    let (group,_)=p.group_view(&h,&email)?;
-    let app=p.db.read()?.deployment_for(&app,&group).ok_or_else(||fault(404,"Game not found."))?.to_owned();
+    let (group, _) = p.group_view(&h, &email)?;
+    let app =
+        p.db.read()?
+            .deployment_for(&app, &group)
+            .ok_or_else(|| fault(404, "Game not found."))?
+            .to_owned();
     ensure!(
         ["⭐", "👍", "🚀", "❤️", "👏", "💡"].contains(&body.emoji.as_str())
             && body.text.chars().count() <= 140,
@@ -1228,59 +1301,63 @@ async fn upload(
         fault(400, "invalid artifact path")
     );
     tokio::task::spawn_blocking(move || -> Answer {
-    let _mutation = mutation;
-    if path == crate::card_art::PATH {
-        crate::card_art::validate(&std::fs::read(staged.file.path())?).map_err(|e| fault(422, &format!("{e:#}")))?;
-    }
-    let dir = p.root().join(&app).join(&build);
-    let target = dir.join(&path);
-    std::fs::create_dir_all(target.parent().unwrap())?;
-    let _guard = p.publishing.lock().unwrap();
-    let data = p.db.read()?;
-    let key = build_key(&app, &build);
-    let b = data
-        .builds
-        .get(&key)
-        .ok_or_else(|| fault(404, "create the build first"))?;
-    ensure!(!b.ready, fault(409, "published builds are immutable"));
-    ensure!(
-        data.server_builds
+        let _mutation = mutation;
+        if path == crate::card_art::PATH {
+            crate::card_art::validate(&std::fs::read(staged.file.path())?)
+                .map_err(|e| fault(422, &format!("{e:#}")))?;
+        }
+        let dir = p.root().join(&app).join(&build);
+        let target = dir.join(&path);
+        std::fs::create_dir_all(target.parent().unwrap())?;
+        let _guard = p.publishing.lock().unwrap();
+        let data = p.db.read()?;
+        let key = build_key(&app, &build);
+        let b = data
+            .builds
             .get(&key)
-            .is_none_or(|j| j.state == crate::server_package::Phase::Uploading),
-        fault(
-            409,
-            "paired build inputs are sealed; upload a new build to change them"
-        )
-    );
+            .ok_or_else(|| fault(404, "create the build first"))?;
+        ensure!(!b.ready, fault(409, "published builds are immutable"));
+        ensure!(
+            data.server_builds
+                .get(&key)
+                .is_none_or(|j| j.state == crate::server_package::Phase::Uploading),
+            fault(
+                409,
+                "paired build inputs are sealed; upload a new build to change them"
+            )
+        );
 
-    let prior = b.files.get(&path).copied().unwrap_or(0);
-    let size = staged.bytes;
-    ensure!(
-        b.files.len() < 4096 || b.files.contains_key(&path),
-        fault(413, "too many files")
-    );
-    ensure!(
-        b.files.values().sum::<u64>() - prior + size <= 256 * 1024 * 1024,
-        fault(413, "build exceeds 256 MiB")
-    );
-    ensure!(
-        server_builds::content_bytes(&data) - prior + size
-            <= p.config().controller.content_budget_mb * 1024 * 1024,
-        fault(507, "installation content budget is full")
-    );
-    let disk = rustix::fs::statvfs(&p.config().controller.state_dir)?;
-    ensure!(
-        disk.f_bavail * disk.f_frsize >= p.config().controller.disk_reserve_mb * 1024 * 1024 + size,
-        fault(507, "host disk reserve would be exhausted")
-    );
-    std::fs::rename(staged.file.path(), &target)?;
-    std::fs::File::open(target.parent().unwrap())?.sync_all()?;
-    p.db.edit(|d| {
-        Arc::make_mut(&mut d.builds.get_mut(&key).unwrap().files).insert(path.clone(), size);
-        Ok(())
-    })?;
-    Ok(reply(json!({"path":path,"bytes":size})))
-    }).await.map_err(|e| fault(500, &format!("upload worker failed: {e}")))?
+        let prior = b.files.get(&path).copied().unwrap_or(0);
+        let size = staged.bytes;
+        ensure!(
+            b.files.len() < 4096 || b.files.contains_key(&path),
+            fault(413, "too many files")
+        );
+        ensure!(
+            b.files.values().sum::<u64>() - prior + size <= 256 * 1024 * 1024,
+            fault(413, "build exceeds 256 MiB")
+        );
+        ensure!(
+            server_builds::content_bytes(&data) - prior + size
+                <= p.config().controller.content_budget_mb * 1024 * 1024,
+            fault(507, "installation content budget is full")
+        );
+        let disk = rustix::fs::statvfs(&p.config().controller.state_dir)?;
+        ensure!(
+            disk.f_bavail * disk.f_frsize
+                >= p.config().controller.disk_reserve_mb * 1024 * 1024 + size,
+            fault(507, "host disk reserve would be exhausted")
+        );
+        std::fs::rename(staged.file.path(), &target)?;
+        std::fs::File::open(target.parent().unwrap())?.sync_all()?;
+        p.db.edit(|d| {
+            Arc::make_mut(&mut d.builds.get_mut(&key).unwrap().files).insert(path.clone(), size);
+            Ok(())
+        })?;
+        Ok(reply(json!({"path":path,"bytes":size})))
+    })
+    .await
+    .map_err(|e| fault(500, &format!("upload worker failed: {e}")))?
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1317,18 +1394,42 @@ impl Platform {
     fn validate_promotion(&self, app: &str, build: &str) -> Result<()> {
         let key = build_key(app, build);
         let data = self.db.read()?;
-        let b = data.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?;
-            anyhow::ensure!(b.files.contains_key("index.html"), fault(422,"web build needs index.html"));
-            let index = std::fs::read_to_string(self.root().join(&key).join("index.html"))?;
-            if let Some(sdk) = &b.manifest.sdk { sdk.admit(&crate::sdk_contract::with_peerjs(self.relay.is_some(), self.config().controller.peerjs_port.is_some())).map_err(|e|fault(422,&e.to_string()))?; }
-            let script = crate::sdk_contract::script(&b.manifest);
-            anyhow::ensure!(index.contains(script), fault(422,&format!("include <script type=module src=\"{script}\"></script> so the game maintains its session")));
-            if let Some(size) = b.files.get(crate::card_art::PATH) {
-                anyhow::ensure!(*size <= crate::card_art::MAX_BYTES as u64, fault(422, "card hero exceeds 250 KiB"));
-                let bytes = std::fs::read(self.root().join(&key).join(crate::card_art::PATH))?;
-                crate::card_art::validate(&bytes).map_err(|e| fault(422, &format!("{e:#}")))?;
-            }
-            crate::native::validate(&self.root().join(&key), &b.files).map_err(|e|fault(422,&format!("{e:#}")))?;
+        let b = data
+            .builds
+            .get(&key)
+            .ok_or_else(|| fault(404, "unknown build"))?;
+        anyhow::ensure!(
+            b.files.contains_key("index.html"),
+            fault(422, "web build needs index.html")
+        );
+        let index = std::fs::read_to_string(self.root().join(&key).join("index.html"))?;
+        if let Some(sdk) = &b.manifest.sdk {
+            sdk.admit(&crate::sdk_contract::with_peerjs(
+                self.relay.is_some(),
+                self.config().controller.peerjs_port.is_some(),
+            ))
+            .map_err(|e| fault(422, &e.to_string()))?;
+        }
+        let script = crate::sdk_contract::script(&b.manifest);
+        anyhow::ensure!(
+            index.contains(script),
+            fault(
+                422,
+                &format!(
+                    "include <script type=module src=\"{script}\"></script> so the game maintains its session"
+                )
+            )
+        );
+        if let Some(size) = b.files.get(crate::card_art::PATH) {
+            anyhow::ensure!(
+                *size <= crate::card_art::MAX_BYTES as u64,
+                fault(422, "card hero exceeds 250 KiB")
+            );
+            let bytes = std::fs::read(self.root().join(&key).join(crate::card_art::PATH))?;
+            crate::card_art::validate(&bytes).map_err(|e| fault(422, &format!("{e:#}")))?;
+        }
+        crate::native::validate(&self.root().join(&key), &b.files)
+            .map_err(|e| fault(422, &format!("{e:#}")))?;
         Ok(())
     }
     // Callers hold the publication lock, also used by player launches. Never switch
@@ -1336,34 +1437,90 @@ impl Platform {
     fn promote(&self, app: &str, build: &str, listed: bool) -> Result<&'static str> {
         let key = build_key(app, build);
         self.db.edit(|d| {
-            let b = d.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?.clone();
-            anyhow::ensure!(d.server_builds.get(&key).is_none_or(|j| j.state == crate::server_package::Phase::Ready && b.server.is_some()),fault(409,"server packaging has not passed readiness checks"));
+            let b = d
+                .builds
+                .get(&key)
+                .ok_or_else(|| fault(404, "unknown build"))?
+                .clone();
+            anyhow::ensure!(
+                d.server_builds.get(&key).is_none_or(|j| j.state
+                    == crate::server_package::Phase::Ready
+                    && b.server.is_some()),
+                fault(409, "server packaging has not passed readiness checks")
+            );
             crate::game_urls::assign(d, app, &b.manifest.title);
-            for credential in d.credentials.values_mut().filter(|c|c.app==app && c.role=="publish" && c.label=="Existing game") { credential.label=b.manifest.title.clone(); }
-            let changes_server = b.server.is_some() || d.apps.get(app).is_some_and(|a| d.builds[&build_key(app,&a.build)].server.is_some());
-            let running = self.controller.snapshot().games.get(app).is_some_and(|i|i.reserved());
-            if ((changes_server && running) || self.peers.active(app, now())) && !d.apps.get(app).is_some_and(|a|a.build==build) {
+            for credential in d
+                .credentials
+                .values_mut()
+                .filter(|c| c.app == app && c.role == "publish" && c.label == "Existing game")
+            {
+                credential.label = b.manifest.title.clone();
+            }
+            let changes_server = b.server.is_some()
+                || d.apps
+                    .get(app)
+                    .is_some_and(|a| d.builds[&build_key(app, &a.build)].server.is_some());
+            let running = self
+                .controller
+                .snapshot()
+                .games
+                .get(app)
+                .is_some_and(|i| i.reserved());
+            if ((changes_server && running) || self.peers.active(app, now()))
+                && !d.apps.get(app).is_some_and(|a| a.build == build)
+            {
                 d.builds.get_mut(&key).unwrap().ready = true;
-                d.pending_promotions.insert(app.into(),platform::PendingPromotion { build:build.into(),listed,queued_at:now() });
+                d.pending_promotions.insert(
+                    app.into(),
+                    platform::PendingPromotion {
+                        build: build.into(),
+                        listed,
+                        queued_at: now(),
+                    },
+                );
                 return Ok("queued");
             }
             if let Some(server) = b.server {
                 let keys = self.config().controller.state_dir.join("server-keys");
                 std::fs::create_dir_all(&keys)?;
                 let path = keys.join(app);
-                let token = if path.exists() { std::fs::read_to_string(&path)? } else {
-                    use std::os::unix::fs::OpenOptionsExt;
+                let token = if path.exists() {
+                    std::fs::read_to_string(&path)?
+                } else {
                     use std::io::Write;
+                    use std::os::unix::fs::OpenOptionsExt;
                     let token = secret();
-                    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
-                    f.write_all(token.as_bytes())?; f.sync_all()?; token
+                    let mut f = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .mode(0o600)
+                        .open(path)?;
+                    f.write_all(token.as_bytes())?;
+                    f.sync_all()?;
+                    token
                 };
-                d.credentials.insert(format!("server-{app}"),platform::Credential {app:app.into(),role:"server".into(),label:"container admission".into(),hash:hash(&token),owner:None});
-                self.controller.register(app,server)?;
+                d.credentials.insert(
+                    format!("server-{app}"),
+                    platform::Credential {
+                        app: app.into(),
+                        role: "server".into(),
+                        label: "container admission".into(),
+                        hash: hash(&token),
+                        owner: None,
+                    },
+                );
+                self.controller.register(app, server)?;
             }
             d.builds.get_mut(&key).unwrap().ready = true;
             d.tags.entry(app.into()).or_insert(b.manifest.tags);
-            d.apps.insert(app.into(),App {build:build.into(),updated:now(),listed});
+            d.apps.insert(
+                app.into(),
+                App {
+                    build: build.into(),
+                    updated: now(),
+                    listed,
+                },
+            );
             d.pending_promotions.remove(app);
             Ok("published")
         })
@@ -1375,15 +1532,29 @@ impl Platform {
         self.sync_deployments()?;
         let _guard = self.publishing.lock().unwrap();
         let data = self.db.read()?;
-        let mut desired: BTreeMap<_,_> = data.apps.iter().filter_map(|(id,app)|
-            data.builds.get(&build_key(id,&app.build)).and_then(|b|b.server.clone()).map(|s|(id.clone(),s))).collect();
-        for (id,dep) in &data.deployments {
-            if let Some(server)=data.builds.get(&build_key(&dep.app,&dep.active.build)).and_then(|b|b.server.clone()) {
-                let directory=self.config().controller.state_dir.join("server-sources");
+        let mut desired: BTreeMap<_, _> = data
+            .apps
+            .iter()
+            .filter_map(|(id, app)| {
+                data.builds
+                    .get(&build_key(id, &app.build))
+                    .and_then(|b| b.server.clone())
+                    .map(|s| (id.clone(), s))
+            })
+            .collect();
+        for (id, dep) in &data.deployments {
+            if let Some(server) = data
+                .builds
+                .get(&build_key(&dep.app, &dep.active.build))
+                .and_then(|b| b.server.clone())
+            {
+                let directory = self.config().controller.state_dir.join("server-sources");
                 std::fs::create_dir_all(&directory)?;
-                let path=directory.join(id);
-                if std::fs::read_to_string(&path).ok().as_deref()!=Some(&dep.app) {crate::private_file::replace(&path,dep.app.as_bytes())?;}
-                desired.insert(id.clone(),server);
+                let path = directory.join(id);
+                if std::fs::read_to_string(&path).ok().as_deref() != Some(&dep.app) {
+                    crate::private_file::replace(&path, dep.app.as_bytes())?;
+                }
+                desired.insert(id.clone(), server);
             }
         }
         let state = self.controller.snapshot();
@@ -1394,17 +1565,27 @@ impl Platform {
             }
         }
         for (id, server) in desired {
-            if state.games.get(&id).is_some_and(|i|i.spec != server && i.reserved()) {
+            if state
+                .games
+                .get(&id)
+                .is_some_and(|i| i.spec != server && i.reserved())
+            {
                 self.controller.stop(&id)?;
-            } else if state.published_games.get(&id) != Some(&server) {self.controller.register(&id,server)?;}
+            } else if state.published_games.get(&id) != Some(&server) {
+                self.controller.register(&id, server)?;
+            }
         }
         Ok(())
     }
     pub fn activate_pending(&self) -> Result<()> {
         let pending = self.db.read()?.pending_promotions;
         for (app, promotion) in pending {
-            if self.db.read()?.deployments.contains_key(&app) {continue;}
-            let Ok(_app) = self.app_lock(&app).try_lock_owned() else { continue; };
+            if self.db.read()?.deployments.contains_key(&app) {
+                continue;
+            }
+            let Ok(_app) = self.app_lock(&app).try_lock_owned() else {
+                continue;
+            };
             if self
                 .controller
                 .snapshot()
@@ -1421,7 +1602,15 @@ impl Platform {
             }
             let _guard = self.publishing.lock().unwrap();
             // Unpublish can cancel a pending update between snapshots.
-            if self.db.read()?.pending_promotions.get(&app).is_none_or(|p|p.build != promotion.build) {continue;}
+            if self
+                .db
+                .read()?
+                .pending_promotions
+                .get(&app)
+                .is_none_or(|p| p.build != promotion.build)
+            {
+                continue;
+            }
             match self.promote(&app, &promotion.build, promotion.listed) {
                 Ok("published") => {
                     tracing::info!(app, build = promotion.build, "Activated queued game update")
@@ -1461,39 +1650,44 @@ async fn remove_build(
     p.publisher(&h, Some(&app), "publish")?;
     ensure!(slug(&app) && slug(&build), fault(400, "invalid ID"));
     tokio::task::spawn_blocking(move || -> Result<()> {
-    let _mutation = mutation;
-    {
-    let _guard = p.publishing.lock().unwrap();
-    p.db.edit(|d| {
-        ensure!(
-            !d.apps.get(&app).is_some_and(|a| a.build == build)
-                && !d.deployments.values().any(|dep|dep.app==app && dep.active.build==build)
-                && !d
-                    .pending_promotions
-                    .get(&app)
-                    .is_some_and(|p| p.build == build)
-                && !d
-                    .launches
-                    .values()
-                    .any(|l| l.app == app && l.build == build && l.expires > now()),
-            fault(409, "build is published, queued or in use")
-        );
-        ensure!(
-            d.server_builds
-                .get(&build_key(&app, &build))
-                .is_none_or(|j| !j.active()),
-            fault(409, "server packaging is still queued or running")
-        );
-        d.builds.remove(&build_key(&app, &build));
+        let _mutation = mutation;
+        {
+            let _guard = p.publishing.lock().unwrap();
+            p.db.edit(|d| {
+                ensure!(
+                    !d.apps.get(&app).is_some_and(|a| a.build == build)
+                        && !d
+                            .deployments
+                            .values()
+                            .any(|dep| dep.app == app && dep.active.build == build)
+                        && !d
+                            .pending_promotions
+                            .get(&app)
+                            .is_some_and(|p| p.build == build)
+                        && !d
+                            .launches
+                            .values()
+                            .any(|l| l.app == app && l.build == build && l.expires > now()),
+                    fault(409, "build is published, queued or in use")
+                );
+                ensure!(
+                    d.server_builds
+                        .get(&build_key(&app, &build))
+                        .is_none_or(|j| !j.active()),
+                    fault(409, "server packaging is still queued or running")
+                );
+                d.builds.remove(&build_key(&app, &build));
+                Ok(())
+            })?;
+        }
+        let path = p.root().join(&app).join(&build);
+        if path.exists() {
+            std::fs::remove_dir_all(path)?;
+        }
         Ok(())
-    })?;
-    }
-    let path = p.root().join(&app).join(&build);
-    if path.exists() {
-        std::fs::remove_dir_all(path)?;
-    }
-    Ok(())
-    }).await.map_err(anyhow::Error::from)??;
+    })
+    .await
+    .map_err(anyhow::Error::from)??;
     Ok(reply(json!({"ok":true})))
 }
 #[derive(Deserialize)]
@@ -1520,7 +1714,7 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
             fault(403, "membership disabled")
         );
         ensure!(
-            policy.launch_allowed(l,now()),
+            policy.launch_allowed(l, now()),
             fault(403, "Game membership changed.")
         );
         l.exchanged = true;
@@ -1727,7 +1921,8 @@ async fn peer_signal(
 ) -> Answer {
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
-    p.peers.signal(launch.runtime_id(), &peer, &id, &body, now())?;
+    p.peers
+        .signal(launch.runtime_id(), &peer, &id, &body, now())?;
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_leave(State(p): State<Platform>, Path(peer): Path<String>, h: HeaderMap) -> Answer {
@@ -1756,7 +1951,8 @@ async fn peer_health(
 ) -> Answer {
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
-    p.peers.health(launch.runtime_id(), &peer, &id, body, now())?;
+    p.peers
+        .health(launch.runtime_id(), &peer, &id, body, now())?;
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1815,7 +2011,9 @@ async fn leave(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (id, l) = p.game(&h)?;
     p.peers.leave_launch(l.runtime_id(), &id);
     if let (Some(lease), Some(token)) = (&l.lease_id, &l.lease_token) {
-        let _ = p.controller.lease(l.runtime_id(), lease, token, "delete", now());
+        let _ = p
+            .controller
+            .lease(l.runtime_id(), lease, token, "delete", now());
     }
     p.db.edit(|d| {
         if let Some(l) = d.launches.get_mut(&id) {
@@ -1876,9 +2074,14 @@ async fn verify_ticket(
     let (id, l) = data
         .launches
         .iter()
-        .find(|(_, l)| l.runtime_id() == app && l.token_hash == digest && l.exchanged && l.expires > now())
+        .find(|(_, l)| {
+            l.runtime_id() == app && l.token_hash == digest && l.exchanged && l.expires > now()
+        })
         .ok_or_else(|| fault(401, "invalid game ticket"))?;
-    ensure!(data.launch_allowed(l,now()), fault(403,"Game authorization ended."));
+    ensure!(
+        data.launch_allowed(l, now()),
+        fault(403, "Game authorization ended.")
+    );
     ensure!(
         data.members.get(&l.email).is_some_and(|m| m.enabled),
         fault(403, "membership disabled")
@@ -2059,7 +2262,13 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
             },
         );
         d.owners.insert(app.clone(), email.clone());
-        for visit in d.visits.values_mut().filter(|v|v.active(now()) && v.participant(&email)) {visit.games.insert(app.clone());}
+        for visit in d
+            .visits
+            .values_mut()
+            .filter(|v| v.active(now()) && v.participant(&email))
+        {
+            visit.games.insert(app.clone());
+        }
         if let Some(title) = title {
             crate::game_urls::assign(d, &app, title);
         }

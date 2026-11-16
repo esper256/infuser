@@ -166,7 +166,9 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
         for id in ["a", "b", "c"] {
             d.launches.insert(
                 id.into(),
-                Launch { deployment: None, visit: None,
+                Launch {
+                    deployment: None,
+                    visit: None,
                     intent: None,
                     app: "pond".into(),
                     build: "one".into(),
@@ -436,26 +438,96 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
     );
     // Bring the same source game to another group. Its room and exact-join
     // targets must remain independent from the home deployment.
-    let deployment=platform.db.edit(|d|{
-        use infuser::platform::visits::{Visit,Participant};
-        d.apps.get_mut("pond").unwrap().listed=true;
-        for l in d.launches.values_mut(){l.build="two".into();}
-        d.groups.names.insert("away".into(),"Away".into());
-        d.visits.insert("visit".into(),Visit{name:"Peer visit".into(),host:"away".into(),participants:BTreeMap::from([("admin@example.com".into(),Participant{after_message:0,ended:false})]),games:["pond".into()].into(),expires:now()+3600,ended:false});
-        let deployment=d.ensure_deployment("pond","away")?;
-        for id in ["b","c"]{let l=d.launches.get_mut(id).unwrap();l.deployment=Some(deployment.clone());l.visit=Some("visit".into());}
+    let deployment = platform.db.edit(|d| {
+        use infuser::platform::visits::{Participant, Visit};
+        d.apps.get_mut("pond").unwrap().listed = true;
+        for l in d.launches.values_mut() {
+            l.build = "two".into();
+        }
+        d.groups.names.insert("away".into(), "Away".into());
+        d.visits.insert(
+            "visit".into(),
+            Visit {
+                name: "Peer visit".into(),
+                host: "away".into(),
+                participants: BTreeMap::from([(
+                    "admin@example.com".into(),
+                    Participant {
+                        after_message: 0,
+                        ended: false,
+                    },
+                )]),
+                games: ["pond".into()].into(),
+                expires: now() + 3600,
+                ended: false,
+            },
+        );
+        let deployment = d.ensure_deployment("pond", "away")?;
+        for id in ["b", "c"] {
+            let l = d.launches.get_mut(id).unwrap();
+            l.deployment = Some(deployment.clone());
+            l.visit = Some("visit".into());
+        }
         Ok(deployment)
     })?;
-    let home:Value=call("a",post.clone(),"").json(&json!({"connection_id":"home-connection-1234","joinable":true})).send().await?.error_for_status()?.json().await?;
-    assert_eq!(call("b",post.clone(),"").json(&json!({"connection_id":"visit-connection-123","expected_epoch":home["epoch"]})).send().await?.status(),410);
-    let borrowed:Value=call("b",post.clone(),"").json(&json!({"connection_id":"visit-connection-123","joinable":true})).send().await?.error_for_status()?.json().await?;
-    assert_ne!(borrowed["epoch"],home["epoch"]);
-    call("c",post.clone(),"").json(&json!({"connection_id":"visit-connection-456","expected_epoch":borrowed["epoch"]})).send().await?.error_for_status()?;
-    platform.db.edit(|d|{d.visits.get_mut("visit").unwrap().expires=now();Ok(())})?;
-    assert_eq!(call("b",get.clone(),&format!("/{}",borrowed["self_id"].as_str().unwrap())).send().await?.status(),403);
+    let home: Value = call("a", post.clone(), "")
+        .json(&json!({"connection_id":"home-connection-1234","joinable":true}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        call("b", post.clone(), "")
+            .json(&json!({"connection_id":"visit-connection-123","expected_epoch":home["epoch"]}))
+            .send()
+            .await?
+            .status(),
+        410
+    );
+    let borrowed: Value = call("b", post.clone(), "")
+        .json(&json!({"connection_id":"visit-connection-123","joinable":true}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_ne!(borrowed["epoch"], home["epoch"]);
+    call("c", post.clone(), "")
+        .json(&json!({"connection_id":"visit-connection-456","expected_epoch":borrowed["epoch"]}))
+        .send()
+        .await?
+        .error_for_status()?;
+    platform.db.edit(|d| {
+        d.visits.get_mut("visit").unwrap().expires = now();
+        Ok(())
+    })?;
+    assert_eq!(
+        call(
+            "b",
+            get.clone(),
+            &format!("/{}", borrowed["self_id"].as_str().unwrap())
+        )
+        .send()
+        .await?
+        .status(),
+        403
+    );
     platform.reconcile_publications()?;
-    assert!(platform.peer_rooms().discovery(&deployment,"two",now()).is_null());
-    call("a",get.clone(),&format!("/{}",home["self_id"].as_str().unwrap())).send().await?.error_for_status()?;
+    assert!(
+        platform
+            .peer_rooms()
+            .discovery(&deployment, "two", now())
+            .is_null()
+    );
+    call(
+        "a",
+        get.clone(),
+        &format!("/{}", home["self_id"].as_str().unwrap()),
+    )
+    .send()
+    .await?
+    .error_for_status()?;
     task.abort();
     Ok(())
 }

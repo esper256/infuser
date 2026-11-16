@@ -27,7 +27,12 @@ pub(super) async fn image(
     Query(query): Query<ImageQuery>,
     mut request: Request,
 ) -> Answer {
-    if let Some(visit)=query.visit {h.insert(groups::VISIT,visit.parse().map_err(|_|fault(400,"Invalid visit."))?);}
+    if let Some(visit) = query.visit {
+        h.insert(
+            groups::VISIT,
+            visit.parse().map_err(|_| fault(400, "Invalid visit."))?,
+        );
+    }
     if let Some(group) = query.inspect_group {
         h.insert(
             groups::INSPECT,
@@ -39,9 +44,12 @@ pub(super) async fn image(
     let (_, inspecting) = p.group_view(&h, &email)?;
     {
         let data = p.db.read()?;
-        let (group,_)=p.group_view(&h,&email)?;
-        let runtime=data.deployment_for(&app,&group).ok_or_else(||fault(404,"Game not found."))?;
-        let active = data.deployed(runtime)
+        let (group, _) = p.group_view(&h, &email)?;
+        let runtime = data
+            .deployment_for(&app, &group)
+            .ok_or_else(|| fault(404, "Game not found."))?;
+        let active = data
+            .deployed(runtime)
             .ok_or_else(|| fault(404, "game not found"))?;
         ensure!(
             active.listed || inspecting || data.members[&email].admin,
@@ -53,16 +61,18 @@ pub(super) async fn image(
             .and_then(|m| m.card_art_revision.as_deref())
             == Some(build.as_str())
         {
-            let etag=format!("\"{build}\"");
-            if conditional::matches(&h,&etag) {
-                let mut response=StatusCode::NOT_MODIFIED.into_response();
-                conditional::headers(&mut response,&etag);return Ok(response);
+            let etag = format!("\"{build}\"");
+            if conditional::matches(&h, &etag) {
+                let mut response = StatusCode::NOT_MODIFIED.into_response();
+                conditional::headers(&mut response, &etag);
+                return Ok(response);
             }
             let bytes =
                 p.db.metadata_art(&app, &build)?
                     .ok_or_else(|| fault(404, "artwork was replaced"))?;
-            let mut response=image_response(Response::new(Body::from(bytes)));
-            conditional::headers(&mut response,&etag);return Ok(response);
+            let mut response = image_response(Response::new(Body::from(bytes)));
+            conditional::headers(&mut response, &etag);
+            return Ok(response);
         }
         ensure!(
             active.build == build,
@@ -79,21 +89,25 @@ pub(super) async fn image(
     request.headers_mut().remove("authorization");
     let path = p.root().join(app).join(build).join(crate::card_art::PATH);
     // Build IDs can be reused after deletion; validate bytes rather than the ID.
-    use sha2::{Digest,Sha256};
-    let bytes=tokio::fs::read(&path).await?;
-    let digest:String=Sha256::digest(&bytes).iter().map(|b|format!("{b:02x}")).collect();
-    let etag=format!("\"{digest}\"");
-    if conditional::matches(&h,&etag) {
-        let mut response=StatusCode::NOT_MODIFIED.into_response();
-        conditional::headers(&mut response,&etag);return Ok(response);
+    use sha2::{Digest, Sha256};
+    let bytes = tokio::fs::read(&path).await?;
+    let digest: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let etag = format!("\"{digest}\"");
+    if conditional::matches(&h, &etag) {
+        let mut response = StatusCode::NOT_MODIFIED.into_response();
+        conditional::headers(&mut response, &etag);
+        return Ok(response);
     }
     let response = ServeFile::new(path)
         .oneshot(request)
         .await
         .unwrap()
         .map(Body::new);
-    let mut response=image_response(response);
-    conditional::headers(&mut response,&etag);
+    let mut response = image_response(response);
+    conditional::headers(&mut response, &etag);
     Ok(response)
 }
 fn image_response(mut response: Response) -> Response {

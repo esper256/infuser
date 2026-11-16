@@ -104,7 +104,10 @@ impl Database {
             launch.expires > time,
             crate::portal::fault(410, "game session expired")
         );
-        ensure!(self.cached_catalog(&tx)?.launch_allowed(&launch,time), crate::portal::fault(403,"Game authorization ended."));
+        ensure!(
+            self.cached_catalog(&tx)?.launch_allowed(&launch, time),
+            crate::portal::fault(403, "Game authorization ended.")
+        );
         launch.seen = time;
         launch.expires = time + 300;
         tx.execute(

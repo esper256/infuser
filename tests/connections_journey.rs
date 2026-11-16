@@ -66,7 +66,10 @@ async fn borrowed_servers_isolate_admission_and_cut_off_expired_visits() -> Resu
     let dir = tempfile::tempdir()?;
     let backend = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = backend.local_addr()?;
-    let control = Arc::new(Mutex::new((String::new(), BTreeMap::<String,String>::new())));
+    let control = Arc::new(Mutex::new((
+        String::new(),
+        BTreeMap::<String, String>::new(),
+    )));
     let backend_control = control.clone();
     let _backend = Running(tokio::spawn(async move {
         axum::serve(backend, Router::new().route("/", get(move |h:HeaderMap,ws: WebSocketUpgrade| {
@@ -90,11 +93,16 @@ async fn borrowed_servers_isolate_admission_and_cut_off_expired_visits() -> Resu
             })
         }}))).await.unwrap();
     }));
-    let config: Config = toml::from_str(&format!("[controller]\nstate_dir={:?}\ndisk_reserve_mb=64\nprivate_groups=true\nvisits=true", dir.path()))?;
-    platform::member(&config,"a@example.test","Visitor",false,true)?;
+    let config: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}\ndisk_reserve_mb=64\nprivate_groups=true\nvisits=true",
+        dir.path()
+    ))?;
+    platform::member(&config, "a@example.test", "Visitor", false, true)?;
     let controller = Arc::new(Controller::open(config, Arc::new(Runtime(address)))?);
     let p = portal::Platform::open(controller.clone())?;
-    let spec = serde_json::from_value(json!({"image":format!("sha256:{}","a".repeat(64)),"container_port":7000,"web":true}))?;
+    let spec = serde_json::from_value(
+        json!({"image":format!("sha256:{}","a".repeat(64)),"container_port":7000,"web":true}),
+    )?;
     let deployment = p.db.edit(|d| {
         d.groups.names.insert("host".into(),"Host".into());
         d.apps.insert("pond".into(),App{build:"one".into(),listed:true,updated:now()});
@@ -104,61 +112,158 @@ async fn borrowed_servers_isolate_admission_and_cut_off_expired_visits() -> Resu
     })?;
     p.reconcile_publications()?;
     // The same game's two deployments reserve distinct process instances and ports.
-    for (who, runtime) in [("home","pond"),("away",deployment.as_str())] {
-        let lease=controller.acquire(runtime,who,now())?;
+    for (who, runtime) in [("home", "pond"), ("away", deployment.as_str())] {
+        let lease = controller.acquire(runtime, who, now())?;
         p.db.edit(|d| {
-            d.launches.insert(who.into(),Launch{deployment:(runtime!="pond").then(||runtime.into()),visit:(runtime!="pond").then(||"visit".into()),intent:None,app:"pond".into(),build:"one".into(),email:"a@example.test".into(),guest:false,host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
+            d.launches.insert(
+                who.into(),
+                Launch {
+                    deployment: (runtime != "pond").then(|| runtime.into()),
+                    visit: (runtime != "pond").then(|| "visit".into()),
+                    intent: None,
+                    app: "pond".into(),
+                    build: "one".into(),
+                    email: "a@example.test".into(),
+                    guest: false,
+                    host: format!("{who}.games.example.com"),
+                    token_hash: platform::hash(who),
+                    exchanged: true,
+                    expires: now() + 300,
+                    grant_expires: now() + 120,
+                    seen: now(),
+                    lease_id: lease["lease_id"].as_str().map(str::to_owned),
+                    lease_token: lease["lease_token"].as_str().map(str::to_owned),
+                },
+            );
             Ok(())
         })?;
     }
     controller.reconcile(now()).await?;
-    let state=controller.snapshot();
-    assert_ne!(state.games["pond"].attempt,state.games[&deployment].attempt);
-    assert_ne!(state.games["pond"].port,state.games[&deployment].port);
-    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let base=format!("http://{}",listener.local_addr()?);
-    let router=portal::router(p.clone());
-    let _server=Running(tokio::spawn(async move{axum::serve(listener,router).await.unwrap();}));
-    let http=reqwest::Client::new();
-    let mut tokens=Vec::new();
-    for runtime in ["pond",deployment.as_str()] {
-        let bootstrap=infuser::connections::instance_token(dir.path(),&state.owner,runtime,&state.games[runtime].attempt)?;
+    let state = controller.snapshot();
+    assert_ne!(
+        state.games["pond"].attempt,
+        state.games[&deployment].attempt
+    );
+    assert_ne!(state.games["pond"].port, state.games[&deployment].port);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let base = format!("http://{}", listener.local_addr()?);
+    let router = portal::router(p.clone());
+    let _server = Running(tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    }));
+    let http = reqwest::Client::new();
+    let mut tokens = Vec::new();
+    for runtime in ["pond", deployment.as_str()] {
+        let bootstrap = infuser::connections::instance_token(
+            dir.path(),
+            &state.owner,
+            runtime,
+            &state.games[runtime].attempt,
+        )?;
         // Unmodified server helpers register with the source app ID, not a deployment ID.
-        let registration:Value=http.post(format!("{base}/api/server/v1/register")).header("host","games.example.com").bearer_auth(bootstrap)
-            .json(&json!({"app_id":"pond","instance_id":state.games[runtime].attempt})).send().await?.error_for_status()?.json().await?;
-        assert_eq!(registration["scope"]["app_id"],"pond");
-        assert_eq!(registration["scope"]["group_id"],if runtime=="pond"{"home"}else{"host"});
+        let registration: Value = http
+            .post(format!("{base}/api/server/v1/register"))
+            .header("host", "games.example.com")
+            .bearer_auth(bootstrap)
+            .json(&json!({"app_id":"pond","instance_id":state.games[runtime].attempt}))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(registration["scope"]["app_id"], "pond");
+        assert_eq!(
+            registration["scope"]["group_id"],
+            if runtime == "pond" { "home" } else { "host" }
+        );
         tokens.push(registration["token"].as_str().unwrap().to_owned());
     }
-    *control.lock().unwrap()=(base.clone(),BTreeMap::from([("pond".into(),tokens[0].clone()),(deployment.clone(),tokens[1].clone())]));
-    let options:Value=request(&http,&base,"home",reqwest::Method::GET,"").send().await?.error_for_status()?.json().await?;
-    let epoch=options["epoch"].as_str().unwrap();
-    let mut sockets=Vec::new();
-    for (n,who) in ["home","away"].into_iter().enumerate() {
-        let id=format!("{epoch}{:032x}",n+1);
-        request(&http,&base,who,reqwest::Method::PUT,&format!("/{id}")).json(&json!({"activity":"multiplayer"})).send().await?.error_for_status()?;
-        let (mut socket,_)=connect_async(handshake(&base,who,&id)).await?;
+    *control.lock().unwrap() = (
+        base.clone(),
+        BTreeMap::from([
+            ("pond".into(), tokens[0].clone()),
+            (deployment.clone(), tokens[1].clone()),
+        ]),
+    );
+    let options: Value = request(&http, &base, "home", reqwest::Method::GET, "")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let epoch = options["epoch"].as_str().unwrap();
+    let mut sockets = Vec::new();
+    for (n, who) in ["home", "away"].into_iter().enumerate() {
+        let id = format!("{epoch}{:032x}", n + 1);
+        request(&http, &base, who, reqwest::Method::PUT, &format!("/{id}"))
+            .json(&json!({"activity":"multiplayer"}))
+            .send()
+            .await?
+            .error_for_status()?;
+        let (mut socket, _) = connect_async(handshake(&base, who, &id)).await?;
         socket.send(Message::Text(who.into())).await?;
-        timeout(Duration::from_secs(2),async {
-            loop {if let Message::Text(text)=socket.next().await.unwrap().unwrap(){assert_eq!(text,who);break;}}
-        }).await?;
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if let Message::Text(text) = socket.next().await.unwrap().unwrap() {
+                    assert_eq!(text, who);
+                    break;
+                }
+            }
+        })
+        .await?;
         sockets.push(socket);
     }
     // A real expiry, without requiring an operator action or a cooperative game server.
-    p.db.edit(|d|{d.visits.get_mut("visit").unwrap().expires=now();Ok(())})?;
-    let mut away=sockets.pop().unwrap();
-    timeout(Duration::from_secs(4),async{while let Some(Ok(frame))=away.next().await{if matches!(frame,Message::Close(_)){break;}}}).await?;
-    assert!(!request(&http,&base,"away",reqwest::Method::GET,"").send().await?.status().is_success());
-    let mut home=sockets.pop().unwrap();
+    p.db.edit(|d| {
+        d.visits.get_mut("visit").unwrap().expires = now();
+        Ok(())
+    })?;
+    let mut away = sockets.pop().unwrap();
+    timeout(Duration::from_secs(4), async {
+        while let Some(Ok(frame)) = away.next().await {
+            if matches!(frame, Message::Close(_)) {
+                break;
+            }
+        }
+    })
+    .await?;
+    assert!(
+        !request(&http, &base, "away", reqwest::Method::GET, "")
+            .send()
+            .await?
+            .status()
+            .is_success()
+    );
+    let mut home = sockets.pop().unwrap();
     home.send(Message::Text("still playing".into())).await?;
-    timeout(Duration::from_secs(2),async {
-        loop {if let Message::Text(text)=home.next().await.unwrap().unwrap(){assert_eq!(text,"still playing");break;}}
-    }).await?;
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if let Message::Text(text) = home.next().await.unwrap().unwrap() {
+                assert_eq!(text, "still playing");
+                break;
+            }
+        }
+    })
+    .await?;
     p.reconcile_publications()?;
-    assert!(!controller.snapshot().games[&deployment].leases.values().any(|l|l.expires>now()));
-    assert!(controller.snapshot().games["pond"].leases.values().any(|l|l.expires>now()));
+    assert!(
+        !controller.snapshot().games[&deployment]
+            .leases
+            .values()
+            .any(|l| l.expires > now())
+    );
+    assert!(
+        controller.snapshot().games["pond"]
+            .leases
+            .values()
+            .any(|l| l.expires > now())
+    );
     // Renames never allocate another world or personal-save namespace.
-    p.db.edit(|d|{d.builds.get_mut("pond/one").unwrap().manifest.title="A new title".into();assert_eq!(d.ensure_deployment("pond","host")?,deployment);Ok(())})?;
+    p.db.edit(|d| {
+        d.builds.get_mut("pond/one").unwrap().manifest.title = "A new title".into();
+        assert_eq!(d.ensure_deployment("pond", "host")?, deployment);
+        Ok(())
+    })?;
     Ok(())
 }
 fn request(
@@ -278,11 +383,20 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
     ))?;
     let auth_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     config.controller.auth_url = format!("http://{}/oauth2/auth", auth_listener.local_addr()?);
-    config.controller.publish_capture_mb = std::env::var("INFUSER_REVIEW_CAPTURE_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    config.controller.publish_capture_mb = std::env::var("INFUSER_REVIEW_CAPTURE_MB")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     let _auth = Running(tokio::spawn(async move {
-        axum::serve(auth_listener, Router::new().route("/oauth2/auth", get(|| async {
-            [("x-auth-request-email", "a@example.test")]
-        }))).await.unwrap();
+        axum::serve(
+            auth_listener,
+            Router::new().route(
+                "/oauth2/auth",
+                get(|| async { [("x-auth-request-email", "a@example.test")] }),
+            ),
+        )
+        .await
+        .unwrap();
     }));
     platform::member(&config, "a@example.test", "River", false, true)?;
     platform::member(&config, "b@example.test", "Sky", false, true)?;
@@ -621,8 +735,13 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
 
 // Opt-in interaction benchmark: real gateway frames, large publication, and UI polling.
 async fn review_load(
-    http: &reqwest::Client, base: &str, db: &platform::Database, root: &std::path::Path,
-    sockets: &mut [tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>],
+    http: &reqwest::Client,
+    base: &str,
+    db: &platform::Database,
+    root: &std::path::Path,
+    sockets: &mut [tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >],
 ) -> Result<()> {
     use std::time::Instant;
     let large = std::env::var_os("INFUSER_REVIEW_LARGE_CATALOG").is_some();
@@ -630,11 +749,21 @@ async fn review_load(
         if large {
             let sample = d.builds["pond/one"].clone();
             for app in 0..25 {
-                d.apps.insert(format!("load-{app}"),App{build:"build-0".into(),listed:true,updated:now()});
+                d.apps.insert(
+                    format!("load-{app}"),
+                    App {
+                        build: "build-0".into(),
+                        listed: true,
+                        updated: now(),
+                    },
+                );
                 for build in 0..5 {
                     let mut item = sample.clone();
-                    item.manifest.app_id=format!("load-{app}");
-                    item.files = (0..500).map(|n| (format!("assets/generated-{n:04}.js"), 16)).collect::<BTreeMap<_,_>>().into();
+                    item.manifest.app_id = format!("load-{app}");
+                    item.files = (0..500)
+                        .map(|n| (format!("assets/generated-{n:04}.js"), 16))
+                        .collect::<BTreeMap<_, _>>()
+                        .into();
                     d.builds.insert(format!("load-{app}/build-{build}"), item);
                 }
             }
@@ -643,61 +772,115 @@ async fn review_load(
     })?;
     let api = format!("{base}/api/publisher/apps/load-publish/builds/one");
     let manifest = json!({"schema_version":1,"app_id":"load-publish","title":"Load fixture","play_modes":["solo"],"solo_runtime":"client_only"});
-    http.put(&api).header("host","games.example.com").bearer_auth(&token)
-        .json(&json!({"manifest":manifest})).send().await?.error_for_status()?;
+    http.put(&api)
+        .header("host", "games.example.com")
+        .bearer_auth(&token)
+        .json(&json!({"manifest":manifest}))
+        .send()
+        .await?
+        .error_for_status()?;
     let bytes = vec![0u8; 64 * 1024 * 1024];
     let publisher = {
-        let http = http.clone(); let token = token.clone(); let api = api.clone();
+        let http = http.clone();
+        let token = token.clone();
+        let api = api.clone();
         tokio::spawn(async move {
-            for (path, body) in [("payload.bin",bytes),("index.html",b"<script type=module src=\"/_infuser/sdk.js\"></script>".to_vec())] {
-                http.put(format!("{api}/files/{path}")).header("host","games.example.com")
-                    .bearer_auth(&token).body(body).send().await?.error_for_status()?;
+            for (path, body) in [
+                ("payload.bin", bytes),
+                (
+                    "index.html",
+                    b"<script type=module src=\"/_infuser/sdk.js\"></script>".to_vec(),
+                ),
+            ] {
+                http.put(format!("{api}/files/{path}"))
+                    .header("host", "games.example.com")
+                    .bearer_auth(&token)
+                    .body(body)
+                    .send()
+                    .await?
+                    .error_for_status()?;
             }
-            http.post(format!("{api}/publish")).header("host","games.example.com")
-                .bearer_auth(&token).send().await?.error_for_status()?;
-            Ok::<_,anyhow::Error>(())
+            http.post(format!("{api}/publish"))
+                .header("host", "games.example.com")
+                .bearer_auth(&token)
+                .send()
+                .await?
+                .error_for_status()?;
+            Ok::<_, anyhow::Error>(())
         })
     };
     let start = Instant::now();
     let polls = {
-        let http = http.clone(); let base = base.to_owned();
+        let http = http.clone();
+        let base = base.to_owned();
         tokio::spawn(async move {
             let mut count = 0;
             while start.elapsed() < Duration::from_secs(4) {
-                for endpoint in ["library","chat"] {
-                    http.get(format!("{base}/api/{endpoint}")).header("host","games.example.com")
-                        .header("cookie","fixture=yes").send().await?.error_for_status()?;
+                for endpoint in ["library", "chat"] {
+                    http.get(format!("{base}/api/{endpoint}"))
+                        .header("host", "games.example.com")
+                        .header("cookie", "fixture=yes")
+                        .send()
+                        .await?
+                        .error_for_status()?;
                     count += 1;
                 }
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            Ok::<_,anyhow::Error>(count)
+            Ok::<_, anyhow::Error>(count)
         })
     };
-    let mut samples = Vec::new(); let mut longest_gap = 0u128; let mut last = Instant::now();
+    let mut samples = Vec::new();
+    let mut longest_gap = 0u128;
+    let mut last = Instant::now();
     while start.elapsed() < Duration::from_secs(4) {
         for socket in sockets.iter_mut() {
-            let sent = Instant::now(); socket.send(Message::Text("load-ping".into())).await?;
+            let sent = Instant::now();
+            socket.send(Message::Text("load-ping".into())).await?;
             loop {
-                match timeout(Duration::from_secs(10),socket.next()).await?.ok_or_else(||anyhow::anyhow!("gateway closed during publication"))?? {
+                match timeout(Duration::from_secs(10), socket.next())
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("gateway closed during publication"))??
+                {
                     Message::Text(text) if text == "load-ping" => break,
-                    Message::Ping(_) => { socket.flush().await?; },
+                    Message::Ping(_) => {
+                        socket.flush().await?;
+                    }
                     Message::Close(_) => anyhow::bail!("gateway closed during publication"),
-                    _ => {},
+                    _ => {}
                 }
             }
             samples.push(sent.elapsed().as_micros());
-            longest_gap = longest_gap.max(last.elapsed().as_micros()); last = Instant::now();
+            longest_gap = longest_gap.max(last.elapsed().as_micros());
+            last = Instant::now();
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    publisher.await??; let polls = polls.await??;
+    publisher.await??;
+    let polls = polls.await??;
     samples.sort_unstable();
-    let percentile = |p:usize| samples[(samples.len()-1)*p/100];
-    let size = |file:&str| std::fs::metadata(root.join(file)).map(|m|m.len()).unwrap_or(0);
-    eprintln!("REVIEW_LOAD large={large} samples={} polls={polls} p50_us={} p95_us={} p99_us={} longest_gap_us={longest_gap} db_bytes={} wal_bytes={}", samples.len(),percentile(50),percentile(95),percentile(99),size("platform.sqlite"),size("platform.sqlite-wal"));
-    if let Ok(status)=std::fs::read_to_string("/proc/self/status") {
-        for line in status.lines().filter(|line|line.starts_with("VmHWM:")||line.starts_with("Threads:")) {eprintln!("REVIEW_LOAD {line}");}
+    let percentile = |p: usize| samples[(samples.len() - 1) * p / 100];
+    let size = |file: &str| {
+        std::fs::metadata(root.join(file))
+            .map(|m| m.len())
+            .unwrap_or(0)
+    };
+    eprintln!(
+        "REVIEW_LOAD large={large} samples={} polls={polls} p50_us={} p95_us={} p99_us={} longest_gap_us={longest_gap} db_bytes={} wal_bytes={}",
+        samples.len(),
+        percentile(50),
+        percentile(95),
+        percentile(99),
+        size("platform.sqlite"),
+        size("platform.sqlite-wal")
+    );
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        for line in status
+            .lines()
+            .filter(|line| line.starts_with("VmHWM:") || line.starts_with("Threads:"))
+        {
+            eprintln!("REVIEW_LOAD {line}");
+        }
     }
     Ok(())
 }

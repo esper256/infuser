@@ -23,9 +23,20 @@ trait PublicationRequest {
 impl PublicationRequest for reqwest::RequestBuilder {
     async fn send_to_infuser(self) -> Result<reqwest::Response> {
         for attempt in 0..=10 {
-            let response = self.try_clone().context("publication request cannot be retried")?.send().await?;
-            let delay = response.headers().get("retry-after").and_then(|v|v.to_str().ok()).and_then(|v|v.parse::<u64>().ok());
-            if response.status() != reqwest::StatusCode::SERVICE_UNAVAILABLE || delay.is_none() || attempt == 10 {
+            let response = self
+                .try_clone()
+                .context("publication request cannot be retried")?
+                .send()
+                .await?;
+            let delay = response
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok());
+            if response.status() != reqwest::StatusCode::SERVICE_UNAVAILABLE
+                || delay.is_none()
+                || attempt == 10
+            {
                 return Ok(response);
             }
             tokio::time::sleep(std::time::Duration::from_secs(delay.unwrap().min(3))).await;
@@ -39,12 +50,16 @@ async fn response(r: reqwest::Response) -> Result<Value> {
         .json()
         .await
         .context("Infuser returned a non-JSON response")?;
-    let code = value["error"]["code"].as_str().map(|c|format!(" ({c})")).unwrap_or_default();
+    let code = value["error"]["code"]
+        .as_str()
+        .map(|c| format!(" ({c})"))
+        .unwrap_or_default();
     ensure!(
         status.is_success(),
         "{}{code}: {}",
         status,
-        value["error"]["message"].as_str()
+        value["error"]["message"]
+            .as_str()
             .or_else(|| value["error"].as_str())
             .unwrap_or("request failed")
     );
@@ -219,7 +234,9 @@ pub async fn run(args: &[String]) -> Result<()> {
         manifest["sdk"] = sdk.clone();
     }
     for field in ["sessions", "server_connection"] {
-        if let Some(value) = settings.get(field) {manifest[field] = value.clone();}
+        if let Some(value) = settings.get(field) {
+            manifest[field] = value.clone();
+        }
     }
     let parsed: crate::manifest::Manifest = serde_json::from_value(manifest.clone())?;
     parsed.validate()?;
@@ -719,11 +736,15 @@ pub async fn connect(args: &[String]) -> Result<()> {
 #[cfg(test)]
 #[tokio::test]
 async fn publishing_retries_admission_busy_and_preserves_structured_errors() -> Result<()> {
-    use axum::{Router,routing::put,response::IntoResponse};
-    use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
-    let calls=Arc::new(AtomicUsize::new(0));let counter=calls.clone();
-    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let url=format!("http://{}/",listener.local_addr()?);
+    use axum::{Router, response::IntoResponse, routing::put};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}/", listener.local_addr()?);
     let app=Router::new().route("/",put(move |body:String| {let counter=counter.clone();async move {
         assert_eq!(body,"same upload");
         if counter.fetch_add(1,Ordering::Relaxed)==0 {
@@ -732,9 +753,24 @@ async fn publishing_retries_admission_busy_and_preserves_structured_errors() -> 
             (axum::http::StatusCode::UNPROCESSABLE_ENTITY,axum::Json(json!({"error":{"code":"fixture_rejected","message":"Missing game entry file"}}))).into_response()
         }
     }}));
-    let server=tokio::spawn(async move {axum::serve(listener,app).await.unwrap();});
-    let result=response(reqwest::Client::new().put(url).body("same upload").send_to_infuser().await?).await;
-    server.abort();let message=result.unwrap_err().to_string();
-    assert!(message.contains("422") && message.contains("fixture_rejected") && message.contains("Missing game entry file"));
-    assert_eq!(calls.load(Ordering::Relaxed),2);Ok(())
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let result = response(
+        reqwest::Client::new()
+            .put(url)
+            .body("same upload")
+            .send_to_infuser()
+            .await?,
+    )
+    .await;
+    server.abort();
+    let message = result.unwrap_err().to_string();
+    assert!(
+        message.contains("422")
+            && message.contains("fixture_rejected")
+            && message.contains("Missing game entry file")
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    Ok(())
 }

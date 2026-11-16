@@ -10,7 +10,9 @@ fn current(p: &Platform, scope: &Scope) -> Result<Build> {
         .deployed(scope.runtime_id())
         .ok_or_else(|| fault(401, "server retired"))?;
     ensure!(
-        app.build == scope.build_id && data.deployment_group(scope.runtime_id()) == scope.group_id && data.source_app(scope.runtime_id())==scope.app_id,
+        app.build == scope.build_id
+            && data.deployment_group(scope.runtime_id()) == scope.group_id
+            && data.source_app(scope.runtime_id()) == scope.app_id,
         fault(401, "server scope changed")
     );
     let state = p.controller.snapshot();
@@ -59,8 +61,10 @@ pub(super) async fn register(
     let _guard = p.publishing.lock().unwrap();
     let state = p.controller.snapshot();
     let data = p.db.read()?;
-    let (runtime_id, instance) = state.games.iter()
-        .find(|(id,i)| i.attempt == body.instance_id && data.source_app(id) == body.app_id)
+    let (runtime_id, instance) = state
+        .games
+        .iter()
+        .find(|(id, i)| i.attempt == body.instance_id && data.source_app(id) == body.app_id)
         .ok_or_else(|| fault(401, "unknown server"))?;
     ensure!(
         instance.reserved() && instance.attempt == body.instance_id,
@@ -77,7 +81,8 @@ pub(super) async fn register(
         fault(401, "invalid instance credential")
     );
     let data = p.db.read()?;
-    let scope = Scope { deployment_id: (runtime_id != &body.app_id).then(|| runtime_id.clone()),
+    let scope = Scope {
+        deployment_id: (runtime_id != &body.app_id).then(|| runtime_id.clone()),
         app_id: body.app_id.clone(),
         build_id: data
             .deployed(runtime_id)
@@ -304,7 +309,8 @@ pub(super) fn check_request(p: &Platform, launch: &Launch, request: &model::Requ
             "Choose single player or multiplayer in the game."
         )
     );
-    if data.pending_promotions.contains_key(launch.runtime_id()) && request.action != Action::Resume {
+    if data.pending_promotions.contains_key(launch.runtime_id()) && request.action != Action::Resume
+    {
         return Err(model::fault(
             409,
             "server_draining",
@@ -584,7 +590,12 @@ pub(super) async fn admission(
 }
 
 fn finish_drain(p: &Platform, scope: &Scope) -> Result<()> {
-    if !p.db.read()?.pending_promotions.contains_key(scope.runtime_id()) {
+    if !p
+        .db
+        .read()?
+        .pending_promotions
+        .contains_key(scope.runtime_id())
+    {
         return Ok(());
     }
     let active = p.connections.lock().unwrap().0.values().any(|a| {

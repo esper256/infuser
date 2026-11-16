@@ -14,7 +14,7 @@ pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTre
                 && l.exchanged
                 && l.expires > time
                 && data.members.get(&l.email).is_some_and(|m| m.enabled)
-                && data.launch_allowed(l,time)
+                && data.launch_allowed(l, time)
         })
         .map(|(id, _)| id.clone())
         .collect()
@@ -39,7 +39,9 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     };
     let mut players = BTreeMap::new();
     for (email, seen) in &data.presence {
-        if seen + 90 <= time || !data.group_participant(email,data.deployment_group(launch.runtime_id()),time) {
+        if seen + 90 <= time
+            || !data.group_participant(email, data.deployment_group(launch.runtime_id()), time)
+        {
             continue;
         }
         if let Some(member) = data.members.get(email).filter(|m| m.enabled) {
@@ -87,7 +89,11 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     }
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
     let dedicated = build.manifest.dedicated_sessions();
-    let sessions = if dedicated {super::dedicated::live_sessions(&p,&data,launch.runtime_id(),&launch.build,time)} else {vec![]};
+    let sessions = if dedicated {
+        super::dedicated::live_sessions(&p, &data, launch.runtime_id(), &launch.build, time)
+    } else {
+        vec![]
+    };
     for room in &sessions {
         for member in room["players"].as_array().unwrap() {
             let player = member["player_id"].as_str().unwrap();
@@ -95,9 +101,10 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
                 "is_self":player==own_id,"online":true,"game_open":true,"multiplayer":room["activity"] == "multiplayer"}));
         }
     }
-    let supported = dedicated || build.manifest.multiplayer.as_ref().is_some_and(|m| {
-        m.mode == Mode::PeerHosted && m.transport == crate::manifest::Transport::Webrtc
-    });
+    let supported = dedicated
+        || build.manifest.multiplayer.as_ref().is_some_and(|m| {
+            m.mode == Mode::PeerHosted && m.transport == crate::manifest::Transport::Webrtc
+        });
     let unavailable = if !supported {
         Some("unsupported_topology")
     } else if !dedicated && p.relay.is_none() {

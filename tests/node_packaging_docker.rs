@@ -53,7 +53,10 @@ fn source(path: &Path) -> Result<()> {
     )?;
     std::fs::write(
         path.join("server.js"),
-        format!("console.log('diagnostics fixture started');\n{}", include_str!("../examples/dedicated-node/server/server.js")),
+        format!(
+            "console.log('diagnostics fixture started');\n{}",
+            include_str!("../examples/dedicated-node/server/server.js")
+        ),
     )?;
     Ok(())
 }
@@ -126,18 +129,32 @@ async fn offline_package_runs_two_players_sleeps_and_restarts_fresh() -> Result<
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
             let state = controller.snapshot();
-            let address = docker.web_address("fixture", &state.games["fixture"], &owner).await?;
+            let address = docker
+                .web_address("fixture", &state.games["fixture"], &owner)
+                .await?;
             // Internal runtimes deliberately expose no unauthenticated host port.
-            assert!(tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).await.is_err());
+            assert!(
+                tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
+                    .await
+                    .is_err()
+            );
             let health: Value = reqwest::get(format!("http://{address}/healthz"))
                 .await?
                 .error_for_status()?
                 .json()
                 .await?;
-            let live = docker.diagnostics("fixture", &state.games["fixture"], &owner).await?.context("live diagnostics missing")?;
+            let live = docker
+                .diagnostics("fixture", &state.games["fixture"], &owner)
+                .await?
+                .context("live diagnostics missing")?;
             assert_eq!(live["health"], "healthy");
             assert_eq!(live["oom_killed"], false);
-            assert!(live["stdout"].as_str().unwrap().contains("diagnostics fixture started"));
+            assert!(
+                live["stdout"]
+                    .as_str()
+                    .unwrap()
+                    .contains("diagnostics fixture started")
+            );
             assert!(live.get("Config").is_none());
             if let Some(boot) = previous_boot {
                 assert_ne!(health["boot"], boot);
@@ -154,8 +171,12 @@ async fn offline_package_runs_two_players_sleeps_and_restarts_fresh() -> Result<
                     ))
                     .await?;
             }
-            let a = snapshot(&mut first, 2).await.context("first player sees shared room")?;
-            let b = snapshot(&mut second, 2).await.context("second player sees shared room")?;
+            let a = snapshot(&mut first, 2)
+                .await
+                .context("first player sees shared room")?;
+            let b = snapshot(&mut second, 2)
+                .await
+                .context("second player sees shared room")?;
             assert_eq!(
                 a["players"]
                     .as_array()
@@ -175,7 +196,9 @@ async fn offline_package_runs_two_players_sleeps_and_restarts_fresh() -> Result<
             // also ends TCP; an unpolled test client otherwise leaves ws waiting
             // for its 30-second close timeout instead of behaving like a browser.
             drop(first);
-            snapshot(&mut second, 1).await.context("remaining player sees departure")?;
+            snapshot(&mut second, 1)
+                .await
+                .context("remaining player sees departure")?;
             second.close(None).await?;
             drop(second);
             controller.lease(
@@ -190,7 +213,12 @@ async fn offline_package_runs_two_players_sleeps_and_restarts_fresh() -> Result<
             let reports = infuser::docker::retained_diagnostics(&cfg.controller, "fixture")?;
             assert_eq!(reports[0]["attempt"], state.games["fixture"].attempt);
             assert_eq!(reports[0]["container_state"], "exited");
-            assert!(reports[0]["stdout"].as_str().unwrap().contains("diagnostics fixture started"));
+            assert!(
+                reports[0]["stdout"]
+                    .as_str()
+                    .unwrap()
+                    .contains("diagnostics fixture started")
+            );
         }
         // A readiness failure must remove the candidate image and all its workers.
         let bad = root.path().join("broken");

@@ -87,9 +87,13 @@ pub fn catalog(data: &Data, include_previews: bool) -> Vec<Tag> {
     catalog_in_group(data, include_previews, crate::platform::groups::HOME)
 }
 pub fn catalog_in_group(data: &Data, include_previews: bool, group: &str) -> Vec<Tag> {
-    catalog_for_apps(data, data.apps.iter().filter(|(id, app)|
-        data.groups.app(id) == group && (app.listed || include_previews)
-    ).map(|(id,_)|id.as_str()))
+    catalog_for_apps(
+        data,
+        data.apps
+            .iter()
+            .filter(|(id, app)| data.groups.app(id) == group && (app.listed || include_previews))
+            .map(|(id, _)| id.as_str()),
+    )
 }
 pub fn catalog_for_apps<'a>(data: &Data, apps: impl Iterator<Item = &'a str>) -> Vec<Tag> {
     let mut counts: BTreeMap<String, usize> =
