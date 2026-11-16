@@ -10,6 +10,7 @@ async function leave() {
   if(oldLease && platform)await platform.runtime.release(oldLease.session_id);
 }
 async function play(options={}) {
+  if(socket)await leave();
   controls(true);
   try {
     platform=await connectInfuser();

@@ -77,6 +77,13 @@ Verified locally:
 - Frozen renderer/background operation and full server credential renewal are
   exercised by the optional longer browser journey, outside fast default checks.
 
-Release acceptance also requires real ARM64 Docker/Caddy verification. Lanternfall
-itself remains untouched; its agent can integrate after platform validation. Keep
-SDK 1.0 a candidate until that real-game integration confirms the contract.
+The live ARM64 Docker/Caddy journey also passed: source packaging, two distinct
+guest identities, exact Join Friend, a separate single-player room, publisher
+diagnostics, controller restart with both players resuming the same process/run,
+draining updates, old-client refusal, a declared path/subprotocol and idle shutdown.
+The hidden fixture was removed after testing; family games were not republished.
+
+Lanternfall itself remains untouched. Its agent can now integrate against the
+documented contract. Keep SDK 1.0 a candidate until that real-game integration
+confirms the contract. Browser-only single player can coexist with managed
+multiplayer; the platform does not require every mode to use the server.

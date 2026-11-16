@@ -46,7 +46,8 @@ Existing projects with no `sdk` declaration keep the legacy injected script.
     "path": "/_infuser/sdk/v1.js",
     "api_base": "/_infuser/api/v1",
     "capabilities": ["identity.v1", "saves.v1", "cloud_checkpoints.v1",
-                     "runtime_sessions.v1", "presence.v1", "launch_intents.v1"],
+                     "runtime_sessions.v1", "presence.v1", "launch_intents.v1",
+                     "sessions.v1", "connections.websocket.v1"],
     "legacy_path": "/_infuser/sdk.js"
   }
 }
@@ -76,7 +77,7 @@ the server to detect features: agents declare what their game needs.
 
 The v1 SDK uses `/_infuser/api/v1` followed by the existing feature route:
 `/context`, `/heartbeat`, `/saves/SLOT`, `/cloud/v1/groups/GROUP`, `/runtime/v1`,
-`/presence/v1`, `/launch-intent/v1/consume`, and `/peers/...`. Feature-specific
+`/presence/v1`, `/launch-intent/v1/consume`, `/connections/v1/...`, and `/peers/...`. Feature-specific
 `v1` components remain explicit; they are independent of SDK packaging.
 Authentication, origins, save ownership, guest isolation, readiness and error
 semantics are unchanged. Context, declared checkpoints, runtime sessions,

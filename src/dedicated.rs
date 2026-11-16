@@ -202,3 +202,29 @@ pub fn capabilities() -> serde_json::Value {
         "max_message_bytes":crate::connections::MAX_MESSAGE_BYTES,"max_connections_per_launch":crate::connections::MAX_PER_LAUNCH,
         "max_active_connections":crate::connections::MAX_CONNECTIONS})
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::{Manifest, SoloRuntime};
+
+    #[test]
+    fn browser_solo_and_server_multiplayer_are_independent() -> Result<()> {
+        let mut value: serde_json::Value =
+            serde_json::from_str(include_str!("../examples/dedicated-node/infuser.game.json"))?;
+        value["app_id"] = "lab".into();
+        value["schema_version"] = 1.into();
+        value.as_object_mut().unwrap().remove("web_dir");
+        value.as_object_mut().unwrap().remove("server");
+        let mut manifest: Manifest = serde_json::from_value(value)?;
+        manifest.solo_runtime = Some(SoloRuntime::ClientOnly);
+        manifest.validate()?;
+        assert!(manifest.dedicated_sessions());
+        assert!(manifest.server_activity(&Activity::Multiplayer));
+        assert!(!manifest.server_activity(&Activity::Solo));
+        manifest.solo_runtime = Some(SoloRuntime::SharedServer);
+        manifest.validate()?;
+        assert!(manifest.server_activity(&Activity::Solo));
+        Ok(())
+    }
+}

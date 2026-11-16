@@ -188,11 +188,12 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
     let game = controller.snapshot().games["pond"].spec.clone();
     p.db.edit(|d| {
         d.apps.insert("pond".into(),App{build:"one".into(),listed:true,updated:now()});
-        d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["multiplayer"],"server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(game),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:BTreeMap::new()});
+        d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(game),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:BTreeMap::new()});
         for who in ["a","b","guest"] {
             let lease = controller.acquire("pond",who,now())?;
             d.launches.insert(who.into(),Launch{intent:None,app:"pond".into(),build:"one".into(),email:if who=="b"{"b@example.test"}else{"a@example.test"}.into(),guest:who=="guest",host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
         }
+        d.builds["pond/one"].manifest.validate()?;
         // Managed sessions are now an additive advertised capability.
         assert!(d.builds["pond/one"].manifest.sdk.as_ref().unwrap().admit(&infuser::sdk_contract::capabilities(false)).is_ok());
         Ok(())
@@ -222,6 +223,22 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         .json()
         .await?;
     let epoch = options["epoch"].as_str().unwrap();
+    // A mixed game keeps client-only solo while using the server for multiplayer.
+    let response = request(
+        &http,
+        &base,
+        "a",
+        PUT,
+        &format!("/{epoch}{}", "0".repeat(32)),
+    )
+    .json(&json!({"activity":"solo"}))
+    .send()
+    .await?;
+    assert_eq!(response.status(), 422);
+    assert_eq!(
+        response.json::<Value>().await?["error"]["code"],
+        "unsupported_activity"
+    );
     let mut ids = Vec::new();
     let mut sockets = Vec::new();
     for (n, who) in ["a", "b", "guest"].into_iter().enumerate() {

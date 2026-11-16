@@ -14,7 +14,10 @@ const codes = new Set(['session_ended','session_full','friend_left','session_una
 // a seat atomically and returns {session, attach(socket), release(reason), suspend?}.
 export function createInfuserServer({server, sockets, admit, sessions, onControl = () => {}, onError = error => console.warn('Infuser:', error.code || 'error', error.message), env = process.env}) {
   const verify = createConnectionVerifier(env);
-  if (!verify) return null;
+  if (!verify) {
+    if(env.INFUSER_INSTANCE_TOKEN || env.INFUSER_API_URL)throw new Error('Incomplete Infuser server configuration');
+    return null;
+  }
   if (!env.INFUSER_INSTANCE_TOKEN || !env.INFUSER_API_URL) throw new Error('Incomplete Infuser server credentials');
   const origin = new URL(env.INFUSER_API_URL);
   const dev = env.INFUSER_DEV === '1' && origin.protocol === 'http:' && ['127.0.0.1','localhost','[::1]'].includes(origin.hostname);

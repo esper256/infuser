@@ -147,12 +147,8 @@ pub(super) async fn report(
         session
             .validate(declaration)
             .map_err(|e| fault(422, &e.to_string()))?;
-        let supported = match session.activity {
-            Activity::Solo => crate::manifest::PlayMode::Solo,
-            Activity::Multiplayer => crate::manifest::PlayMode::Multiplayer,
-        };
         ensure!(
-            build.manifest.play_modes.contains(&supported),
+            build.manifest.server_activity(&session.activity),
             fault(422, "session activity is not declared by this game")
         );
         let mut valid = Vec::new();
@@ -293,12 +289,8 @@ pub(super) fn check_request(p: &Platform, launch: &Launch, request: &model::Requ
         )
     );
     if let Some(activity) = &request.activity {
-        let mode = match activity {
-            Activity::Solo => crate::manifest::PlayMode::Solo,
-            Activity::Multiplayer => crate::manifest::PlayMode::Multiplayer,
-        };
         ensure!(
-            build.manifest.play_modes.contains(&mode),
+            build.manifest.server_activity(activity),
             model::fault(
                 422,
                 "unsupported_activity",
@@ -433,12 +425,8 @@ pub(super) async fn admission(
         session
             .validate(declaration)
             .map_err(|e| fault(422, &e.to_string()))?;
-        let mode = match session.activity {
-            Activity::Solo => crate::manifest::PlayMode::Solo,
-            Activity::Multiplayer => crate::manifest::PlayMode::Multiplayer,
-        };
         ensure!(
-            build.manifest.play_modes.contains(&mode),
+            build.manifest.server_activity(&session.activity),
             fault(422, "admitted activity is not declared")
         );
         ensure!(

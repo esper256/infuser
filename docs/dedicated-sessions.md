@@ -33,6 +33,11 @@ is per gameplay session, not the total server process. The effective process and
 connection limits come from `capabilities.sessions`; show capacity errors and
 never try to bypass them with a second container.
 
+Games with browser-only single player can keep `solo_runtime: "client_only"`
+alongside dedicated multiplayer. That mode uses no server or `sessions.connect()`;
+only multiplayer enters the dedicated adapter. Do not move single-player gameplay
+onto a server just to integrate multiplayer.
+
 `server_connection` is optional: `/`, no subprotocol and 64 KiB are the defaults.
 Use a fixed backend path and up to eight WebSocket subprotocols; no query string.
 Messages may be 1 KiB–1 MiB. These fields apply to the hosted transport, not the
@@ -183,6 +188,62 @@ short-lived scoped bearer token: `POST /api/server/v1/register`,
 and `GET /api/server/v1/control`. The Node helper owns these calls, sequence
 numbers, coordinator changes and credential refresh. Reports cannot authorize a
 new player; admission is tied to an existing verified connection attempt.
+
+For adapter authors, the JSON contract is:
+
+1. Register with `Authorization: Bearer INFUSER_INSTANCE_TOKEN` and
+   `{"app_id":"APP","instance_id":"INSTANCE"}`. The response contains `token`,
+   `expires_at` (Unix seconds), `scope`, `coordinator`, `sessions` (the manifest
+   declaration), `connection`, `limits` and `draining`. Scope has `app_id`, `build_id`,
+   `instance_id`, `group_id` and `exp`. Treat both credentials as opaque. The token
+   lasts 120 seconds; register again before expiry or once after a 401.
+2. Send snapshots with `Authorization: Bearer TOKEN`:
+
+   ```json
+   {
+     "coordinator": "REGISTRATION_COORDINATOR",
+     "seq": 42,
+     "sessions": [{
+       "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "label": "Depth 3",
+       "activity": "multiplayer",
+       "joinable": true,
+       "max_players": 8,
+       "connections": ["VERIFIED_CONNECTION_ID"]
+     }]
+   }
+   ```
+
+   Sequence numbers are positive integers up to JavaScript's safe-integer limit.
+   Increase them for each snapshot; retry the same body after a lost response.
+   The result is `{accepted,seq,coordinator}`. Old/equal sequences return
+   `accepted:false` and the latest sequence without renewing report freshness.
+   `coordinator_restarted` means register again and send a new full snapshot with
+   sequence 1. Omitted sessions end; their IDs cannot be reused in that process.
+   Unknown/retired connection handles are ignored; a known connection cannot move
+   to a room to which it was never admitted. The body limit is 128 KiB.
+3. Before accepting the WebSocket upgrade, POST either
+   `{"session":{"id":"...","label":"Depth 3","activity":"multiplayer","joinable":true,"max_players":8}}`
+   or `{"error":"session_full"}` to that verified connection's admission route.
+   The descriptor omits `connections`. The result is `{"accepted":true}`;
+   identical retries succeed, conflicting results fail with 409. Success means
+   Infuser accepted this admission decision; transport establishment still follows.
+   Reserve the seat first and release it if admission or attachment fails.
+4. Poll control about every ten seconds. It returns
+   `{coordinator,instance_id,state,pending_build,reconnect_grace_seconds}`.
+   `state` is `running`, `draining` or `stopping`. This is a current-state snapshot,
+   not a consumable event queue; no cursor or acknowledgement is required.
+   A retired process receives 401 and must not register as a newer instance.
+
+The upgrade carries `X-Infuser-Connection`, an Ed25519 compact signed proof.
+Its header is `{"alg":"EdDSA","typ":"infuser-connection+jwt","v":1}`. Verify
+the signature with the base64url public key from `INFUSER_CONNECTION_PUBLIC_KEY`,
+the installation issuer from `INFUSER_CONNECTION_ISSUER`, audience
+`infuser-server-connection`, your app/instance, `iat`, `exp` and single use of
+`connection_id`. Proofs last at most 60 seconds. The signed payload contains the
+identity fields listed above and `request:{action,activity,target}`; target has
+`session_id` and optional `player_id`. Keep gameplay bodies out of identity checks.
+The Node helper implements this contract and the reconnect reservation lifecycle.
 
 Use [publisher diagnostics](server-diagnostics.md) for process logs, startup/crash
 details and recent attempts. Agent publication checks do not require Google login;
