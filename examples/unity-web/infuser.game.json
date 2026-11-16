@@ -1,0 +1,12 @@
+{
+  "title": "Beacon Garden",
+  "tags": ["co-op"],
+  "web_dir": "export",
+  "sdk": {"major": 1, "api_major": 1, "required_capabilities": ["identity.v1", "cloud_checkpoints.v1", "peers.webrtc.v1"]},
+  "play_modes": ["solo", "multiplayer"],
+  "solo_runtime": "client_only",
+  "launch_intents": ["join_friend"],
+  "multiplayer": {"mode": "peer_hosted", "transport": "webrtc", "max_players": 4, "join_policy": "anytime", "direct_connect": "optional", "relay_fallback": "required"},
+  "cross_origin_isolation": false,
+  "cloud_saves": {"groups": [{"id": "progress", "label": "Stars", "files": [{"path": "progress.json", "format": "json"}]}]}
+}

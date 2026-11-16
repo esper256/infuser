@@ -79,9 +79,12 @@ it is complete rather than repeating the work.
 | Browser game using PeerJS | [Browser games](engines/threejs-vite.md) for export and saves, then [PeerJS adapter](peerjs.md) for hosted and standalone networking |
 | Browser game with a Node HTTP/WebSocket server | [Managed Node hosting](engines/node-server.md) for packaging, then [dedicated sessions](dedicated-sessions.md) for identity, rooms, reconnects and Join Friend |
 | Godot web | [Web export and saves](engines/godot-web.md), then [multiplayer](engines/godot-multiplayer.md) if needed |
+| Unity Web | [Export, saves, and multiplayer bridge](engines/unity-web.md) (experimental; Unity compilation still needs verification) |
 | Godot native, single-player Windows/Linux | [Infuser Play preview](engines/godot-native.md); also follow the [web recipe](engines/godot-web.md) if publishing a web export |
 
 Godot and PeerJS adapters are previews with the limitations in their recipes.
+Unity hosting and its JavaScript bridge have tests; the C# adapter is experimental
+until a compiled Unity game passes acceptance. Read that recipe's limits before promising support.
 Managed Node hosting and dedicated sessions are implemented and tested. Check this
 installation's `server_packaging` capability for source packaging, and
 `sessions.v1` plus `connections.websocket.v1` for the dedicated-session adapter.

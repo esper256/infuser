@@ -1571,17 +1571,33 @@ async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
         b.files.contains_key(&selected),
         fault(404, "asset not found")
     );
+    let encoded = encoded_web_asset(&selected);
     let file = p.root().join(&l.app).join(&l.build).join(selected);
     // Never forward a platform or game credential into a filesystem service.
     request.headers_mut().remove("cookie");
     request.headers_mut().remove("authorization");
-    let response = ServeFile::new(file)
-        .precompressed_br()
-        .precompressed_gzip()
-        .oneshot(request)
-        .await
-        .unwrap();
+    // Unity loaders request compressed filenames explicitly. Do not negotiate
+    // another compressed sibling for bytes which already have an encoding.
+    let service = ServeFile::new(file);
+    let service = if encoded.is_some() {
+        service
+    } else {
+        service.precompressed_br().precompressed_gzip()
+    };
+    let response = service.oneshot(request).await.unwrap();
     let mut response = response.map(Body::new);
+    if (response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED)
+        && let Some((encoding, content_type)) = encoded
+    {
+        response.headers_mut().insert(
+            "content-encoding",
+            header::HeaderValue::from_static(encoding),
+        );
+        response.headers_mut().insert(
+            "content-type",
+            header::HeaderValue::from_static(content_type),
+        );
+    }
     response.headers_mut().insert(
         "cache-control",
         header::HeaderValue::from_static("private, no-cache"),
@@ -1605,6 +1621,24 @@ async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
         );
     }
     Ok(response)
+}
+// .unityweb is deliberately excluded: Unity's fallback loader decompresses it.
+// Only runtime assets get automatic encoding, not downloadable .gz archives.
+fn encoded_web_asset(path: &str) -> Option<(&'static str, &'static str)> {
+    let (plain, encoding) = path
+        .strip_suffix(".br")
+        .map(|p| (p, "br"))
+        .or_else(|| path.strip_suffix(".gz").map(|p| (p, "gzip")))?;
+    let content_type = if plain.ends_with(".wasm") {
+        "application/wasm"
+    } else if plain.ends_with(".js") {
+        "application/javascript"
+    } else if plain.ends_with(".data") || plain.ends_with(".bundle") {
+        "application/octet-stream"
+    } else {
+        return None;
+    };
+    Some((encoding, content_type))
 }
 fn decode_path(path: &str) -> Result<String> {
     let bytes = path.as_bytes();

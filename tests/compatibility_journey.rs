@@ -4,6 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::get,
 };
+use base64::Engine;
 use infuser::{config::Config, controller::Controller, docker::Docker, platform, portal};
 use reqwest::Method;
 use serde_json::{Value, json};
@@ -81,7 +82,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
             .bearer_auth(&token)
     };
     let manifest = json!({"schema_version":1,"app_id":"pond","title":"Moon Pond","play_modes":["solo"],"solo_runtime":"client_only",
-        "cloud_saves":{"groups":[{"id":"campaign","label":"Campaign","files":[{"path":"progress.json","format":"json"},{"path":"world.bin","format":"binary"}]}]}});
+        "cloud_saves":{"groups":[{"id":"campaign","label":"Campaign","files":[{"path":"progress.json","format":"json"},{"path":"world.bin","format":"binary"}]},{"id":"unity","label":"Unity fixture","files":[{"path":"profile.json","format":"json"}]}]}});
     let caps = value(publisher(Method::GET, "/api/publisher/capabilities")).await?;
     assert_eq!(caps["sdk"]["majors"], json!([1]));
     assert_eq!(caps["sdk"]["status"], "preview");
@@ -114,7 +115,7 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
                 Method::PUT,
                 &format!("/api/publisher/apps/pond/builds/{build}"),
             )
-            .json(&json!({"manifest":m})),
+            .json(&json!({"manifest":m,"cross_origin_isolation":versioned})),
         )
         .await?;
         let script = if versioned {
@@ -132,6 +133,47 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
             )),
         )
         .await?;
+        for path in [
+            "Build/game.wasm.br",
+            "Build/game.wasm.gz",
+            "Build/game.framework.js.br",
+            "Build/game.framework.js.gz",
+            "Build/game.data.br",
+            "Build/game.data.gz",
+            "Build/game.wasm.unityweb",
+            "Build/game.wasm",
+            "infuser-unity.mjs",
+            "archive.gz",
+        ] {
+            value(
+                publisher(
+                    Method::PUT,
+                    &format!("/api/publisher/apps/pond/builds/{build}/files/{path}"),
+                )
+                .body(if path == "infuser-unity.mjs" {
+                    include_str!("../sdk/unity/Assets/Infuser/Web/bridge.mjs")
+                } else {
+                    "test-asset-bytes"
+                }),
+            )
+            .await?;
+        }
+        for (path, bytes) in [
+            (
+                "Build/probe.wasm.gz",
+                "H4sIAAAAAAAAA2NILM5lZGBgAADOM0scCAAAAA==",
+            ),
+            ("Build/probe.wasm.br", "iwOAAGFzbQEAAAAD"),
+        ] {
+            value(
+                publisher(
+                    Method::PUT,
+                    &format!("/api/publisher/apps/pond/builds/{build}/files/{path}"),
+                )
+                .body(base64::engine::general_purpose::STANDARD.decode(bytes)?),
+            )
+            .await?;
+        }
     }
     value(publisher(Method::POST, "/api/publisher/apps/pond/builds/old/publish").json(&json!({})))
         .await?;
@@ -301,6 +343,30 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
         reqwest::Url::parse(guest["url"].as_str().unwrap())?.host_str(),
         reqwest::Url::parse(guest2["url"].as_str().unwrap())?.host_str()
     );
+    if let Ok(node) = std::env::var("INFUSER_UNITY_BROWSER_NODE") {
+        let certificate = rcgen::generate_simple_self_signed(vec!["games.example.com".into()])?;
+        let cert = dir.path().join("unity-cert.pem");
+        let key = dir.path().join("unity-key.pem");
+        std::fs::write(&cert, certificate.cert.pem())?;
+        std::fs::write(&key, certificate.signing_key.serialize_pem())?;
+        let output = tokio::process::Command::new(node)
+            .args([
+                "tests/unity_web_journey.mjs",
+                &url,
+                new["url"].as_str().unwrap(),
+                guest["url"].as_str().unwrap(),
+            ])
+            .arg(cert)
+            .arg(key)
+            .output()
+            .await?;
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     // An old exchanged launch still works after the rename and new publication.
     let u = reqwest::Url::parse(before["url"].as_str().unwrap())?;
     let token = u.fragment().unwrap().strip_prefix("infuser=").unwrap();
@@ -312,6 +378,72 @@ async fn old_client_versioned_admission_and_durable_game_urls() -> Result<()> {
     };
     value(old(Method::POST, "/_infuser/session").json(&json!({"token":token}))).await?;
     assert_eq!(old(Method::GET, "/").send().await?.status(), 200);
+    // Unity requests encoded filenames directly. Preserve byte ranges and HEAD,
+    // retain the existing authentication gate, and do not decode .unityweb twice.
+    for (asset, encoding, mime) in [
+        ("game.wasm.br", "br", "application/wasm"),
+        ("game.wasm.gz", "gzip", "application/wasm"),
+        ("game.framework.js.br", "br", "application/javascript"),
+        ("game.framework.js.gz", "gzip", "application/javascript"),
+        ("game.data.br", "br", "application/octet-stream"),
+        ("game.data.gz", "gzip", "application/octet-stream"),
+    ] {
+        let path = format!("/Build/{asset}");
+        let r = old(Method::GET, &path).send().await?;
+        assert_eq!(r.status(), 200);
+        assert_eq!(r.headers()["content-encoding"], encoding);
+        assert_eq!(r.headers()["content-type"], mime);
+        assert_eq!(r.bytes().await?.as_ref(), b"test-asset-bytes");
+        let head = old(Method::HEAD, &path).send().await?;
+        assert_eq!(head.status(), 200);
+        assert_eq!(head.headers()["content-encoding"], encoding);
+        assert_eq!(head.headers()["content-length"], "16");
+        assert!(head.bytes().await?.is_empty());
+        let range = old(Method::GET, &path)
+            .header("range", "bytes=0-3")
+            .send()
+            .await?;
+        assert_eq!(range.status(), 206);
+        assert_eq!(range.headers()["content-range"], "bytes 0-3/16");
+        assert_eq!(range.bytes().await?.as_ref(), b"test");
+        assert_eq!(
+            http.get(format!("{url}{path}"))
+                .header("host", u.host_str().unwrap())
+                .send()
+                .await?
+                .status(),
+            401
+        );
+    }
+    for path in [
+        "/Build/game.wasm.unityweb",
+        "/archive.gz",
+        "/Build/game.wasm",
+        "/infuser-unity.mjs",
+    ] {
+        let r = old(Method::GET, path).send().await?;
+        assert_eq!(r.status(), 200);
+        assert!(!r.headers().contains_key("content-encoding"));
+        if path.ends_with(".wasm") {
+            assert_eq!(r.headers()["content-type"], "application/wasm");
+        }
+        if path.ends_with(".mjs") {
+            assert!(r.headers()["content-type"].to_str()?.contains("javascript"));
+        }
+    }
+    let negotiated = old(Method::GET, "/Build/game.wasm")
+        .header("accept-encoding", "br")
+        .send()
+        .await?;
+    assert_eq!(negotiated.headers()["content-encoding"], "br");
+    assert_eq!(negotiated.headers()["content-type"], "application/wasm");
+    assert_eq!(
+        old(Method::GET, "/Build/missing.wasm.br")
+            .send()
+            .await?
+            .status(),
+        404
+    );
     assert_eq!(
         old(Method::POST, "/_infuser/api/v1/heartbeat")
             .header("origin", "https://other.example")

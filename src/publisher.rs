@@ -13,9 +13,9 @@ struct Connection {
     app_id: String,
     token: String,
 }
-/// Validated entry-point recipes, not every engine a browser could theoretically run.
+/// Entry-point recipes, with preview/experimental status stated in their labels.
 pub fn supported_engines() -> Value {
-    json!([{"id":"threejs-vite","label":"Three.js / Vite"},{"id":"web","label":"plain HTML/JavaScript"},{"id":"godot-web","label":"Godot web (preview)"},{"id":"godot-native","label":"Godot desktop single-player (preview)"}])
+    json!([{"id":"threejs-vite","label":"Three.js / Vite"},{"id":"web","label":"plain HTML/JavaScript"},{"id":"godot-web","label":"Godot web (preview)"},{"id":"unity-web","label":"Unity Web (experimental)"},{"id":"godot-native","label":"Godot desktop single-player (preview)"}])
 }
 trait PublicationRequest {
     async fn send_to_infuser(self) -> Result<reqwest::Response>;
@@ -192,6 +192,10 @@ pub async fn run(args: &[String]) -> Result<()> {
         .unwrap_or(json!({}));
     let engine = if project.join("project.godot").exists() {
         "godot"
+    } else if project.join("ProjectSettings/ProjectVersion.txt").is_file()
+        || project.join("Assets").is_dir() && project.join("ProjectSettings").is_dir()
+    {
+        "unity"
     } else if package["devDependencies"]["vite"].is_string()
         || package["dependencies"]["vite"].is_string()
     {
@@ -378,6 +382,10 @@ pub async fn run(args: &[String]) -> Result<()> {
         native_web.path().to_path_buf()
     } else if let Some(dir) = override_dir {
         project.join(dir)
+    } else if engine == "unity" {
+        anyhow::bail!(
+            "Unity project detected. Export Web using your existing Unity Editor, then publish with --web-dir <export-folder> (or set web_dir in infuser.game.json). Choose the folder containing index.html and Build/. Infuser does not upload Unity source projects or install an Editor."
+        );
     } else if engine == "vite" {
         ensure!(
             project.join("node_modules").exists(),
@@ -430,6 +438,19 @@ pub async fn run(args: &[String]) -> Result<()> {
         export.join("index.html").is_file(),
         "Web export entry file not found: '{}'. Set --web-dir to the built folder containing index.html.",
         export.join("index.html").display()
+    );
+    ensure!(
+        engine != "unity"
+            || (!export.join("ProjectSettings").is_dir() && !export.join("Library").is_dir()),
+        "This looks like a Unity source project, not a Web export: '{}'. Set --web-dir to the built folder containing index.html and Build/; do not publish Assets, ProjectSettings or Library.",
+        export.display()
+    );
+    ensure!(
+        engine != "unity"
+            || !project.join("Assets/Infuser").is_dir()
+            || export.join("infuser-unity.mjs").is_file(),
+        "Unity adapter found, but the export is missing '{}'. Rebuild Web with the complete Assets/Infuser folder and its Editor hook before publishing.",
+        export.join("infuser-unity.mjs").display()
     );
     // Upload the export only. The project, node_modules and credentials never leave this machine.
     let mut files = Vec::new();

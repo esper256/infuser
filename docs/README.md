@@ -16,7 +16,7 @@ or [HTTP publishing](publishing-http.md); no Infuser build toolchain is required
 
 - Engines: [Three.js/Vite and HTML](engines/threejs-vite.md), [Node servers](engines/node-server.md),
   [Godot web](engines/godot-web.md), [Godot multiplayer](engines/godot-multiplayer.md),
-  [Godot native](engines/godot-native.md), [Bevy limitations](engines/bevy.md).
+  [Godot native](engines/godot-native.md), [Unity Web](engines/unity-web.md), [Bevy limitations](engines/bevy.md).
 - SDK: [versions and capabilities](sdk-versioning.md), [cloud saves](cloud-save-design.md),
   [on-demand servers](runtime-sessions.md), [dedicated sessions](dedicated-sessions.md),
   [WebRTC peers](peer-hosting.md), [PeerJS](peerjs.md), [presence](presence.md),
@@ -26,7 +26,8 @@ or [HTTP publishing](publishing-http.md); no Infuser build toolchain is required
 - Presentation: [cover art](card-art-guide.md), [metadata and art requests](game-metadata.md),
   [art-agent API](art-agent.md).
 - Examples: [Node/WebSocket](../examples/dedicated-node/README.md),
-  [Godot web](../examples/godot-web/README.md), [adapting an existing Godot project](../examples/godot-existing/README.md).
+  [Godot web](../examples/godot-web/README.md), [adapting an existing Godot project](../examples/godot-existing/README.md),
+  [Unity Web reference project](../examples/unity-web/README.md).
 - [Report a platform problem](agents.md#reporting-platform-problems).
 
 ## Server operators

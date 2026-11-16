@@ -22,7 +22,8 @@ required on the game author's machine.
 
 Three.js/Vite and plain browser games are supported. Godot web, native Godot,
 and the game SDK are previews; see the [engine recipes](docs/agents.md#choose-the-integration)
-for their limits. Plain Node/WebSocket backends can be packaged by Infuser.
+for their limits. [Unity Web](docs/engines/unity-web.md) has experimental hosting
+and an adapter awaiting a compiled Unity playtest. Plain Node/WebSocket backends can be packaged by Infuser.
 Other server runtimes need an image prepared by the operator. Peer-hosted games
 must support Infuser's relay fallback; direct-only networking is unsupported.
 
