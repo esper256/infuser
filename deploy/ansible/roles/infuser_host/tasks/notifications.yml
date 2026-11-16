@@ -1,0 +1,53 @@
+---
+- name: Check for private notification configuration
+  ansible.builtin.stat:
+    path: '{{ infuser_notifications_file }}'
+  register: notification_input
+  no_log: true
+- name: Generate notifications without publishing them
+  when: notification_input.stat.exists
+  block:
+    - name: Create a private rendering directory even during preview
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: infuser-notification-plan.
+      register: notification_temp
+      check_mode: false
+      changed_when: false
+    - name: Render release rules using private destinations
+      ansible.builtin.command:
+        argv:
+          - bash
+          - '{{ infuser_source_dir }}/deploy/monitoring/render-notifications.sh'
+          - '{{ infuser_notifications_file }}'
+          - '{{ notification_temp.path }}/notifications.json'
+      check_mode: false
+      changed_when: false
+      no_log: true
+    - name: Preview or install generated rules without displaying secrets
+      ansible.builtin.copy:
+        src: '{{ notification_temp.path }}/notifications.json'
+        dest: '{{ infuser_monitoring_dir }}/provisioning/alerting/notifications.json'
+        owner: '472'
+        group: '0'
+        mode: '0400'
+        backup: true
+      register: notification_copy
+      no_log: true
+      diff: false
+    - name: Record changed notification rules
+      ansible.builtin.set_fact:
+        infuser_changed_components: '{{ infuser_changed_components + ["monitoring"] }}'
+      when: notification_copy.changed
+    - name: Report private notification rollback location
+      ansible.builtin.debug:
+        msg: 'Previous rules retained: {{ notification_copy.backup_file }}'
+      when: notification_copy.backup_file is defined
+  always:
+    - name: Remove temporary private rendering files
+      ansible.builtin.file:
+        path: '{{ notification_temp.path }}'
+        state: absent
+      when: notification_temp.path is defined
+      check_mode: false
+      changed_when: false

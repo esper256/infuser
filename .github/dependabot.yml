@@ -1,5 +1,14 @@
 version: 2
 updates:
+  - package-ecosystem: pip
+    directory: /deploy/ansible
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    # New Ansible series can drop the host's Python version; adopt deliberately.
+    ignore:
+      - dependency-name: ansible-core
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
   - package-ecosystem: cargo
     directory: /
     schedule:

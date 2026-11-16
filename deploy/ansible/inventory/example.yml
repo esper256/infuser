@@ -1,0 +1,49 @@
+# PRIVATE installed copy. Run on the host through run.sh; no public SSH inventory.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: /usr/bin/python3
+  vars:
+    # Adoption of an existing installation, not a new-host bootstrap.
+    infuser_manage_units: true
+    infuser_manage_monitoring: true
+    infuser_manage_service_sources: true
+    infuser_caddy_domain: ''  # Empty preserves the installed fragment.
+    infuser_enabled_timers:
+      - infuser-update.timer
+      - infuser-health.timer
+      - infuser-reboot.timer
+    # Reconcile only these existing, fixed stacks. Never include dynamic games.
+    infuser_stacks:
+      - name: infuser-monitoring
+        project_src: /etc/infuser/monitoring
+        files: [compose.yaml]
+        env_files: [.env]
+        services: [prometheus, grafana, node-exporter, blackbox]
+        components: [monitoring]
+        health_urls:
+          - http://127.0.0.1:9090/-/ready
+          - http://127.0.0.1:3000/api/health
+      - name: infuser
+        project_src: /opt/infuser
+        files: [docker-compose.yml]
+        services: [caddy, oauth2-proxy]
+        components: [services, caddy]
+        health_urls: []
+    # Extra files must be explicitly owned by this playbook. Sensitive by default.
+    # Use a private source for deployment-specific configuration; never embed secrets.
+    infuser_extra_files: []
+    # Example:
+    # - src: /etc/infuser/ansible-private/infuser.caddy
+    #   dest: /etc/caddy/sites-enabled/infuser.caddy
+    #   mode: '0640'
+    #   component: caddy
+    #   sensitive: true
+    # Adapt these to the selected stacks. One-off containers see new bind-mounted
+    # files; docker exec could validate the old inode in a running container.
+    # These validators do not start the selected production services.
+    infuser_validators:
+      - [docker, compose, -p, infuser, -f, /opt/infuser/docker-compose.yml, config, --quiet]
+      - [docker, compose, -p, infuser-monitoring, --env-file, /etc/infuser/monitoring/.env, -f, /etc/infuser/monitoring/compose.yaml, run, --rm, --no-deps, --entrypoint, promtool, prometheus, check, config, /etc/prometheus/prometheus.yml]
+      - [docker, compose, -p, infuser, -f, /opt/infuser/docker-compose.yml, run, --rm, --no-deps, --entrypoint, caddy, caddy, validate, --config, /etc/caddy/Caddyfile]

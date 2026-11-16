@@ -18,7 +18,9 @@ packaging and backup/restore. It does not deploy or publish an image. See
 [local integration commands](developer-testing.md#docker-and-caddy) for the same test entry points.
 
 Dependabot checks the server and desktop Cargo manifests, PeerJS npm packages,
-GitHub Actions, Docker/Compose definitions and Caddy Go dependencies weekly.
+GitHub Actions, Docker/Compose definitions, Caddy Go dependencies and Ansible
+operator requirements weekly. Ansible series upgrades require review for host
+Python compatibility; patch updates remain automated proposals.
 Minor/patch version updates are grouped within each configured entry; major
 updates stay separate. Open version-update PR limits are three or five per
 entry, as specified in [the configuration](../.github/dependabot.yml).
