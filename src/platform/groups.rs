@@ -29,9 +29,6 @@ impl Groups {
     pub fn allows(&self, email: &str, app: &str) -> bool {
         self.member(email) == self.app(app)
     }
-    pub fn operator(&self, email: &str) -> bool {
-        self.operators.contains(email)
-    }
 }
 impl Data {
     /// Shared policy for credential inventory and revocation. The caller must
@@ -40,7 +37,7 @@ impl Data {
         match credential.role.as_str() {
             "publish" => self.groups.allows(email, &credential.app),
             "metadata-group" => credential.app == self.groups.member(email),
-            "metadata" => self.groups.operator(email),
+            "metadata" => self.operator(email),
             _ => false,
         }
     }
@@ -89,6 +86,7 @@ impl Data {
             email.contains('@') && email.len() < 254 && !email.chars().any(char::is_whitespace),
             crate::portal::fault(400, "Use a Google email address.")
         );
+        let email = self.invitation_key(&email)?;
         ensure!(
             !name.is_empty() && name.chars().count() <= 40 && !name.chars().any(char::is_control),
             crate::portal::fault(400, "Use a name of 1–40 characters.")

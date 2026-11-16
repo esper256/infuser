@@ -117,12 +117,12 @@ async fn token(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Token>)
         let pair = n.pairs.get(&body.request_id).ok_or_else(|| fault(410, "device connection expired"))?;
         ensure!(pair.challenge == hash(&body.verifier), fault(403, "device proof does not match"));
         let Some(email) = pair.email.clone() else { return Ok(json!({"status":"pending"})); };
-        ensure!(d.members.get(&email).is_some_and(|m| m.enabled), fault(403, "membership disabled"));
+        ensure!(d.profile_enabled(&email), fault(403, "membership disabled"));
         ensure!(n.devices.values().filter(|x| x.email == email).count() < 16, fault(429, "remove an old computer before connecting another"));
         let key = secret();
         n.devices.insert(hash(&key), Device { email: email.clone(), created: now() });
         n.pairs.remove(&body.request_id);
-        Ok(json!({"status":"connected","token":key,"player_id":hash(&email),"name":d.members[&email].name}))
+        Ok(json!({"status":"connected","token":key,"player_id":d.player_id(&email),"name":d.members[&email].name}))
     })?;
     Ok(reply(result))
 }
@@ -250,7 +250,7 @@ async fn claim(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Claim>)
     let key = hash(bearer(&h).ok_or_else(|| fault(401, "connect this computer first"))?);
     let result = p.db.native_edit(|d, n| {
         let device = n.devices.get(&key).ok_or_else(|| fault(401, "connect this computer again"))?;
-        ensure!(d.members.get(&device.email).is_some_and(|m| m.enabled), fault(403, "membership disabled"));
+        ensure!(d.profile_enabled(&device.email), fault(403, "membership disabled"));
         let request = n.requests.get(&hash(&body.request_id)).ok_or_else(|| fault(410, "press Play again in the Library"))?.clone();
         ensure!(request.email == device.email, fault(403, "this computer is connected to a different player; switch account in Infuser"));
         ensure!(request.platform == body.platform, fault(409, "open this game on the computer that requested it"));
@@ -266,7 +266,7 @@ async fn claim(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Claim>)
         let launch_id = secret()[..32].to_string();
         let game_token = secret();
         let game_host = crate::game_urls::host(d, &request.app, &launch_id, p.domain());
-        let player = if request.guest { format!("guest-{launch_id}") } else { hash(&device.email) };
+        let player = if request.guest { format!("guest-{launch_id}") } else { d.player_id(&device.email) };
         let response = json!({"version":1,"app_id":request.app,"deployment_id":runtime,"visit":request.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":request.build,"title":b.manifest.title,"player_id":player,"guest":request.guest,"launch_id":launch_id,"game_origin":format!("https://{game_host}"),"token":game_token,"artifact":artifact});
         let launch=Launch { deployment: request.deployment, visit: request.visit, intent: None, app: request.app, build: request.build, email: device.email.clone(), guest: request.guest, host: game_host, token_hash: hash(&game_token), exchanged: true, expires: now()+300, grant_expires: 0, seen: now(), lease_id: None, lease_token: None };
         ensure!(d.launch_allowed(&launch,now()),fault(403,"Game authorization ended."));

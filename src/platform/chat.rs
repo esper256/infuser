@@ -8,7 +8,7 @@ const RETENTION: u64 = 7 * 24 * 60 * 60;
 fn members(db: &Database, c: &Connection, email: &str) -> Result<Data> {
     let data = db.cached_catalog(c)?;
     ensure!(
-        data.members.get(email).is_some_and(|m| m.enabled),
+        data.profile_enabled(email),
         fault(403, "Membership is disabled.")
     );
     Ok(data)
@@ -56,7 +56,7 @@ impl Database {
             let (id, author, text, created) = row?;
             if let Some(member) = data.members.get(&author).filter(|m| m.enabled) {
                 messages.push(json!({"id":id,"text":text,"created":created,
-                    "author":{"id":hash(&author),"name":member.name,"avatar":member.avatar},
+                    "author":{"id":data.player_id(&author),"name":member.name,"avatar":member.avatar},
                     "can_delete":access.can_delete(email, &author)}));
             }
         }

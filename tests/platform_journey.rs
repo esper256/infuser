@@ -37,7 +37,11 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
                 _ => {
                     return (
                         StatusCode::UNAUTHORIZED,
-                        [("X-Auth-Request-Email", ""), ("Set-Cookie", "")],
+                        [
+                            ("X-Auth-Request-Email", ""),
+                            ("X-Auth-Request-User", ""),
+                            ("Set-Cookie", ""),
+                        ],
                     );
                 }
             };
@@ -45,6 +49,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
                 StatusCode::ACCEPTED,
                 [
                     ("X-Auth-Request-Email", email),
+                    ("X-Auth-Request-User", email),
                     (
                         "Set-Cookie",
                         "__Host-infuser_session=refreshed; Secure; HttpOnly; Path=/",
@@ -87,6 +92,8 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         http.get(format!("{url}/api/me"))
             .header("host", HOST)
             .header("X-Auth-Request-Email", "admin@example.com")
+            .header("X-Auth-Request-User", "admin@example.com")
+            .header("X-Infuser-Verified-Profile", "admin@example.com")
             .header("X-Infuser-Verified-Email", "admin@example.com")
             .send()
             .await?
@@ -691,10 +698,16 @@ async fn only_authenticated_members_reach_the_ip_admission_helper() -> Result<()
             if h.get("cookie").is_some_and(|c| c == "member=admin") {
                 (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "admin@example.com")],
+                    [
+                        ("X-Auth-Request-Email", "admin@example.com"),
+                        ("X-Auth-Request-User", "admin@example.com"),
+                    ],
                 )
             } else {
-                (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")])
+                (
+                    StatusCode::UNAUTHORIZED,
+                    [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
+                )
             }
         }),
     );

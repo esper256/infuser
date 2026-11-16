@@ -176,7 +176,7 @@ pub(super) async fn prepare(
             player_id: if launch.guest {
                 format!("guest-{launch_id}")
             } else {
-                hash(&launch.email)
+                data.player_id(&launch.email)
             },
             name: if launch.guest {
                 "Guest".into()

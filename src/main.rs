@@ -185,17 +185,14 @@ async fn main() -> Result<()> {
             .trim()
             .to_lowercase();
         let name = infuser::platform::Database::open(&config.controller.state_dir)?.edit(|d| {
+            let email = d.member_key(&email)?;
             let member = d
                 .members
                 .get(&email)
                 .filter(|m| m.enabled)
                 .context("enabled member required")?;
             let name = member.name.clone();
-            if args.iter().any(|a| a == "--revoke") {
-                d.groups.operators.remove(&email);
-            } else {
-                d.groups.operators.insert(email.clone());
-            }
+            d.set_operator(&email, !args.iter().any(|a| a == "--revoke"))?;
             Ok(name)
         })?;
         println!("Operator permission updated for {name}.");
@@ -246,13 +243,35 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     let command = args.first().map(String::as_str).unwrap_or("help");
-    if !["serve", "init", "check", "render-caddy"].contains(&command) {
+    if ![
+        "serve",
+        "init",
+        "check",
+        "state-check",
+        "state-rehearse",
+        "render-caddy",
+    ]
+    .contains(&command)
+    {
         bail!(
-            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|render-caddy> CONFIG [--wildcard]"
+            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
         );
     }
     let path = args.get(1).context("configuration path required")?;
     let config = Config::load(Path::new(path))?;
+    if command == "state-rehearse" {
+        let count = infuser::platform::identity::rehearse(&config.controller.state_dir)?;
+        println!("Identity migration rehearsal passed for {count} profiles; live state unchanged.");
+        return Ok(());
+    }
+    if command == "state-check" {
+        infuser::platform::identity::check_state(&config.controller.state_dir)?;
+        println!(
+            "Identity state compatible: version {}",
+            infuser::platform::identity::VERSION
+        );
+        return Ok(());
+    }
     if command == "check" {
         println!(
             "Configuration OK: {} apps, {} static sites",

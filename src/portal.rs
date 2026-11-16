@@ -249,16 +249,12 @@ impl Platform {
         }
         // This header is always removed and re-created by session_auth below.
         let email = h
-            .get("x-infuser-verified-email")
+            .get("x-infuser-verified-profile")
             .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| fault(401, "Google session did not supply an email."))?
-            .to_lowercase();
+            .ok_or_else(|| fault(401, "Sign in to choose your Infuser profile."))?
+            .to_owned();
         ensure!(
-            self.db
-                .read()?
-                .members
-                .get(&email)
-                .is_some_and(|m| m.enabled),
+            self.db.read()?.profile_enabled(&email),
             fault(403, "Ask your admin for an Infuser invitation.")
         );
         self.group_view(h, &email)?;
@@ -272,9 +268,7 @@ impl Platform {
         );
         ensure!(
             self.db.read()?.members[&email].admin
-                || (!write
-                    && h.contains_key(groups::INSPECT)
-                    && self.db.read()?.groups.operator(&email)),
+                || (!write && h.contains_key(groups::INSPECT) && self.db.read()?.operator(&email)),
             fault(403, "An admin account is required.")
         );
         Ok(email)
@@ -293,7 +287,7 @@ impl Platform {
             credential
                 .owner
                 .as_ref()
-                .is_none_or(|email| data.members.get(email).is_some_and(|m| m.enabled)),
+                .is_none_or(|email| data.profile_enabled(email)),
             fault(403, "publisher membership disabled")
         );
         if let Some(owner) = &credential.owner {
@@ -350,7 +344,7 @@ impl Platform {
             })
             .ok_or_else(|| fault(401, "Game session expired. Launch it again."))?;
         ensure!(
-            data.members.get(&l.email).is_some_and(|m| m.enabled),
+            data.profile_enabled(&l.email),
             fault(403, "Membership is disabled.")
         );
         ensure!(
@@ -371,8 +365,7 @@ impl Platform {
             .filter(|l| l.expires > now())
             .ok_or_else(|| fault(410, "game session expired"))?;
         ensure!(
-            data.members.get(&launch.email).is_some_and(|m| m.enabled)
-                && data.launch_allowed(launch, now()),
+            data.profile_enabled(&launch.email) && data.launch_allowed(launch, now()),
             fault(401, "Game authorization ended.")
         );
         let mut status = json!({"state":"ready","endpoint":null});
@@ -653,6 +646,7 @@ async fn session_auth(
     next: axum::middleware::Next,
 ) -> Response {
     request.headers_mut().remove("x-infuser-verified-email");
+    request.headers_mut().remove("x-infuser-verified-profile");
     let path = request.uri().path();
     let player_api = path.starts_with("/api/")
         && !path.starts_with("/api/publisher/")
@@ -679,21 +673,40 @@ async fn session_auth(
             .get("x-auth-request-email")
             .cloned()
             .ok_or_else(|| fault(401, "Google session did not supply an email."))?;
+        let subject = response
+            .headers()
+            .get("x-auth-request-user")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| {
+                fault(
+                    401,
+                    "Sign in again: Google session did not supply a stable identity.",
+                )
+            })?;
+        let profile = p.db.google_profile(
+            subject,
+            email
+                .to_str()
+                .map_err(|_| fault(401, "Invalid provider email."))?,
+        )?;
+        let profile: axum::http::HeaderValue = profile
+            .parse()
+            .map_err(|_| fault(500, "Invalid stored profile handle."))?;
         let cookies: Vec<_> = response
             .headers()
             .get_all("set-cookie")
             .iter()
             .cloned()
             .collect();
-        Ok((email, cookies))
+        Ok((profile, cookies))
     }
     .await;
     match verified {
         Err(error) => Error(error).into_response(),
-        Ok((email, cookies)) => {
+        Ok((profile, cookies)) => {
             request
                 .headers_mut()
-                .insert("x-infuser-verified-email", email);
+                .insert("x-infuser-verified-profile", profile);
             let mut response = next.run(request).await;
             for cookie in cookies {
                 response.headers_mut().append("set-cookie", cookie);
@@ -722,7 +735,7 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let data = p.db.read()?;
     let member = &data.members[&email];
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.groups.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":hash(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
+        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":p.db.read()?.player_id(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
     ))
 }
 #[derive(Deserialize)]
@@ -980,7 +993,12 @@ async fn remove_game_reaction(
         if let Some(reactions) = d.reactions.get_mut(&runtime)
             && let Some(author) = reactions
                 .keys()
-                .find(|author| hash(author) == player)
+                .find(|author| {
+                    d.identities
+                        .profiles
+                        .get(*author)
+                        .is_some_and(|p| p.id == player)
+                })
                 .cloned()
         {
             reactions.remove(&author);
@@ -1041,7 +1059,10 @@ async fn rename_member(
             "Use a handle of 1–40 characters without control characters."
         )
     );
-    p.db.edit(|d| {
+    let player = p.db.edit(|d| {
+        let email = d
+            .member_key(&email)
+            .map_err(|_| fault(404, "Member not found."))?;
         ensure!(
             d.groups.member(&actor) == d.groups.member(&email),
             fault(404, "Member not found.")
@@ -1051,9 +1072,9 @@ async fn rename_member(
             .get_mut(&email)
             .ok_or_else(|| fault(404, "Member not found."))?;
         member.name = name.into();
-        Ok(())
+        Ok(d.player_id(&email))
     })?;
-    Ok(reply(json!({"player_id":hash(&email),"name":name})))
+    Ok(reply(json!({"player_id":player,"name":name})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1070,14 +1091,15 @@ fn yes() -> bool {
 }
 async fn invite(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Invite>) -> Answer {
     let email = p.admin(&h, true).await?;
-    ensure!(
-        body.email.trim().to_lowercase() != email || (body.enabled && body.admin),
-        fault(400, "You cannot disable or demote your own admin account.")
-    );
     p.db.edit(|d| {
+        let target = d.invitation_key(&body.email)?;
+        ensure!(
+            target != email || (body.enabled && body.admin),
+            fault(400, "You cannot disable or demote your own admin account.")
+        );
         let group = d.groups.member(&email).to_owned();
         ensure!(
-            !d.groups.operator(&body.email.trim().to_lowercase()) || body.enabled,
+            !d.operator(&target) || body.enabled,
             fault(403, "Only the operator can disable an operator account.")
         );
         d.invite_to_group(&group, &body.email, &body.name, body.admin, body.enabled)
@@ -1158,7 +1180,7 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
             })
             .ok_or_else(|| fault(401, "launch link expired or already used"))?;
         ensure!(
-            d.members.get(&l.email).is_some_and(|m| m.enabled),
+            policy.profile_enabled(&l.email),
             fault(403, "membership disabled")
         );
         ensure!(
@@ -1187,7 +1209,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let player = if l.guest {
         format!("guest-{id}")
     } else {
-        hash(&l.email)
+        p.db.read()?.player_id(&l.email)
     };
     Ok(reply(
         json!({"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
@@ -1297,7 +1319,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
         player: if launch.guest {
             format!("guest-{id}")
         } else {
-            hash(&launch.email)
+            p.db.read()?.player_id(&launch.email)
         },
         name: if launch.guest {
             "Guest".into()
@@ -1478,7 +1500,7 @@ async fn save_get(State(p): State<Platform>, Path(slot): Path<String>, h: Header
     let owner = if l.guest {
         format!("guest-{id}")
     } else {
-        hash(&l.email)
+        p.db.read()?.player_id(&l.email)
     };
     let (version, data) = p.db.save_read(&owner, l.runtime_id(), &slot)?;
     Ok(reply(json!({"version":version,"data":data})))
@@ -1501,7 +1523,7 @@ async fn save_put(
     let owner = if l.guest {
         format!("guest-{id}")
     } else {
-        hash(&l.email)
+        p.db.read()?.player_id(&l.email)
     };
     let version =
         p.db.save_write(&owner, l.runtime_id(), &slot, body.version, &body.data)?;
@@ -1531,7 +1553,7 @@ async fn verify_ticket(
         fault(403, "Game authorization ended.")
     );
     ensure!(
-        data.members.get(&l.email).is_some_and(|m| m.enabled),
+        data.profile_enabled(&l.email),
         fault(403, "membership disabled")
     );
     ensure!(
@@ -1546,7 +1568,7 @@ async fn verify_ticket(
         now(),
     )?;
     Ok(reply(
-        json!({"app_id":app,"player_id":if l.guest{format!("guest-{id}")}else{hash(&l.email)},"name":if l.guest{"Guest"}else{&data.members[&l.email].name},"guest":l.guest,"expires_at":l.expires}),
+        json!({"app_id":app,"player_id":if l.guest{format!("guest-{id}")}else{p.db.read()?.player_id(&l.email)},"name":if l.guest{"Guest"}else{&data.members[&l.email].name},"guest":l.guest,"expires_at":l.expires}),
     ))
 }
 async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
@@ -1790,7 +1812,7 @@ async fn claim_setup(
             fault(400, "setup code belongs to a different game")
         );
         ensure!(
-            d.members.get(&claim.owner).is_some_and(|m| m.enabled),
+            d.profile_enabled(&claim.owner),
             fault(403, "publisher membership disabled")
         );
         d.require_app_group(&claim.owner, &claim.app)?;
@@ -1821,7 +1843,7 @@ async fn renew_setup(State(p): State<Platform>, Path(app): Path<String>, h: Head
             fault(403, "not your game")
         );
         ensure!(
-            d.members.get(&owner).is_some_and(|m| m.enabled),
+            d.profile_enabled(&owner),
             fault(403, "publisher membership disabled")
         );
         d.setup_claims
@@ -1914,7 +1936,7 @@ impl Platform {
         let owner = if launch.guest {
             format!("guest-{id}")
         } else {
-            hash(&launch.email)
+            data.player_id(&launch.email)
         };
         Ok((owner, launch, declaration))
     }

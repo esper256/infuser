@@ -15,6 +15,7 @@ pub(crate) mod channels;
 mod chat;
 pub mod deployments;
 pub mod groups;
+pub mod identity;
 mod metadata;
 pub mod visits;
 pub use metadata::{GameMetadata, MetadataUpdate};
@@ -124,7 +125,14 @@ pub struct Data {
     pub setup_claims: BTreeMap<String, SetupClaim>,
     #[serde(default)]
     pub owners: BTreeMap<String, String>,
+    // The renamed catalog field deliberately makes pre-genesis binaries refuse
+    // this state rather than interpret profiles as login email identities.
+    #[serde(rename = "profiles", alias = "members")]
     pub members: BTreeMap<String, Member>,
+    #[serde(default)]
+    pub identities: identity::Identities,
+    #[serde(default)]
+    pub identity_version: u32,
     pub credentials: BTreeMap<String, Credential>,
     pub apps: BTreeMap<String, App>,
     pub builds: BTreeMap<String, Build>,
@@ -132,10 +140,23 @@ pub struct Data {
     pub presence: BTreeMap<String, u64>,
     pub reactions: BTreeMap<String, BTreeMap<String, Reaction>>,
 }
-// Keep the legacy catalog JSON readable by older daemons. New declarations
-// live separately so an old binary rewriting that catalog cannot erase them.
+// Side tables preserve declarations across compatible binary rollbacks. The
+// identity genesis is a deliberate lower bound: pre-genesis daemons cannot read
+// the renamed profiles field and must never write this catalog again.
 pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     let mut data: Data = serde_json::from_str(raw)?;
+    ensure!(
+        data.identity_version <= identity::VERSION,
+        "unsupported identity state version; do not downgrade"
+    );
+    if data.identity_version > 0 {
+        ensure!(
+            data.members
+                .keys()
+                .all(|key| data.identities.profiles.contains_key(key)),
+            "identity catalog is incomplete; restore a healthy backup rather than recreating accounts"
+        );
+    }
     let mut jobs = c.prepare("SELECT build_key,declaration FROM server_builds")?;
     for row in jobs.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
         let (key, declaration) = row?;
@@ -195,9 +216,12 @@ pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
                 serde_json::from_value(value["server_connection"].clone())?;
         }
     }
+    data.initialize_identities()?;
     Ok(data)
 }
-fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
+fn encode_catalog(tx: &Transaction<'_>, data: &mut Data) -> Result<String> {
+    data.initialize_identities()?;
+    data.identity_version = identity::VERSION;
     tx.execute(
         "UPDATE deployments SET data=?1 WHERE id=1",
         [serde_json::to_string(&data.deployments)?],
@@ -223,7 +247,7 @@ fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
         "UPDATE private_groups SET data=?1 WHERE id=1",
         [serde_json::to_string(&data.groups)?],
     )?;
-    let mut value = serde_json::to_value(data)?;
+    let mut value = serde_json::to_value(&*data)?;
     for (app, url) in &data.game_urls {
         tx.execute("INSERT INTO game_urls(app,declaration) VALUES(?1,?2) ON CONFLICT(app) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![app,serde_json::to_string(url)?])?;
     }
@@ -325,6 +349,7 @@ pub struct Database {
 }
 impl Database {
     pub fn open(root: &Path) -> Result<Self> {
+        identity::check_state(root)?;
         std::fs::create_dir_all(root)?;
         let mut c = Connection::open(root.join("platform.sqlite"))?;
         c.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -418,7 +443,7 @@ impl Database {
         let result = f(&mut data, &tx)?;
         tx.execute(
             "UPDATE platform SET data=?1 WHERE id=1",
-            [encode_catalog(&tx, &data)?],
+            [encode_catalog(&tx, &mut data)?],
         )?;
         tx.commit()?;
         Ok(result)
@@ -439,7 +464,7 @@ impl Database {
         let result = f(&mut data, &mut native)?;
         tx.execute(
             "UPDATE platform SET data=?1 WHERE id=1",
-            [encode_catalog(&tx, &data)?],
+            [encode_catalog(&tx, &mut data)?],
         )?;
         tx.execute(
             "UPDATE native_v1 SET data=?1 WHERE id=1",
@@ -552,6 +577,7 @@ pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bo
         "name must contain 1–40 characters"
     );
     Database::open(&config.controller.state_dir)?.edit(|d| {
+        let email = d.invitation_key(&email)?;
         let avatar = d.members.get(&email).and_then(|m| m.avatar.clone());
         d.members.insert(
             email,
@@ -599,6 +625,7 @@ pub fn preview(
 ) -> Result<serde_json::Value> {
     let email = email.to_lowercase();
     Database::open(&config.controller.state_dir)?.edit(|d| {
+        let email = d.member_key(&email)?;
         ensure!(d.members.get(&email).is_some_and(|m|m.enabled&&m.admin),"preview requires an existing enabled admin");
         d.require_app_group(&email, app)?;
         let selected=d.apps.get(app).context("unknown app")?;

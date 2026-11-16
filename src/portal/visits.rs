@@ -15,7 +15,7 @@ pub(super) fn routes() -> Router<Platform> {
 }
 fn view(d: &platform::Data, id: &str, v: &Visit) -> Value {
     json!({"id":id,"name":v.name,"host_group":v.host,"expires_at":v.expires,"active":v.active(now()),"games":v.games,
-        "participants":v.participants.iter().map(|(e,p)|json!({"id":hash(e),"name":d.members.get(e).map(|m|&m.name),"ended":p.ended})).collect::<Vec<_>>()})
+        "participants":v.participants.iter().map(|(e,p)|json!({"id":d.player_id(e),"name":d.members.get(e).map(|m|&m.name),"ended":p.ended})).collect::<Vec<_>>()})
 }
 async fn mine(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
@@ -29,7 +29,7 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let d = p.db.read()?;
     Ok(reply(
         json!({"enabled":p.config().controller.visits,"groups":d.groups.names,
-        "members":d.members.iter().filter(|(_,m)|m.enabled).map(|(e,m)|json!({"id":hash(e),"name":m.name,"group":d.groups.member(e)})).collect::<Vec<_>>(),
+        "members":d.members.iter().filter(|(_,m)|m.enabled).map(|(e,m)|json!({"id":d.player_id(e),"name":m.name,"group":d.groups.member(e)})).collect::<Vec<_>>(),
         "games":d.apps.iter().filter(|(_,a)|a.listed).map(|(id,a)|json!({"id":id,"group":d.groups.app(id),"title":metadata::title(&d,id,&d.builds[&build_key(id,&a.build)].manifest.title)})).collect::<Vec<_>>(),
         "visits":d.visits.iter().map(|(id,v)|view(&d,id,v)).collect::<Vec<_>>()}),
     ))
@@ -82,7 +82,7 @@ async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create
             let (email, _) = d
                 .members
                 .iter()
-                .find(|(e, m)| m.enabled && hash(e) == *player)
+                .find(|(e, m)| m.enabled && d.player_id(e) == *player)
                 .ok_or_else(|| fault(404, "Visitor not found."))?;
             ensure!(
                 d.groups.member(email) != body.host_group,
@@ -189,7 +189,12 @@ async fn remove(
         let (_, member) = v
             .participants
             .iter_mut()
-            .find(|(email, _)| hash(email) == player)
+            .find(|(email, _)| {
+                d.identities
+                    .profiles
+                    .get(*email)
+                    .is_some_and(|p| p.id == player)
+            })
             .ok_or_else(|| fault(404, "Visitor not found."))?;
         member.ended = true;
         if v.participants.values().all(|p| p.ended) {

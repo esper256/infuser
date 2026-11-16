@@ -160,17 +160,29 @@ async fn main() -> Result<()> {
                     match member {
                         Some("river") => (
                             StatusCode::ACCEPTED,
-                            [("X-Auth-Request-Email", "river@example.com")],
+                            [
+                                ("X-Auth-Request-Email", "river@example.com"),
+                                ("X-Auth-Request-User", "river@example.com"),
+                            ],
                         ),
                         Some("sky") => (
                             StatusCode::ACCEPTED,
-                            [("X-Auth-Request-Email", "sky@example.com")],
+                            [
+                                ("X-Auth-Request-Email", "sky@example.com"),
+                                ("X-Auth-Request-User", "sky@example.com"),
+                            ],
                         ),
                         Some("admin") => (
                             StatusCode::ACCEPTED,
-                            [("X-Auth-Request-Email", "admin@example.com")],
+                            [
+                                ("X-Auth-Request-Email", "admin@example.com"),
+                                ("X-Auth-Request-User", "admin@example.com"),
+                            ],
                         ),
-                        _ => (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
+                        _ => (
+                            StatusCode::UNAUTHORIZED,
+                            [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
+                        ),
                     }
                 }),
             ),

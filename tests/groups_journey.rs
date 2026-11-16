@@ -133,7 +133,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
                 } else {
                     StatusCode::ACCEPTED
                 },
-                [("X-Auth-Request-Email", email)],
+                [
+                    ("X-Auth-Request-Email", email),
+                    ("X-Auth-Request-User", email),
+                ],
             )
         }),
     ))
@@ -579,7 +582,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     )?;
     let reopened = platform::Database::open(temp.path())?;
     assert_eq!(reopened.read()?.groups.member("user@example.com"), group);
-    assert!(reopened.read()?.groups.operator("frizz@example.com"));
+    assert!(reopened.read()?.operator("frizz@example.com"));
     let mut unsafe_cfg = cfg.clone();
     unsafe_cfg.controller.private_groups = false;
     let disabled_state = tempfile::tempdir()?;

@@ -39,6 +39,7 @@ or [HTTP publishing](publishing-http.md); no Infuser build toolchain is required
 - Start with [Install and run Infuser](operations.md); it gives the setup order
   and links to each service's instructions.
 - [Website, Google login and invitations](clubhouse-operations.md)
+- [Identity migration and recovery](identity-operations.md)
 - [Automatic updates](deployment.md) and [game-port firewall](network-admission.md)
 - [Encrypted backups and recovery](backup-operations.md), [host monitoring and alerts](monitoring-operations.md)
 - [TURN and PeerJS services](relay-operations.md), [managed Node hosting](server-packaging-operations.md)
@@ -56,6 +57,7 @@ These pages are for changing the platform, not publishing a game.
 - [Architecture](architecture.md), [implementation and compatibility notes](implementation-notes.md), [roadmap](roadmap.md)
 - [Architectural review improvement plan](proposals/architecture-improvement-plan.md)
 - [Ansible host-maintenance design](proposals/ansible-host-maintenance.md)
+- [Account and profile identity foundation](proposals/identity-foundation.md)
 - [SDK design review](sdk-contract.md), [accepted decisions](sdk-1.0-decisions.md),
   [1.0 stabilization plan](proposals/sdk-1.0-stabilization.md),
   [temporary visits](proposals/temporary-visits.md),

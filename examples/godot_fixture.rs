@@ -34,10 +34,16 @@ async fn main() -> Result<()> {
                     if h.get("cookie").is_some_and(|v| v == "member=admin") {
                         (
                             StatusCode::ACCEPTED,
-                            [("X-Auth-Request-Email", "admin@example.com")],
+                            [
+                                ("X-Auth-Request-Email", "admin@example.com"),
+                                ("X-Auth-Request-User", "admin@example.com"),
+                            ],
                         )
                     } else {
-                        (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")])
+                        (
+                            StatusCode::UNAUTHORIZED,
+                            [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
+                        )
                     }
                 }),
             ),

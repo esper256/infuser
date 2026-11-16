@@ -45,7 +45,7 @@ impl View<'_> {
             })
             .map(|launch| {
                 json!({
-                    "id":hash(&launch.email),
+                    "id":data.player_id(&launch.email),
                     "name":data.members[&launch.email].name,
                     "guest":launch.guest,
                 })
@@ -63,7 +63,7 @@ impl View<'_> {
             })
             .map(|(email, reaction)| {
                 json!({
-                    "id":hash(email),
+                    "id":data.player_id(email),
                     "name":data.members[email].name,
                     "avatar":data.members[email].avatar,
                     "mine":email == self.email,
@@ -90,7 +90,7 @@ impl View<'_> {
                 .as_array()
                 .unwrap()
                 .iter()
-                .filter(|player| player["player_id"] != hash(self.email))
+                .filter(|player| player["player_id"] != data.player_id(self.email))
                 .map(|player| {
                     json!({
                         "session_id":room["id"],
@@ -118,7 +118,7 @@ impl View<'_> {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .filter(|player| player["player_id"] != hash(self.email))
+                    .filter(|player| player["player_id"] != data.player_id(self.email))
                 {
                     join_targets.push(json!({"session_id":session["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]}));
                 }
@@ -128,7 +128,7 @@ impl View<'_> {
         let author = data.owners.get(id).and_then(|owner| {
             data.members
                 .get(owner)
-                .map(|member| json!({"id":hash(owner),"name":member.name,"avatar":member.avatar}))
+                .map(|member| json!({"id":data.player_id(owner),"name":member.name,"avatar":member.avatar}))
         });
         let card_art_url = card_art::url(id, &app.build, build, data.metadata.get(id)).map(|url| {
             if self.inspecting {
@@ -184,7 +184,7 @@ impl View<'_> {
                         .is_some_and(|member| member.enabled)
             })
             .map(|(email, _)| {
-                let id = hash(email);
+                let id = self.data.player_id(email);
                 let targets: Vec<_> = apps
                     .iter()
                     .flat_map(|app| {
@@ -235,7 +235,7 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         json!({
             "apps":apps,
             "friends":friends,
-            "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.members.get(*e).is_some_and(|m|m.enabled)).map(|(e,_)|json!({"id":hash(e),"name":data.members[e].name})).collect::<Vec<_>>()})),
+            "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.members.get(*e).is_some_and(|m|m.enabled)).map(|(e,_)|json!({"id":data.player_id(e),"name":data.members[e].name})).collect::<Vec<_>>()})),
             "tags":crate::tags::catalog_for_apps(&data,apps.iter().filter_map(|a|a["id"].as_str())),
         }),
         &h,

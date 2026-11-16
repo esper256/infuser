@@ -35,17 +35,29 @@ async fn private_queue_enforces_admin_group_boundaries_consent_and_retention() -
             match h.get("cookie").and_then(|v| v.to_str().ok()) {
                 Some("member=one") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "one@example.com")],
+                    [
+                        ("X-Auth-Request-Email", "one@example.com"),
+                        ("X-Auth-Request-User", "one@example.com"),
+                    ],
                 ),
                 Some("member=two") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "two@example.com")],
+                    [
+                        ("X-Auth-Request-Email", "two@example.com"),
+                        ("X-Auth-Request-User", "two@example.com"),
+                    ],
                 ),
                 Some("member=three") => (
                     StatusCode::ACCEPTED,
-                    [("X-Auth-Request-Email", "three@example.com")],
+                    [
+                        ("X-Auth-Request-Email", "three@example.com"),
+                        ("X-Auth-Request-User", "three@example.com"),
+                    ],
                 ),
-                _ => (StatusCode::UNAUTHORIZED, [("X-Auth-Request-Email", "")]),
+                _ => (
+                    StatusCode::UNAUTHORIZED,
+                    [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
+                ),
             }
         }),
     );

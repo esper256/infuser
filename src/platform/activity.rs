@@ -1,5 +1,5 @@
-//! Small activity rows behind a writable legacy view. Older binaries still read
-//! and write `platform` without losing renewed launches or temporary guest saves.
+//! Small activity rows behind a writable compatibility view. Genesis-compatible
+//! binaries read and write `platform` without losing launches or guest saves.
 use super::*;
 
 pub(super) fn initialize(c: &mut Connection) -> Result<()> {
