@@ -2,6 +2,11 @@
 
 Audience: game authors and their agents.
 
+Use this with the Node hosting recipe during [step 2 of the agent guide](agents.md#choose-the-integration).
+It connects the game's existing room logic to Infuser's players and Join Friend.
+After integration, return to [Explicit play modes](agents.md#explicit-play-modes)
+and continue through saves, presentation, publication, and handoff.
+
 SDK v1 candidate for browser games using Node `ws`. One managed process can host
 one shared multiplayer run or several explicitly created runs. Infuser handles
 verified player identity, discovery, cold start and connection lifetime. The game

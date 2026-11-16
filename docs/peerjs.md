@@ -2,6 +2,11 @@
 
 Audience: game authors and their agents.
 
+Use this networking recipe after the browser export recipe in
+[step 2 of the agent guide](agents.md#choose-the-integration). It helps the same
+project work both inside and outside Infuser. After adapting networking, return
+to [Explicit play modes](agents.md#explicit-play-modes) and finish the main checklist.
+
 **Preview: tested with PeerJS 1.5.5 and PeerServer 1.0.2.** Keep the game's PeerJS
 dependency, simulation, and message formats. Infuser supplies private connection
 setup and admission; PeerJS still creates the real WebRTC DataConnections.

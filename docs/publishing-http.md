@@ -5,8 +5,17 @@ Audience: game authors and their agents.
 The publishing API is a supported route, not an emergency workaround. An agent
 on macOS or Windows can publish with `curl` and its existing JSON/file tools,
 without installing Infuser, Rust, Docker, or a Linux environment. This replaces
-the **upload tool**, not the game's engine, build, or SDK integration. Follow the
-[engine recipe](agents.md) first, including saves and explicit multiplayer modes.
+the **upload tool**, not the game's engine, build, or SDK integration.
+
+Use this page at two points in the [main agent guide](agents.md):
+
+- At step 1, complete **Connect once** below, then return to the main guide's
+  [connection step](agents.md#connect-once), item 4, to read capabilities.
+- At step 5, follow **Prepare the existing game** and **Upload and publish** below
+  using the integration you already made. Then return to
+  [Publish and verify](agents.md#publish-and-verify) for metadata and the user handoff.
+
+Do not consume another setup code or repeat the integration when returning here.
 
 The examples below use a POSIX shell (including macOS). Windows agents can use
 `curl.exe` with equivalent paths/quoting. The agent prepares and reads JSON using

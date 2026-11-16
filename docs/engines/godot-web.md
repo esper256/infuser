@@ -2,11 +2,12 @@
 
 Audience: game authors and their agents.
 
-Start with the [agent guide](../agents.md). Prefer an art-generation prompt if
-you cannot produce high-quality cover art; do not spend time staging screenshots.
-After publishing, verify build state and metadata using the publisher API.
-No Google login is needed to finish: report unavailable live checks as untested
-and link the player to their Infuser website. Do not ask for Google account access.
+This is the web export recipe for [step 2 of the agent guide](../agents.md#choose-the-integration).
+Complete that guide's connection step first. Read and apply this recipe, then
+the [Godot multiplayer recipe](godot-multiplayer.md) if needed. Save publish commands
+for step 5 and return to [Explicit play modes](../agents.md#explicit-play-modes).
+The main guide also covers artwork, publication checks, and handing the game back
+without requesting Google account access.
 
 This preview supports Godot 4.7.2 standard/GDScript with the Compatibility
 renderer, using single-threaded or threaded web exports. Physical laptop sleep

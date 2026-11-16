@@ -2,10 +2,11 @@
 
 Audience: game authors and their agents.
 
-These instructions are for the game-making agent. The user copies the **Add a
-game** prompt into their existing project chat; the agent handles the rest.
-Keep the project's current engine and build tools. Installing Rust, Docker, or a
-Linux VM is not required to publish from a Mac.
+This page helps you get a publisher executable for [Connect once in the agent guide](agents.md#connect-once).
+After downloading and verifying it, return there to connect the game and read
+the server's capabilities. Downloading the tool does not integrate or publish
+the game. Keep the project's engine and build tools; Rust, Docker, and a Linux VM
+are not required.
 
 Download the publisher from [Infuser releases](https://github.com/esper256/infuser/releases).
 Prefer the server's release; if it predates Mac downloads, use a newer publisher

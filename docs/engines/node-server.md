@@ -6,6 +6,11 @@ Audience: game authors and their agents.
 Three.js games using `ws`. Keep the game's networking messages and room logic.
 The publisher uploads the client and server together; the author needs no Docker.
 
+Use this during [step 2 of the agent guide](../agents.md#choose-the-integration),
+after connecting the project. Follow the dedicated-session guide linked below
+for player identity and rooms. Save the publish command for step 5, then return
+to [Explicit play modes](../agents.md#explicit-play-modes) to finish the shared checklist.
+
 First read `/api/publisher/capabilities`. Require `server_packaging.enabled: true`
 and a supported `node_major` from its recipes. If unavailable, report that specific
 blocker. Do not relabel a server-backed game as client-only single-player.

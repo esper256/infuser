@@ -2,6 +2,11 @@
 
 Audience: game authors and their agents.
 
+This is the native delivery recipe for [step 2 of the agent guide](../agents.md#choose-the-integration).
+Complete that guide's connection step first. Read and apply the adaptation and
+export instructions here; save the publish command for step 5. Then return to
+[Explicit play modes](../agents.md#explicit-play-modes) to finish the shared checklist.
+
 Windows x86-64 and Linux x86-64 (including Bazzite) use **Infuser Play**, the native app for the Infuser website.
 The user installs **Infuser-Play-Setup.exe** or opens **Infuser-Play.flatpak** in their
 software center, then presses Play in the website. No manual unzip, copying game

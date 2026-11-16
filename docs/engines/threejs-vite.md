@@ -4,7 +4,11 @@ Audience: game authors and their agents.
 
 Use this recipe for existing Three.js/Vite or plain HTML/JavaScript games. Other
 browser engines may produce compatible exports, but their adapters have not been
-validated by this recipe. Start with the [agent guide](../agents.md).
+validated by this recipe.
+
+This is the browser recipe for [step 2 of the agent guide](../agents.md#choose-the-integration).
+Complete that guide's connection step first. Read and apply this recipe, saving
+its publish command for step 5. Then return to [Explicit play modes](../agents.md#explicit-play-modes).
 
 ## First publish
 

@@ -2,6 +2,10 @@
 
 Audience: game authors and their agents.
 
+Use this alongside the Godot web recipe during [step 2 of the agent guide](../agents.md#choose-the-integration).
+After adapting multiplayer, return to [Explicit play modes](../agents.md#explicit-play-modes).
+The main guide takes you through saves, presentation, publication, and handoff.
+
 This preview supports two-player Godot web games using WebRTC. First follow the
 [web export guide](godot-web.md). Keep the game's simulation and RPCs in GDScript;
 the [example addon](../../examples/godot-web/addons/infuser) provides Infuser
