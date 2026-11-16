@@ -8,7 +8,11 @@ use std::{
 };
 
 pub fn hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex(&Sha256::digest(bytes))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn regular_file(root: &Path, relative: &str) -> Result<PathBuf> {
@@ -36,9 +40,19 @@ pub fn verify(root: &Path, artifact: &Artifact) -> Result<()> {
         );
         let mut input = fs::File::open(path)?;
         let mut hash = Sha256::new();
-        std::io::copy(&mut input, &mut hash)?;
+        let mut buffer = [0; 8192];
+        loop {
+            let count = match input.read(&mut buffer) {
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                result => result?,
+            };
+            if count == 0 {
+                break;
+            }
+            hash.update(&buffer[..count]);
+        }
         ensure!(
-            format!("{:x}", hash.finalize()) == file.sha256,
+            hex(&hash.finalize()) == file.sha256,
             "installed game checksum changed"
         );
     }
@@ -208,6 +222,36 @@ mod tests {
         };
         (bytes, artifact)
     }
+    #[test]
+    fn sha256_matches_known_vectors() {
+        assert_eq!(
+            hash(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            hash(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn verification_hashes_empty_and_multiple_buffer_files_and_rejects_tampering() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        for size in [0, 8192, 8193, 20000] {
+            let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+            let (bytes, artifact) = archive("game", &data);
+            let installed = install(temp.path(), &artifact, &bytes)?;
+            verify(&installed, &artifact)?;
+            if size > 0 {
+                let mut damaged = data;
+                damaged[size - 1] ^= 1;
+                fs::write(installed.join("game"), damaged)?;
+                assert!(verify(&installed, &artifact).is_err());
+            }
+        }
+        Ok(())
+    }
+
     #[test]
     fn updates_preserve_old_build_and_guest_save_namespace() -> Result<()> {
         let temp = tempfile::tempdir()?;

@@ -13,7 +13,7 @@ infuser-native-protocol = { path = "../native-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-sha2 = "0.10"
+sha2 = "0.11"
 rand = "0.10"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 directories = "6"
