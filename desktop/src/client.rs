@@ -136,9 +136,9 @@ fn response(response: reqwest::blocking::Response) -> Result<serde_json::Value> 
     Ok(value)
 }
 fn random() -> String {
-    use rand::RngCore;
+    use rand::Rng;
     let mut bytes = [0; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 fn pair(
@@ -498,6 +498,23 @@ fn supervise(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pairing_verifiers_are_distinct_256_bit_hex_values() {
+        let first = super::random();
+        let second = super::random();
+        for verifier in [&first, &second] {
+            assert_eq!(verifier.len(), 64);
+            assert!(
+                verifier
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            );
+            assert!(infuser_native_protocol::digest(verifier));
+            assert_eq!(super::install::hash(verifier.as_bytes()).len(), 64);
+        }
+        assert_ne!(first, second);
+    }
+
     #[test]
     #[cfg(unix)]
     fn visit_denial_stops_the_running_game() {
