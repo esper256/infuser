@@ -384,10 +384,16 @@ pub async fn run(args: &[String]) -> Result<()> {
     } else {
         project.clone()
     };
-    let export = export.canonicalize()?;
+    let export = export.canonicalize().with_context(|| {
+        format!(
+            "Cannot open web export directory '{}'. Relative --web-dir paths are resolved from project '{}'; choose the built folder containing index.html.",
+            export.display(), project.display()
+        )
+    })?;
     ensure!(
         export.join("index.html").is_file(),
-        "export needs index.html; use --web-dir to point at the built web folder"
+        "Web export entry file not found: '{}'. Set --web-dir to the built folder containing index.html.",
+        export.join("index.html").display()
     );
     // Upload the export only. The project, node_modules and credentials never leave this machine.
     let mut files = Vec::new();
