@@ -2,15 +2,18 @@ import { openHomeChat } from '/assets/groups.js';
 // Shared Library room. All message text stays text, never markup or links.
 export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
+  const emptyMessage=me.inspecting?'No messages yet.':'No messages yet. Start the conversation.';
   const root=document.createElement('aside');root.id='library-chat';root.setAttribute('aria-label','Library chat');
   root.innerHTML=`<button id="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-panel" title="Show chat"><span class="chat-icon" aria-hidden="true">···</span><span class="sr-only">Chat</span><span id="chat-unread" hidden></span></button>
     <div id="chat-pointers" aria-hidden="true"></div>
-    <section id="chat-panel" aria-labelledby="chat-title" hidden>
-      <div class="chat-heading"><div><h2 id="chat-title">Chat</h2><span class="chat-audience">Everyone in the Library</span></div><button id="chat-close" type="button" aria-label="Close chat">×</button></div>
-      <div id="chat-log" role="log" aria-label="Messages" aria-live="off" tabindex="0"><p class="chat-empty">No messages yet.</p></div>
+    <section id="chat-panel" aria-label="Chat" hidden>
+      <div id="chat-log" role="log" aria-label="Messages" aria-live="off" tabindex="0"><p class="chat-empty">${emptyMessage}</p></div>
       <button id="chat-new" class="chat-new" type="button" hidden>New messages ↓</button>
       <p id="chat-connection" role="status"></p><p id="chat-error" role="alert"></p>
-      <form id="chat-form"><label class="sr-only" for="chat-text">Message everyone</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-limit"></textarea><div class="chat-compose-actions"><span id="chat-limit">0 / 280</span><button id="chat-send" type="submit" disabled>Send</button></div></form>
+      <div class="chat-compose-row">
+        <button id="chat-close" type="button" aria-label="Close chat" title="Close chat">×</button>
+        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg><span id="chat-limit" hidden></span></button></form>
+      </div>
       <span id="chat-announcement" class="sr-only" role="status"></span>
     </section>`;
   document.body.append(root);
@@ -132,7 +135,8 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     if(bottom()&&isOpen())markRead();schedulePosition();
   },{passive:true});
   input.oninput=()=>{
-    $('limit').textContent=Array.from(input.value).length+' / 280';
+    const length=Array.from(input.value).length;
+    setText($('limit'),length+'/280');setHidden($('limit'),length<240);
     $('send').disabled=sending||!input.value.trim();
   };
   input.addEventListener('keydown',event=>{
@@ -173,7 +177,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     }
     for(const node of nodes.values())node.remove();
     if(next.length)log.querySelector('.chat-empty')?.remove();
-    if(!next.length&&!log.querySelector('.chat-empty')){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent='No messages yet.';log.append(empty);}
+    if(!next.length&&!log.querySelector('.chat-empty')){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent=emptyMessage;log.append(empty);}
     messages=next;
     if(!initialized){lastRead=Math.max(0,...next.map(m=>m.id));initialized=true;}
     if(isOpen()&&stick&&changed&&!document.hidden)scrollLatest();
@@ -194,7 +198,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     event.preventDefault();if(sending||!input.value.trim())return;
     const text=input.value.trim();
     if(!retry||retry.text!==text)retry={text,client_id:crypto.randomUUID()};
-    sending=true;root.dataset.sending='true';input.readOnly=true;input.oninput();$('error').textContent='';$('send').textContent='Sending…';
+    sending=true;root.dataset.sending='true';input.readOnly=true;input.oninput();$('error').textContent='';$('send').setAttribute('aria-label','Sending message');$('send').setAttribute('aria-busy','true');
     try{
       await request('/api/chat',{method:'POST',body:JSON.stringify(retry)});
       input.value='';retry=null;
@@ -202,7 +206,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       while(busy)await new Promise(resolve=>setTimeout(resolve,30));
       await poll();if(isOpen())scrollLatest();
     }catch(error){$('error').textContent=error.message;}
-    finally{sending=false;delete root.dataset.sending;input.readOnly=false;$('send').textContent='Send';input.oninput();if(isOpen())input.focus();}
+    finally{sending=false;delete root.dataset.sending;input.readOnly=false;$('send').setAttribute('aria-label','Send message');$('send').removeAttribute('aria-busy');input.oninput();if(isOpen())input.focus();}
   };
   document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(timer);else poll();});
   window.addEventListener('online',poll);

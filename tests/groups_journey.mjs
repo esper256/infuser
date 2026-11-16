@@ -42,7 +42,7 @@ try {
   await page.locator('#chat-toggle').click();
   await page.getByText('Other family only',{exact:true}).waitFor();
   assert.equal(await page.locator('#chat-form').isVisible(),false);
-  await page.locator('#chat-close').click();
+  await page.locator('#chat-log').press('Escape');
   await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   assert.equal(await page.locator('#operator-groups').isVisible(),true);
   assert.equal(await page.locator('#invite-form').isVisible(),false);

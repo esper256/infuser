@@ -72,7 +72,7 @@ try{
   await reset();
   const chat=page.waitForResponse('**/api/chat');await page.evaluate(()=>window.dispatchEvent(new Event('online')));await (await chat).finished();await settle();
   assert.equal((await page.evaluate(()=>work)).mutations,0,'unchanged chat poll must not rewrite the panel');
-  await page.locator('#chat-close').click();
+  await page.locator('#chat-log').press('Escape');
  }
  await page.setViewportSize({width:1200,height:850});await settle();
  const first=page.locator('[data-app="game-0"]'),other=page.locator('[data-app="game-1"]');

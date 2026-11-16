@@ -2,7 +2,7 @@
 // INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs node tests/chat_layout_journey.mjs
 // Set INFUSER_BROWSER=webkit for desktop WebKit; this is not an iOS device test.
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile,mkdir} from 'node:fs/promises';
 const engine=process.env.INFUSER_BROWSER||'chromium';
 const playwright=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const browser=await playwright[engine].launch({headless:true,...(engine==='chromium'&&process.env.INFUSER_CHROMIUM?{executablePath:process.env.INFUSER_CHROMIUM}:{})});
@@ -11,16 +11,20 @@ const fixture=`<!doctype html><html><head><meta name="viewport" content="width=d
 <style>@media(max-width:650px),(pointer:coarse) and (max-height:500px){header{padding-top:180px}}</style><header><div id="friends"><span data-player-id="friend">OrbitFox</span></div></header>
 <script type="module">
 import {initChat} from '/assets/chat.js';
-initChat({me:{player_id:'me'},api:async(path,options)=>{const response=await fetch(path,options);return response.json();},profileAvatar:()=>{const avatar=document.createElement('span');avatar.className='avatar';return avatar;}});
+initChat({me:{player_id:'me'},api:async(path,options)=>{const response=await fetch(path,options);const body=await response.json();if(!response.ok)throw new Error(body.error);return body;},profileAvatar:()=>{const avatar=document.createElement('span');avatar.className='avatar';return avatar;}});
 </script></body></html>`;
 try {
  for(const theme of ['nightglass','cartridge-club']){
   for(const size of [{width:1280,height:900},{width:390,height:844},{width:320,height:568},{width:844,height:390}]){
    const mobile=size.width<1000;
    const context=await browser.newContext({viewport:size,hasTouch:mobile,isMobile:mobile});
+   let sent=[],heldSend;
    await context.route('https://chat.test/**',async route=>{
     const path=new URL(route.request().url()).pathname;
-    if(path==='/api/chat')return route.fulfill({json:{messages}});
+    if(path==='/api/chat'){
+     if(route.request().method()==='POST'){sent.push(route.request().postDataJSON());heldSend=route;return;}
+     return route.fulfill({json:{messages}});
+    }
     if(path.startsWith('/assets/'))return route.fulfill({body:await readFile(new URL('../web/'+path.slice(8),import.meta.url)),contentType:path.endsWith('.js')?'text/javascript':'text/css'});
     return route.fulfill({body:fixture,contentType:'text/html'});
    });
@@ -43,7 +47,41 @@ try {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow');
     return {panel,log};
    }
-   const initial=await geometry(0,size.height,mobile?180:350);
+   const initial=await geometry(0,size.height,mobile?240:580);
+   assert.equal(await page.locator('.chat-heading,.chat-audience').count(),0,'no redundant header');
+   const input=page.locator('#chat-text'),send=page.locator('#chat-send'),count=page.locator('#chat-limit');
+   assert(await count.isHidden());assert.equal(await send.getAttribute('aria-label'),'Send message');
+   const arrow=await send.locator('svg').boundingBox(),button=await send.boundingBox(),logBefore=await page.locator('#chat-log').boundingBox();
+   await input.fill('x'.repeat(239));assert(await count.isHidden());
+   await input.fill('x'.repeat(240));assert(await count.isVisible());assert.equal(await count.textContent(),'240/280');
+   assert.deepEqual(await send.locator('svg').boundingBox(),arrow,'count never shifts the arrow');
+   assert.deepEqual(await send.boundingBox(),button,'count never resizes the send button');
+   assert.deepEqual(await page.locator('#chat-log').boundingBox(),logBefore,'count never reduces history space');
+   assert(await input.evaluate(e=>{const b=document.querySelector('#chat-send').getBoundingClientRect(),r=e.getBoundingClientRect();return r.right-parseFloat(getComputedStyle(e).paddingRight)<=b.left;}),'typed text stays clear of the inset button');
+   await input.fill('');assert(await count.isHidden());assert(await send.isDisabled());
+   // Return to the reading focus used when opening on touch screens.
+   if(mobile)await page.locator('#chat-log').focus();
+   await mkdir(new URL('../.local/chat-compact/',import.meta.url),{recursive:true});
+   await page.screenshot({path:new URL(`../.local/chat-compact/${theme}-${size.width}.png`,import.meta.url).pathname});
+   if(!mobile){
+    await input.fill('A draft with\na second line');await input.press('Shift+Enter');
+    assert.equal(sent.length,0,'Shift+Enter does not submit');
+    const draft=await input.inputValue();
+    await send.click();await page.waitForFunction(()=>document.querySelector('#chat-send').getAttribute('aria-busy')==='true');
+    assert(await send.isDisabled());assert(await input.evaluate(e=>e.readOnly));
+    assert.deepEqual(await send.locator('svg').boundingBox(),arrow,'sending preserves the arrow');
+    await heldSend.fulfill({status:503,json:{error:'Please retry.'}});
+    await page.locator('#chat-error').getByText('Please retry.',{exact:true}).waitFor();
+    assert.equal(await input.inputValue(),draft,'failure retains the draft');
+    assert.equal(await send.getAttribute('aria-label'),'Send message');
+    await input.press('Enter');await page.waitForFunction(()=>document.querySelector('#chat-send').getAttribute('aria-busy')==='true');
+    assert.equal(sent.length,2);assert.equal(sent[0].client_id,sent[1].client_id,'retry reuses the message ID');
+    await heldSend.fulfill({json:{id:31}});await page.waitForFunction(()=>!document.querySelector('#library-chat').hasAttribute('data-sending'));
+    assert.equal(await input.inputValue(),'');assert(await count.isHidden());assert(await send.isDisabled());
+    assert.equal(await send.locator('svg').count(),1,'successful send retains the icon');
+    await page.mouse.click(size.width-5,size.height-5);assert(await page.locator('#chat-panel').isHidden(),'desktop outside click closes chat');
+    await page.locator('#chat-toggle').click();await settle();
+   }
    if(mobile){
     assert.equal(initial.panel.y,12,'mobile panel uses viewport top despite wrapped header');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'chat-log','reading does not automatically summon the keyboard');
@@ -111,7 +149,11 @@ try {
     assert(initial.panel.y>12,'desktop remains badge anchored');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'chat-text');
    }
-   await page.locator('#chat-close').click();
+   if(mobile)await page.locator('#chat-close').click();
+   else{
+    assert(await page.locator('#chat-close').isHidden(),'desktop has no close chrome');
+    await page.locator('#chat-log').press('Escape');
+   }
    assert(await page.locator('#chat-panel').isHidden());
    assert.equal(await page.evaluate(()=>document.activeElement.id),'chat-toggle');
    assert.deepEqual(errors,[]);
