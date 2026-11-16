@@ -41,6 +41,10 @@ Audience: Infuser developers.
   reboot windows and tracked shared-service image updates. Preserve game-aware
   admission and recovery hooks when changing deployment units. Shared-service
   image PRs require explicit rollout; they are separate from binary auto-updates.
+  Before cohosting another project, move shared Caddy and alert-policy ownership
+  to host configuration, scope project monitoring, and include other projects in
+  reboot coordination. Fixed independent Compose stacks may share Docker with
+  Infuser's dynamically created games; no second VM is required.
 
 - Follow up on the [architectural review results](proposals/architecture-improvement-plan.md):
   validate native cache cleanup on physical Windows hardware. Use measurements before taking on the
