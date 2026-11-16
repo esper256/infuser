@@ -55,6 +55,11 @@ try{
   await render([game('other'),game('firefly')]);
   assert.deepEqual(await page.locator('.game').evaluateAll(nodes=>nodes.map(node=>node.dataset.app)),['other','firefly']);
   assert.equal(await art.locator('img').evaluate(node=>node===originalImage),true,'reordering keeps the image');
+  await render([{...game('firefly'),updated:10},{...game('other'),updated:20}]);
+  assert.deepEqual(await page.locator('.game').evaluateAll(nodes=>nodes.map(node=>node.dataset.app)),['other','firefly'],'newest updates come first regardless of API order');
+  await render([{...game('other'),updated:20},{...game('firefly'),updated:30}]);
+  assert.deepEqual(await page.locator('.game').evaluateAll(nodes=>nodes.map(node=>node.dataset.app)),['firefly','other'],'a newly updated game moves to the front');
+  assert.equal(await art.locator('img').evaluate(node=>node===originalImage),true,'sorting by update retains loaded cover art');
   await render([game('firefly','/art/two')]);
   await page.waitForFunction(()=>document.querySelector('.has-game-art img')?.getAttribute('src')==='/art/two');
   assert.equal(await art.locator('img').evaluate(node=>node===originalImage),false,'changed URL loads new art');
