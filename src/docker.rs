@@ -311,6 +311,20 @@ impl Docker {
                 format!("INFUSER_API_URL=https://{}", self.settings.domain),
             ]);
         }
+        if g.web
+            && let Ok(key) = std::fs::read_to_string(
+                self.settings.state_dir.join(crate::connections::PUBLIC_KEY_FILE),
+            )
+        {
+            args.extend([
+                "--env".into(),
+                format!("INFUSER_CONNECTION_PUBLIC_KEY={}", key.trim()),
+                "--env".into(),
+                format!("INFUSER_INSTANCE_ID={}", i.attempt),
+                "--env".into(),
+                format!("INFUSER_CONNECTION_ISSUER=https://{}", self.settings.domain),
+            ]);
+        }
         args.push(g.image.clone());
         args
     }

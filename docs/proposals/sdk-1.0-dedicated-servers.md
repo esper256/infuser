@@ -130,7 +130,7 @@ The browser helper returns a normal WebSocket after admission. Its error path qu
 
 A server adapter should make this integration a small boundary change around an existing `ws` upgrade handler and room join function. It should not replace Lanternfall's JSON messages, 30 Hz simulation, or snapshots. Games with admission information that only exists in their initial gameplay message can use a bounded admission phase before publishing membership; the adapter still prevents unverified identities and misleading Join success.
 
-Web backends stay on private, loopback-published ports. Games with direct TCP/UDP endpoints use short-lived, narrowly scoped connection tickets and the same identity/admission semantics through an adapter. The existing verification route remains available. Do not claim native multiplayer support for SDK 1.0 until a real native game exercises that path.
+Web backends stay on private internal bridges or loopback-published ports. Games with direct TCP/UDP endpoints use short-lived, narrowly scoped connection tickets and the same identity/admission semantics through an adapter. The existing verification route remains available. Do not claim native multiplayer support for SDK 1.0 until a real native game exercises that path.
 
 An IP allowlist remains defense in depth. It is neither a player identity nor a private-group boundary.
 

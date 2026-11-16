@@ -4,6 +4,19 @@
 use super::*;
 pub(super) fn routes() -> Router<Platform> {
     Router::new()
+        // Internal scaffolding: publication does not yet admit the required capability.
+        .route("/connections/v1", get(connections::options))
+        .route(
+            "/connections/v1/{attempt}",
+            put(connections::prepare)
+                .get(connections::status)
+                .delete(connections::cancel)
+                .layer(DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/connections/v1/{attempt}/socket",
+            get(connections::socket),
+        )
         .route("/context", get(context))
         .route("/heartbeat", post(heartbeat).delete(leave))
         .route("/saves/{slot}", get(save_get).put(save_put))

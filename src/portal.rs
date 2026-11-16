@@ -36,6 +36,7 @@ mod capture;
 mod card_art;
 mod chat;
 mod client;
+mod connections;
 mod feedback;
 mod groups;
 mod library;
@@ -116,6 +117,9 @@ pub struct Platform {
     push: Arc<crate::notifications::Push>,
     push_dispatch: Arc<tokio::sync::Mutex<()>>,
     packager: Arc<dyn crate::server_package::worker::Engine>,
+    connection_signer: Arc<crate::connections::Signer>,
+    connections: Arc<Mutex<crate::connections::Attempts>>,
+    connection_epoch: String,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -150,6 +154,11 @@ impl Platform {
             0
         };
         Ok(Self {
+            connection_signer: Arc::new(crate::connections::Signer::open(
+                &controller.config.controller.state_dir,
+            )?),
+            connections: Default::default(),
+            connection_epoch: secret()[..16].into(),
             packager: Arc::new(crate::server_package::worker::DockerWorker {
                 settings: controller.config.controller.clone(),
             }),
@@ -311,6 +320,9 @@ impl Platform {
     }
     fn refresh(&self, id: &str) -> Result<Value> {
         let _guard = self.publishing.lock().unwrap();
+        self.refresh_locked(id)
+    }
+    fn refresh_locked(&self, id: &str) -> Result<Value> {
         let data = self.db.read()?;
         let launch = data
             .launches

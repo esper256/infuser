@@ -7,6 +7,9 @@ The detailed [dedicated-server design](proposals/sdk-1.0-dedicated-servers.md)
 remains the implementation proposal; its illustrative field and method names are
 not a published stable contract.
 
+Track implementation and verified milestones in the
+[dedicated SDK build plan](proposals/dedicated-sdk-implementation.md).
+
 Before new game-facing capabilities ship, record their request/response shapes,
 errors, ownership, retry behavior and compatibility in the relevant contract page.
 A short schema/example review and a focused journey are sufficient. This does not
