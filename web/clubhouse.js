@@ -9,6 +9,7 @@ let tagHold, heldCard, suppressContextUntil=0;
 let noticeTimer;
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents;
+let selectedAuthor=null, searchChoices=[], searchActive=-1;
 let entryGame, detailGameId, detailReturnFocus, detailSignature;
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
@@ -102,6 +103,7 @@ async function refresh() {
     if(entrySlug && !entryGame){entryGame=await api('/api/games/'+encodeURIComponent(entrySlug));history.replaceState(null,'',new URL(entryGame.url).pathname);document.title=entryGame.title+' · Infuser';}
     renderPresence();
     renderFilters(); renderGames(); renderFeed(); renderGameDetail();
+    if(!$('search-options').hidden)renderSearchOptions();
   } catch (error) { showError(error); } finally { refreshing = false; }
 }
 function gameArtSource(game){return game.card_art_url||(game.card_art_pending?'/assets/card-generating.webp':null);}
@@ -132,7 +134,7 @@ function renderGames() {
     const empty = el('div',undefined,'empty'); empty.append(el('h2','No games yet'),el('p','Add a game to get started.')); nextCards.push(empty);
   }
   const query=$('game-search').value.trim().toLowerCase();
-  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?g.author?.id===selectedAuthor:!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
   $('game-count').textContent=(visible===total?visible:visible+' / '+total)+' games';
   if(library.apps.length&&!matching.length){const empty=el('div',undefined,'empty');empty.append(el('h2','No matches'),el('p','Try another tag or clear your search.'));nextCards.push(empty);}
@@ -623,7 +625,69 @@ $('refresh-setup').onclick=refreshSetup;
 $('another-game').onclick=()=>{if(setupPending)return;newGameConnection=null;prepareGame();};
 function tagLabel(id){return library?.tags?.find(t=>t.id===id)?.label||id.split('-').map(w=>w[0]?.toUpperCase()+w.slice(1)).join(' ');}
 function renderFilters(){const nav=$('tag-filters');if(nav.querySelector('.tag-overflow-panel:popover-open'))return;nav.replaceChildren();const all=el('button','All games','tag-filter'+(!activeTag?' selected':''));all.setAttribute('aria-pressed',String(!activeTag));all.onclick=()=>{activeTag='';renderFilters();renderGames();};nav.append(all);for(const tag of library.tags||[]){if(!tag.count&&activeTag!==tag.id)continue;const button=el('button',tag.label,'tag-filter'+(activeTag===tag.id?' selected':''));button.setAttribute('aria-pressed',String(activeTag===tag.id));button.onclick=()=>{activeTag=activeTag===tag.id?'':tag.id;renderFilters();renderGames();};nav.append(button);}prepareTagRow(nav,gameCount);layoutTagRows();}
-$('game-search').oninput=()=>{if(library)renderGames();};
+// One shared combobox for both themes; suggestions use only authorized library data.
+function closeSearchOptions(){
+  $('search-options').hidden=true;$('game-search').setAttribute('aria-expanded','false');
+  $('game-search').removeAttribute('aria-activedescendant');searchActive=-1;
+}
+function highlightSearchOption(index){
+  searchActive=index;
+  [...$('search-options').children].forEach((row,i)=>row.setAttribute('aria-selected',String(i===index)));
+  if(index<0){$('game-search').removeAttribute('aria-activedescendant');return;}
+  const row=$('search-options').children[index];$('game-search').setAttribute('aria-activedescendant',row.id);
+  row.scrollIntoView({block:'nearest'});
+}
+function chooseSearchOption(choice){
+  if(!choice)return;
+  const input=$('game-search');input.focus();closeSearchOptions();
+  if(choice.kind==='gamer'){
+    selectedAuthor=choice.person.id;input.value=choice.person.name;activeTag='';
+    renderFilters();renderGames();
+    $('search-status').textContent='Games by '+choice.person.name;
+  }else openGameDetail(choice.game);
+}
+function renderSearchOptions(){
+  if(!library)return;
+  const input=$('game-search'),panel=$('search-options'),query=input.value.trim().toLowerCase();
+  const previous=searchChoices[searchActive]?.key,authors=new Map();
+  for(const game of library.apps){
+    if(game.author?.id&&game.author.name&&!authors.has(game.author.id))authors.set(game.author.id,game.author);
+  }
+  const people=[...authors.values()].filter(p=>!query||p.name.toLowerCase().includes(query));
+  searchChoices=people.slice(0,query?4:2).map(person=>({kind:'gamer',person,key:'gamer:'+person.id}));
+  if(query)searchChoices.push(...library.apps.filter(g=>g.title.toLowerCase().includes(query)).slice(0,6).map(game=>({kind:'game',game,key:'game:'+game.id})));
+  panel.replaceChildren();
+  for(const [i,choice] of searchChoices.entries()){
+    const row=el('div',undefined,'search-option');row.id='search-option-'+i;row.tabIndex=-1;row.setAttribute('role','option');row.setAttribute('aria-selected','false');
+    const text=el('span',undefined,'search-option-text');
+    if(choice.kind==='gamer'){
+      row.append(profileAvatar(choice.person.name,choice.person.id,choice.person.avatar));
+      text.append(el('strong',choice.person.name),el('small','Gamer · View games'));
+    }else{
+      const mark=el('span','▸','search-game-mark');mark.setAttribute('aria-hidden','true');row.append(mark);
+      text.append(el('strong',choice.game.title),el('small','Game'+(choice.game.author?.name?' · '+choice.game.author.name:'')));
+    }
+    row.append(text);row.onmousedown=event=>event.preventDefault();row.onclick=()=>chooseSearchOption(choice);panel.append(row);
+  }
+  if(!searchChoices.length){closeSearchOptions();$('search-status').textContent='No suggestions';return;}
+  panel.hidden=false;input.setAttribute('aria-expanded','true');
+  highlightSearchOption(searchChoices.findIndex(choice=>choice.key===previous));
+  $('search-status').textContent=searchChoices.length+' suggestions';
+}
+$('game-search').oninput=()=>{selectedAuthor=null;if(library)renderGames();renderSearchOptions();};
+$('game-search').onfocus=renderSearchOptions;
+$('game-search').onclick=()=>{if($('search-options').hidden)renderSearchOptions();};
+$('game-search').onkeydown=event=>{
+  if(event.isComposing)return;
+  if(event.key==='Escape'&&!$('search-options').hidden){event.preventDefault();closeSearchOptions();}
+  else if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+    event.preventDefault();if($('search-options').hidden)renderSearchOptions();
+    if(searchChoices.length)highlightSearchOption((searchActive+(event.key==='ArrowDown'?1:searchActive<0?0:-1)+searchChoices.length)%searchChoices.length);
+  }else if(event.key==='Enter'&&!$('search-options').hidden&&searchActive>=0){event.preventDefault();chooseSearchOption(searchChoices[searchActive]);}
+  else if(event.key==='Tab')closeSearchOptions();
+};
+document.addEventListener('pointerdown',event=>{if(!event.target.closest('.search-label'))closeSearchOptions();});
+$('game-search').closest('.search-label').addEventListener('focusout',event=>{if(!event.currentTarget.contains(event.relatedTarget))closeSearchOptions();});
 function openTags(game){editingTags=game;selectedTags=new Set(game.tags||[]);$('tags-title').textContent='Tags: '+game.title;renderTagPicker();$('tags-dialog').showModal();}
 function renderTagPicker(){const picker=$('tag-picker');picker.replaceChildren();const ids=new Set([...(library.tags||[]).map(t=>t.id),...selectedTags]);for(const id of [...ids].sort()){const button=el('button',tagLabel(id),'tag-chip'+(selectedTags.has(id)?' selected':''));button.type='button';button.setAttribute('aria-pressed',String(selectedTags.has(id)));button.onclick=()=>{if(selectedTags.has(id))selectedTags.delete(id);else if(selectedTags.size<8)selectedTags.add(id);renderTagPicker();};picker.append(button);}$('tag-selection-count').textContent=selectedTags.size+' / 8 selected';}
 $('close-tags').onclick=()=>$('tags-dialog').close();
