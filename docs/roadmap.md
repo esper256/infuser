@@ -1,5 +1,10 @@
 # Remaining work
 
+- Prioritize [dedicated Node hosting](server-packaging.md): prove the real Docker
+  packaging path, then add verified WebSocket connections and dedicated session
+  discovery/Join Friend under the [accepted SDK direction](sdk-1.0-decisions.md).
+  Lanternfall's source is unavailable; use the representative fixture and keep
+  actual game integration as a separate acceptance step.
 - Finish [Godot web](engines/godot-web.md) acceptance on actual Windows browsers,
   physical laptop sleep, and full-duration TURN credential renewal. Bazzite
   Flatpak Chrome has passed threaded/single-threaded exports, forced relay,
@@ -16,8 +21,8 @@
   and capability admission exist, but the overall contract remains a preview.
   Preserve published games and saves; Firefly Drift is listed and its active
   build must not be replaced merely to rerun a fixture.
-- Add managed engine-server packaging after these integrations settle. Review
-  dedicated-server joinability and native multiplayer separately. Bevy is paused.
+- Expand engine-server recipes after the Node path is solid. Native multiplayer
+  remains a separate study. Bevy is paused.
 - Review achievements before introducing persistent achievement IDs and behavior.
 
 Implemented foundations include conditional JSON slots and retained JSON/binary checkpoints,

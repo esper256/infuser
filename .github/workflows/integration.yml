@@ -31,6 +31,12 @@ jobs:
           docker cp "$container:/usr/bin/caddy" "$RUNNER_TEMP/caddy"
           chmod +x "$RUNNER_TEMP/caddy"
           "$RUNNER_TEMP/caddy" version
+      - name: Managed Node packaging and two-player journey
+        if: ${{ !cancelled() }}
+        run: |
+          docker pull node:24-bookworm-slim
+          INFUSER_NODE_TEST_IMAGE=$(docker image inspect node:24-bookworm-slim --format '{{index .RepoDigests 0}}') \
+            cargo test --locked --test node_packaging_docker -- --ignored --nocapture
       - name: Caddy authenticated web journey
         if: ${{ !cancelled() }}
         run: |

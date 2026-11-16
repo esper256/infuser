@@ -26,7 +26,7 @@ subtle = "2"
 rusqlite = { version = "0.42", default-features = false, features = ["bundled", "cache", "fallible_uint"] }
 tower = { version = "0.5", features = ["util", "limit"] }
 tower-http = { version = "0.7", features = ["fs"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "net", "signal", "sync", "io-util"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "net", "signal", "sync", "io-util", "fs"] }
 toml = "1.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

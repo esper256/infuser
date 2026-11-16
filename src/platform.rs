@@ -97,6 +97,8 @@ pub struct Reaction {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Data {
     #[serde(skip)]
+    pub server_builds: BTreeMap<String, crate::server_package::Job>,
+    #[serde(skip)]
     pub groups: groups::Groups,
     #[serde(skip)]
     pub metadata: BTreeMap<String, GameMetadata>,
@@ -122,6 +124,12 @@ pub struct Data {
 // live separately so an old binary rewriting that catalog cannot erase them.
 pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     let mut data: Data = serde_json::from_str(raw)?;
+    let mut jobs = c.prepare("SELECT build_key,declaration FROM server_builds")?;
+    for row in jobs.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (key, declaration) = row?;
+        data.server_builds
+            .insert(key, serde_json::from_str(&declaration)?);
+    }
     data.metadata = metadata::read(c)?;
     let policy: String = c.query_row("SELECT data FROM private_groups WHERE id=1", [], |r| {
         r.get(0)
@@ -164,6 +172,19 @@ pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
     Ok(data)
 }
 fn encode_catalog(tx: &Transaction<'_>, data: &Data) -> Result<String> {
+    for (key, job) in &data.server_builds {
+        tx.execute("INSERT INTO server_builds(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![key,serde_json::to_string(job)?])?;
+    }
+    let job_keys = {
+        let mut stmt = tx.prepare("SELECT build_key FROM server_builds")?;
+        stmt.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for key in job_keys {
+        if !data.server_builds.contains_key(&key) {
+            tx.execute("DELETE FROM server_builds WHERE build_key=?1", [key])?;
+        }
+    }
     tx.execute(
         "UPDATE private_groups SET data=?1 WHERE id=1",
         [serde_json::to_string(&data.groups)?],
@@ -268,6 +289,7 @@ impl Database {
         crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS server_builds(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS runtime_manifests(build_key TEXT PRIMARY KEY, server_start TEXT NOT NULL);")?;
         c.execute(

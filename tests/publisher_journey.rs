@@ -13,6 +13,8 @@ use std::{
 };
 use tokio::{io::AsyncWriteExt, net::TcpListener, process::Command};
 use tokio_rustls::{TlsAcceptor, rustls};
+#[path = "support/packager.rs"]
+mod packaging;
 
 struct TlsListener(TcpListener, TlsAcceptor);
 impl axum::serve::Listener for TlsListener {
@@ -71,10 +73,17 @@ fn succeeded(output: Output) -> Result<String> {
 async fn connect_publish_update_existing_web_project() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let root = temp.path();
-    let cfg: Config = toml::from_str(&format!(
+    let mut cfg: Config = toml::from_str(&format!(
         "[controller]\nstate_dir={:?}\ndisk_reserve_mb=64",
         root.join("server").display().to_string()
     ))?;
+    cfg.controller.node_packaging = Some(infuser::server_package::Settings {
+        images: std::collections::BTreeMap::from([(
+            "24".into(),
+            format!("node@sha256:{}", "a".repeat(64)),
+        )]),
+        image_budget_mb: 2048,
+    });
     platform::member(&cfg, "kid@example.com", "Player", false, true)?;
     let controller = Arc::new(Controller::open(
         cfg.clone(),
@@ -82,7 +91,15 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
             settings: cfg.controller.clone(),
         }),
     )?);
-    let p = portal::Platform::open(controller)?;
+    let packager = Arc::new(packaging::Packager::default());
+    let p = portal::Platform::open(controller)?.with_packager(packager.clone());
+    let packaging = p.clone();
+    let _worker = Running(tokio::spawn(async move {
+        loop {
+            packaging.packaging_step().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }));
     let db = p.db.clone();
     let token = infuser::store::secret();
     db.edit(|d| {
@@ -248,5 +265,71 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
     assert!(!cli(root, &publish, None).await?.status.success());
     assert_eq!(db.read()?.apps["existing-game"].build, second);
     assert_eq!(std::fs::read(root.join(connection))?, original);
+    std::fs::remove_file(export.join("oops.credentials.json"))?;
+    // The same agent upgrades this existing game to dedicated multiplayer. No
+    // Docker installation, new game identity or new credential is involved.
+    let source = project.join("game server");
+    std::fs::create_dir(&source)?;
+    std::fs::write(
+        source.join("package.json"),
+        r#"{"name":"fixture","version":"1.0.0"}"#,
+    )?;
+    std::fs::write(
+        source.join("package-lock.json"),
+        r#"{"name":"fixture","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"fixture","version":"1.0.0"}}}"#,
+    )?;
+    std::fs::write(source.join("server.js"), "// fixture server")?;
+    let owner = platform::hash("kid@example.com");
+    db.save_write(&owner, "existing-game", "progress", 0, &json!({"level":7}))?;
+    let mut settings: Value =
+        serde_json::from_slice(&std::fs::read(project.join("infuser.game.json"))?)?;
+    settings["play_modes"] = json!(["solo", "multiplayer"]);
+    settings["solo_runtime"] = json!("shared_server");
+    settings["server_start"] = json!("on_demand");
+    settings["multiplayer"] =
+        json!({"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"});
+    settings["server"] =
+        json!({"runtime":"node","node_major":24,"dir":"game server","entry":"server.js"});
+    std::fs::write(
+        project.join("infuser.game.json"),
+        serde_json::to_vec(&settings)?,
+    )?;
+    let output = succeeded(cli(root, &publish, None).await?)?;
+    assert!(output.contains("Server: ready"));
+    let upgraded = db.read()?;
+    assert_eq!(upgraded.apps.len(), 1);
+    let active = &upgraded.apps["existing-game"].build;
+    assert_ne!(active, &second);
+    assert_eq!(
+        upgraded.builds[&format!("existing-game/{active}")]
+            .manifest
+            .play_modes
+            .len(),
+        2
+    );
+    assert!(
+        upgraded.builds[&format!("existing-game/{active}")]
+            .server
+            .is_some()
+    );
+    assert_eq!(
+        upgraded.server_builds[&format!("existing-game/{active}")].state,
+        infuser::server_package::Phase::Ready
+    );
+    assert!(!content.join(active).join("server.js").exists());
+    assert_eq!(
+        db.save_read(&owner, "existing-game", "progress")?.1,
+        json!({"level":7})
+    );
+    assert_eq!(std::fs::read(root.join(connection))?, original);
+    packager
+        .fail_next
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(!cli(root, &publish, None).await?.status.success());
+    assert_eq!(
+        &db.read()?.apps["existing-game"].build,
+        active,
+        "failed server check must preserve the old client/server pair"
+    );
     Ok(())
 }

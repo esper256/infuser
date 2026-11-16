@@ -53,9 +53,10 @@ Copy the complete example from the matching multiplayer recipe.
   fallback, even when LAN or direct internet connections work. Use the
   [browser peer SDK](peer-hosting.md), Godot adapter, or PeerJS adapter as appropriate.
   Test with relay forced; LAN-only and direct-only networking are unsupported.
-- **Dedicated / persistent world:** one managed server per game. Advanced server
-  configuration is available through the [publishing API](public-api.md); automatic
-  engine-server packaging is not. Use [on-demand sessions](runtime-sessions.md)
+- **Dedicated / persistent world:** one managed server per game. Plain Node HTTP/WebSocket
+  games can use the [Node server recipe](engines/node-server.md) when advertised by
+  the installation. Other runtimes and persistent worlds use the advanced staged-image
+  [publishing API](public-api.md). Use [on-demand sessions](runtime-sessions.md)
   when the title screen or single-player mode does not need the backend.
 - The separate `relayed` datagram/WebSocket mode is **not implemented**.
 

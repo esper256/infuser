@@ -47,6 +47,8 @@ pub struct Settings {
     pub peerjs_port: Option<u16>,
     /// Required before creating groups; older binaries reject this configuration.
     pub private_groups: bool,
+    /// Optional managed Node source packaging; older daemons reject this setting.
+    pub node_packaging: Option<crate::server_package::Settings>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -84,6 +86,7 @@ impl Default for Settings {
             turn: None,
             peerjs_port: None,
             private_groups: false,
+            node_packaging: None,
         }
     }
 }
@@ -114,6 +117,20 @@ pub struct Game {
     /// Web servers are loopback-only and reached through Caddy at ID-server.DOMAIN.
     #[serde(default)]
     pub web: bool,
+    #[serde(default, skip_serializing_if = "NetworkPolicy::is_default")]
+    pub network: NetworkPolicy,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkPolicy {
+    #[default]
+    Internet,
+    Internal,
+}
+impl NetworkPolicy {
+    fn is_default(&self) -> bool {
+        *self == Self::Internet
+    }
 }
 fn memory() -> u64 {
     256
@@ -182,6 +199,14 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
+        if let Some(packaging) = &s.node_packaging {
+            packaging.validate()?;
+            ensure!(
+                s.memory_budget_mb >= crate::server_package::BUILD_MEMORY_MB
+                    && s.cpu_budget_millis >= crate::server_package::BUILD_CPU_MILLIS,
+                "host budget must accommodate one Node packaging worker"
+            );
+        }
         if let Some(port) = s.peerjs_port {
             ensure!(s.turn.is_some(), "PeerJS requires TURN");
             ensure!(

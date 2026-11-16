@@ -1,0 +1,84 @@
+# Browser game with a Node server
+
+Use this preview recipe for plain JavaScript servers using HTTP/WebSocket, including
+Three.js games using `ws`. Keep the game's networking messages and room logic.
+The publisher uploads the client and server together; the author needs no Docker.
+
+First read `/api/publisher/capabilities`. Require `server_packaging.enabled: true`
+and a supported `node_major` from its recipes. If unavailable, report that specific
+blocker. Do not relabel a server-backed game as client-only single-player.
+
+## Prepare the existing game
+
+Keep the public export and server source in separate folders. Do not put server
+source, credentials or environment files in the public export. The server folder
+contains its entry file, `package.json`, `package-lock.json`, and required local
+modules. Do not upload `node_modules`.
+
+The server listens on `process.env.PORT` on `0.0.0.0`. Its health endpoint returns
+HTTP 200 once it can accept connections. It must start without platform credentials
+for the isolated readiness probe and normal standalone development. Handle SIGTERM
+and keep temporary files under `/tmp`; this first recipe has no persistent world
+volume. Personal cloud saves remain a separate game integration.
+
+Example `infuser.game.json` additions:
+
+```json
+{
+  "web_dir": "public",
+  "play_modes": ["solo", "multiplayer"],
+  "solo_runtime": "shared_server",
+  "server_start": "on_demand",
+  "multiplayer": {
+    "mode": "dedicated",
+    "transport": "websocket",
+    "max_players": 8,
+    "join_policy": "anytime"
+  },
+  "server": {
+    "runtime": "node",
+    "node_major": 24,
+    "dir": "server",
+    "entry": "server.js",
+    "health_path": "/healthz"
+  }
+}
+```
+
+Merge this into the existing declaration, preserving title, SDK, saves, tags and
+artwork. Use `client_only` when single-player genuinely needs no backend. A game can
+add multiplayer in an update under the same app ID and publishing credential.
+
+Use [on-demand runtime sessions](../runtime-sessions.md) when the player chooses to
+start a run. Wait for `ready`, then connect to the returned endpoint using WebSocket
+(`wss:`), with a trailing `/` at `/_infuser/server/`. Keep SDK heartbeats running.
+Disconnect and release the backend lease on returning to the title screen.
+Use the [optional integration helper](../../sdk/optional.js) to retain standalone
+play. A failed Infuser launch must not fall back to an unrelated public server.
+
+Publish normally:
+
+```sh
+infuser publish .local/game.credentials.json /path/to/project
+```
+
+The CLI reports the build ID and packaging state, waits for readiness checks, then
+publishes the matched client/server pair. A failure leaves the current release
+active. The agent can inspect `/api/publisher/apps/APP/builds/BUILD/server-build`;
+do not request another setup code for a packaging error. Fix source in a new build.
+An interrupted build can retry its sealed inputs by POSTing that same URL.
+
+The recipe installs registry dependencies from npm lockfiles v2/v3, offline, with
+install scripts disabled. It does not support native compilation, Git/local/URL
+dependencies, workspaces, project npm configuration or external backend services.
+Managed servers can reach the provided Infuser API URL but have no Internet egress.
+The [advanced staged-image route](../public-api.md) remains available for other needs.
+
+This slice supplies packaging and hosting. Dedicated-server presence and Join Friend
+are separate capabilities; do not declare peer-hosted features for a dedicated game
+or trust identity headers that this preview has not promised to verify. The existing
+`/api/server/verify` contract can verify game tickets when player identity is needed.
+
+Use the [dedicated fixture](../../examples/dedicated-node) to test cold startup,
+multiple connections, guest launches, reconnection, idle shutdown and updates.
+Report platform failures using [the agent issue instructions](../agents.md#reporting-platform-problems).

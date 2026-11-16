@@ -24,7 +24,8 @@ the SDK is changing. The happy path starts with a game project, not a Dockerfile
 **Infuser** is the website; **Infuser Play** is the native app. Infuser Play handles native downloads, updates and guest saves;
 native multiplayer and managed Godot server packaging remain studies.
 Experimental [WebRTC peer hosting](docs/peer-hosting.md) uses a shared coturn relay.
-Custom server images currently need operator staging. Peer-hosted
+Plain Node/WebSocket servers have a capability-gated [managed packaging recipe](docs/engines/node-server.md).
+Other custom server images currently need operator staging. Peer-hosted
 multiplayer must have relay fallback; direct-only networking is unsupported.
 
 ```sh

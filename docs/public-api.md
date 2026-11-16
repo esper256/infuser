@@ -36,6 +36,8 @@ or control the host. Admin revocation and member disabling take effect immediate
 | PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
 | GET | same | Inspect metadata and uploaded file inventory |
 | PUT | `/api/publisher/apps/APP/builds/BUILD/files/PATH` | Upload raw file body |
+| PUT | `/api/publisher/apps/APP/builds/BUILD/server/files/PATH` | Upload private managed-server source |
+| POST / GET | `/api/publisher/apps/APP/builds/BUILD/server-build` | Seal/queue server packaging, or inspect its state/logs |
 | POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for adult-only preview |
 | DELETE | `/api/publisher/apps/APP/builds/BUILD` | Remove an unused build |
 | DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |
@@ -44,6 +46,11 @@ The capabilities `architecture` field describes the **server**, not the agent
 machine. Choose a CLI download using the machine running the publishing tool.
 
 Create body: `{"manifest":MANIFEST,"server":null,"spa":false,"cross_origin_isolation":false}`.
+When `server_packaging.enabled` is advertised, `server_recipe` can replace the
+advanced `server` image object. See [managed packaging](server-packaging.md) and
+the [Node agent recipe](engines/node-server.md). These two server inputs are mutually
+exclusive. Server source never enters the public web export. Finalize packaging
+after uploading both client and server files; publish only when its state is `ready`.
 Claim is the exception to bearer authentication: send `{"token":"HEX_SECRET","app_id":"APP"}`,
 stripping the `infuser_setup_` prefix from the copyable code. Success returns the
 connection file; replay fails with 401 and an expired code with 410. A replacement
@@ -232,7 +239,8 @@ be listed/revoked under `/api/native/v1/devices`; an app can revoke its own key 
 `POST /api/native/v1/device/revoke`. Game agents should use `infuser publish` and
 the engine adapter rather than implementing this companion protocol themselves.
 
-Automatic engine-server packaging, build queues and multi-branch previews remain
-out of scope. An admin-only preview is an app visibility setting; it does not
+Managed Node source packaging has a bounded, durable build queue when enabled.
+Other engine recipes and multi-branch previews remain out of scope.
+An admin-only preview is an app visibility setting; it does not
 create a second server. Guest browser/native directories and cloud saves are
 isolated; server games must honor the returned guest identity.

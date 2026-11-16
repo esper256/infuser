@@ -61,6 +61,15 @@ pub struct State {
     pub games: BTreeMap<String, Instance>,
     #[serde(default)]
     pub published_games: BTreeMap<String, Game>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_reservation: Option<BuildReservation>,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BuildReservation {
+    pub job: String,
+    pub memory_mb: u64,
+    pub cpu_millis: u64,
 }
 
 pub struct Store {
@@ -90,6 +99,7 @@ impl Store {
                 owner: secret()[..16].into(),
                 games: BTreeMap::new(),
                 published_games: BTreeMap::new(),
+                build_reservation: None,
             }
         };
         ensure!(state.version == 1, "unsupported state version");

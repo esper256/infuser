@@ -176,13 +176,49 @@ impl Controller {
     }
 
     fn usage(state: &State) -> (u64, u64) {
-        state
-            .games
-            .values()
-            .filter(|i| i.reserved())
-            .fold((0, 0), |(m, c), i| {
-                (m + i.spec.memory_mb, c + i.spec.cpu_millis)
-            })
+        state.games.values().filter(|i| i.reserved()).fold(
+            state
+                .build_reservation
+                .as_ref()
+                .map(|r| (r.memory_mb, r.cpu_millis))
+                .unwrap_or((0, 0)),
+            |(m, c), i| (m + i.spec.memory_mb, c + i.spec.cpu_millis),
+        )
+    }
+
+    /// Packaging shares the same admission lock as games. Persist the reservation
+    /// until its containers are removed, including across controller restarts.
+    pub fn reserve_build(&self, job: &str, memory_mb: u64, cpu_millis: u64) -> Result<bool> {
+        self.mutate(|state| {
+            if state.build_reservation.is_some() {
+                return Ok(false);
+            }
+            let (memory, cpu) = Self::usage(state);
+            if memory.saturating_add(memory_mb) > self.config.controller.memory_budget_mb
+                || cpu.saturating_add(cpu_millis) > self.config.controller.cpu_budget_millis
+            {
+                return Ok(false);
+            }
+            state.build_reservation = Some(crate::store::BuildReservation {
+                job: job.into(),
+                memory_mb,
+                cpu_millis,
+            });
+            Ok(true)
+        })
+    }
+    pub fn release_build(&self, job: &str) -> Result<()> {
+        self.mutate(|state| {
+            ensure!(
+                state
+                    .build_reservation
+                    .as_ref()
+                    .is_none_or(|r| r.job == job),
+                "packaging reservation belongs to another job"
+            );
+            state.build_reservation = None;
+            Ok(())
+        })
     }
 
     pub async fn recover(&self) -> Result<()> {

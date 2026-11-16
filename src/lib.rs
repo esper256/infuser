@@ -10,6 +10,7 @@ pub mod launch_intent;
 pub mod manifest;
 pub mod native;
 pub mod sdk_contract;
+pub mod server_package;
 pub mod store;
 pub mod tags;
 pub mod updater;

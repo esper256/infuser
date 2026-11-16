@@ -201,6 +201,32 @@ pub async fn run(args: &[String]) -> Result<()> {
     }
     let parsed: crate::manifest::Manifest = serde_json::from_value(manifest.clone())?;
     parsed.validate()?;
+    let mut server = settings.get("server").cloned().unwrap_or(Value::Null);
+    let mut server_source = None;
+    let mut recipe = None;
+    if server.get("runtime").is_some() {
+        let dir = server
+            .get("dir")
+            .and_then(Value::as_str)
+            .context("managed server needs dir pointing at its source folder")?
+            .to_owned();
+        server
+            .as_object_mut()
+            .context("server must be an object")?
+            .remove("dir");
+        let declaration: crate::server_package::Recipe = serde_json::from_value(server)?;
+        let source = project
+            .join(dir)
+            .canonicalize()
+            .context("server source directory does not exist")?;
+        ensure!(
+            source.is_dir() && source.starts_with(&project),
+            "server dir must be inside this project"
+        );
+        recipe = Some(declaration);
+        server_source = Some(source);
+        server = Value::Null;
+    }
     let capabilities = response(
         http.get(format!("{api}/api/publisher/capabilities"))
             .bearer_auth(&connection.token)
@@ -208,6 +234,24 @@ pub async fn run(args: &[String]) -> Result<()> {
             .await?,
     )
     .await?;
+    if let Some(recipe) = &recipe {
+        let packaging = &capabilities["server_packaging"];
+        ensure!(
+            packaging["version"] == 1 && packaging["enabled"] == true,
+            "this Infuser has not enabled managed server packaging yet"
+        );
+        ensure!(
+            packaging["recipes"]
+                .as_array()
+                .is_some_and(
+                    |recipes| recipes.iter().any(|r| r["runtime"] == recipe.runtime
+                        && r["node_majors"]
+                            .as_array()
+                            .is_some_and(|versions| versions.contains(&json!(recipe.node_major))))
+                ),
+            "requested Node recipe/version is unavailable on this Infuser"
+        );
+    }
     if let Some(sdk) = &parsed.sdk {
         sdk.admit(&capabilities["sdk"])?;
     }
@@ -337,6 +381,7 @@ pub async fn run(args: &[String]) -> Result<()> {
     } else {
         project.clone()
     };
+    let export = export.canonicalize()?;
     ensure!(
         export.join("index.html").is_file(),
         "export needs index.html; use --web-dir to point at the built web folder"
@@ -344,6 +389,45 @@ pub async fn run(args: &[String]) -> Result<()> {
     // Upload the export only. The project, node_modules and credentials never leave this machine.
     let mut files = Vec::new();
     walk(&export, &export, &mut files)?;
+    let mut server_files = Vec::new();
+    if let Some(source) = &server_source {
+        let web = export.canonicalize()?;
+        ensure!(
+            &web != source,
+            "web export and server source must be separate directories; set web_dir to the public client export"
+        );
+        files.retain(|(_, path)| !path.starts_with(source));
+        walk(source, source, &mut server_files)?;
+        server_files.retain(|(_, path)| !path.starts_with(&web));
+        ensure!(server_files.len() <= 4096, "too many server source files");
+        let mut server_bytes = 0;
+        for (name, path) in &server_files {
+            ensure!(
+                crate::server_package::source_path(name),
+                "exclude unsupported file from server source: {name}"
+            );
+            let size = path.metadata()?.len();
+            ensure!(
+                size <= crate::server_package::SOURCE_FILE_BYTES as u64,
+                "server source file exceeds 8 MiB: {name}"
+            );
+            server_bytes += size;
+        }
+        ensure!(
+            server_bytes <= crate::server_package::SOURCE_BYTES,
+            "server source exceeds 64 MiB"
+        );
+        let recipe = recipe.as_ref().unwrap();
+        ensure!(
+            server_files.iter().any(|(name, _)| name == &recipe.entry),
+            "server entry file is missing from its source folder"
+        );
+        crate::server_package::dependencies(
+            &std::fs::read(source.join("package.json"))?,
+            &std::fs::read(source.join("package-lock.json"))?,
+        )?;
+        server_files.sort_by(|a, b| a.0.cmp(&b.0));
+    }
     if let Some(native) = &native {
         files.retain(|(name, _)| !name.starts_with("infuser-native/"));
         walk(native.path(), native.path(), &mut files)?;
@@ -395,7 +479,10 @@ pub async fn run(args: &[String]) -> Result<()> {
     let isolated = settings["cross_origin_isolation"]
         .as_bool()
         .unwrap_or(engine == "godot" || files.iter().any(|(n, _)| n.ends_with(".pck")));
-    let body = json!({"manifest":manifest,"server":settings.get("server").cloned().unwrap_or(Value::Null),"spa":settings["spa"].as_bool().unwrap_or(engine=="vite"),"cross_origin_isolation":isolated});
+    let mut body = json!({"manifest":manifest,"server":server,"spa":settings["spa"].as_bool().unwrap_or(engine=="vite"),"cross_origin_isolation":isolated});
+    if let Some(recipe) = &recipe {
+        body["server_recipe"] = serde_json::to_value(recipe)?;
+    }
     response(
         http.put(&build_url)
             .bearer_auth(&connection.token)
@@ -443,6 +530,67 @@ pub async fn run(args: &[String]) -> Result<()> {
         )
         .await
         .with_context(|| format!("upload {name}"))?;
+    }
+    if recipe.is_some() {
+        println!("Uploading {} server source files…", server_files.len());
+        for (name, path) in server_files {
+            let mut url = reqwest::Url::parse(&format!("{build_url}/server/files/"))?;
+            url.path_segments_mut()
+                .map_err(|_| anyhow::anyhow!("invalid server upload URL"))?
+                .pop_if_empty()
+                .extend(name.split('/'));
+            response(
+                http.put(url)
+                    .bearer_auth(&connection.token)
+                    .header("content-type", "application/octet-stream")
+                    .body(std::fs::read(path)?)
+                    .send()
+                    .await?,
+            )
+            .await
+            .with_context(|| format!("upload server/{name}"))?;
+        }
+        let job_url = format!("{build_url}/server-build");
+        let mut job = response(
+            http.post(&job_url)
+                .bearer_auth(&connection.token)
+                .send()
+                .await?,
+        )
+        .await?;
+        println!("Server packaging queued. Build: {build}");
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(900);
+        let mut last_state = String::new();
+        loop {
+            let state = job["state"]
+                .as_str()
+                .context("server-build response missing state")?;
+            if state != last_state {
+                println!("Server: {state}");
+                last_state = state.to_owned();
+            }
+            if state == "ready" {
+                break;
+            }
+            ensure!(
+                state != "failed",
+                "server packaging failed for {build}: {}\n{}",
+                job["error"].as_str().unwrap_or("unknown error"),
+                job["logs"].as_str().unwrap_or("")
+            );
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "server packaging is still pending; inspect {job_url} with the same credentials, then publish this build when ready. The current game is unchanged."
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            job = response(
+                http.get(&job_url)
+                    .bearer_auth(&connection.token)
+                    .send()
+                    .await?,
+            )
+            .await?;
+        }
     }
     let promotion = response(
         http.post(format!("{build_url}/publish"))

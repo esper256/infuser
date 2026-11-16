@@ -173,12 +173,7 @@ pub(super) async fn put_art(
     let d = p.db.read()?;
     ensure!(d.apps.contains_key(&app), fault(404, "unknown game"));
     let prior = d.metadata.get(&app).map_or(0, |m| m.card_art_bytes);
-    let total = d
-        .builds
-        .values()
-        .flat_map(|b| b.files.values())
-        .sum::<u64>()
-        + d.metadata.values().map(|m| m.card_art_bytes).sum::<u64>();
+    let total = super::server_builds::content_bytes(&d);
     let size = body.len() as u64;
     ensure!(
         total - prior + size <= p.config().controller.content_budget_mb * 1024 * 1024,

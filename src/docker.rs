@@ -162,8 +162,16 @@ impl Docker {
         );
         if let Some(network) = self.object("network", &instance.name).await? {
             Self::owned(&network, "network", owner, id, Some(&instance.attempt))?;
+            ensure!(
+                network["Internal"]
+                    == (instance.spec.network == crate::config::NetworkPolicy::Internal),
+                "game network policy mismatch"
+            );
         } else {
-            self.cmd(&[
+            let owner_label = format!("{OWNER}={owner}");
+            let game_label = format!("{GAME}={id}");
+            let attempt_label = format!("{ATTEMPT}={}", instance.attempt);
+            let mut args = vec![
                 "network",
                 "create",
                 "--driver",
@@ -171,14 +179,17 @@ impl Docker {
                 "--opt",
                 "com.docker.network.bridge.enable_icc=false",
                 "--label",
-                &format!("{OWNER}={owner}"),
+                &owner_label,
                 "--label",
-                &format!("{GAME}={id}"),
+                &game_label,
                 "--label",
-                &format!("{ATTEMPT}={}", instance.attempt),
+                &attempt_label,
                 &instance.name,
-            ])
-            .await?;
+            ];
+            if instance.spec.network == crate::config::NetworkPolicy::Internal {
+                args.insert(2, "--internal");
+            }
+            self.cmd(&args).await?;
         }
         if instance.spec.persistent {
             let name = format!("infuser-{owner}-{id}-data");
@@ -247,6 +258,8 @@ impl Docker {
             &format!("INFUSER_GAME_ID={id}"),
             "--env",
             &format!("INFUSER_PORT={}", g.container_port),
+            "--env",
+            &format!("PORT={}", g.container_port),
             "--env",
             "INFUSER_DATA_DIR=/data",
         ]
@@ -347,7 +360,28 @@ impl Engine for Docker {
             Self::owned(v, "container", owner, id, Some(&i.attempt))?;
         } else {
             self.prepare(id, i, owner).await?;
-            self.run(&self.create_args(id, i, owner), 20).await?;
+            let mut args = self.create_args(id, i, owner);
+            if i.spec.network == crate::config::NetworkPolicy::Internal {
+                let network = self
+                    .object("network", &i.name)
+                    .await?
+                    .context("game network disappeared")?;
+                let gateway: std::net::Ipv4Addr = network["IPAM"]["Config"][0]["Gateway"]
+                    .as_str()
+                    .context("internal game gateway missing")?
+                    .parse()?;
+                let at = args.len() - 1;
+                args.splice(
+                    at..at,
+                    [
+                        "--add-host".into(),
+                        format!("{}:{gateway}", self.settings.domain),
+                        "--dns".into(),
+                        "127.0.0.1".into(),
+                    ],
+                );
+            }
+            self.run(&args, 20).await?;
             object = self.object("container", &i.name).await?;
         }
         if object

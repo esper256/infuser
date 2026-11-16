@@ -255,6 +255,16 @@ async fn main() -> Result<()> {
         "Infuser API listening on loopback"
     );
     let platform = infuser::portal::Platform::open(controller.clone())?;
+    platform.recover_packaging().await?;
+    let packaging = platform.clone();
+    let package_worker = tokio::spawn(async move {
+        loop {
+            if let Err(error) = packaging.packaging_step().await {
+                tracing::warn!(%error, "server packaging paused; owned resources remain reserved until cleanup succeeds");
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
     let runner = controller.clone();
     let publications = platform.clone();
     let notifications = platform.clone();
@@ -293,6 +303,7 @@ async fn main() -> Result<()> {
         tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
     });
     tokio::select! {
+        result = package_worker => { result?; anyhow::bail!("server packaging worker stopped"); },
         result = push_worker => { result?; anyhow::bail!("notification worker stopped"); },
         result = server => { result?; },
         result = background => { result??; bail!("controller loop stopped"); }

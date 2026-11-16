@@ -70,6 +70,6 @@ hosted cloud write must never silently switch to local saves.
 For multiplayer, declare the real mode and transport in `infuser.game.json` and
 check capabilities first. Do not label an online game solo to get it published.
 Use [WebRTC peers](../peer-hosting.md) or the [PeerJS adapter](../peerjs.md) for
-compatible peer-hosted games. Dedicated WebSocket servers require explicit
-[managed server settings](../public-api.md); automatic engine-server packaging
-is not implemented.
+compatible peer-hosted games. For a Node/WebSocket backend, use the
+[managed Node recipe](node-server.md) when the installation advertises it.
+Other server runtimes still use [staged images](../public-api.md).

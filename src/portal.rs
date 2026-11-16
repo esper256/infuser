@@ -46,6 +46,7 @@ mod presence;
 mod pwa;
 mod runtime;
 mod sdk_v1;
+mod server_builds;
 mod urls;
 
 pub fn fault(status: u16, message: &str) -> anyhow::Error {
@@ -113,6 +114,7 @@ pub struct Platform {
     peerjs_sockets: Arc<Mutex<std::collections::BTreeSet<String>>>,
     push: Arc<crate::notifications::Push>,
     push_dispatch: Arc<tokio::sync::Mutex<()>>,
+    packager: Arc<dyn crate::server_package::worker::Engine>,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -147,6 +149,9 @@ impl Platform {
             0
         };
         Ok(Self {
+            packager: Arc::new(crate::server_package::worker::DockerWorker {
+                settings: controller.config.controller.clone(),
+            }),
             feedback_lock: Default::default(),
             push: Arc::new(crate::notifications::Push::open(
                 &controller.config.controller.state_dir,
@@ -433,6 +438,16 @@ pub fn router(platform: Platform) -> Router {
         .route(
             "/api/publisher/apps/{app}/builds/{build}/publish",
             post(publish),
+        )
+        .route(
+            "/api/publisher/apps/{app}/builds/{build}/server/files/{*path}",
+            put(server_builds::upload).layer(DefaultBodyLimit::max(
+                crate::server_package::SOURCE_FILE_BYTES,
+            )),
+        )
+        .route(
+            "/api/publisher/apps/{app}/builds/{build}/server-build",
+            get(server_builds::status).post(server_builds::start),
         )
         .layer(axum::middleware::from_fn_with_state(
             platform.clone(),
@@ -976,7 +991,7 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"game_metadata":{"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"server_packaging":server_builds::capabilities(&p),"game_metadata":{"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -984,6 +999,7 @@ async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
 struct BuildRequest {
     manifest: Manifest,
     server: Option<Game>,
+    server_recipe: Option<crate::server_package::Recipe>,
     #[serde(default)]
     spa: bool,
     #[serde(default)]
@@ -1003,6 +1019,26 @@ async fn create_build(
     body.manifest
         .validate()
         .map_err(|e| fault(400, &e.to_string()))?;
+    ensure!(
+        body.server.is_none() || body.server_recipe.is_none(),
+        fault(400, "provide server or server_recipe, not both")
+    );
+    if let Some(recipe) = &body.server_recipe {
+        recipe
+            .validate(p.config())
+            .map_err(|e| fault(422, &e.to_string()))?;
+        ensure!(
+            body.manifest
+                .multiplayer
+                .as_ref()
+                .is_none_or(|m| m.mode == Mode::Dedicated
+                    && m.transport == crate::manifest::Transport::Websocket),
+            fault(
+                422,
+                "the Node recipe currently supports ephemeral dedicated WebSocket servers"
+            )
+        );
+    }
     if let Some(sdk) = &body.manifest.sdk {
         sdk.admit(&crate::sdk_contract::with_peerjs(
             p.relay.is_some(),
@@ -1034,7 +1070,7 @@ async fn create_build(
         .is_some_and(|m| matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld))
         || matches!(body.manifest.solo_runtime, Some(SoloRuntime::SharedServer));
     ensure!(
-        needs_server == body.server.is_some(),
+        needs_server == (body.server.is_some() || body.server_recipe.is_some()),
         fault(
             400,
             "server configuration must match the declared play modes"
@@ -1066,7 +1102,7 @@ async fn create_build(
     p.db.edit(|d| {
         let key = build_key(&app, &build);
         ensure!(
-            !d.builds.contains_key(&key),
+            !d.builds.contains_key(&key) && !d.server_builds.contains_key(&key),
             fault(
                 409,
                 "build already exists; inspect it or choose a new immutable build ID"
@@ -1084,7 +1120,7 @@ async fn create_build(
             )
         );
         d.builds.insert(
-            key,
+            key.clone(),
             Build {
                 manifest: body.manifest,
                 server: body.server,
@@ -1095,6 +1131,10 @@ async fn create_build(
                 files: BTreeMap::new(),
             },
         );
+        if let Some(recipe) = body.server_recipe {
+            d.server_builds
+                .insert(key, crate::server_package::Job::new(recipe));
+        }
         Ok(())
     })?;
     Ok(reply(
@@ -1113,6 +1153,9 @@ async fn build_status(
         .get(&build_key(&app, &build))
         .ok_or_else(|| fault(404, "unknown build"))?;
     let mut result = json!(b);
+    if let Some(job) = d.server_builds.get(&build_key(&app, &build)) {
+        result["server_build"] = json!({"state":job.state,"error":job.error});
+    }
     result["publication_state"] = json!(if d
         .pending_promotions
         .get(&app)
@@ -1147,6 +1190,15 @@ async fn upload(
         .get(&key)
         .ok_or_else(|| fault(404, "create the build first"))?;
     ensure!(!b.ready, fault(409, "published builds are immutable"));
+    ensure!(
+        data.server_builds
+            .get(&key)
+            .is_none_or(|j| j.state == crate::server_package::Phase::Uploading),
+        fault(
+            409,
+            "paired build inputs are sealed; upload a new build to change them"
+        )
+    );
     if path == crate::card_art::PATH {
         crate::card_art::validate(&body).map_err(|e| fault(422, &format!("{e:#}")))?;
     }
@@ -1161,17 +1213,7 @@ async fn upload(
         fault(413, "build exceeds 256 MiB")
     );
     ensure!(
-        data.builds
-            .values()
-            .flat_map(|b| b.files.values())
-            .sum::<u64>()
-            + data
-                .metadata
-                .values()
-                .map(|m| m.card_art_bytes)
-                .sum::<u64>()
-            - prior
-            + size
+        server_builds::content_bytes(&data) - prior + size
             <= p.config().controller.content_budget_mb * 1024 * 1024,
         fault(507, "installation content budget is full")
     );
@@ -1228,6 +1270,7 @@ impl Platform {
         let key = build_key(app, build);
         self.db.edit(|d| {
             let b = d.builds.get(&key).ok_or_else(|| fault(404,"unknown build"))?.clone();
+            anyhow::ensure!(d.server_builds.get(&key).is_none_or(|j| j.state == crate::server_package::Phase::Ready && b.server.is_some()),fault(409,"server packaging has not passed readiness checks"));
             anyhow::ensure!(b.files.contains_key("index.html"), fault(422,"web build needs index.html"));
             let index = std::fs::read_to_string(self.root().join(&key).join("index.html"))?;
             if let Some(sdk) = &b.manifest.sdk { sdk.admit(&crate::sdk_contract::with_peerjs(self.relay.is_some(), self.config().controller.peerjs_port.is_some())).map_err(|e|fault(422,&e.to_string()))?; }
@@ -1333,6 +1376,12 @@ async fn remove_build(
                     .values()
                     .any(|l| l.app == app && l.build == build && l.expires > now()),
             fault(409, "build is published, queued or in use")
+        );
+        ensure!(
+            d.server_builds
+                .get(&build_key(&app, &build))
+                .is_none_or(|j| !j.active()),
+            fault(409, "server packaging is still queued or running")
         );
         d.builds.remove(&build_key(&app, &build));
         Ok(())
