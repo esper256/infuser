@@ -131,6 +131,7 @@ test('workflow boundaries keep server release independent and Mac source tied to
     assert.match(workflow, /cancel-in-progress: false/);
     assert.doesNotMatch(workflow, /cancel-in-progress: true|allow-unsafe-pr-checkout|pull_request_target/);
   }
+  assert.match(mac, /group: release-macos-.*workflow_run\.conclusion \|\| 'success'/, 'failed upstream completions use a different queue');
   assert.match(mac, /workflows: \[Build and release\]/);
   assert.match(mac, /workflow_run\.conclusion == 'success'/);
   assert.match(mac, /workflow_run\.head_repository\.full_name == github\.repository/);

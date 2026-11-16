@@ -9,7 +9,8 @@ on:
 
 # Mac capacity never holds up servers. Coalesce bursts without cancelling work.
 concurrency:
-  group: release-macos
+  # Failed/skipped upstream runs must not evict a pending successful build.
+  group: release-macos-${{ github.event.workflow_run.head_branch || github.ref_name }}-${{ github.event.workflow_run.conclusion || 'success' }}
   cancel-in-progress: false
 
 permissions:
