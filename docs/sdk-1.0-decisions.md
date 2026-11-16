@@ -29,7 +29,8 @@ The durable decisions are:
   fresh once, then always resumes the same host-group/game progress on later visits.
   Games created by visitors remain home-owned and become temporarily available to
   the visit automatically. Residents keep chat history; visitors receive only their
-  active admission window. These decisions are accepted but not implemented.
+  active admission window. This is implemented as an opt-in preview; transport
+  limits and remaining hardware acceptance are recorded in the visit design.
 - Player, guest, launch, backend lease, runtime instance, gameplay session and
   connection are distinct identities. Existing IDs and save namespaces retain
   their meanings. All authority is scoped to the authenticated game/private group.

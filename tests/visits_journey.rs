@@ -167,6 +167,7 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         d.groups.names.insert("away".into(), "Away".into());
         d.invite_to_group("away", "visitor@example.com", "Visitor", true, true)?;
         d.invite_to_group("away", "stays@example.com", "Stays home", false, true)?;
+        d.invite_to_group("home", "resident@example.com", "Resident", false, true)?;
         Ok(())
     })?;
     let (url, _server) = serve(portal::router(p.clone())).await?;
@@ -235,6 +236,70 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
     let context = ok(visit_game.call(Method::GET, "/_infuser/context")).await?;
     assert_eq!(context["app_id"], brought);
     assert_ne!(context["deployment_id"], brought);
+    // Visibility and presentation belong to the source game, even if a borrowed
+    // deployment still holds an older release's listing state.
+    let mut art = Vec::new();
+    image_webp::WebPEncoder::new(&mut art).encode(
+        &vec![0; 1024 * 1024 * 3],
+        1024,
+        1024,
+        image_webp::ColorType::Rgb8,
+    )?;
+    p.db.metadata_update(
+        &brought,
+        platform::MetadataUpdate {
+            title: Some(Some("Renamed visit game")),
+            art: Some(Some(&art)),
+            ..Default::default()
+        },
+    )?;
+    let revision = p.db.read()?.metadata[&brought]
+        .card_art_revision
+        .clone()
+        .unwrap();
+    let art_url = format!("/api/apps/{brought}/card-art/{revision}");
+    p.db.edit(|d| {
+        d.apps.get_mut(&brought).unwrap().listed = false;
+        d.deployments
+            .get_mut(context["deployment_id"].as_str().unwrap())
+            .unwrap()
+            .active
+            .listed = false;
+        Ok(())
+    })?;
+    denied(w.member("resident", Method::GET, &art_url)).await?;
+    assert!(
+        !ok(w.member("operator", Method::GET, "/api/library")).await?["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"] == brought)
+    );
+    p.db.edit(|d| {
+        d.apps.get_mut(&brought).unwrap().listed = true;
+        Ok(())
+    })?;
+    assert_eq!(
+        w.member("resident", Method::GET, &art_url)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?
+            .as_ref(),
+        art.as_slice()
+    );
+    assert!(
+        ok(w.member("operator", Method::GET, "/api/operator/visits")).await?["games"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"] == brought && a["title"] == "Renamed visit game")
+    );
+    assert_eq!(
+        ok(visit_game.call(Method::GET, "/_infuser/context")).await?["deployment_id"],
+        context["deployment_id"]
+    );
     assert_eq!(
         ok(visit_game.call(Method::GET, "/_infuser/saves/progress")).await?["data"],
         Value::Null
