@@ -72,7 +72,7 @@ async function run({ github, context, core, dryRun = true, now = Date.now }) {
     if (!result.merged) throw new Error(`#${pr.number}: merge rejected: ${result.message}`);
     core.info(`#${pr.number}: merged ${result.sha}`);
     // GITHUB_TOKEN merges do not trigger push workflows. Explicit dispatch is
-    // supported and preserves release.yml's latest-main behavior unchanged.
+    // supported; release.yml coalesces pending work and prevents release rollback.
     await github.rest.actions.createWorkflowDispatch({
       ...common, workflow_id: 'release.yml', ref: 'main',
     });

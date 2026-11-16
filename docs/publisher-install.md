@@ -9,8 +9,12 @@ the game. Keep the project's engine and build tools; Rust, Docker, and a Linux V
 are not required.
 
 Download the publisher from [Infuser releases](https://github.com/esper256/infuser/releases).
-Prefer the server's release; if it predates Mac downloads, use a newer publisher
-and check `/api/publisher/capabilities` before integrating features. The publisher
+Linux executables are in `build-<commit>` server/Play releases. Mac executables
+are in separate `macos-<commit>` releases (labelled pre-release solely to keep
+them out of server/Play automatic updates). Choose the newest completed Mac
+release, or a matching commit when available; Mac runner delays do not delay
+server releases. Older `build-<commit>` releases may also contain Mac downloads.
+Check `/api/publisher/capabilities` before integrating features. The publisher
 uses the same HTTP API and credentials on every supported publishing platform.
 
 | Agent machine | Release asset |

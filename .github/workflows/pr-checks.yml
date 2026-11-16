@@ -62,6 +62,8 @@ jobs:
             const { run } = require('./.github/scripts/auto-merge.cjs');
             assert.equal(typeof run, 'function');
             assert.equal(typeof github.rest.pulls.list, 'function');
+      - name: Release publication policy tests
+        run: node --test .github/scripts/publish-release.test.cjs
       - name: Create artifact fixture
         run: |
           mkdir -p fixture
