@@ -1,7 +1,7 @@
 // Real browser regression for small upward gestures immediately after opening chat.
 // INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs INFUSER_CHROMIUM=/path/to/chromium node tests/chat_scroll_journey.mjs
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile,mkdir} from 'node:fs/promises';
 const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 const author={id:'friend',name:'OrbitFox',avatar:null};
@@ -20,9 +20,11 @@ try {
   if(path.startsWith('/assets/'))return route.fulfill({body:await readFile(new URL('../web/'+path.slice(8),import.meta.url)),contentType:path.endsWith('.js')?'text/javascript':'text/css'});
   return route.fulfill({body:fixture,contentType:'text/html'});
  });
+ await mkdir(new URL('../.local/presence-chat-review/',import.meta.url),{recursive:true});
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('https://chat.test/');
  await page.waitForFunction(()=>document.querySelectorAll('.chat-message').length===30);
+ assert(await page.locator('#chat-unread').isHidden(),'initial history is read');
  const gap=()=>page.locator('#chat-log').evaluate(e=>e.scrollHeight-e.clientHeight-e.scrollTop);
  const settle=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  async function refresh(){
@@ -36,7 +38,26 @@ try {
   await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
   for(const width of [1280,390,320]){
    await page.setViewportSize({width,height:width===1280?900:844});
+   for(let i=0;i<12;i++)messages.push({id:messages.length+1,author,text:'Unread message '+i,created:Date.now()/1000,can_delete:false});
+   messages.push({id:messages.length+1,author:{id:'me',name:'Me'},text:'My message is not unread',created:Date.now()/1000,can_delete:false});
+   await refresh();
+   assert.equal(await page.locator('#chat-unread').textContent(),'12');
+   assert(await page.locator('#chat-unread').isVisible());
+   assert.match(await page.locator('#chat-toggle').getAttribute('aria-label'),/12 unread messages/);
+   assert.equal(await page.locator('#chat-toggle').evaluate(e=>getComputedStyle(e).animationIterationCount),'infinite');
+   await page.emulateMedia({reducedMotion:'reduce'});
+   assert.equal(await page.locator('#chat-toggle').evaluate(e=>getComputedStyle(e).animationName),'none');
+   await page.screenshot({path:new URL(`../.local/presence-chat-review/chat-unread-${theme}-${width}.png`,import.meta.url).pathname});
+   await page.emulateMedia({reducedMotion:'no-preference'});
    await page.locator('#chat-toggle').click();await settle();
+   assert(await page.locator('#chat-unread').isHidden(),'opening reads the messages');
+   assert.equal(await page.locator('#chat-toggle').evaluate(e=>getComputedStyle(e).animationName),'none');
+   const panel=await page.locator('#chat-panel').boundingBox();
+   assert(Math.abs(panel.width-Math.min(437,width-24))<1);
+   assert(panel.x>=12&&panel.x+panel.width<=width-12&&panel.y+panel.height<=(width===1280?900:844)-11);
+   if(width===1280)assert.equal(panel.height,672);
+   await page.screenshot({path:new URL(`../.local/presence-chat-review/chat-open-${theme}-${width}.png`,import.meta.url).pathname});
+
    assert(await gap()<=1,'opening starts at latest');
    const log=page.locator('#chat-log');await log.hover();
    await page.mouse.wheel(0,-1);await page.waitForTimeout(70);

@@ -35,6 +35,36 @@ await context.route('https://library.test/**',async route=>{
 });
 try {
  await page.goto('https://library.test/library');await page.waitForFunction(()=>window.refreshLibrary);
+ const originalFriends=[...friends];
+ await fs.mkdir(new URL('.local/presence-chat-review/',root),{recursive:true});
+ for(const theme of ['nightglass','cartridge-club']){
+  await page.evaluate(theme=>InfuserThemes.select(theme),theme);
+  for(const count of [6,40]){
+   friends=[...originalFriends,...Array.from({length:count-3},(_,i)=>({id:'extra-'+i,name:'Gamer '+i,avatar:i%2?'moss-knight':'circuit-fox'}))];
+   await page.evaluate(()=>refreshLibrary());
+   for(const width of [1500,1100,900,650,390,320]){
+    await page.setViewportSize({width,height:900});
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const layout=await page.evaluate(()=>{
+     const list=document.querySelector('#friends'),cluster=list.parentElement,chat=document.querySelector('#chat-toggle');
+     const c=cluster.getBoundingClientRect(),l=list.getBoundingClientRect(),t=chat.getBoundingClientRect();
+     const overflow=list.querySelector('.presence-more'),badges=[...list.querySelectorAll('.presence-person:not(.presence-self)')];
+     const aligned=badges.every(b=>{const r=b.getBoundingClientRect(),s=b.querySelector('summary').getBoundingClientRect();return Math.abs((s.top+s.bottom-r.top-r.bottom)/2)<1&&s.height===34;});
+     const recent=document.querySelector('#recent-menu').getBoundingClientRect();
+     return {overflow:!!overflow,shown:list.querySelectorAll('[data-player-id]').length-1,hidden:overflow?Number(overflow.querySelector('summary').textContent.slice(1)):0,spare:c.right-t.right,aligned,
+      noCollision:t.left>=l.right+7&&t.right<=c.right+1&&(recent.top>=c.bottom||recent.left>=c.right),noPageOverflow:document.documentElement.scrollWidth<=innerWidth};
+    });
+    assert(layout.aligned,`${theme} ${width}: badges and +N must share a centerline`);
+    assert(layout.noCollision&&layout.noPageOverflow,JSON.stringify({theme,width,...layout}));
+    assert.equal(layout.shown+layout.hidden,count);
+    if(width===1500&&count===6)assert(!layout.overflow,'six friends fit on desktop without +N');
+    if(layout.overflow)assert(layout.spare<29,'overflow must use all available badge slots');
+    if((width===1500&&count===6)||(width===390&&count===40))await page.locator('header').screenshot({path:new URL(`.local/presence-chat-review/${theme}-${width}.png`,root).pathname});
+   }
+  }
+ }
+ friends=originalFriends;await page.evaluate(()=>InfuserThemes.select('nightglass'));
+ await page.setViewportSize({width:1280,height:900});await page.evaluate(()=>refreshLibrary());
  const first=page.locator('.friend-menu[data-key="a"]');
  await first.locator('summary').focus();await page.keyboard.press('Enter');
  const join=first.getByRole('button',{name:'Join Firefly Drift'});await join.focus();
@@ -42,9 +72,9 @@ try {
  assert.equal(await first.getAttribute('open'),'');assert.equal(await join.evaluate(el=>el===document.activeElement),true);
  let popup=page.waitForEvent('popup');await join.click();let gamePage=await popup;await gamePage.waitForURL('**/playing');await gamePage.close();
  assert.deepEqual(launches.pop(),{guest:false,intent:{kind:'join_friend',session_id:'session-a',player_id:'a'}});
- await page.setViewportSize({width:320,height:760});
+ await page.setViewportSize({width:390,height:760});
  const more=page.locator('.friend-menu[data-key="overflow"]');await more.locator('summary').click();
- const panel=more.locator('.friend-actions');const box=await panel.boundingBox();assert.ok(box.x>=15&&box.x+box.width<=305,JSON.stringify(box));
+ const panel=more.locator('.friend-actions');const box=await panel.boundingBox();assert.ok(box.x>=15&&box.x+box.width<=375,JSON.stringify(box));
  assert.match(await panel.innerText(),/Sam/);assert.match(await panel.innerText(),/Quinn/);
  popup=page.waitForEvent('popup');await more.getByRole('button',{name:'Join Firefly Drift'}).click();gamePage=await popup;await gamePage.waitForURL('**/playing');await gamePage.close();
  assert.equal(launches.pop().intent.player_id,'b');

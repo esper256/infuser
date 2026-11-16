@@ -8,7 +8,11 @@ wrapping and theme changes; offline or offscreen portraits get no pointer.
 Toggle Chat again, use × or Escape, or click outside to hide it. Outside clicks
 still reach the Library controls underneath; hiding preserves your draft.
 Speech bubbles point toward each sender's current profile picture; your messages
-sit on the right. The header button shows a session-local unread badge.
+sit on the right. The header button shows the exact session-local unread count
+in a prominent badge.
+While closed with unread messages, it briefly wiggles every eight seconds; reduced
+motion keeps the badge without animation. The popup targets 437 × 672 CSS pixels,
+clamped to the available viewport, including the phone keyboard.
 Initial history is not marked unread. Names and portraits follow
 profile changes. The same component works in every Library theme.
 
