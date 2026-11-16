@@ -23,6 +23,21 @@ try{
   // Both documents stay on the existing isolated game origin; no portal cookies.
   game.addEventListener('load',()=>game.contentWindow.focus(),{once:true});
   game.src='/'+location.search;game.hidden=false;
+  if(session.visit){
+    let checked=performance.now(),checkedWall=Date.now(),ended=false,checking=false;
+    const end=()=>{if(ended)return;ended=true;game.removeAttribute('src');game.hidden=true;button.disabled=true;message('This visit has ended. Return to your Library.');};
+    const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)end();};
+    async function check(){
+      watch();if(ended||checking)return;checking=true;
+      try{
+        const r=await fetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
+        if([401,403,404,410].includes(r.status)){end();return;}
+        if(r.ok){const state=await r.json();watch();if(!ended){checked=performance.now();checkedWall=Date.now();if(state.visit){const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);message(left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'');}}}
+      }catch{watch();}finally{checking=false;}
+    }
+    setInterval(watch,500);setInterval(check,5000);
+    document.addEventListener('visibilitychange',()=>{watch();if(!document.hidden)check();});
+  }
 }catch(error){title.textContent='Game unavailable';message(error.message);}
 const connection=document.createElement('span');connection.id='connection';connection.hidden=true;
 connection.setAttribute('role','img');button.before(connection);

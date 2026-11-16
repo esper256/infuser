@@ -59,6 +59,213 @@ impl Drop for Running {
         self.0.abort();
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn borrowed_servers_isolate_admission_and_cut_off_expired_visits() -> Result<()> {
+    use infuser::platform::visits::{Participant, Visit};
+    let dir = tempfile::tempdir()?;
+    let backend = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let address = backend.local_addr()?;
+    let control = Arc::new(Mutex::new((
+        String::new(),
+        BTreeMap::<String, String>::new(),
+    )));
+    let backend_control = control.clone();
+    let _backend = Running(tokio::spawn(async move {
+        axum::serve(backend, Router::new().route("/", get(move |h:HeaderMap,ws: WebSocketUpgrade| {
+            let control=backend_control.clone();
+            async move {
+            let proof=h["x-infuser-connection"].to_str().unwrap();
+            let identity:Value=serde_json::from_slice(&B64.decode(proof.split('.').nth(1).unwrap()).unwrap()).unwrap();
+            let (base,tokens)=control.lock().unwrap().clone();
+            let runtime=identity["deployment_id"].as_str().unwrap_or("pond");
+            let http=reqwest::Client::new();
+            for (candidate,token) in &tokens {
+                let response=http.post(format!("{base}/api/server/v1/connections/{}/admission",identity["connection_id"].as_str().unwrap()))
+                    .header("host","games.example.com").bearer_auth(token)
+                    .json(&json!({"session":{"id":"a".repeat(32),"label":"Shared","activity":"multiplayer","joinable":true,"max_players":8}})).send().await.unwrap();
+                assert_eq!(response.status().is_success(),candidate==runtime,"admission must match deployment");
+            }
+            ws.on_upgrade(|mut socket| async move {
+                while let Some(Ok(frame)) = socket.next().await {
+                    if matches!(frame, ServerMessage::Text(_) | ServerMessage::Binary(_)) && socket.send(frame).await.is_err() {break;}
+                }
+            })
+        }}))).await.unwrap();
+    }));
+    let config: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}\ndisk_reserve_mb=64\nprivate_groups=true\nvisits=true",
+        dir.path()
+    ))?;
+    platform::member(&config, "a@example.test", "Visitor", false, true)?;
+    let controller = Arc::new(Controller::open(config, Arc::new(Runtime(address)))?);
+    let p = portal::Platform::open(controller.clone())?;
+    let spec = serde_json::from_value(
+        json!({"image":format!("sha256:{}","a".repeat(64)),"container_port":7000,"web":true}),
+    )?;
+    let deployment = p.db.edit(|d| {
+        d.groups.names.insert("host".into(),"Host".into());
+        d.apps.insert("pond".into(),App{build:"one".into(),listed:true,updated:now()});
+        d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["multiplayer"],"server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(spec),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
+        d.visits.insert("visit".into(),Visit{name:"Saturday".into(),host:"host".into(),participants:BTreeMap::from([("a@example.test".into(),Participant{after_message:0,ended:false})]),games:["pond".into()].into(),expires:now()+3600,ended:false});
+        d.ensure_deployment("pond","host")
+    })?;
+    p.reconcile_publications()?;
+    // The same game's two deployments reserve distinct process instances and ports.
+    for (who, runtime) in [("home", "pond"), ("away", deployment.as_str())] {
+        let lease = controller.acquire(runtime, who, now())?;
+        p.db.edit(|d| {
+            d.launches.insert(
+                who.into(),
+                Launch {
+                    deployment: (runtime != "pond").then(|| runtime.into()),
+                    visit: (runtime != "pond").then(|| "visit".into()),
+                    intent: None,
+                    app: "pond".into(),
+                    build: "one".into(),
+                    email: "a@example.test".into(),
+                    guest: false,
+                    host: format!("{who}.games.example.com"),
+                    token_hash: platform::hash(who),
+                    exchanged: true,
+                    expires: now() + 300,
+                    grant_expires: now() + 120,
+                    seen: now(),
+                    lease_id: lease["lease_id"].as_str().map(str::to_owned),
+                    lease_token: lease["lease_token"].as_str().map(str::to_owned),
+                },
+            );
+            Ok(())
+        })?;
+    }
+    controller.reconcile(now()).await?;
+    let state = controller.snapshot();
+    assert_ne!(
+        state.games["pond"].attempt,
+        state.games[&deployment].attempt
+    );
+    assert_ne!(state.games["pond"].port, state.games[&deployment].port);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let base = format!("http://{}", listener.local_addr()?);
+    let router = portal::router(p.clone());
+    let _server = Running(tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    }));
+    let http = reqwest::Client::new();
+    let mut tokens = Vec::new();
+    for runtime in ["pond", deployment.as_str()] {
+        let bootstrap = infuser::connections::instance_token(
+            dir.path(),
+            &state.owner,
+            runtime,
+            &state.games[runtime].attempt,
+        )?;
+        // Unmodified server helpers register with the source app ID, not a deployment ID.
+        let registration: Value = http
+            .post(format!("{base}/api/server/v1/register"))
+            .header("host", "games.example.com")
+            .bearer_auth(bootstrap)
+            .json(&json!({"app_id":"pond","instance_id":state.games[runtime].attempt}))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(registration["scope"]["app_id"], "pond");
+        assert_eq!(
+            registration["scope"]["group_id"],
+            if runtime == "pond" { "home" } else { "host" }
+        );
+        tokens.push(registration["token"].as_str().unwrap().to_owned());
+    }
+    *control.lock().unwrap() = (
+        base.clone(),
+        BTreeMap::from([
+            ("pond".into(), tokens[0].clone()),
+            (deployment.clone(), tokens[1].clone()),
+        ]),
+    );
+    let options: Value = request(&http, &base, "home", reqwest::Method::GET, "")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let epoch = options["epoch"].as_str().unwrap();
+    let mut sockets = Vec::new();
+    for (n, who) in ["home", "away"].into_iter().enumerate() {
+        let id = format!("{epoch}{:032x}", n + 1);
+        request(&http, &base, who, reqwest::Method::PUT, &format!("/{id}"))
+            .json(&json!({"activity":"multiplayer"}))
+            .send()
+            .await?
+            .error_for_status()?;
+        let (mut socket, _) = connect_async(handshake(&base, who, &id)).await?;
+        socket.send(Message::Text(who.into())).await?;
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if let Message::Text(text) = socket.next().await.unwrap().unwrap() {
+                    assert_eq!(text, who);
+                    break;
+                }
+            }
+        })
+        .await?;
+        sockets.push(socket);
+    }
+    // A real expiry, without requiring an operator action or a cooperative game server.
+    p.db.edit(|d| {
+        d.visits.get_mut("visit").unwrap().expires = now();
+        Ok(())
+    })?;
+    let mut away = sockets.pop().unwrap();
+    timeout(Duration::from_secs(4), async {
+        while let Some(Ok(frame)) = away.next().await {
+            if matches!(frame, Message::Close(_)) {
+                break;
+            }
+        }
+    })
+    .await?;
+    assert!(
+        !request(&http, &base, "away", reqwest::Method::GET, "")
+            .send()
+            .await?
+            .status()
+            .is_success()
+    );
+    let mut home = sockets.pop().unwrap();
+    home.send(Message::Text("still playing".into())).await?;
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if let Message::Text(text) = home.next().await.unwrap().unwrap() {
+                assert_eq!(text, "still playing");
+                break;
+            }
+        }
+    })
+    .await?;
+    p.reconcile_publications()?;
+    assert!(
+        !controller.snapshot().games[&deployment]
+            .leases
+            .values()
+            .any(|l| l.expires > now())
+    );
+    assert!(
+        controller.snapshot().games["pond"]
+            .leases
+            .values()
+            .any(|l| l.expires > now())
+    );
+    // Renames never allocate another world or personal-save namespace.
+    p.db.edit(|d| {
+        d.builds.get_mut("pond/one").unwrap().manifest.title = "A new title".into();
+        assert_eq!(d.ensure_deployment("pond", "host")?, deployment);
+        Ok(())
+    })?;
+    Ok(())
+}
 fn request(
     http: &reqwest::Client,
     base: &str,
@@ -208,7 +415,7 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(game),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
         for who in ["a","b","guest"] {
             let lease = controller.acquire("pond",who,now())?;
-            d.launches.insert(who.into(),Launch{intent:None,app:"pond".into(),build:"one".into(),email:if who=="b"{"b@example.test"}else{"a@example.test"}.into(),guest:who=="guest",host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
+            d.launches.insert(who.into(),Launch{deployment:None,visit:None,intent:None,app:"pond".into(),build:"one".into(),email:if who=="b"{"b@example.test"}else{"a@example.test"}.into(),guest:who=="guest",host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
         }
         d.builds["pond/one"].manifest.validate()?;
         // Managed sessions are now an additive advertised capability.

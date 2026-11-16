@@ -2,11 +2,16 @@
 
 Audience: Infuser developers.
 
-- Next: implement the accepted [temporary-visit design](proposals/temporary-visits.md)
-  before freezing SDK ownership and access semantics. Separate source games from
-  deployments, preserve home saves, and add operator-selected visitors and games.
-  Brought games start fresh once and always resume; visitor-created games stay
-  home-owned. Verify chat windows and active-connection expiry across transports.
+- Keep game titles and URL slugs independent of stable game and deployment IDs.
+  Favor easy renaming over permanently pretty URLs. Renaming must preserve saves,
+  publishing credentials, visit progress, and existing active launches; use aliases
+  or redirects when changing a slug rather than treating it as a new game.
+
+- Exercise the [temporary-visit preview](proposals/temporary-visits.md) with real
+  groups before freezing SDK ownership and access semantics. Operator-selected
+  visits, isolated persistent deployments, chat windows and connection expiry
+  are implemented. Complete physical sleep and Windows companion acceptance;
+  keep unsupported direct-port servers out of visits.
 
 - Continue the [SDK 1.0 stabilization plan](proposals/sdk-1.0-stabilization.md).
   Record the candidate contract and freeze versioned clients before declaring any

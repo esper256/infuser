@@ -165,16 +165,37 @@ async fn play(
     Json(body): Json<PlayRequest>,
 ) -> Answer {
     let email = p.member(&h, true).await?;
+    let (group, _) = p.group_view(&h, &email)?;
+    p.visible_app(&h, &email, &app)?;
+    if !p.db.read()?.visits.is_empty() {
+        p.reconcile_publications()?;
+    }
     p.admit(&h).await;
     let id = secret();
     p.db.native_edit(|d, n| {
-        d.require_app_group(&email, &app)?;
+        let runtime = d
+            .deployment_for(&app, &group)
+            .ok_or_else(|| fault(404, "Game not found."))?;
+        let deployment = (runtime != app).then(|| runtime.to_owned());
+        let visit = if deployment.is_some() || d.groups.member(&email) != group {
+            Some(
+                d.active_visit(&group, now())
+                    .filter(|(id, _)| d.visit_access(id, &email, now()).is_some())
+                    .ok_or_else(|| fault(403, "Visit access ended."))?
+                    .0
+                    .clone(),
+            )
+        } else {
+            None
+        };
         let active = d
-            .apps
-            .get(&app)
+            .deployed(runtime)
             .ok_or_else(|| fault(404, "game not found"))?;
         ensure!(
-            active.listed || d.members[&email].admin,
+            d.apps.get(&app).is_some_and(|a| a.listed)
+                || (deployment.is_none()
+                    && d.groups.member(&email) == group
+                    && d.members[&email].admin),
             fault(404, "game not found")
         );
         let b = &d.builds[&build_key(&app, &active.build)];
@@ -202,6 +223,8 @@ async fn play(
         n.requests.insert(
             hash(&id),
             Play {
+                deployment,
+                visit,
                 email,
                 app,
                 build: active.build.clone(),
@@ -231,9 +254,10 @@ async fn claim(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Claim>)
         let request = n.requests.get(&hash(&body.request_id)).ok_or_else(|| fault(410, "press Play again in the Library"))?.clone();
         ensure!(request.email == device.email, fault(403, "this computer is connected to a different player; switch account in Infuser"));
         ensure!(request.platform == body.platform, fault(409, "open this game on the computer that requested it"));
-        d.require_app_group(&device.email,&request.app)?;
-        let active = d.apps.get(&request.app).ok_or_else(|| fault(410, "game was removed"))?;
-        ensure!(active.listed || d.members[&device.email].admin, fault(404, "game not found"));
+        if request.visit.is_some(){ensure!(h.get("x-infuser-play-capabilities").is_some_and(|v|v=="visits.v1"),fault(409,"Update Infuser Play before joining a visit."));}
+        let runtime=request.deployment.as_deref().unwrap_or(&request.app);
+        let active = d.deployed(runtime).ok_or_else(|| fault(410, "game was removed"))?;
+        ensure!(d.apps.get(&request.app).is_some_and(|a|a.listed) || (request.visit.is_none() && d.members[&device.email].admin), fault(404, "game not found"));
         ensure!(active.build == request.build, fault(409, "game was updated; press Play again"));
         let b = &d.builds[&build_key(&request.app, &request.build)];
         let manifest = bundle(&p, &request.app, &request.build, b)?.ok_or_else(|| fault(422, "desktop build unavailable"))?;
@@ -243,8 +267,10 @@ async fn claim(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Claim>)
         let game_token = secret();
         let game_host = crate::game_urls::host(d, &request.app, &launch_id, p.domain());
         let player = if request.guest { format!("guest-{launch_id}") } else { hash(&device.email) };
-        let response = json!({"version":1,"app_id":request.app,"build_id":request.build,"title":b.manifest.title,"player_id":player,"guest":request.guest,"launch_id":launch_id,"game_origin":format!("https://{game_host}"),"token":game_token,"artifact":artifact});
-        d.launches.insert(launch_id, Launch { intent: None, app: request.app, build: request.build, email: device.email.clone(), guest: request.guest, host: game_host, token_hash: hash(&game_token), exchanged: true, expires: now()+300, grant_expires: 0, seen: now(), lease_id: None, lease_token: None });
+        let response = json!({"version":1,"app_id":request.app,"deployment_id":runtime,"visit":request.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":request.build,"title":b.manifest.title,"player_id":player,"guest":request.guest,"launch_id":launch_id,"game_origin":format!("https://{game_host}"),"token":game_token,"artifact":artifact});
+        let launch=Launch { deployment: request.deployment, visit: request.visit, intent: None, app: request.app, build: request.build, email: device.email.clone(), guest: request.guest, host: game_host, token_hash: hash(&game_token), exchanged: true, expires: now()+300, grant_expires: 0, seen: now(), lease_id: None, lease_token: None };
+        ensure!(d.launch_allowed(&launch,now()),fault(403,"Game authorization ended."));
+        d.launches.insert(launch_id,launch);
         n.requests.remove(&hash(&body.request_id));
         Ok(response)
     })?;

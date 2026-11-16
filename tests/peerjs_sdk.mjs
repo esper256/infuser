@@ -45,6 +45,14 @@ test('PeerJS sends preserve binary data and fence stale callbacks before sleep t
   assert.equal(c.send(bytes),false);c.emit('data','stale');assert.equal(h.messages.length,1);
   assert.equal(room.active,false);await h.advance(500);assert.equal(h.ended.length,1);assert.equal(h.peers[0].destroyed,true);
 });
+test('PeerJS fences sleep when only the wall clock advances',async t=>{
+  const h=fixture(t),room=await h.start();await h.advance();
+  const connection=room.connections[0],wake=Date.now()+30000;
+  t.mock.method(Date,'now',()=>wake);
+  assert.equal(connection.send('late'),false);connection.emit('data','late');
+  assert.deepEqual(h.messages,[]);assert.equal(room.active,false);
+  await h.advance(500);assert.equal(h.ended.length,1);
+});
 test('PeerJS transient poll and renewal failures recover without creating another shared room',async t=>{
   const h=fixture(t);h.snapshot.ice_servers[0].expires_at=Date.now()/1000+100;h.failRenewal();
   const room=await h.start();

@@ -279,7 +279,13 @@ impl Docker {
             "--label",
             &format!("{ATTEMPT}={}", i.attempt),
             "--env",
-            &format!("INFUSER_GAME_ID={id}"),
+            &format!(
+                "INFUSER_GAME_ID={}",
+                std::fs::read_to_string(self.settings.state_dir.join("server-sources").join(id))
+                    .unwrap_or_else(|_| id.into())
+            ),
+            "--env",
+            &format!("INFUSER_DEPLOYMENT_ID={id}"),
             "--env",
             &format!("INFUSER_PORT={}", g.container_port),
             "--env",

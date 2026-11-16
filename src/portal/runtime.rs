@@ -19,7 +19,7 @@ impl Platform {
                 .manifest
                 .dedicated_sessions();
         let state = match self.controller.lease(
-            &launch.app,
+            launch.runtime_id(),
             lease,
             token,
             if renew { "renew" } else { "get" },
@@ -42,7 +42,7 @@ impl Platform {
                 .controller
                 .snapshot()
                 .games
-                .get(&launch.app)
+                .get(launch.runtime_id())
                 .is_some_and(|i| i.spec.web)
         {
             json!({"url":format!("https://{}/_infuser/server",launch.host)})
@@ -86,7 +86,7 @@ pub(super) async fn acquire(State(p): State<Platform>, h: HeaderMap) -> Answer {
     if data.builds[&build_key(&launch.app, &launch.build)]
         .manifest
         .dedicated_sessions()
-        && data.pending_promotions.contains_key(&launch.app)
+        && data.pending_promotions.contains_key(launch.runtime_id())
     {
         ensure!(
             p.runtime_view(&launch, false)?["state"] == "ready",
@@ -99,12 +99,11 @@ pub(super) async fn acquire(State(p): State<Platform>, h: HeaderMap) -> Answer {
     }
     ensure!(
         p.db.read()?
-            .apps
-            .get(&launch.app)
+            .deployed(launch.runtime_id())
             .is_some_and(|a| a.build == launch.build),
         fault(409, "a newer build is available; reopen the game")
     );
-    let lease = p.controller.acquire(&launch.app, &id, now())?;
+    let lease = p.controller.acquire(launch.runtime_id(), &id, now())?;
     launch.lease_id = lease["lease_id"].as_str().map(str::to_owned);
     launch.lease_token = lease["lease_token"].as_str().map(str::to_owned);
     // Controller acquisition is idempotent by launch ID. If the catalog write
@@ -141,7 +140,7 @@ pub(super) async fn release(
         if let Some(token) = &launch.lease_token {
             match p
                 .controller
-                .lease(&launch.app, &session, token, "delete", now())
+                .lease(launch.runtime_id(), &session, token, "delete", now())
             {
                 Ok(_) => {}
                 Err(e)

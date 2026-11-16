@@ -17,6 +17,7 @@ pub(super) fn url(
 #[derive(Deserialize)]
 pub(super) struct ImageQuery {
     inspect_group: Option<String>,
+    visit: Option<String>,
 }
 
 pub(super) async fn image(
@@ -26,6 +27,12 @@ pub(super) async fn image(
     Query(query): Query<ImageQuery>,
     mut request: Request,
 ) -> Answer {
+    if let Some(visit) = query.visit {
+        h.insert(
+            groups::VISIT,
+            visit.parse().map_err(|_| fault(400, "Invalid visit."))?,
+        );
+    }
     if let Some(group) = query.inspect_group {
         h.insert(
             groups::INSPECT,
@@ -37,9 +44,12 @@ pub(super) async fn image(
     let (_, inspecting) = p.group_view(&h, &email)?;
     {
         let data = p.db.read()?;
+        let (group, _) = p.group_view(&h, &email)?;
+        let runtime = data
+            .deployment_for(&app, &group)
+            .ok_or_else(|| fault(404, "Game not found."))?;
         let active = data
-            .apps
-            .get(&app)
+            .deployed(runtime)
             .ok_or_else(|| fault(404, "game not found"))?;
         ensure!(
             active.listed || inspecting || data.members[&email].admin,

@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::mpsc::Sender,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 pub enum Event {
@@ -221,6 +221,10 @@ pub fn forget(root: &Path, request: &Request) -> Result<()> {
 pub struct Launch {
     version: u8,
     pub app_id: String,
+    #[serde(default)]
+    pub deployment_id: Option<String>,
+    #[serde(default)]
+    pub visit: Option<serde_json::Value>,
     pub build_id: String,
     pub title: String,
     pub player_id: String,
@@ -261,14 +265,18 @@ pub fn run_with_http(
     let value = response(
         http.post(format!("{}/api/native/v1/claim", request.server))
             .bearer_auth(&connection.token)
+            .header("X-Infuser-Play-Capabilities", "visits.v1")
             .json(&json!({"request_id":request.id,"platform":platform()}))
             .send()?,
     )?;
     let launch: Launch = serde_json::from_value(value)?;
+    let deployment = launch.deployment_id.as_deref().unwrap_or(&launch.app_id);
     ensure!(
         launch.version == 1
             && infuser_native_protocol::safe_path(&launch.app_id)
             && !launch.app_id.contains('/')
+            && infuser_native_protocol::safe_path(deployment)
+            && !deployment.contains('/')
             && infuser_native_protocol::digest(&launch.token),
         "invalid native launch"
     );
@@ -296,13 +304,8 @@ pub fn run_with_http(
     );
     let site = install::hash(request.server.as_bytes());
     let player = install::hash(launch.player_id.as_bytes());
-    let namespace = format!(
-        "Infuser/{}/{}/{}",
-        &site[..16],
-        &player[..24],
-        launch.app_id
-    );
-    let game_root = root.join("games").join(&site).join(&launch.app_id);
+    let namespace = format!("Infuser/{}/{}/{}", &site[..16], &player[..24], deployment);
+    let game_root = root.join("games").join(&site).join(deployment);
     private_dir(&game_root)?;
     let lock = fs::OpenOptions::new()
         .read(true)
@@ -362,6 +365,20 @@ pub fn run_with_http(
         &json!({"version":1,"game_origin":launch.game_origin,"token":launch.token,"save_namespace":namespace,"guest":launch.guest}),
     )?;
     run.spawning()?;
+    if launch.visit.is_some() {
+        // Downloading an update can outlast the visit. Recheck before execution.
+        let ready = http
+            .post(format!("{}/_infuser/api/v1/heartbeat", launch.game_origin))
+            .header("Origin", &launch.game_origin)
+            .bearer_auth(&launch.token)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .and_then(|r| r.error_for_status());
+        if ready.is_err() {
+            let _ = run.finished();
+            anyhow::bail!("This visit is no longer available. Return to your Library.");
+        }
+    }
     let child = Command::new(run.path().join(&launch.artifact.entrypoint))
         .current_dir(run.path())
         .env("INFUSER_LAUNCH_FILE", &envelope)
@@ -381,24 +398,13 @@ pub fn run_with_http(
     // confirms exit; never delete a possibly-running game because inspection failed.
     let _ = run.started(child.id());
     events.send(Event::Playing).ok();
-    let mut heartbeat = Instant::now() - Duration::from_secs(25);
-    let exit = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if heartbeat.elapsed() >= Duration::from_secs(25) {
-            heartbeat = Instant::now();
-            // Session failure never changes identity or reuses an owner's saves
-            // for a guest. The game receives explicit API errors on its next save.
-            let _ = http
-                .post(format!("{}/_infuser/api/v1/heartbeat", launch.game_origin))
-                .header("Origin", &launch.game_origin)
-                .bearer_auth(&launch.token)
-                .timeout(Duration::from_secs(5))
-                .send();
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    };
+    let (exit, visit_ended) = supervise(
+        &mut child,
+        &http,
+        &launch.game_origin,
+        &launch.token,
+        launch.visit.is_some(),
+    )?;
     let _ = run.finished();
     let _ = http
         .delete(format!("{}/_infuser/api/v1/heartbeat", launch.game_origin))
@@ -426,6 +432,10 @@ pub fn run_with_http(
         }
     }
     ensure!(
+        !visit_ended,
+        "This visit has ended or its connection was lost. Return to your Library. Your saved progress is kept for the next visit."
+    );
+    ensure!(
         exit.success(),
         "The game stopped unexpectedly. Your installed update and personal saves have been kept."
     );
@@ -433,8 +443,89 @@ pub fn run_with_http(
     Ok(())
 }
 
+fn supervise(
+    child: &mut std::process::Child,
+    http: &Client,
+    origin: &str,
+    token: &str,
+    visiting: bool,
+) -> Result<(std::process::ExitStatus, bool)> {
+    let mut heartbeat = Instant::now() - Duration::from_secs(25);
+    let mut authorized = (Instant::now(), SystemTime::now());
+    let elapsed =
+        |sent: (Instant, SystemTime)| sent.0.elapsed().max(sent.1.elapsed().unwrap_or_default());
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok((status, false));
+        }
+        if visiting && elapsed(authorized) >= Duration::from_secs(30) {
+            child.kill()?;
+            return Ok((child.wait()?, true));
+        }
+        if heartbeat.elapsed() >= Duration::from_secs(if visiting { 5 } else { 25 }) {
+            heartbeat = Instant::now();
+            let sent = (Instant::now(), SystemTime::now());
+            let timeout = if visiting {
+                Duration::from_secs(30)
+                    .saturating_sub(elapsed(authorized))
+                    .min(Duration::from_secs(5))
+            } else {
+                Duration::from_secs(5)
+            };
+            let response = http
+                .post(format!("{origin}/_infuser/api/v1/heartbeat"))
+                .header("Origin", origin)
+                .bearer_auth(token)
+                .timeout(timeout)
+                .send();
+            if visiting {
+                if elapsed(authorized) >= Duration::from_secs(30)
+                    || response
+                        .as_ref()
+                        .is_ok_and(|r| matches!(r.status().as_u16(), 401 | 403 | 404 | 410))
+                {
+                    child.kill()?;
+                    return Ok((child.wait()?, true));
+                }
+                if response.is_ok_and(|r| r.status().is_success()) {
+                    authorized = sent;
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[cfg(unix)]
+    fn visit_denial_stops_the_running_game() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut bytes = [0; 2048];
+            let _ = socket.read(&mut bytes);
+            socket
+                .write_all(
+                    b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        });
+        let mut child = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .unwrap();
+        let outcome = super::supervise(&mut child, &super::Client::new(), &origin, "fixture", true);
+        let _ = child.kill();
+        let _ = child.wait();
+        server.join().unwrap();
+        let (status, ended) = outcome.unwrap();
+        assert!(ended);
+        assert!(!status.success());
+    }
     #[test]
     fn launch_links_require_one_https_origin_and_one_nonce() {
         let id = "a".repeat(64);

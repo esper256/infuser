@@ -53,6 +53,10 @@ impl Data {
         Ok(())
     }
     pub fn reserve_app(&mut self, app: &str, group: &str) -> Result<()> {
+        ensure!(
+            !self.deployments.contains_key(app),
+            crate::portal::fault(409, "Reserved deployment identifier.")
+        );
         let known = self.groups.apps.contains_key(app)
             || self.apps.contains_key(app)
             || self.owners.contains_key(app)

@@ -25,6 +25,10 @@ pub struct Device {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Play {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visit: Option<String>,
     pub email: String,
     pub app: String,
     pub build: String,

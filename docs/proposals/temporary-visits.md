@@ -2,9 +2,8 @@
 
 Audience: Infuser developers.
 
-Status: product decisions accepted; implementation pending. Account for visits
-before freezing SDK identity, deployment, save ownership, and access lifetime.
-The platform currently supports permanent home-group membership only.
+Status: implemented as an opt-in preview; SDK 1.0 remains unfrozen. See
+[operator instructions](../private-groups.md#visits) for enabling visits and the API.
 
 ## Participants and ownership
 
@@ -137,11 +136,53 @@ admission for deployment scope before enabling visits.
    shutdown, resumed persistent state, and rejected post-visit joins. Keep paths
    unsupported until their adapters meet the same contract.
 
-Before implementation, specify exact wire fields, expiry enforcement bounds for
-each transport, and update selection for borrowed deployments. Existing matched
-client/server activation and data-migration rules remain requirements. These are
-engineering details to review, not a reason to reopen accepted product choices
-or require game authors to implement visits.
+## Implemented contract and limits
+
+Home deployments retain their source app ID, existing saves and Docker volumes.
+Borrowed deployments have persistent opaque `deployment-*` IDs in a separate
+SQLite table, unique per `(source app, host group)`. Context adds `deployment_id`
+and optional `visit: {expires_at, authorization_seconds: 30}`. Source `app_id`,
+publication credentials and immutable artifact paths stay unchanged. Titles and
+slugs are presentation, never save keys; rename friendliness takes priority over
+preserving a particular URL spelling.
+
+Each launch binds to a specific visit grant. A later visit cannot revive an old
+launch. Each host has at most one active visit, and each visitor at most one.
+Admission happens atomically at creation, using the current maximum chat message
+ID as the boundary. Extending a visit keeps that boundary. Ending it requires a
+new grant next time; removing the final visitor ends the whole visit.
+
+Borrowed deployments follow the source's activated build. A running borrowed
+server or peer room drains independently before switching; client and server
+builds stay matched. Dormant deployments update without starting a process.
+Build deletion protects borrowed deployments' active releases. Backups include
+their records and world volumes through the existing full-state backup path.
+
+Enforcement is layered:
+
+| Path | Cutoff |
+| --- | --- |
+| Member, game, save, join and signaling APIs | Every request checks current authorization. |
+| Managed WebSocket connections | Authorization checked every two seconds between frames, including while idle. Each socket write has a three-second timeout; slow writes can delay cutoff, bounded to about 11 seconds of transport waits while the controller is scheduled. |
+| Borrowed process | Reconciler releases demand and requests stop on its next cycle (normally two seconds); existing bounded Docker stop grace permits checkpointing, not new player traffic. |
+| Supplied JS WebRTC/PeerJS adapters | A 25-second coordinator lease fences sends and received data; stale responses cannot renew an expired lease. Both wall and monotonic clocks cover browser sleep. |
+| Web player wrapper | Five-second heartbeat, 30-second authorization watchdog; expiry removes the game frame without exiting fullscreen. Suspended tabs enforce on resumption. |
+| Updated Infuser Play | Five-second heartbeat; stop on denial or after 30 seconds without authorization, with a 500 ms process-check interval. Recheck after downloading, before launch. |
+
+The Godot web adapter uses its existing wall/monotonic bridge and lease checks.
+Arbitrary modified adapters and standalone direct connections cannot be remotely
+revoked by Infuser. Legacy direct-port server games are blocked from visits.
+Peer adapters do not provide DRM or erase downloaded content. Physical laptop
+sleep and real Windows acceptance remain separate hardware checks; deterministic
+sleep tests do not replace them.
+
+Fast journeys cover isolated JSON slots/checkpoints, recurring visits, expiry,
+restart persistence, selected visitors, ownership, chat windows and notification
+delivery checks. Dedicated tests run two deployments concurrently, reject
+cross-deployment admission, expire a live socket and preserve the home socket.
+Browser tests cover operator creation, visit entry, independent tabs, mobile
+return and ending a visit. Native tests gate old clients and exercise process
+termination; peer tests cover independent rooms, expiry and stale packets.
 
 See [SDK decisions](../sdk-1.0-decisions.md),
 [stabilization plan](sdk-1.0-stabilization.md), and

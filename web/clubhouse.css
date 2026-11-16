@@ -467,6 +467,14 @@ img.avatar { object-fit: cover; }
 .group-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.65rem 0}
 .group-form{display:grid;gap:.8rem;margin-top:1rem}
 .group-form label{display:grid;gap:.3rem}
+#visit-banner{flex-wrap:wrap;padding:.7rem 1rem;border-bottom:1px solid var(--line)}
+#visit-banner span{min-width:0;overflow-wrap:anywhere}
+#visits-dialog section{padding:.5rem 0;border-bottom:1px solid var(--line)}
+#visits-dialog section button{margin:0 .5rem .5rem 0}
+#visits-dialog fieldset{min-width:0;border:1px solid var(--line);border-radius:.5rem}
+#visits-dialog fieldset label{display:flex;align-items:center;gap:.5rem;padding:.3rem 0}
+#visits-dialog input[type=checkbox]{width:auto;flex:none}
+#visits-dialog input,#visits-dialog select{min-width:0;max-width:100%}
 body[data-inspecting] #add-game,body[data-inspecting] #chat-form{display:none}
 @media(max-width:480px){#group-inspection{align-items:flex-start;flex-direction:column;font-size:.85rem}}
 

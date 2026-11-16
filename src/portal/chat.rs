@@ -22,8 +22,10 @@ pub(super) async fn send(
     Json(body): Json<Message>,
 ) -> Answer {
     let email = p.member(&h, true).await?;
-    Ok(reply(p.db.chat_send(
+    let (group, _) = p.group_view(&h, &email)?;
+    Ok(reply(p.db.chat_send_group(
         &email,
+        &group,
         &body.client_id,
         &body.text,
     )?))
@@ -31,6 +33,7 @@ pub(super) async fn send(
 
 pub(super) async fn remove(State(p): State<Platform>, Path(id): Path<u64>, h: HeaderMap) -> Answer {
     let email = p.member(&h, true).await?;
-    p.db.chat_remove(&email, id)?;
+    let (group, _) = p.group_view(&h, &email)?;
+    p.db.chat_remove_group(&email, &group, id)?;
     Ok(reply(json!({"ok":true})))
 }

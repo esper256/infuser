@@ -70,18 +70,18 @@ fn validate(p: &Platform, h: &HeaderMap, attempt: &Attempt) -> Result<()> {
     let data = p.db.read()?;
     ensure!(
         launch.app == attempt.identity.app_id
+            && launch.runtime_id() == attempt.identity.runtime_id()
             && launch.build == attempt.identity.build_id
-            && data.groups.app(&launch.app) == attempt.identity.group_id
+            && data.deployment_group(launch.runtime_id()) == attempt.identity.group_id
             && data
-                .apps
-                .get(&launch.app)
+                .deployed(launch.runtime_id())
                 .is_some_and(|a| a.build == launch.build),
         fault(409, "connection build changed")
     );
     let state = p.controller.snapshot();
     let instance = state
         .games
-        .get(&launch.app)
+        .get(launch.runtime_id())
         .ok_or_else(|| fault(410, "server ended"))?;
     ensure!(
         instance.attempt == attempt.identity.instance_id
@@ -89,7 +89,7 @@ fn validate(p: &Platform, h: &HeaderMap, attempt: &Attempt) -> Result<()> {
         fault(410, "server instance ended")
     );
     p.controller.lease(
-        &launch.app,
+        launch.runtime_id(),
         &attempt.lease_id,
         launch
             .lease_token
@@ -157,16 +157,17 @@ pub(super) async fn prepare(
     let state = p.controller.snapshot();
     let instance = state
         .games
-        .get(&launch.app)
+        .get(launch.runtime_id())
         .ok_or_else(|| fault(409, "acquire the game backend first"))?;
     let data = p.db.read()?;
     let attempt = Attempt {
         identity: Identity {
+            deployment_id: launch.deployment.clone(),
             iss: format!("https://{}", p.domain()),
             aud: "infuser-server-connection".into(),
             iat: now(),
             exp: now() + PROOF_SECONDS,
-            group_id: data.groups.app(&launch.app).into(),
+            group_id: data.deployment_group(launch.runtime_id()).into(),
             app_id: launch.app.clone(),
             build_id: launch.build.clone(),
             instance_id: instance.attempt.clone(),
@@ -299,11 +300,11 @@ pub(super) async fn socket(
         let state = p.controller.snapshot();
         let instance = state
             .games
-            .get(&attempt.identity.app_id)
+            .get(attempt.identity.runtime_id())
             .ok_or_else(|| fault(410, "server ended"))?;
         let address = p
             .controller
-            .web_address(&attempt.identity.app_id, &instance.attempt)?;
+            .web_address(attempt.identity.runtime_id(), &instance.attempt)?;
         // The engine supplies this address; the browser cannot select an upstream,
         // path, forwarding headers, credentials, or a destination outside its game.
         let mut request = format!("ws://{address}{}", connection.path).into_client_request()?;
@@ -433,7 +434,7 @@ async fn proxy(
                 let directory = p.dedicated.lock().unwrap();
                 let report = directory
                     .0
-                    .get(&attempt.identity.app_id)
+                    .get(attempt.identity.runtime_id())
                     .ok_or("session_ended")?;
                 if report.scope.instance_id != attempt.identity.instance_id
                     || report.seen + crate::dedicated::REPORT_SECONDS <= now()
@@ -457,7 +458,7 @@ async fn proxy(
                     let (_, launch) = allowed(p, h).map_err(|_| "authorization_ended")?;
                     p.controller
                         .lease(
-                            &launch.app,
+                            launch.runtime_id(),
                             &attempt.lease_id,
                             launch.lease_token.as_deref().ok_or("authorization_ended")?,
                             "renew",

@@ -118,16 +118,15 @@ pub fn enqueue(
     id: i64,
     time: u64,
 ) -> Result<()> {
-    let mut s =
-        c.prepare("SELECT endpoint,email FROM push_subscriptions WHERE private_group=?1")?;
-    let rows = s.query_map([group], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    })?;
+    let mut s = c.prepare("SELECT endpoint,email FROM push_subscriptions")?;
+    let rows = s.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
     for row in rows {
         let (endpoint, email) = row?;
         if email != sender
             && data.members.get(&email).is_some_and(|m| m.enabled)
-            && data.groups.member(&email) == group
+            && data
+                .chat_boundary(&email, group, time)
+                .is_some_and(|floor| id as u64 > floor)
         {
             c.execute("INSERT INTO push_outbox(endpoint,message_id,created,due) VALUES(?1,?2,?3,?3)
                 ON CONFLICT(endpoint) DO UPDATE SET message_id=excluded.message_id,created=excluded.created",
@@ -206,9 +205,9 @@ impl Database {
         )?;
         c.execute("DELETE FROM push_outbox WHERE endpoint NOT IN (SELECT endpoint FROM push_subscriptions)",[])?;
         let mut s = c.prepare(
-            "SELECT s.endpoint,o.message_id,s.email,s.private_group,s.subscription,m.author,m.text
+            "SELECT s.endpoint,o.message_id,s.email,coalesce(m.private_group,s.private_group),s.subscription,m.author,m.text
             FROM push_outbox o JOIN push_subscriptions s USING(endpoint)
-            LEFT JOIN library_chat m ON m.id=o.message_id AND m.private_group=s.private_group
+            LEFT JOIN library_chat m ON m.id=o.message_id
             WHERE o.due<=?1 ORDER BY o.due LIMIT 32",
         )?;
         let rows = s.query_map([now()], |r| {
@@ -225,11 +224,13 @@ impl Database {
         let mut targets = Vec::new();
         for row in rows {
             let (endpoint, id, email, group, subscription, author, text) = row?;
-            let member_ok = |email: &str| {
-                data.members.get(email).is_some_and(|m| m.enabled)
-                    && data.groups.member(email) == group
-            };
-            if member_ok(&email) && author.as_deref().is_some_and(member_ok) && text.is_some() {
+            let member_ok = |email: &str| data.members.get(email).is_some_and(|m| m.enabled);
+            if data
+                .chat_boundary(&email, &group, now())
+                .is_some_and(|floor| id > floor)
+                && author.as_deref().is_some_and(member_ok)
+                && text.is_some()
+            {
                 targets.push((endpoint, id, serde_json::from_str(&subscription)?));
             } else {
                 c.execute(

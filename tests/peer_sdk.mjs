@@ -128,6 +128,15 @@ test('brief signaling failure recovers in place; expired lease fences packets an
   assert.equal(h.requests.filter(r=>r.method==='POST'&&r.path.endsWith('/peers')).length,1);
 });
 
+test('wall-clock sleep fences packets even if performance.now pauses', async t => {
+  const h=setup(t),room=await h.start();await h.advance();
+  const pc=h.connections[0];h.open(pc);
+  const wake=Date.now()+30000;t.mock.method(Date,'now',()=>wake);
+  assert.equal(room.active,false);assert.equal(room.send('friend',{tick:1}),false);
+  pc.dc.onmessage({data:'{"afterSleep":true}'});assert.deepEqual(h.messages,[]);
+  await h.advance(500);assert.equal(h.endings.length,1);
+});
+
 test('failed peer link reconnects within the same room and ignores obsolete channel events', async t => {
   const h=setup(t),room=await h.start(); await h.advance();
   const old=h.connections[0]; h.open(old);

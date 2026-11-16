@@ -17,13 +17,14 @@ export async function join({Peer, relayOnly = false, sessionId, playerId, joinab
   if (playerId !== undefined && (sessionId === undefined || typeof playerId !== 'string' || !/^[a-zA-Z0-9-]{1,96}$/.test(playerId))) throw new TypeError('playerId requires a sessionId');
   // Only public DataConnection settings. Connection identity/configuration is platform-owned.
   if (Object.keys(connectionOptions).some(k => !['serialization','reliable','label','metadata'].includes(k))) throw new TypeError('unsupported PeerJS connection option');
-  const start = performance.now();
+  const start = performance.now(), startWall = Date.now();
   const initial = await request('', {adapter:'peerjs',connection_id:crypto.randomUUID(),relay_only:relayOnly,expected_epoch:sessionId,expected_player:playerId,joinable});
   let live = true, lastPoll = start, state = initial, peer, timer, healthTimer, refreshed = start;
+  let lastPollWall = startWall;
   let iceServers = initial.ice_servers;
   const links = new Map(), wire = id => `i-${initial.epoch}-${id}`;
   const own = wire(initial.self_id), host = wire(initial.host_id);
-  const active = () => live && performance.now() - lastPoll < initial.lease_ms;
+  const active = () => live && Math.max(performance.now() - lastPoll, Date.now() - lastPollWall) < initial.lease_ms;
   const allowed = id => state.peers.some(p => wire(p.id) === id) && id !== own && (initial.role === 'host' || id === host);
   const current = connection => active() && links.get(connection.peer)?.connection === connection && allowed(connection.peer);
   const indicator = status => { if (window.parent !== window) window.parent.postMessage({type:'infuser-network',status},location.origin); };
@@ -81,11 +82,11 @@ export async function join({Peer, relayOnly = false, sessionId, playerId, joinab
   }
   async function poll() {
     if (!live) return;
-    const sent = performance.now();
+    const sent = performance.now(), sentWall = Date.now();
     try {
       const next = await request('/' + initial.self_id,undefined,'GET');
       if (!active() || next.epoch !== initial.epoch) { end('Shared session ended.'); return; }
-      lastPoll = sent; state = next;
+      lastPoll = sent; lastPollWall = sentWall; state = next;
       for (const id of links.keys()) if (!allowed(id)) drop(id);
       const expiry = Math.min(...iceServers.map(s => s.expires_at || Infinity));
       if (performance.now() - refreshed > 1200000 || Date.now()/1000 > expiry - 120) {

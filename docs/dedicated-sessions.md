@@ -208,7 +208,14 @@ For adapter authors, the JSON contract is:
    `{"app_id":"APP","instance_id":"INSTANCE"}`. The response contains `token`,
    `expires_at` (Unix seconds), `scope`, `coordinator`, `sessions` (the manifest
    declaration), `connection`, `limits` and `draining`. Scope has `app_id`, `build_id`,
-   `instance_id`, `group_id` and `exp`. Treat both credentials as opaque. The token
+   `instance_id`, `group_id` and `exp`, plus optional `deployment_id` for a borrowed
+   visit deployment. `app_id` always identifies the original game. Infuser supplies
+   `INFUSER_GAME_ID` unchanged and `INFUSER_DEPLOYMENT_ID` for the running deployment.
+   Each deployment has its own process, volume, admissions and session directory;
+   store world data in the supplied persistent directory. Never use an app ID or
+   title alone to identify a world outside that directory. The server helper
+   already registers with the correct instance; games need no visit-specific
+   connection logic. Treat both credentials as opaque. The token
    lasts 120 seconds; register again before expiry or once after a 401.
 2. Send snapshots with `Authorization: Bearer TOKEN`:
 

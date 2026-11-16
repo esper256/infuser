@@ -9,8 +9,8 @@ connections. They cannot browse or administer other groups.
 
 Existing accounts, games, saves, and publishing connections belong to **Home**.
 No republishing or credential replacement is needed. An account already assigned
-to a group cannot be invited into another one. Moving accounts, sharing games
-between groups, and multiple memberships are not implemented.
+to a group cannot be invited into another one. Temporary visits can share selected
+games without moving accounts or giving them permanent membership elsewhere.
 
 ## Operator setup
 
@@ -45,6 +45,63 @@ Inspection does not announce the operator online, create a membership, launch
 games, post messages, or modify anything. **Return home** restores normal use;
 the tab also returns home after 15 minutes. Existing home-group games and other
 tabs continue normally.
+
+## Visits
+
+After deploying a version with visit support, add `visits = true` under the same
+`[controller]` section and restart Infuser. Keep both flags enabled afterward;
+older binaries must not serve a database with visits. Back up the full state
+directory before upgrading. Do not remove the flags to bypass a rollback failure.
+
+Open **profile menu → Visits**. Only the installation operator can start a visit:
+select its host group, individual visitors, games to bring, and an end time within
+seven days. All selected visitors are admitted immediately. One group can host
+one active visit; a person can visit one group at a time. Selected visitors choose
+**Visit** in their own profile menu. This choice affects only that browser tab.
+**Return home** restores their normal Library. Hosts see brought games in their
+ordinary Library automatically.
+
+The operator can extend an active visit, end it, or remove individual visitors.
+Removing the last visitor ends the visit. To return later, start another visit
+with the desired people and games. Each brought game always resumes its previous
+progress at that host group; its first visit starts fresh. The game's home
+progress stays separate. Guest mode still starts with fresh temporary saves.
+
+Visitors can play host games, see people online, react and chat. They cannot
+administer the host group. Their newly created games remain home-owned and join
+the visit automatically once published. When the visit ends, visitors lose host
+access and hosts lose brought games. Saved visit progress is retained, and
+borrowed servers shut down. Residents can continue playing their own games.
+
+The Library banner identifies visitors and the end time. Visitors see chat only
+from admission onward, and only during the visit. A later visit starts a new chat
+window. Hosts retain visitor messages in their normal timeline, subject to the
+usual seven-day/size retention.
+
+Web games and managed WebSocket server games can participate. Legacy direct-port
+servers need the managed adapter first; the Library explains this when play is
+unavailable. Peer play requires the supplied Infuser adapters and their periodic
+authorization checks. Updated **Infuser Play** supports visits for the existing
+single-player native preview; older versions ask to update before claiming a
+visit launch. Native multiplayer remains unsupported.
+
+Visit API routes use an operator's Google session for management:
+
+- `GET /api/operator/visits` returns groups, eligible players and games, and visits.
+- `POST /api/operator/visits` takes `{name, host_group, participants, games,
+  expires_at}`. Use player IDs and game IDs from that inventory; expiry is Unix
+  seconds. The result contains the new visit `id`.
+- `PUT /api/operator/visits/{id}` takes `{expires_at}` for an active visit.
+- `DELETE /api/operator/visits/{id}` ends the visit.
+- `DELETE /api/operator/visits/{id}/participants/{player_id}` removes a visitor.
+- `GET /api/visits` returns the signed-in player's active accessible visits.
+- `X-Infuser-Visit: VISIT_ID` selects one for member APIs. Game launches then carry
+  their own verified context. The header never changes ownership or publishing
+  authority, and cannot be combined with operator inspection.
+
+Participant/game selections are fixed at creation, apart from removing visitors
+and automatically including newly created games. Start a later visit to choose a
+different selection; it reuses the same saved progress.
 
 ## API and agents
 
