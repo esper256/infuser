@@ -5,10 +5,12 @@ import { profileFetch, pinProfile, chooser } from '/assets/profiles.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
 import { initClientUpdates } from '/assets/client-updates.js';
+import { initServerUpdates } from '/assets/server-updates.js';
 const $ = id => document.getElementById(id);
 const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
 let noticeTimer,adminLoaded=false,adminLoading=false,networkHealthBusy=false;
+let refreshServerUpdates=()=>{};
 let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
@@ -646,6 +648,7 @@ $('close-reaction').onclick=()=>$('reaction-dialog').close();
 $('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text')})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
 async function openAdmin(){
+  refreshServerUpdates();
   if(!me?.admin&&!me?.operator)return;
   $('admin').showModal();refreshNetworkHealth();
   if(!me.admin||adminLoaded||adminLoading)return;
@@ -738,6 +741,7 @@ function setupAccount(){
     const admin=el('button','Admin tools');admin.id='open-admin';admin.type='button';admin.setAttribute('aria-haspopup','dialog');admin.setAttribute('aria-controls','admin');
     admin.onclick=()=>{menu.open=false;openAdmin();};panel.append(admin);
   }
+  refreshServerUpdates=initServerUpdates({panel:$('admin').querySelector('.admin-panel'),api,me});
   panel.append(out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){

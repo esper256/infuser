@@ -26,6 +26,7 @@ pub(super) fn version() -> &'static str {
                 include_str!("../../web/sw.js"),
                 include_str!("../../web/groups.js"),
                 include_str!("../../web/client-updates.js"),
+                include_str!("../../web/server-updates.js"),
                 include_str!("../../web/themes.js"),
                 include_str!("../../web/themes/nightglass.css"),
                 include_str!("../../web/themes/cartridge-club.css"),

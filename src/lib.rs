@@ -7,6 +7,7 @@ pub mod config;
 pub mod connections;
 pub mod controller;
 pub mod dedicated;
+pub mod deployment;
 pub mod docker;
 pub mod game_urls;
 pub mod host_health;

@@ -46,6 +46,13 @@ package compatibility from the bridge's mock transport tests.
 
 ## Unattended operation
 
+`node tests/server_updates_journey.mjs` uses the existing `INFUSER_PLAYWRIGHT` and
+`INFUSER_CHROMIUM` paths to check the operator's Admin tools update controls,
+confirmation, single submission, elapsed wait and stale/offline/failure states.
+The HTTP authorization and replay checks are in `groups_journey`; `update_journey`
+checks staging during maintenance and refusal to activate a superseded candidate.
+These tests use disposable state and do not authorize a production restart.
+
 `node tests/reboot_journey.mjs` runs the actual reboot scripts against a local
 HTTP admission fixture with fake time and systemd. It checks absent reboot flags,
 window boundaries, package activity, busy admission, shared-lock exclusion,

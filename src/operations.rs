@@ -30,11 +30,114 @@ pub fn routes(platform: Platform, token: &str) -> Router {
     Router::new()
         .route("/v1/maintenance", post(begin).delete(end))
         .route("/v1/operations", get(status))
+        .route("/v1/deployment", post(deployment_report))
+        .route("/v1/deployment/admit", post(deployment_admit))
         .layer(DefaultBodyLimit::max(4096))
         .with_state(App {
             platform,
             token: Sha256::digest(token.as_bytes()).into(),
         })
+}
+pub fn update_activity(p: &Platform) -> anyhow::Result<Vec<&'static str>> {
+    let state = p.controller.snapshot();
+    let data = p.db.read()?;
+    let mut reasons = Vec::new();
+    if state.build_reservation.is_some() || data.server_builds.values().any(|j| j.active()) {
+        reasons.push("Waiting for game publishing or server builds to finish");
+    }
+    if state.games.values().any(|g| g.reserved())
+        || data
+            .launches
+            .values()
+            .any(|l| l.expires > now() && l.seen.saturating_add(90) > now())
+        || !p.peer_rooms().diagnostics(now())["sessions"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    {
+        reasons.push("Waiting for games to finish");
+    }
+    Ok(reasons)
+}
+async fn deployment_report(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(report): Json<crate::deployment::Report>,
+) -> Response {
+    if !authorized(&app, &headers) {
+        return error(StatusCode::UNAUTHORIZED, "control token required");
+    }
+    match app.platform.controller.deployment.report(report) {
+        Ok(()) => Json(json!({"ok":true})).into_response(),
+        Err(_) => error(StatusCode::BAD_REQUEST, "Could not save deployment report"),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeploymentAdmission {
+    release: String,
+    #[serde(default)]
+    force: bool,
+}
+async fn deployment_admit(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(body): Json<DeploymentAdmission>,
+) -> Response {
+    if !authorized(&app, &headers) {
+        return error(StatusCode::UNAUTHORIZED, "control token required");
+    }
+    let p = &app.platform;
+    let mut acquired = None;
+    let result = p.controller.deployment.edit(|record| {
+        anyhow::ensure!(
+            record.report.as_ref().and_then(|r| r.release.as_ref()) == Some(&body.release)
+                && now().saturating_sub(record.checked_at) < 180,
+            "candidate report changed or expired"
+        );
+        let permitted = if record.authorized() {
+            let actor = &record.grant.as_ref().unwrap().actor;
+            let data = p.db.read()?;
+            data.operator(actor) && data.profile_enabled(actor)
+        } else {
+            false
+        };
+        let force = body.force || permitted;
+        let lease = if force {
+            p.controller.maintenance.override_update()
+        } else {
+            p.controller
+                .maintenance
+                .begin("update", || Ok(update_activity(p)?.is_empty()))?
+        };
+        if let Some(lease) = &lease {
+            acquired = Some(lease.id.clone());
+            record.grant = None;
+            if let Some(report) = &mut record.report {
+                report.phase = crate::deployment::Phase::Activating;
+            }
+        }
+        Ok((lease, force))
+    });
+    match result {
+        Ok((Some(lease), forced)) => {
+            tracing::info!(release=%body.release, forced, "deployment admitted");
+            Json(json!({"lease":lease,"forced":forced})).into_response()
+        }
+        Ok((None, _)) => error(
+            StatusCode::CONFLICT,
+            "waiting for games, publishing or maintenance",
+        ),
+        Err(error_value) => {
+            if let Some(id) = acquired {
+                p.controller.maintenance.end(&id);
+            }
+            tracing::warn!(error=%error_value,"deployment admission failed");
+            error(
+                StatusCode::CONFLICT,
+                "deployment admission unavailable; check again",
+            )
+        }
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

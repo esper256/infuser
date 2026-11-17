@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Serialize whole backup/update/reboot jobs, including slow backup uploads.
+# Serialize backup/reboot/host-config jobs, including slow backup uploads.
+# The updater takes this same lock internally after staging its download.
 set -euo pipefail
 exec 9>"${INFUSER_HOST_LOCK:-/run/lock/infuser-host-maintenance.lock}"
 if ! flock -n 9; then

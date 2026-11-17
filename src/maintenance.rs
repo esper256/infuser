@@ -19,17 +19,47 @@ pub struct Lease {
 struct StateData {
     lease: Option<Lease>,
     working: usize,
+    publishing: usize,
 }
 #[derive(Default)]
 pub struct Gate(Mutex<StateData>);
-pub struct Work(Arc<Gate>);
+pub struct Work(Arc<Gate>, bool);
 impl Drop for Work {
     fn drop(&mut self) {
-        self.0.0.lock().unwrap().working -= 1;
+        let mut state = self.0.0.lock().unwrap();
+        state.working -= 1;
+        if self.1 {
+            state.publishing -= 1;
+        }
     }
 }
 impl Gate {
+    pub fn working(&self) -> usize {
+        self.0.lock().unwrap().working
+    }
+    pub fn publishing(&self) -> usize {
+        self.0.lock().unwrap().publishing
+    }
+    /// Explicit operator authorization may interrupt players and publishing,
+    /// but never steals an existing backup/update lease.
+    pub fn override_update(&self) -> Option<Lease> {
+        let mut state = self.0.lock().unwrap();
+        let now = crate::controller::now();
+        if state.lease.as_ref().is_some_and(|l| l.expires > now) {
+            return None;
+        }
+        let lease = Lease {
+            id: crate::store::secret(),
+            purpose: "update".into(),
+            expires: now + 60,
+        };
+        state.lease = Some(lease.clone());
+        Some(lease)
+    }
     pub fn enter(self: &Arc<Self>) -> Result<Work> {
+        self.enter_kind(false)
+    }
+    fn enter_kind(self: &Arc<Self>, publishing: bool) -> Result<Work> {
         let mut state = self.0.lock().unwrap();
         ensure!(
             state
@@ -42,7 +72,10 @@ impl Gate {
             )
         );
         state.working += 1;
-        Ok(Work(self.clone()))
+        if publishing {
+            state.publishing += 1;
+        }
+        Ok(Work(self.clone(), publishing))
     }
     pub fn begin(
         &self,
@@ -88,11 +121,17 @@ pub async fn admission(
 ) -> Response {
     if matches!(
         request.uri().path(),
-        "/healthz" | "/v1/maintenance" | "/v1/operations"
+        "/healthz"
+            | "/v1/maintenance"
+            | "/v1/operations"
+            | "/v1/deployment"
+            | "/v1/deployment/admit"
     ) {
         return next.run(request).await;
     }
-    let work = match gate.enter() {
+    let publishing = request.uri().path().starts_with("/api/publisher/")
+        && request.method() != axum::http::Method::GET;
+    let work = match gate.enter_kind(publishing) {
         Ok(work) => Arc::new(work),
         Err(_) => return (axum::http::StatusCode::SERVICE_UNAVAILABLE,
             [("retry-after", "5"), ("cache-control", "no-store")],
@@ -120,6 +159,34 @@ pub struct Client {
 }
 
 impl Client {
+    pub async fn report_update(&self, report: &crate::deployment::Report) -> Result<()> {
+        self.http
+            .post(self.url.replace("/v1/maintenance", "/v1/deployment"))
+            .bearer_auth(&self.token)
+            .json(report)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+    pub async fn admit_update(&self, release: &str, force: bool) -> Result<bool> {
+        let response = self
+            .http
+            .post(self.url.replace("/v1/maintenance", "/v1/deployment/admit"))
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({"release":release,"force":force}))
+            .send()
+            .await?;
+        // Allow adoption by the older daemon; it has no web override to consume.
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(self.acquire("update", force).await?.is_some());
+        }
+        if response.status() == reqwest::StatusCode::CONFLICT {
+            return Ok(false);
+        }
+        response.error_for_status()?;
+        Ok(true)
+    }
     pub fn new(config: &crate::config::Config) -> Result<Self> {
         Ok(Self {
             http: reqwest::Client::builder()

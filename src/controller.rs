@@ -39,6 +39,7 @@ fn fault(status: u16, message: &str) -> anyhow::Error {
 }
 
 pub struct Controller {
+    pub deployment: crate::deployment::Tracker,
     pub maintenance: Arc<crate::maintenance::Gate>,
     pub last_tick: std::sync::atomic::AtomicU64,
     pub config: Config,
@@ -116,6 +117,7 @@ impl Controller {
         );
         store.save(&state)?;
         Ok(Self {
+            deployment: crate::deployment::Tracker::open(&config.controller.state_dir)?,
             maintenance: Default::default(),
             last_tick: std::sync::atomic::AtomicU64::new(now()),
             config,
