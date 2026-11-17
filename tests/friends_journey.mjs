@@ -51,13 +51,18 @@ try {
      const c=cluster.getBoundingClientRect(),l=list.getBoundingClientRect(),t=chat.getBoundingClientRect();
      const overflow=list.querySelector('.presence-more'),badges=[...list.querySelectorAll('.presence-person:not(.presence-self)')];
      const aligned=badges.every(b=>{const r=b.getBoundingClientRect(),s=b.querySelector('summary').getBoundingClientRect();return Math.abs((s.top+s.bottom-r.top-r.bottom)/2)<1&&s.height===34;});
-     const recent=document.querySelector('#recent-menu').getBoundingClientRect();
+     const recent=document.querySelector('#recent-menu').getBoundingClientRect(),brand=document.querySelector('.brand').getBoundingClientRect();
      return {overflow:!!overflow,shown:list.querySelectorAll('[data-player-id]').length-1,hidden:overflow?Number(overflow.querySelector('summary').textContent.slice(1)):0,spare:c.right-t.right,aligned,
-      noCollision:t.left>=l.right+7&&t.right<=c.right+1&&(recent.top>=c.bottom||recent.left>=c.right),noPageOverflow:document.documentElement.scrollWidth<=innerWidth};
+      noCollision:t.left>=l.right+7&&t.right<=c.right+1&&(brand.right<=c.left+1&&recent.right<=brand.right&&Math.abs((brand.top+brand.bottom-c.top-c.bottom)/2)<2),noPageOverflow:document.documentElement.scrollWidth<=innerWidth};
     });
     assert(layout.aligned,`${theme} ${width}: badges and +N must share a centerline`);
     assert(layout.noCollision&&layout.noPageOverflow,JSON.stringify({theme,width,...layout}));
     assert.equal(layout.shown+layout.hidden,count);
+    if(width===320){
+     await page.locator('#chat-toggle').click();
+     assert(await page.evaluate(()=>{const a=document.querySelector('.brand').getBoundingClientRect(),b=document.querySelector('.presence-chat').getBoundingClientRect();return Math.abs((a.top+a.bottom-b.top-b.bottom)/2)<2;}),'opening chat does not add a header row');
+     await page.locator('#chat-close').click();
+    }
     if(width===1500&&count===6)assert(!layout.overflow,'six friends fit on desktop without +N');
     if(layout.overflow)assert(layout.spare<29,'overflow must use all available badge slots');
     if((width===1500&&count===6)||(width===390&&count===40))await page.locator('header').screenshot({path:new URL(`.local/presence-chat-review/${theme}-${width}.png`,root).pathname});

@@ -150,10 +150,10 @@ function recentReactions(game){
 function gameBuzz(game){
   const recent=recentReactions(game);
   if(!recent.length)return null;
-  // Diminishing growth: 8 reactions -> 4 faces, 12 -> 5, capped at 6.
-  const count=Math.min(recent.length,6,Math.ceil(Math.sqrt(2*recent.length))),seen=new Set(),distinct=[],rest=[];
+  // Diminishing growth: 8 reactions -> 4 faces, 12 -> 5, capped at 8.
+  const count=Math.min(recent.length,8,Math.ceil(Math.sqrt(2*recent.length))),seen=new Set(),distinct=[],rest=[];
   for(const reaction of recent){if(!seen.has(reaction.emoji)){seen.add(reaction.emoji);distinct.push(reaction);}else rest.push(reaction);}
-  const stack=el('button',undefined,'game-buzz');stack.type='button';stack.setAttribute('aria-haspopup','dialog');
+  const stack=el('button',undefined,'game-buzz');stack.style.setProperty('--buzz-spread',String(Math.min(1,(8-count)/6)));stack.type='button';stack.setAttribute('aria-haspopup','dialog');
   const label=recent.length+' '+(recent.length===1?'reaction':'reactions')+' in the last 28 days';stack.title=label;stack.setAttribute('aria-label',label+' · View feedback');
   for(const reaction of [...distinct,...rest].slice(0,count)){const face=reactionFace(reaction.emoji);face.style.zIndex=String(count-stack.childElementCount);face.setAttribute('aria-hidden','true');stack.append(face);}
   stack.onclick=()=>openGameDetail(game,recent[0]);return stack;
@@ -668,6 +668,33 @@ async function startDesktop(game,button,card,{guest=false}={}){
 }
 document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]'))if(!menu.contains(event.target))menu.open=false;});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
+let recentWiggleTimer;
+function syncRecentMotion(){
+  const toggle=$('recent-toggle');
+  const animate=toggle.classList.contains('has-updates')&&!$('recent-menu').open&&!document.hidden&&!reactionMotion.matches;
+  if(toggle.hasAttribute('data-motion')!==animate)toggle.toggleAttribute('data-motion',animate);
+  if(!animate){clearTimeout(recentWiggleTimer);recentWiggleTimer=undefined;if(toggle.classList.contains('wiggling'))toggle.classList.remove('wiggling');return;}
+  if(recentWiggleTimer!==undefined)return;
+  recentWiggleTimer=setTimeout(()=>{recentWiggleTimer=undefined;toggle.classList.add('wiggling');syncRecentMotion();},5000+Math.random()*9000);
+}
+$('recent-toggle').addEventListener('animationend',event=>{if(event.animationName==='recent-wiggle')$('recent-toggle').classList.remove('wiggling');});
+reactionMotion.addEventListener('change',syncRecentMotion);
+document.addEventListener('visibilitychange',syncRecentMotion);
+function recentAge(at,now=Date.now()/1000){
+  const seconds=Math.max(0,now-at);
+  if(seconds<45)return 'just now';
+  const [unit,size]=seconds<2700?['minute',60]:seconds<79200?['hour',3600]:seconds<561600?['day',86400]:seconds<2419200?['week',604800]:seconds<31536000?['month',2629800]:['year',31536000];
+  const count=Math.max(1,Math.round(seconds/size));
+  return count===1?(unit==='hour'?'an hour ago':'a '+unit+' ago'):count+' '+unit+'s ago';
+}
+function updateRecentAge(){
+  const feed=$('feed'),row=feed.querySelector('.feed-row');let time=feed.querySelector('.feed-time');
+  if(!row){time?.remove();return;}
+  if(!time)time=el('time',undefined,'feed-time');
+  const body=row.lastElementChild,at=Number(row.dataset.at),date=new Date(at*1000),iso=date.toISOString();
+  if(time.parentElement!==body)body.insertBefore(time,body.children[1]||null);
+  setText(time,recentAge(at));if(time.dateTime!==iso){time.dateTime=iso;time.title=date.toLocaleString();}
+}
 let feedSignature;
 function renderFeed() {
   const feed=$('feed');const entries=[];
@@ -676,11 +703,11 @@ function renderFeed() {
   const keys=new Set(entries.slice(0,12).map(entry=>JSON.stringify([entry.at,entry.title,entry.text])));
   if(!seenEvents||$('recent-menu').open)seenEvents=keys;
   const unseen=[...keys].some(key=>!seenEvents.has(key));
-  $('recent-toggle').classList.toggle('has-updates',unseen);
+  $('recent-toggle').classList.toggle('has-updates',unseen);syncRecentMotion();
   const label=unseen?'Recently · new events':'Recently';
   if($('recent-toggle').getAttribute('aria-label')!==label)$('recent-toggle').setAttribute('aria-label',label);
   const signature=JSON.stringify(entries.slice(0,12).map(({game,...entry})=>[game.id,entry]));
-  if(signature===feedSignature)return;feedSignature=signature;
+  if(signature===feedSignature){updateRecentAge();return;}feedSignature=signature;
   const previous=new Map([...feed.children].map(row=>[row.dataset.key,row])),rows=[],focused=document.activeElement;
   let replacementFocus;
   if(!entries.length)rows.push(el('p','Game updates and reactions show up here.','quiet'));
@@ -690,7 +717,7 @@ function renderFeed() {
     const old=previous.get(key);
     if(old?.dataset.signature===signature){rows.push(old);continue;}
     const row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');
-    row.dataset.key=key;row.dataset.signature=signature;
+    row.dataset.key=key;row.dataset.signature=signature;row.dataset.at=entry.at;
     row.onclick=()=>{$('recent-menu').open=false;const game=library.apps.find(game=>game.id===entry.game.id);if(game)openGameDetail(game,entry.reaction);};
     body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));
     const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
@@ -699,7 +726,7 @@ function renderFeed() {
     if(old===focused)replacementFocus=row;
   }
   const hadFocus=feed.contains(focused);
-  reconcileChildren(feed,rows);
+  reconcileChildren(feed,rows);updateRecentAge();
   if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,reactionFace(emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
@@ -775,7 +802,7 @@ function setupAccount(){
   const self=el('li',undefined,'presence-person presence-self');self.dataset.playerId=me.player_id;
   self.append(menu);
   if(me.inspecting){
-    const profile=el('ul',undefined,'presence-stack');profile.setAttribute('aria-label','Your profile');profile.append(self);$('recent-menu').before(profile);
+    const profile=el('ul',undefined,'presence-stack');profile.setAttribute('aria-label','Your profile');profile.append(self);document.querySelector('.brand').after(profile);
   }else{$('friends').prepend(self);$('friends').hidden=false;}
   function positionMenu(){
     const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
@@ -826,7 +853,7 @@ document.addEventListener('keydown',event=>{
   const menu=document.querySelector('header details[open]');
   if(menu){closeHeaderMenus();menu.querySelector('summary').focus();}
 });
-$('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();});
+$('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();syncRecentMotion();});
 $('close-recent').onclick=()=>{$('recent-menu').open=false;$('recent-toggle').focus();};
 let profileUsageRequest,profileReminderBusy=false,profileReminderPending=false,profileReminderAttempted=false,profilePickerOpened=false;
 function profileReminderReady(){return me&&!me.inspecting&&library&&!document.hidden&&!document.querySelector('dialog[open]');}

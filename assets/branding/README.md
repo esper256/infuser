@@ -43,6 +43,8 @@ not a claim of pixel-identical background extraction. Keep masters intact.
 | `lockup-dark-master.png` | Real RGBA transparency, dark text for light surfaces |
 | `lockup-{navy,light,dark}-{256,512,1024}.png` | Square lockups at the named pixel size |
 | `header-{light,dark}-{320,640}.png` | Horizontal transparent lockups, 320×80 and 640×160; use the latter at 320×80 for 2× screens |
+| `header-{icon,wordmark}-master.png` | Lossless native-resolution crops from the PNG master; separate Recently icon and static Library wordmark |
+| `header-{icon,wordmark}.webp` | Lossless high-density header exports, 140×176 and 480×111 |
 | `icon-{64,128,180,192,256,512}.png` | Square transparent device-and-vapor marks without text |
 | `favicon-{16,32,48}.png`, `favicon.ico` | Tighter device crop for tiny tabs; ICO includes all three sizes |
 | `apple-touch-icon.png` | Opaque 180×180 dark-background touch icon |
@@ -59,8 +61,11 @@ to regenerate derived assets from the masters. It only writes exports beside
 the script. It does not change masters. The signed-out domain landing page embeds `landing-logo.webp` as a data URL in
 `web/index.html`, supported by the existing image CSP. This avoids adding a backend
 asset route. If regenerating that file, update its embedded copy too. The signed-in
-Library header similarly embeds `header-light.webp`, the horizontal lockup.
-Update both data URLs if regenerating those WebP exports. The Library favicon
+Library header embeds `header-icon.webp` and `header-wordmark.webp` separately.
+Only the icon opens Recently and signals unread events; the static wordmark links
+to the Library. The split starts from the original PNG master, never a lossy WebP,
+and both cropped masters and served exports are lossless. Update the matching
+data URLs in `web/index.html` when regenerating these exports. The Library favicon
 embeds `favicon-32.png`. Cards without game artwork use overlapping abstract color loops drawn in CSS. Keep the Infuser identity in the site branding, not as a stand-in for
 game artwork. The fallback requires no asset request.
 

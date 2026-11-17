@@ -53,7 +53,7 @@ try {
    else if(path==='/sw.js')return route.fulfill({status:404,body:''});
    else {file='web/index.html';type='text/html';}
    let body=await readFile(new URL(file,root));
-   if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.refreshTestLibrary=refresh;';
+   if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.refreshTestLibrary=refresh;window.testRecentAge=recentAge;';
    return route.fulfill({body,contentType:type});
   }
   return route.fulfill({json:data});
@@ -151,10 +151,11 @@ try {
  await search.fill('orbit');await search.press('ArrowDown');await search.press('Escape');assert(await suggestions.isHidden());
  await search.click();await search.press('Tab');assert(await suggestions.isHidden());
  await search.fill('');await search.press('Escape');
- // Only the last 28 days contribute; a busy card never grows past six faces.
- for(const [n,faces] of [[0,0],[1,1],[8,4],[12,5],[50,6]]){
+ // Only the last 28 days contribute; a busy card never grows past eight faces.
+ for(const [n,faces] of [[0,0],[1,1],[8,4],[12,5],[18,6],[25,8],[50,8]]){
   apps[1].reactions=[...recentReactions(n),{id:'old',name:'Old',emoji:'⭐',updated:now-29*86400,text:''}];await page.evaluate(()=>refreshTestLibrary());
   assert.equal(await pendingCard().locator('.game-buzz span').count(),faces);
+  if(faces===8)assert.equal(await pendingCard().locator('.game-buzz span').nth(1).evaluate(e=>getComputedStyle(e).marginLeft),'-15px','eight faces use the original cramped spacing');
  }
  apps[1].reactions=recentReactions(8);await page.evaluate(()=>refreshTestLibrary());
  assert.equal(new Set(await pendingCard().locator('.game-buzz span').allTextContents()).size,4);
@@ -176,6 +177,7 @@ try {
    assert.equal(await page.locator('#visible-games .game').count(),3);assert.equal(await page.locator('#hidden-game-list .game').count(),2);
    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${theme} ${width} page overflow`);
+   assert(await page.evaluate(()=>{const brand=document.querySelector('.brand').getBoundingClientRect(),presence=document.querySelector('.presence-chat').getBoundingClientRect();return Math.abs((brand.top+brand.bottom)/2-(presence.top+presence.bottom)/2)<2;}),`${theme} ${width}: logo and presence stay on one header row`);
    assert.equal(await page.locator('#friends [data-player-id="one"]').count(),1);
    await page.locator('#hidden-games').evaluate(e=>e.open=true);
    await page.evaluate(()=>document.activeElement.blur());
@@ -289,16 +291,25 @@ try {
  assert.equal(await page.locator('.reaction-burst:popover-open').count(),1);
  await page.screenshot({path:new URL('reaction-composer-phone.png',out).pathname});
  await page.getByRole('button',{name:'Send reaction',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#reaction-dialog').open);await close();
- // Unread Recently is large and animated in both themes, clears on opening,
+ assert.deepEqual(await page.evaluate(()=>[0,60,3600,7200,86400,-20].map(age=>testRecentAge(100000-age,100000))),['just now','a minute ago','an hour ago','2 hours ago','a day ago','just now']);
+ // Unread Recently animates only the icon, clears on opening,
  // and retains a static highlight with reduced motion.
  for(const theme of ['nightglass','cartridge-club']){
   await page.evaluate(t=>InfuserThemes.select(t),theme);game.updated=Math.max(now,game.updated)+1;await page.evaluate(()=>refreshTestLibrary());
   const recent=page.locator('#recent-toggle');assert(await recent.evaluate(e=>e.classList.contains('has-updates')));
-  assert(await recent.evaluate(e=>getComputedStyle(e).animationName==='recent-excitement'));
-  assert(await recent.evaluate(e=>getComputedStyle(e).backgroundColor!=='rgba(0, 0, 0, 0)'&&parseFloat(getComputedStyle(e).fontSize)>=15));
-  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await recent.evaluate(e=>getComputedStyle(e).animationName),'none');
+  assert(await recent.evaluate(e=>e.hasAttribute('data-motion')&&getComputedStyle(e,'::before').animationName==='recent-halo'));
+  await page.waitForFunction(()=>document.querySelector('#recent-toggle').classList.contains('wiggling'),{},{timeout:16000});
+  assert.equal(await recent.locator('img.brand-icon').evaluate(e=>getComputedStyle(e).animationName),'recent-wiggle');
+  assert.equal(await recent.locator('img.brand-icon').count(),1);
+  assert.equal(await recent.textContent(),'');
+  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
+  assert(!await recent.evaluate(e=>e.hasAttribute('data-motion')||e.classList.contains('wiggling')),'hidden tabs stop both effects');
+  await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});
+  assert.equal(await page.locator('.brand-wordmark').evaluate(e=>getComputedStyle(e).animationName),'none');
+  assert(await recent.evaluate(e=>e.getBoundingClientRect().width>=44&&e.getBoundingClientRect().height>=44));
+  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await recent.evaluate(e=>getComputedStyle(e,'::before').animationName),'none');assert(!await recent.evaluate(e=>e.hasAttribute('data-motion')));
   await page.screenshot({path:new URL('recent-unread-'+theme+'-phone.png',out).pathname});
-  await recent.click();await page.waitForFunction(()=>!document.querySelector('#recent-toggle').classList.contains('has-updates'));await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
+  await recent.click();assert.equal(await page.locator('#feed time').count(),1);assert.equal(await page.locator('#feed .feed-row').first().locator('time').count(),1);await page.screenshot({path:new URL('recent-open-'+theme+'-phone.png',out).pathname});await page.waitForFunction(()=>!document.querySelector('#recent-toggle').classList.contains('has-updates'));await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
  }
  if(process.env.INFUSER_TOUCH!=='1'){
   await page.setViewportSize({width:1500,height:1000});await page.mouse.move(1,1);await page.waitForTimeout(300);const before=await card().boundingBox();
