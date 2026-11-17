@@ -11,13 +11,30 @@ Use Rust 1.89+ and Node 24. The desktop app is a separate Cargo package; checkin
 only the root package misses it. Private configs and test artifacts belong in
 ignored `.local/` files.
 
+## Format before submitting
+
+Always run rustfmt before committing or submitting changes, including opening or
+updating a pull request. This also applies to coding agents; the repository-root
+[AGENTS.md](../AGENTS.md) makes the requirement discoverable to them.
+
+From the repository root:
+
+```sh
+cargo fmt --all
+cargo fmt --manifest-path desktop/Cargo.toml --all
+```
+
+Include the formatter's changes in the submission and rerun it after subsequent
+Rust edits. Manual formatting and CI checks do not replace running rustfmt.
+Verify both packages with the formatting checks below before submitting.
+
 ## Fast checks
 
 From the repository root:
 
 ```sh
-cargo fmt --check
-cargo fmt --manifest-path desktop/Cargo.toml --check
+cargo fmt --all -- --check
+cargo fmt --manifest-path desktop/Cargo.toml --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo clippy --manifest-path desktop/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --locked
