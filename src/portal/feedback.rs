@@ -313,13 +313,21 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let group = admin_group(&p, &h, false).await?;
     let _lock = p.feedback_lock.lock().unwrap();
     let queue = load_queue(&p)?;
+    let data = p.db.read()?;
+    let submitters: std::collections::BTreeMap<_, _> = data
+        .members
+        .iter()
+        .filter(|(id, _)| data.groups.member(id) == group)
+        .map(|(id, member)| (hash(id), &member.name))
+        .collect();
     let entries: Vec<_> = queue
         .entries
         .iter()
         .filter(|e| {
             e.group == group && !matches!(e.state, ReviewState::Sent | ReviewState::Dismissed)
         })
-        .map(|e| json!({"id":e.id,"created":e.created,"state":e.state,"report":e.report}))
+        // Attribution is private review metadata, never part of Report::issue().
+        .map(|e| json!({"id":e.id,"created":e.created,"state":e.state,"report":e.report,"submitter":submitters.get(&e.member)}))
         .collect();
     Ok(reply(
         json!({"available":token(&p).is_ok(),"entries":entries}),

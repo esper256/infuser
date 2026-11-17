@@ -11,7 +11,7 @@ await page.route('https://library.test/**',async route=>{
   if(path==='/api/me')return route.fulfill({status:401,json:{error:'test'}});
   if(path==='/api/feedback'&&method==='POST'){
     const body=route.request().postDataJSON();intakes.push(body);
-    if(!entries.some(e=>e.key===body.request_id))entries.push({id:'queued-'+entries.length,key:body.request_id,created:1700000000,state:'pending',report:body.report});
+    if(!entries.some(e=>e.key===body.request_id))entries.push({id:'queued-'+entries.length,key:body.request_id,created:1700000000,state:'pending',submitter:'Private Submitter <b>',report:body.report});
     if(failIntake){failIntake=false;return route.abort('failed');}
     return route.fulfill({json:{queued:true,id:entries.at(-1).id}});
   }
@@ -56,13 +56,17 @@ try{
   await close();await open();await dialog.locator('[name=title]').fill('Another draft');
   await page.waitForTimeout(3200);assert(await dialog.isVisible(),'an earlier success timer must not close a new draft');
   admin=true;await page.setViewportSize({width:1280,height:900});await page.reload();await open('Review feedback');
+  assert.match(await dialog.locator('.feedback-entries').textContent(),/Private Submitter <b>/);
   await dialog.getByRole('button',{name:'Review and edit'}).nth(1).click();
+  assert.match(await dialog.locator('.feedback-submitter').textContent(),/Private Submitter <b>/);
+  assert.equal(await dialog.locator('.feedback-submitter b').count(),0);
   await dialog.locator('[name=description]').fill('A button does not respond.');await preview();
   assert.match(await dialog.locator('.feedback-review pre').textContent(),/"viewport": "small"/,'keep original snapshot, never collect admin device data');
   assert.doesNotMatch(await dialog.locator('.feedback-review pre').textContent(),/Private game name/);
   assert.equal(await dialog.locator('.feedback-send').isDisabled(),true);assert.equal(approvals.length,0);
   await consent();await dialog.locator('.feedback-send').click();await page.waitForFunction(()=>document.querySelector('.feedback-status').textContent.includes('approved public issue'));
   assert.equal(approvals.length,1);assert.equal(approvals[0].public_consent,true);assert.equal(approvals[0].report.description,'A button does not respond.');
+  assert.doesNotMatch(JSON.stringify(approvals[0]),/Private Submitter|submitter/);
   await dialog.waitFor({state:'hidden',timeout:5000});await open('Review feedback');await dialog.getByRole('button',{name:'Review and edit'}).click();
   await preview();failPosting=true;await consent();await dialog.locator('.feedback-send').click();await page.waitForFunction(()=>document.querySelector('.feedback-status').textContent.includes('could not be confirmed'));
   assert.equal(await dialog.locator('.feedback-send').isDisabled(),true);

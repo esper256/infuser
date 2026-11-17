@@ -2,7 +2,7 @@
 export function initFeedback(button, closeMenu, api, admin=false) {
   const dialog=document.createElement('dialog');dialog.id='feedback-dialog';dialog.setAttribute('aria-labelledby','feedback-title');
   dialog.innerHTML=`<button type="button" class="close" aria-label="Close feedback">×</button>
-    <h2 id="feedback-title">Send feedback</h2><p class="feedback-intro"></p>
+    <h2 id="feedback-title">Send feedback</h2><p class="feedback-intro"></p><p class="feedback-submitter" hidden></p>
     <p>Leave out names, email addresses, private game details, links, setup codes and passwords.</p>
     <section class="feedback-queue" hidden><p>Only your group’s admins can review these reports. Private reports expire after 30 days.</p><button type="button" class="feedback-refresh">Refresh queue</button><div class="feedback-entries"></div></section>
     <form><label>Type<select name="kind"><option value="feature">Feature request</option><option value="bug">Bug</option></select></label>
@@ -23,7 +23,7 @@ export function initFeedback(button, closeMenu, api, admin=false) {
   const message=text=>{$('.feedback-status').textContent=text;};
   const updateSend=()=>{send.disabled=!consent.checked||pending||finished||locked||!!reviewId&&!available;};
   function updateKind(){const bug=form.elements.kind.value==='bug';form.elements.include.closest('label').hidden=!bug;$('.feedback-diagnostics-note').hidden=!bug;}
-  function reset(){cancelAutoClose();form.reset();form.hidden=false;review.hidden=true;report=null;requestId=null;snapshot=null;pending=false;finished=false;locked=false;consent.checked=false;consent.disabled=false;edit.disabled=false;updateKind();updateSend();}
+  function reset(){cancelAutoClose();form.reset();form.hidden=false;review.hidden=true;$('.feedback-submitter').hidden=true;report=null;requestId=null;snapshot=null;pending=false;finished=false;locked=false;consent.checked=false;consent.disabled=false;edit.disabled=false;updateKind();updateSend();}
   function copy(){
     $('.feedback-intro').textContent=reviewId?'Admin review: edit out private information. Only the report below will become a public GitHub issue when you explicitly approve it.':'Your feedback goes privately to your group’s admins. An admin can edit and approve it before anything is posted publicly on GitHub.';
     $('.feedback-preview').textContent=reviewId?'Review public issue':'Review draft';send.textContent=reviewId?'Post public issue':'Send to admins';
@@ -72,17 +72,19 @@ export function initFeedback(button, closeMenu, api, admin=false) {
   async function loadQueue(){
     if(pending)return;
     cancelAutoClose();
-    form.hidden=true;review.hidden=true;reviewId=null;$('.feedback-entries').replaceChildren();message('Loading private feedback…');
+    form.hidden=true;review.hidden=true;reviewId=null;$('.feedback-submitter').hidden=true;$('.feedback-entries').replaceChildren();message('Loading private feedback…');
     try{
       const data=await api('/api/feedback/review');available=data.available;
       const list=$('.feedback-entries');list.replaceChildren();
       for(const entry of data.entries){
         const item=document.createElement('section'),title=document.createElement('h3'),state=document.createElement('p');
-        title.textContent=entry.report?.title||'Feedback';state.textContent=new Date(entry.created*1000).toLocaleDateString()+' · '+entry.state;item.append(title,state);
+        const submitter=entry.submitter||'Unavailable profile';
+        title.textContent=entry.report?.title||'Feedback';state.textContent=submitter+' · '+new Date(entry.created*1000).toLocaleDateString()+' · '+entry.state;item.append(title,state);
         if(entry.state==='pending'){
           const open=document.createElement('button');open.type='button';open.textContent='Review and edit';open.onclick=()=>{
             if(pending)return;
             reset();reviewId=entry.id;snapshot=entry.report.diagnostics;copy();
+            $('.feedback-submitter').textContent='From '+submitter+' · Only visible to admins';$('.feedback-submitter').hidden=false;
             form.elements.kind.value=entry.report.kind;form.elements.title.value=entry.report.title;form.elements.description.value=entry.report.description;form.elements.include.checked=!!snapshot;updateKind();
             message(available?'Review the complete public issue before approving.':'GitHub posting is not configured. You can still review or dismiss feedback.');form.elements.title.focus();
           };item.append(open);

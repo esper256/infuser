@@ -9,6 +9,13 @@ connected profiles. There are no room menus, individual mute controls, recording
 video, or game-specific channels. Refreshing or leaving the Library disconnects;
 launching a game in another tab leaves the Library's voice connection running.
 
+The connected tab plays a soft rising three-note chime for joins and a falling
+chime for departures, including its own connection/disconnection. These tones are
+local playback, never a published audio track. All tones share a four-second
+cooldown; excess events are dropped rather than queued. Existing participants
+are not announced individually on entry, and reconnects suppress roster sounds
+for two seconds. Other tabs and profiles outside voice remain silent.
+
 One profile may hold one voice connection. Other tabs show its status and can turn
 it off. They never automatically acquire the microphone. Joining another profile
 or visit requires turning voice on again. Browser microphone permission is required.

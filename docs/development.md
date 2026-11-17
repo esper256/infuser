@@ -39,7 +39,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo clippy --manifest-path desktop/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --locked
 cargo test --manifest-path desktop/Cargo.toml --locked
-node --test tests/*_sdk.mjs tests/themes.mjs
+node --test tests/*_sdk.mjs tests/themes.mjs tests/voice_chimes.mjs
 ```
 
 If Node is outside PATH, set `INFUSER_TEST_NODE=/absolute/path/to/node` for the

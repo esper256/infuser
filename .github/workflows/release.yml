@@ -41,7 +41,7 @@ jobs:
         run: cargo test --locked
       - name: Fast SDK journeys
         run: |
-          mapfile -t tests < <(rg --files tests -g '*_sdk.mjs' -g '*theme*.mjs' -g '*theme*.js')
+          mapfile -t tests < <(rg --files tests -g '*_sdk.mjs' -g '*theme*.mjs' -g '*theme*.js' -g 'voice_chimes.mjs')
           node --test "${tests[@]}"
       - name: Build native binary
         run: cargo build --locked --release --bin infuser
