@@ -13,7 +13,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       <button id="chat-new" class="chat-new" type="button" hidden>New messages ↓</button>
       <p id="chat-connection" role="status"></p><p id="chat-error" role="alert"></p>
       <div class="chat-compose-row">
-        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-emoji-toggle" type="button" aria-label="Choose emoji" title="Choose emoji" aria-expanded="false" aria-controls="chat-emoji-panel" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14c1 4 7 4 8 0M8 8h.01M16 8h.01"/></svg></button><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg><span id="chat-limit" hidden></span></button></form>
+        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-emoji-toggle" type="button" aria-label="Choose emoji" title="Choose emoji" aria-expanded="false" aria-controls="chat-emoji-panel" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14c1 4 7 4 8 0M8 8h.01M16 8h.01"/></svg></button><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg></button><span id="chat-limit" hidden></span></form>
       </div>
       <section id="chat-emoji-panel" role="dialog" aria-label="Choose emoji" hidden><div class="chat-emoji-heading"><strong>Emoji</strong><button class="chat-emoji-close" type="button" aria-label="Close emoji picker">×</button></div><p role="status"></p><div class="chat-emoji-mount"></div></section>
       <span id="chat-announcement" class="sr-only" role="status"></span>
@@ -118,20 +118,20 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     }
     if(latest||stick&&(log.clientHeight!==height||log.clientWidth!==widthBefore))log.scrollTop=log.scrollHeight;
     const bounds=log.getBoundingClientRect(),viewStart=bounds.top+log.clientTop,viewEnd=viewStart+log.clientHeight;
-    const visible=new Set(),ahead=new Map();
+    const visible=new Map(),ahead=new Map();
     // Prepare about half a second of travel, bounded to one screen of history.
     const lookahead=Math.min(log.clientHeight,Math.max(log.clientHeight*.4,scrollSpeed*500));
     for(const message of log.querySelectorAll('.chat-message')){
       const rect=message.getBoundingClientRect(),id=message.dataset.authorId;
       if(!rect.height)continue;
-      if(rect.bottom>viewStart&&rect.top<viewEnd)visible.add(id);
+      if(rect.bottom>viewStart&&rect.top<viewEnd)visible.set(id,(visible.get(id)||0)+1);
       else{
         const distance=scrollDirection>0?rect.top-viewEnd:scrollDirection<0?viewStart-rect.bottom:Infinity;
         if(distance>=0&&distance<lookahead)ahead.set(id,Math.min(ahead.get(id)??Infinity,distance));
       }
     }
     const upcoming=[...ahead].filter(([id])=>!visible.has(id)).sort((a,b)=>a[1]-b[1]).slice(0,3).map(([id])=>id);
-    const context={visible:[...visible].sort(),upcoming,left:compact()?null:left+12,right:compact()?null:left+width-12};
+    const context={visible:[...visible.keys()].sort(),upcoming,left:compact()?null:left+12,right:compact()?null:left+width-12};
     const contextSignature=JSON.stringify(context);
     if(contextSignature!==speakerSignature){speakerSignature=contextSignature;onSpeakerContext(context);}
     const existing=new Map([...$('pointers').children].map(pointer=>[pointer.dataset.playerId,pointer]));
@@ -143,15 +143,20 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       const settling=!animation||Number(animation.currentTime)/Number(animation.effect.getTiming().duration)>=.65;
       const rect=badge.getBoundingClientRect(),center=rect.left+rect.width/2;
       if(!visible.has(badge.dataset.playerId)||!settling||rect.top<viewTop||rect.bottom+4>=top||center<left+12||center>left+width-12)continue;
+      // One visible message is 85%, three is neutral, and five or more is 115%.
+      // Vary only width so both the portrait tip and panel seam stay attached.
+      const scale=(.85+.075*Math.min(4,visible.get(badge.dataset.playerId)-1)).toFixed(3);
       let pointer=existing.get(badge.dataset.playerId);
       if(!pointer){
         pointer=document.createElement('span');pointer.className='chat-pointer';pointer.dataset.playerId=badge.dataset.playerId;
+        pointer.style.setProperty('--tail-scale',scale);
         $('pointers').append(pointer);
-        if(!motion.matches)pointer.animate([{opacity:0,transform:'translateX(-50%) scaleY(0)'},{opacity:1,transform:'translateX(-50%) scaleY(1)'}],{duration:140,easing:'ease-out'});
+        if(!motion.matches)pointer.animate([{opacity:0,transform:'translateX(-50%) scaleX(var(--tail-scale)) scaleY(0)'},{opacity:1,transform:'translateX(-50%) scaleX(var(--tail-scale)) scaleY(1)'}],{duration:140,easing:'ease-out'});
       }
       const x=(center-left)+'px',tail=(top-rect.bottom-4)+'px';
       if(pointer.style.left!==x)pointer.style.left=x;
       if(pointer.style.getPropertyValue('--tail-height')!==tail)pointer.style.setProperty('--tail-height',tail);
+      if(pointer.style.getPropertyValue('--tail-scale')!==scale)pointer.style.setProperty('--tail-scale',scale);
       existing.delete(badge.dataset.playerId);
     }
     for(const pointer of existing.values())pointer.remove();
@@ -206,6 +211,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   input.oninput=()=>{
     const length=Array.from(input.value).length;
     setText($('limit'),length+'/280');setHidden($('limit'),length<240);
+    $('limit').classList.toggle('at-limit',length>=280);
     $('send').disabled=sending||!input.value.trim();
     $('emoji-toggle').disabled=sending;
   };

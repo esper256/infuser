@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {readFile,mkdir} from 'node:fs/promises';
 const engine=process.env.INFUSER_BROWSER||'chromium';
 const playwright=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
-const browser=await playwright[engine].launch({headless:true,...(engine==='chromium'&&process.env.INFUSER_CHROMIUM?{executablePath:process.env.INFUSER_CHROMIUM}:{})});
+const browser=await playwright[engine].launch({headless:true,...(engine==='chromium'?{ignoreDefaultArgs:['--hide-scrollbars']}:{}),...(engine==='chromium'&&process.env.INFUSER_CHROMIUM?{executablePath:process.env.INFUSER_CHROMIUM}:{})});
 const messages=Array.from({length:30},(_,i)=>({id:i+1,author:{id:'friend',name:'OrbitFox'},text:`Message ${i+1}: history to read.`,created:Date.now()/1000,can_delete:false}));
 const fixture=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/clubhouse.css"><link rel="stylesheet" href="/assets/themes/nightglass.css"><link rel="stylesheet" href="/assets/themes/cartridge-club.css"></head><body>
 <style>@media(max-width:650px),(pointer:coarse) and (max-height:500px){header{padding-top:180px}}</style><header><div id="friends"><span data-player-id="friend">OrbitFox</span></div></header>
@@ -58,6 +58,23 @@ try {
    assert.deepEqual(await send.boundingBox(),button,'count never resizes the send button');
    assert.deepEqual(await page.locator('#chat-log').boundingBox(),logBefore,'count never reduces history space');
    assert(await input.evaluate(e=>{const b=document.querySelector('#chat-send').getBoundingClientRect(),r=e.getBoundingClientRect();return r.right-parseFloat(getComputedStyle(e).paddingRight)<=b.left;}),'typed text stays clear of the inset button');
+   const badge=await count.boundingBox(),fieldBox=await input.boundingBox();
+   assert.equal(await count.evaluate(e=>e.closest('button')),null,'count is independent of the send button');
+   assert(Math.abs(badge.x+badge.width/2-button.x-button.width/2)<1,'badge centers beneath send');
+   assert(Math.abs(badge.y+badge.height/2-fieldBox.y-fieldBox.height)<1,'badge straddles the input bottom border');
+   assert(badge.y>=button.y+button.height,'badge is entirely below send');
+   assert(badge.x>=fieldBox.x&&badge.x+badge.width<=fieldBox.x+fieldBox.width,'badge fits the input width');
+   assert.equal(await count.evaluate(e=>getComputedStyle(e).whiteSpace),'nowrap');
+   assert.equal(await count.evaluate(e=>getComputedStyle(e).color),'rgb(255, 179, 107)');
+   assert.equal(await count.evaluate(e=>getComputedStyle(e).backgroundColor),await input.evaluate(e=>getComputedStyle(e).backgroundColor));
+   await input.fill('x'.repeat(280));assert.equal(await count.textContent(),'280/280');
+   assert.equal(await count.evaluate(e=>getComputedStyle(e).color),'rgb(255, 107, 107)');
+   assert.deepEqual(await send.boundingBox(),button,'reaching the limit leaves the button fixed');
+   if(!mobile&&engine==='chromium')assert(await input.evaluate(e=>e.scrollHeight>e.clientHeight&&e.clientLeft>parseFloat(getComputedStyle(e).borderLeftWidth)),'native scrollbar occupies the left side');
+   await input.fill(('A message with punctuation, numbers 123, and enough lines to scroll. ').repeat(5).slice(0,274));
+   assert.equal(await count.evaluate(e=>getComputedStyle(e).color),'rgb(255, 179, 107)','editing below the limit restores orange');
+   await mkdir(new URL('../.local/chat-compact/',import.meta.url),{recursive:true});
+   await page.screenshot({path:new URL(`../.local/chat-compact/${theme}-${size.width}-limit.png`,import.meta.url).pathname});
    await input.fill('');assert(await count.isHidden());assert(await send.isDisabled());
    // Return to the reading focus used when opening on touch screens.
    if(mobile)await page.locator('#chat-log').focus();
