@@ -146,8 +146,8 @@ try {
  assert.equal(await pendingCard().locator('.game-buzz img').count(),4);
  assert(await pendingCard().locator('.game-buzz span').evaluateAll(faces=>faces.every((face,i)=>{
   const style=getComputedStyle(face);
-  return style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.filter==='none'&&style.textShadow==='none'&&(!i||Number(style.zIndex)<Number(getComputedStyle(faces[i-1]).zIndex));
- })),'leftmost reaction is on top; no circles or shadows behind card faces');
+  return style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.filter==='drop-shadow(rgba(0, 0, 0, 0.6) 4px 2px 0.5px)'&&style.textShadow==='none'&&(!i||Number(style.zIndex)<Number(getComputedStyle(faces[i-1]).zIndex));
+ })),'leftmost reaction is on top; offset silhouette shadows without circular backings');
 
  await pendingCard().locator('.game-buzz').click();assert(await dialog.isVisible());assert(await page.evaluate(()=>document.activeElement.classList.contains('game-feedback-row')));await close();
  for(const theme of ['nightglass','cartridge-club']){
