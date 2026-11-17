@@ -18,6 +18,12 @@ copy factual and short. Do not add slogans or a second game library. Long server
 origins and errors scroll while actions stay visible. Activity is indeterminate:
 never imply download percentages without real measurements from the client.
 
+The About panel uses the running executable's embedded version/build and a
+small update-check summary. The clipboard payload is an explicit list in
+`src/about.rs`; do not add credentials, launch URLs, account data, local paths or
+raw errors. Old updater state without an outcome must remain “status unavailable”
+because its timestamp records an attempt, not a successful check.
+
 ## Visual review
 
 Run the real presentation without credentials, network calls or game launches:
@@ -27,7 +33,7 @@ cargo run --manifest-path desktop/Cargo.toml --locked --example appearance -- co
 ```
 
 States: `idle`, `connect`, `opening`, `browser`, `playing`, `error`,
-`invalid-link`, `long-server`, `long-title`, `long-error`.
+`invalid-link`, `long-server`, `long-title`, `long-error`, `about`, `about-failed`.
 
 An optional output path saves the window content as a PNG and exits. Optional
 width and height arguments exercise narrow windows and long messages:

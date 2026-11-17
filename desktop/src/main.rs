@@ -1,4 +1,5 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
+mod about;
 mod client;
 mod install;
 mod run_storage;
@@ -113,7 +114,9 @@ impl eframe::App for App {
         } else {
             ui::Screen::Idle
         };
-        match self.presentation.show(ctx, screen) {
+        match self.presentation.show(ctx, screen, || {
+            update::info(&self.root, self.startup.is_some())
+        }) {
             ui::Action::None => {}
             ui::Action::Connect => self.launch(ctx),
             ui::Action::Library => {

@@ -1,6 +1,8 @@
 //! Offline visual review of the real native UI. No account, storage or network access.
 //! cargo run --manifest-path desktop/Cargo.toml --example appearance -- connect
 //! Optional second argument saves a screenshot, then exits; third/fourth set width/height.
+#[path = "../src/about.rs"]
+mod about;
 #[path = "../src/ui.rs"]
 mod ui;
 use eframe::egui;
@@ -10,6 +12,7 @@ struct Preview {
     state: String,
     output: Option<String>,
     frames: usize,
+    started: std::time::Instant,
 }
 
 impl eframe::App for Preview {
@@ -41,10 +44,25 @@ impl eframe::App for Preview {
                 message: "Invalid Infuser launch link.",
                 has_request: false,
             },
-            "idle" => ui::Screen::Idle,
+            "idle" | "about" | "about-failed" => ui::Screen::Idle,
             other => panic!("unknown preview state: {other}"),
         };
-        let _ = self.presentation.show(ctx, screen);
+        if self.state.starts_with("about") && self.frames == 0 {
+            self.presentation.about_open = true;
+        }
+        let _ = self.presentation.show(ctx, screen, || about::UpdateInfo {
+            status: if self.state == "about-failed" {
+                "Update check or download failed; using a working version"
+            } else {
+                "Up to date at last check"
+            },
+            checked: Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            ),
+        });
         if let Some(output) = &self.output {
             for event in ctx.input(|input| input.events.clone()) {
                 if let egui::Event::Screenshot { image, .. } = event {
@@ -65,7 +83,7 @@ impl eframe::App for Preview {
                 }
             }
             self.frames += 1;
-            if self.frames == 4 {
+            if self.frames > 3 && self.started.elapsed() > std::time::Duration::from_millis(400) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             }
             ctx.request_repaint();
@@ -97,6 +115,7 @@ fn main() -> eframe::Result {
                 state,
                 output,
                 frames: 0,
+                started: std::time::Instant::now(),
             }))
         }),
     )

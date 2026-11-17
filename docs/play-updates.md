@@ -15,3 +15,12 @@ and may show a Windows security prompt.
 
 Preview installations from before automatic updates were added need the current
 installer once. Later releases update themselves.
+
+Choose **About Infuser Play** at the bottom of its window to see the running
+version, build ID, platform and last update-check result. **Copy diagnostic info**
+copies those details for a bug report. It excludes accounts, credentials, game
+links and local file paths. “Up to date at last check” describes that check;
+reopening the app checks again once the hourly interval has passed.
+Older installers did not record update results, so the panel may say that the
+last result is unavailable. Automatic updates still work; installing the current
+package adds that reporting. Version and build details are available either way.
