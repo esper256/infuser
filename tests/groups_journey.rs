@@ -356,7 +356,18 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     .await?;
     let user_identity = ok(c.member("user", Method::GET, "/api/me")).await?;
     // The shipped UI can load every illustrated reaction from the real server.
-    for id in ["atmosphere", "cozy", "gem", "clever", "wild", "surprises"] {
+    for id in [
+        "atmosphere",
+        "cozy",
+        "gem",
+        "clever",
+        "wild",
+        "surprises",
+        "art",
+        "music",
+        "smile",
+        "together",
+    ] {
         let response = c
             .member("user", Method::GET, &format!("/assets/reactions/{id}.webp"))
             .send()
@@ -388,6 +399,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         "🧩",
         "🎢",
         "🪄",
+        "🎨",
+        "🎵",
+        "😄",
+        "🤝",
     ] {
         ok(
             c.member("user", Method::PUT, &format!("/api/apps/{away}/reaction"))
