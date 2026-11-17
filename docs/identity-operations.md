@@ -4,7 +4,8 @@ Audience: server operators.
 
 The identity foundation gives each member a permanent account and profile.
 Google sign-in, invitations, names, games and saves keep working as before.
-Additional sign-in providers and the profile chooser are not enabled yet.
+The [profile chooser](profiles.md) supports accounts invited into multiple groups.
+Additional sign-in providers are not enabled yet.
 
 ## Before the first genesis deployment
 
@@ -46,10 +47,13 @@ do not restore email-only authentication.
 
 An existing invitation binds to its Google account on the next successful login.
 After binding, changing that account's email does not create a new profile or
-lose progress. Operator member commands accept the original member handle or
-the account's current contact email. Existing admin screens retain their member
-handles. Linking another provider or moving a profile to a different account is
-not an invitation edit and is not supported yet.
+lose progress. Admin screens edit members within the selected group. Inviting
+that email into another group creates an independent profile; it does not move
+the original one. Operator member commands accept an original member handle or
+an unambiguous contact email. For accounts with multiple profiles, use the admin
+screen in the target group to avoid an ambiguous CLI lookup. Linking another
+provider or moving a profile to a different account is not an invitation edit
+and is not supported yet.
 
 ## Supported recovery
 

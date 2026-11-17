@@ -18,7 +18,9 @@ pub(super) fn headers(response: &mut Response, etag: &str) {
         .insert(header::CACHE_CONTROL, "private, no-cache".parse().unwrap());
     response.headers_mut().insert(
         header::VARY,
-        "Cookie, X-Infuser-Inspect-Group".parse().unwrap(),
+        "Cookie, X-Infuser-Profile, X-Infuser-Inspect-Group, X-Infuser-Visit"
+            .parse()
+            .unwrap(),
     );
 }
 pub(super) fn json(value: Value, request: &HeaderMap) -> Response {

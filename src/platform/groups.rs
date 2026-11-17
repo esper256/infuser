@@ -82,11 +82,14 @@ impl Data {
     ) -> Result<()> {
         let email = email.trim().to_lowercase();
         let name = name.trim();
+        let existing = self.group_member_key(&email, group)?;
         ensure!(
-            email.contains('@') && email.len() < 254 && !email.chars().any(char::is_whitespace),
+            existing.as_deref() == Some(&email)
+                || (email.contains('@')
+                    && email.len() < 254
+                    && !email.chars().any(char::is_whitespace)),
             crate::portal::fault(400, "Use a Google email address.")
         );
-        let email = self.invitation_key(&email)?;
         ensure!(
             !name.is_empty() && name.chars().count() <= 40 && !name.chars().any(char::is_control),
             crate::portal::fault(400, "Use a name of 1–40 characters.")
@@ -95,10 +98,21 @@ impl Data {
             self.groups.names.contains_key(group),
             crate::portal::fault(404, "Group not found.")
         );
-        ensure!(
-            !self.members.contains_key(&email) || self.groups.member(&email) == group,
-            crate::portal::fault(409, "This account cannot be invited to this group.")
-        );
+        let email = if let Some(existing) = existing {
+            existing
+        } else if let Some(account) = self.invitation_account(&email)? {
+            let key = format!("profile-{}", &secret()[..32]);
+            self.identities.profiles.insert(
+                key.clone(),
+                identity::Profile {
+                    id: secret(),
+                    account_id: account,
+                },
+            );
+            key
+        } else {
+            email
+        };
         let avatar = self.members.get(&email).and_then(|m| m.avatar.clone());
         self.members.insert(
             email.clone(),
@@ -110,6 +124,6 @@ impl Data {
             },
         );
         self.groups.members.insert(email, group.into());
-        Ok(())
+        self.initialize_identities()
     }
 }

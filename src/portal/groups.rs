@@ -107,11 +107,6 @@ async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create
     );
     let id = format!("group-{}", &secret()[..12]);
     p.db.edit(|d| {
-        ensure!(
-            !d.members
-                .contains_key(&body.admin_email.trim().to_lowercase()),
-            fault(409, "Use an account not already assigned to a group.")
-        );
         d.groups.names.insert(id.clone(), name.into());
         d.invite_to_group(&id, &body.admin_email, &body.admin_name, true, true)
     })?;

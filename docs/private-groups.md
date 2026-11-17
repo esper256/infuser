@@ -39,6 +39,10 @@ signs in normally and invites their family through Admin tools. Infuser does not
 send invitation emails. If Google OAuth is still in testing mode, add their
 accounts to its test-user list too.
 
+An email already used in another group gets a separate profile in the new group.
+Existing games, progress and permissions stay with the original profile. See
+[profiles](profiles.md) for the chooser and Switch Profile behavior.
+
 **View** opens a read-only inspection in that browser tab. The operator can see
 the selected group’s Library, activity, and chat, including hidden previews.
 Inspection does not announce the operator online, create a membership, launch
@@ -122,7 +126,7 @@ Operator routes use the normal Google session and Origin checks:
 
 - `GET /api/operator/groups` lists `{id,name,home}` records.
 - `POST /api/operator/groups` takes `{name,admin_email,admin_name}` and returns
-  `{id,name}`. The email must not already belong to any group.
+  `{id,name}`. An email already used in another group gets a separate profile here.
 - `X-Infuser-Inspect-Group: GROUP_ID` selects the read-only group for an operator’s
   member API reads. The server checks the role on every request and rejects
   writes carrying this header. It never changes group membership. The 15-minute

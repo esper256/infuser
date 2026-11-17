@@ -190,16 +190,9 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
             .header("x-infuser-inspect-group", "home"),
     )
     .await?;
-    denied(
-        c.member("admin", Method::POST, "/api/admin/members")
-            .json(&json!({"email":"frizz@example.com","name":"Imposter","admin":true})),
-    )
-    .await?;
-    denied(
-        c.member("frizz", Method::POST, "/api/admin/members")
-            .json(&json!({"email":"user@example.com","name":"Stolen"})),
-    )
-    .await?;
+    // Cross-group invitations now create independent profiles; that flow is
+    // exercised in profile_chooser_journey. Renaming another group's profile
+    // remains forbidden here.
     denied(
         c.member("admin", Method::PUT, "/api/admin/members/handle")
             .json(&json!({"email":"frizz@example.com","name":"Renamed"})),
