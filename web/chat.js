@@ -115,20 +115,20 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     }
     if(latest||stick&&(log.clientHeight!==height||log.clientWidth!==widthBefore))log.scrollTop=log.scrollHeight;
     const bounds=log.getBoundingClientRect(),viewStart=bounds.top+log.clientTop,viewEnd=viewStart+log.clientHeight;
-    const visible=new Set(),ahead=new Map();
+    const visible=new Map(),ahead=new Map();
     // Prepare about half a second of travel, bounded to one screen of history.
     const lookahead=Math.min(log.clientHeight,Math.max(log.clientHeight*.4,scrollSpeed*500));
     for(const message of log.querySelectorAll('.chat-message')){
       const rect=message.getBoundingClientRect(),id=message.dataset.authorId;
       if(!rect.height)continue;
-      if(rect.bottom>viewStart&&rect.top<viewEnd)visible.add(id);
+      if(rect.bottom>viewStart&&rect.top<viewEnd)visible.set(id,(visible.get(id)||0)+1);
       else{
         const distance=scrollDirection>0?rect.top-viewEnd:scrollDirection<0?viewStart-rect.bottom:Infinity;
         if(distance>=0&&distance<lookahead)ahead.set(id,Math.min(ahead.get(id)??Infinity,distance));
       }
     }
     const upcoming=[...ahead].filter(([id])=>!visible.has(id)).sort((a,b)=>a[1]-b[1]).slice(0,3).map(([id])=>id);
-    const context={visible:[...visible].sort(),upcoming,left:compact()?null:left+12,right:compact()?null:left+width-12};
+    const context={visible:[...visible.keys()].sort(),upcoming,left:compact()?null:left+12,right:compact()?null:left+width-12};
     const contextSignature=JSON.stringify(context);
     if(contextSignature!==speakerSignature){speakerSignature=contextSignature;onSpeakerContext(context);}
     const existing=new Map([...$('pointers').children].map(pointer=>[pointer.dataset.playerId,pointer]));
@@ -140,15 +140,20 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       const settling=!animation||Number(animation.currentTime)/Number(animation.effect.getTiming().duration)>=.65;
       const rect=badge.getBoundingClientRect(),center=rect.left+rect.width/2;
       if(!visible.has(badge.dataset.playerId)||!settling||rect.top<viewTop||rect.bottom+4>=top||center<left+12||center>left+width-12)continue;
+      // One visible message is 85%, three is neutral, and five or more is 115%.
+      // Vary only width so both the portrait tip and panel seam stay attached.
+      const scale=(.85+.075*Math.min(4,visible.get(badge.dataset.playerId)-1)).toFixed(3);
       let pointer=existing.get(badge.dataset.playerId);
       if(!pointer){
         pointer=document.createElement('span');pointer.className='chat-pointer';pointer.dataset.playerId=badge.dataset.playerId;
+        pointer.style.setProperty('--tail-scale',scale);
         $('pointers').append(pointer);
-        if(!motion.matches)pointer.animate([{opacity:0,transform:'translateX(-50%) scaleY(0)'},{opacity:1,transform:'translateX(-50%) scaleY(1)'}],{duration:140,easing:'ease-out'});
+        if(!motion.matches)pointer.animate([{opacity:0,transform:'translateX(-50%) scaleX(var(--tail-scale)) scaleY(0)'},{opacity:1,transform:'translateX(-50%) scaleX(var(--tail-scale)) scaleY(1)'}],{duration:140,easing:'ease-out'});
       }
       const x=(center-left)+'px',tail=(top-rect.bottom-4)+'px';
       if(pointer.style.left!==x)pointer.style.left=x;
       if(pointer.style.getPropertyValue('--tail-height')!==tail)pointer.style.setProperty('--tail-height',tail);
+      if(pointer.style.getPropertyValue('--tail-scale')!==scale)pointer.style.setProperty('--tail-scale',scale);
       existing.delete(badge.dataset.playerId);
     }
     for(const pointer of existing.values())pointer.remove();
