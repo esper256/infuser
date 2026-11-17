@@ -312,6 +312,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     .await?;
     let admin_library = ok(c.member("admin", Method::GET, "/api/library")).await?;
     assert_eq!(admin_library["apps"][0]["can_moderate_reactions"], true);
+    assert_eq!(admin_library["apps"][0]["can_manage_visibility"], true);
     assert_eq!(
         ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["can_moderate_reactions"],
         false
@@ -532,6 +533,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     assert_eq!(chat["messages"][0]["can_delete"], false);
     assert!(chat.to_string().contains("Other family only"));
     assert_eq!(library["apps"][0]["can_moderate_reactions"], false);
+    assert_eq!(library["apps"][0]["can_manage_visibility"], false);
     for (method, path, body) in [
         (Method::DELETE, moderation.clone(), json!({})),
         (Method::POST, "/api/my-games".to_owned(), json!({})),

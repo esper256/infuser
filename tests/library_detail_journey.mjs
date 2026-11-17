@@ -9,11 +9,11 @@ const avatars=[...String(await readFile(new URL('src/portal/avatars.rs',root))).
 const me={name:'KwamiKwami',player_id:'one',admin:true,avatar:'loot-raccoon',avatars};
 const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'OrbitFox',avatar:'ember-raven'};
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
-const game={can_moderate_reactions:true,id:'firefly-drift',title:'Firefly Drift',description:'A quiet flight through a glowing forest.',author,updated:now-60,card_art_url:'/test-art/firefly',url:'https://library.test/games/firefly-drift',tags:['3d','arcade','chill'],can_edit_tags:true,players:[],join_targets:[{name:'OrbitFox',session_id:'session',player_id:'two'}],reactions:[{...friend,emoji:'👏',text:'Love the atmosphere.',updated:now,mine:false},{...author,emoji:'⭐',text:'',updated:now-10,mine:true}]};
+const game={can_manage_visibility:true,can_moderate_reactions:true,id:'firefly-drift',title:'Firefly Drift',description:'A quiet flight through a glowing forest.',author,updated:now-60,card_art_url:'/test-art/firefly',url:'https://library.test/games/firefly-drift',tags:['3d','arcade','chill'],can_edit_tags:true,players:[],join_targets:[{name:'OrbitFox',session_id:'session',player_id:'two'}],reactions:[{...friend,emoji:'👏',text:'Love the atmosphere.',updated:now,mine:false},{...author,emoji:'⭐',text:'',updated:now-10,mine:true}]};
 const apps=[game,{...game,id:'nocomgame',title:'NoCOMgame',description:null,author:friend,card_art_url:null,tags:['3d','sandbox','action','survival','exploration'],reactions:[]},{...game,id:'event-horizon',title:'Event Horizon',author:friend,card_art_url:'/test-art/event',reactions:[]},{...game,id:'dodge',title:'Dodge the Creeps',author:null,preview:true,card_art_url:null,reactions:[]},{...game,id:'lantern',title:'Lantern Lake',author:null,preview:true,card_art_url:null,reactions:[]}];
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
-let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false;
+let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility;
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
@@ -30,7 +30,7 @@ try {
   else if(path==='/api/profile'&&method==='GET')data={users:[]};
   else if(path==='/api/profile'){me.avatar=request.postDataJSON().avatar;author.avatar=me.avatar;data={avatar:me.avatar};}
   else if(path.endsWith('/launch')){launches.push(request.postDataJSON());data={state:'ready',url:'https://library.test/game-fixture'};}
-  else if(path.endsWith('/visibility')){const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
+  else if(path.endsWith('/visibility')){if(failVisibility){await new Promise(resolve=>{releaseVisibility=resolve;});return route.fulfill({status:503,json:{error:'Please retry visibility.'}});}const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
   else if(/^\/api\/admin\/apps\/[^/]+\/reactions\//.test(path)){
    if(failModeration)return route.fulfill({status:503,json:{error:'Please retry deletion.'}});
    const app=apps.find(g=>g.id===path.split('/')[4]);app.reactions=app.reactions.filter(r=>r.id!==path.split('/')[6]);data={ok:true};
@@ -207,9 +207,9 @@ try {
  await target.waitFor({state:'detached'});assert(!game.reactions.some(r=>r.id===friend.id));assert(game.reactions.some(r=>r.id===author.id));
  assert.equal(await page.locator('#feed').getByText('Love the atmosphere.',{exact:true}).count(),0,'removed reaction also leaves the activity feed');
  await close();game.reactions=beforeModeration;await page.evaluate(()=>refreshTestLibrary());
- me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert.equal(await dialog.locator('.feedback-actions').count(),0);await close();
+ me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert.equal(await dialog.locator('.feedback-actions').count(),0);assert.equal(await dialog.locator('.game-admin-menu').count(),0);await close();
  me.admin=true;game.can_moderate_reactions=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert.equal(await dialog.locator('.feedback-actions').count(),0,'server capability is required');await close();
- game.can_moderate_reactions=true;await page.evaluate(()=>refreshTestLibrary());
+ game.can_moderate_reactions=true;game.can_manage_visibility=false;await page.evaluate(()=>refreshTestLibrary());await open();assert.equal(await dialog.locator('.game-admin-menu').count(),0,'server visibility capability is required');await close();game.can_manage_visibility=true;await page.evaluate(()=>refreshTestLibrary());
  // Actual description/text are rendered as text, not interpreted as markup.
  game.description='<img src=x onerror=alert(1)> '+('Long description. '.repeat(80));game.title='An exceptionally long game title that should remain usable on a narrow phone';
  await page.reload();await page.locator('.game-open').first().waitFor();await page.setViewportSize({width:320,height:640});await open();assert.equal(await dialog.locator('.game-description img').count(),0);assert(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth));await close();
@@ -217,9 +217,49 @@ try {
  await open();await page.evaluate(()=>{window.detailImage=document.querySelector('.detail-art img');document.querySelector('.detail-creator .creator').focus();document.querySelector('#game-detail').scrollTop=200;});
  game.reactions.push({...friend,emoji:'🚀',text:'New reaction',updated:now+2});
  await page.evaluate(()=>refreshTestLibrary());assert(await page.evaluate(()=>document.querySelector('.detail-art img')===detailImage));assert(await dialog.locator('.detail-creator .creator').evaluate(e=>e===document.activeElement));assert(await dialog.evaluate(e=>e.scrollTop>=200));await close();
+ // Admin actions live only in the full popup; Play menus have no reactions or moderation.
+ assert.equal(await page.locator('.game .game-admin-menu,.game .play-menu-items .chips').count(),0);
+ assert.equal(await page.locator('.game .play-menu-items').getByRole('button',{name:/Hide game|Unhide game|Make invisible|Make visible/}).count(),0);
+ await open();await dialog.getByLabel('Admin actions',{exact:true}).click();
+ await page.evaluate(()=>refreshTestLibrary());assert(await dialog.locator('.game-admin-menu').evaluate(e=>e.open),'polling preserves the open admin menu');
+ await page.keyboard.press('Escape');assert(await dialog.isVisible());assert.equal(await dialog.locator('.game-admin-menu').evaluate(e=>e.open),false);
+ await close();
+ // Exercise failure, pending requests, dismissal and retry independently in each layout.
+ for(const theme of ['nightglass','cartridge-club']){
+  await page.evaluate(t=>InfuserThemes.select(t),theme);
+  for(const width of [1280,390,320]){
+   await page.setViewportSize({width,height:900});await open();
+   const menu=dialog.locator('.game-admin-menu'),trigger=dialog.getByLabel('Admin actions',{exact:true});
+   await trigger.click();
+   assert(await menu.locator('.game-admin-items').evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;}));
+   await page.screenshot({path:new URL(`${theme}-${width}-admin.png`,out).pathname});
+   await dialog.locator('.detail-creator p').click();assert.equal(await menu.evaluate(e=>e.open),false);
+   await trigger.click();failVisibility=true;releaseVisibility=undefined;
+   const action=menu.getByRole('button',{name:'Hide game',exact:true});
+   const requested=page.waitForRequest(r=>r.url().endsWith('/visibility'));
+   await action.click();await requested;
+   assert(await action.isDisabled());
+   const count=writes.filter(w=>w.path.endsWith('/visibility')).length;
+   await action.evaluate(e=>e.click());await page.evaluate(()=>refreshTestLibrary());
+   assert(await action.isDisabled());assert.equal(writes.filter(w=>w.path.endsWith('/visibility')).length,count);
+   assert(releaseVisibility);releaseVisibility();
+   await menu.getByRole('alert').waitFor();assert.equal(await menu.getByRole('alert').textContent(),'Please retry visibility.');
+   assert(await action.isEnabled());assert(await menu.evaluate(e=>e.open));
+   await page.evaluate(()=>refreshTestLibrary());assert(await menu.getByRole('alert').isVisible());
+   await page.screenshot({path:new URL(`${theme}-${width}-admin-error.png`,out).pathname});
+   failVisibility=false;await action.click();
+   await page.waitForFunction(()=>document.querySelector('#game-detail .game-visibility')?.textContent==='Hidden');
+   await dialog.getByLabel('Admin actions',{exact:true}).click();
+   await dialog.getByRole('button',{name:'Unhide game',exact:true}).click();
+   await page.waitForFunction(()=>!document.querySelector('#game-detail .game-visibility'));
+   await dialog.getByLabel('Admin actions',{exact:true}).click();await page.keyboard.press('Escape');
+   assert(await dialog.isVisible());assert.equal(await dialog.locator('.game-admin-menu').evaluate(e=>e.open),false);
+   assert(await dialog.getByLabel('Admin actions',{exact:true}).evaluate(e=>e===document.activeElement));await close();
+  }
+ }
  // Admin visibility moves a game between the shared shelves.
- await page.setViewportSize({width:1280,height:900});await page.locator('#hidden-games').evaluate(e=>e.open=false);await open();await dialog.locator('.play-menu summary').click();await dialog.getByRole('button',{name:'Make invisible',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===2);await close();await page.waitForFunction(()=>document.querySelector('#hidden-games > summary')===document.activeElement);
- await page.locator('#hidden-games').evaluate(e=>e.open=true);await page.locator('#hidden-game-list [data-app="firefly-drift"] .game-open').click();await dialog.locator('.play-menu summary').click();await dialog.getByRole('button',{name:'Make visible',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===3);await close();
+ await page.setViewportSize({width:1280,height:900});await page.locator('#hidden-games').evaluate(e=>e.open=false);await open();await dialog.getByLabel('Admin actions',{exact:true}).click();await dialog.getByRole('button',{name:'Hide game',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===2);await close();await page.waitForFunction(()=>document.querySelector('#hidden-games > summary')===document.activeElement);
+ await page.locator('#hidden-games').evaluate(e=>e.open=true);await page.locator('#hidden-game-list [data-app="firefly-drift"] .game-open').click();await dialog.getByLabel('Admin actions',{exact:true}).click();await dialog.getByRole('button',{name:'Unhide game',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===3);await close();
  // Presence portrait owns the existing profile options, including theme/install/notifications.
  await page.locator('#account-trigger').click();await page.locator('#open-profile').click();await page.locator('input[name="avatar"][value="byte-gecko"]').check();await page.locator('#save-profile').click();await page.waitForFunction(()=>!document.querySelector('#profile-dialog').open);assert.equal(me.avatar,'byte-gecko');
  await page.locator('#add-game').click();await page.waitForFunction(()=>document.querySelector('#agent-prompt').value.includes('TEST-ONLY'));await page.locator('#close-add-game').click();

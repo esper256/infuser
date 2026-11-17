@@ -302,6 +302,63 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .json(&json!({"listed":true})),
     )
     .await?;
+    // Publishing cannot undo an admin hide, and metadata updates still work.
+    assert_eq!(member(image_url, "user").send().await?.status(), 404);
+    let hidden_metadata = json_ok(
+        publisher(Method::PATCH, "/api/publisher/apps/pond/metadata")
+            .json(&json!({"description":"Updated while hidden"})),
+    )
+    .await?;
+    assert_eq!(hidden_metadata["listed"], false);
+    assert_eq!(hidden_metadata["description"], "Updated while hidden");
+    json_ok(
+        publisher(Method::PATCH, "/api/publisher/apps/pond/metadata")
+            .json(&json!({"description":null})),
+    )
+    .await?;
+    assert!(
+        platform::Database::open(temp.path())?
+            .read()?
+            .admin_hidden_apps
+            .contains("pond")
+    );
+    // A previously queued publication also respects the current admin hide.
+    p.db.edit(|d| {
+        d.pending_promotions.insert(
+            "pond".into(),
+            platform::PendingPromotion {
+                build: "without-art".into(),
+                listed: true,
+                queued_at: 1,
+            },
+        );
+        Ok(())
+    })?;
+    p.activate_pending()?;
+    assert_eq!(p.db.read()?.apps["pond"].build, "without-art");
+    assert!(!p.db.read()?.apps["pond"].listed);
+    assert_eq!(
+        json_ok(member("/api/library", "user")).await?["apps"],
+        json!([])
+    );
+    let hidden_library = json_ok(member("/api/library", "admin")).await?;
+    assert_eq!(hidden_library["apps"][0]["preview"], true);
+    assert_eq!(hidden_library["apps"][0]["can_manage_visibility"], true);
+    json_ok(
+        publisher(
+            Method::POST,
+            "/api/publisher/apps/pond/builds/with-art/publish",
+        )
+        .json(&json!({"listed":true})),
+    )
+    .await?;
+    assert!(!p.db.read()?.apps["pond"].listed);
+    json_ok(visibility("pond", "admin").json(&json!({"listed":true}))).await?;
+    assert!(!p.db.read()?.admin_hidden_apps.contains("pond"));
+    assert_eq!(
+        json_ok(member("/api/library", "user")).await?["apps"][0]["can_manage_visibility"],
+        false
+    );
     assert_eq!(member(image_url, "user").send().await?.status(), 200);
     json_ok(
         publisher(

@@ -238,6 +238,13 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         .header("x-infuser-visit", &visit))
     .await?;
     assert_eq!(library["apps"].as_array().unwrap().len(), 2);
+    assert!(
+        library["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|app| app["can_manage_visibility"] == false)
+    );
     let visit_game = w.launch("visitor", &brought, Some(&visit)).await?;
     let context = ok(visit_game.call(Method::GET, "/_infuser/context")).await?;
     assert_eq!(context["app_id"], brought);
@@ -326,6 +333,23 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         ok(host_game.call(Method::GET, "/_infuser/saves/progress")).await?["data"],
         Value::Null
     );
+    let host_library = ok(w.member("operator", Method::GET, "/api/library")).await?;
+    let borrowed = host_library["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|app| app["id"] == brought)
+        .unwrap();
+    assert_eq!(borrowed["can_manage_visibility"], false);
+    denied(
+        w.member(
+            "operator",
+            Method::PUT,
+            &format!("/api/admin/apps/{brought}/visibility"),
+        )
+        .json(&json!({"listed":false})),
+    )
+    .await?;
     // Host moderation of a borrowed game only deletes the host deployment copy.
     let reaction_path = format!("/api/apps/{brought}/reaction");
     ok(w.member("visitor", Method::PUT, &reaction_path)

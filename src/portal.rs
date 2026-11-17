@@ -1073,6 +1073,11 @@ async fn set_visibility(
             .get_mut(&app)
             .ok_or_else(|| fault(404, "Game not found."))?;
         game.listed = body.listed;
+        if body.listed {
+            d.admin_hidden_apps.remove(&app);
+        } else {
+            d.admin_hidden_apps.insert(app.clone());
+        }
         Ok(())
     })?;
     Ok(reply(json!({"app_id":app,"listed":body.listed})))
