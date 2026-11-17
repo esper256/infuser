@@ -64,6 +64,13 @@ atomically renaming it into place through the host maintenance procedure
 after a version is known to work. The timer uses root only for installation and
 systemd restart; the daemon continues running as the `infuser` service user.
 
+The stable updater reads only the controller API port and token-file path from
+the daemon configuration. The candidate executable validates the full configuration
+and state before activation; rollback targets must pass the same checks. Adding
+a daemon feature therefore does not require teaching the updater its settings.
+Older updater builds that report `unknown field` need a one-time explicit upgrade
+from a verified working release using the staging procedure above.
+
 **First identity-genesis deployment:** upgrade the stable updater before activating
 the migration. Follow the [identity migration procedure](identity-operations.md),
 including the on-host rehearsal and retained snapshot. Genesis is the oldest

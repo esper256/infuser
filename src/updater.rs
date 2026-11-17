@@ -142,8 +142,7 @@ struct Systemd {
 impl Service for Systemd {
     async fn report(&self, report: Report) {
         let result = async {
-            let config = crate::config::Config::load(&self.config.controller_config)?;
-            crate::maintenance::Client::new(&config)?
+            crate::maintenance::Client::from_config_file(&self.config.controller_config)?
                 .report_update(&report)
                 .await
         }
@@ -169,9 +168,8 @@ impl Service for Systemd {
         if !self.lock_activation().await? {
             return Ok(Readiness::Maintenance);
         }
-        let config = crate::config::Config::load(&self.config.controller_config)?;
         Ok(
-            if crate::maintenance::Client::new(&config)?
+            if crate::maintenance::Client::from_config_file(&self.config.controller_config)?
                 .admit_update(release, self.force)
                 .await?
             {
@@ -267,6 +265,81 @@ fn acquire_host_lock(path: &Path) -> Result<Option<File>> {
 #[cfg(test)]
 mod host_lock_tests {
     use super::*;
+    #[tokio::test]
+    async fn newer_daemon_settings_do_not_block_status_or_idle_admission() -> Result<()> {
+        use axum::{Router, http::StatusCode, routing::post};
+        use std::sync::Arc;
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let router = Router::new()
+            .route(
+                "/v1/deployment",
+                post(move |headers: axum::http::HeaderMap| async move {
+                    assert_eq!(headers["authorization"], "Bearer test-control-token");
+                    seen.lock().unwrap().push("report");
+                    StatusCode::OK
+                }),
+            )
+            .route(
+                "/v1/deployment/admit",
+                post(|headers: axum::http::HeaderMap| async move {
+                    assert_eq!(headers["authorization"], "Bearer test-control-token");
+                    StatusCode::CONFLICT // The controller still decides when it is safe.
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await });
+        let dir = tempfile::tempdir()?;
+        let token = dir.path().join("control.secret");
+        fs::write(&token, "test-control-token\n")?;
+        let controller_config = dir.path().join("controller.toml");
+        fs::write(
+            &controller_config,
+            format!(
+                "[controller]\napi_port={port}\ntoken_file={token:?}\n[controller.future_feature]\nenabled=true\n[future_section]\nversion=2\n"
+            ),
+        )?;
+        // Keep full daemon validation strict: this tolerance belongs to the helper.
+        assert!(crate::config::Config::load(&controller_config).is_err());
+        let service = Systemd {
+            config: Settings {
+                repository: "example/infuser".into(),
+                install_dir: dir.path().join("install"),
+                state_dir: dir.path().join("state"),
+                controller_config: controller_config.clone(),
+                service: "infuser.service".into(),
+                health_url: health(),
+            },
+            http: reqwest::Client::new(),
+            force: false,
+            activation_lock: Mutex::new(acquire_host_lock(&dir.path().join("host.lock"))?),
+        };
+        service
+            .report(Report {
+                release: Some("a".repeat(40)),
+                built_at: None,
+                phase: Phase::Waiting,
+                maintenance_blocked: false,
+            })
+            .await;
+        assert_eq!(*calls.lock().unwrap(), vec!["report"]);
+        assert!(matches!(
+            service.ready_for_release(&"a".repeat(40)).await?,
+            Readiness::Busy
+        ));
+        for invalid in [
+            "[controller]\napi_port='wrong'",
+            "[controller]\napi_port=0",
+            "[controller]\ntoken_file='relative.secret'",
+        ] {
+            fs::write(&controller_config, invalid)?;
+            assert!(service.ready_for_release(&"a".repeat(40)).await.is_err());
+        }
+        server.abort();
+        Ok(())
+    }
     #[tokio::test]
     async fn build_metadata_is_optional_and_bound_to_verified_candidate() -> Result<()> {
         let dir = tempfile::tempdir()?;
