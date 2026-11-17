@@ -75,6 +75,17 @@ impl Engine for Runtime {
                 .kill_on_drop(true)
                 .spawn()?;
             *child = Some((instance.attempt.clone(), process));
+            infuser::private_file::replace(
+                &self.state.join("backend.pid"),
+                child
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .id()
+                    .unwrap()
+                    .to_string()
+                    .as_bytes(),
+            )?;
         }
         drop(child);
         self.health(instance, owner, id).await
@@ -127,22 +138,66 @@ fn copy(root: &Path, path: &Path, dest: &Path, files: &mut BTreeMap<String, u64>
 }
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
     let args: Vec<_> = std::env::args().collect();
     let project = std::fs::canonicalize(args.get(1).context("staged project directory required")?)?;
     let output = args.get(2).context("private ready-file path required")?;
-    let directory = tempfile::tempdir()?;
+    // Optional persistent state belongs only to the process-crash journey. Refuse
+    // an existing directory without our marker rather than risk operator data.
+    let temporary = if args.get(3).is_none() {
+        Some(tempfile::tempdir()?)
+    } else {
+        None
+    };
+    let directory = args
+        .get(3)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temporary.as_ref().unwrap().path().into());
+    if args.get(3).is_some() {
+        let marker = directory.join(".dedicated-fixture");
+        if directory.exists() {
+            anyhow::ensure!(
+                marker.exists(),
+                "persistent fixture directory must be new or carry .dedicated-fixture"
+            );
+        } else {
+            std::fs::create_dir(&directory)?;
+            infuser::private_file::replace(&marker, b"Disposable synthetic accounts only\n")?;
+        }
+    }
+    let previous: Option<Value> = if directory.join("platform.sqlite").exists() {
+        Some(serde_json::from_slice(&std::fs::read(output)?)?)
+    } else {
+        None
+    };
     let certificate = rcgen::generate_simple_self_signed(vec![
         "games.example.com".into(),
         "*.games.example.com".into(),
         "localhost".into(),
     ])?;
-    let cert = directory.path().join("cert.pem");
-    let key = directory.path().join("key.pem");
-    infuser::private_file::replace(&cert, certificate.cert.pem().as_bytes())?;
-    infuser::private_file::replace(&key, certificate.signing_key.serialize_pem().as_bytes())?;
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let cert = directory.join("cert.pem");
+    let key = directory.join("key.pem");
+    if previous.is_none() {
+        infuser::private_file::replace(&cert, certificate.cert.pem().as_bytes())?;
+        infuser::private_file::replace(&key, certificate.signing_key.serialize_pem().as_bytes())?;
+    }
+    let address = previous
+        .as_ref()
+        .and_then(|v| v["api"].as_str())
+        .and_then(|v| v.strip_prefix("http://127.0.0.1:"))
+        .unwrap_or("0");
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{address}")).await?;
     let api = format!("http://{}", listener.local_addr()?);
-    let backend = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let backend = tokio::net::TcpListener::bind(format!(
+        "127.0.0.1:{}",
+        previous
+            .as_ref()
+            .and_then(|v| v["backend_port"].as_u64())
+            .unwrap_or(0)
+    ))
+    .await?;
     let port = backend.local_addr()?.port();
     drop(backend);
     let auth = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -192,7 +247,7 @@ async fn main() -> Result<()> {
     });
     let cfg: Config = toml::from_str(&format!(
         "[controller]\nstate_dir={:?}\nauth_url={auth_url:?}\ndisk_reserve_mb=64\nlease_seconds=30",
-        directory.path().to_string_lossy()
+        directory.to_string_lossy()
     ))?;
     for (email, name, admin) in [
         ("river@example.com", "River", false),
@@ -204,63 +259,70 @@ async fn main() -> Result<()> {
     let engine = Arc::new(Runtime {
         node: std::env::var("INFUSER_TEST_NODE").unwrap_or_else(|_| "node".into()),
         project: project.clone(),
-        state: directory.path().into(),
+        state: directory.clone(),
         api: api.clone(),
         port,
         child: Mutex::new(None),
     });
     let controller = Arc::new(Controller::open(cfg, engine.clone())?);
     let p = portal::Platform::open(controller.clone())?;
-    let mut manifest: Value =
-        serde_json::from_slice(&std::fs::read(project.join("infuser.game.json"))?)?;
-    let server = serde_json::from_value(
-        json!({"image":format!("sha256:{}","a".repeat(64)),"container_port":port,"web":true,"memory_mb":128,"cpu_millis":250,"idle_seconds":1}),
-    )?;
-    manifest["schema_version"] = json!(1);
-    manifest["app_id"] = json!("dedicated-lab");
-    for key in ["web_dir", "server"] {
-        manifest.as_object_mut().unwrap().remove(key);
-    }
-    let destination = directory.path().join("content/dedicated-lab/one");
-    let mut files = BTreeMap::new();
-    copy(
-        &project.join("public"),
-        &project.join("public"),
-        &destination,
-        &mut files,
-    )?;
-    let html = std::fs::read_to_string(destination.join("index.html"))?
-        + "\n<script type=module src=\"/_infuser/sdk/v1.js\"></script>";
-    std::fs::write(destination.join("index.html"), &html)?;
-    files.insert("index.html".into(), html.len() as u64);
-    controller.register("dedicated-lab", server)?;
-    let token = p.db.edit(|d| {
-        let build = Build {
-            manifest: serde_json::from_value(manifest)?,
-            server: Some(controller.snapshot().games["dedicated-lab"].spec.clone()),
-            spa: false,
-            cross_origin_isolation: false,
-            ready: true,
-            created: now(),
-            files: files.into(),
-        };
-        build.manifest.validate()?;
-        d.builds.insert("dedicated-lab/one".into(), build);
-        d.apps.insert(
-            "dedicated-lab".into(),
-            App {
-                build: "one".into(),
-                listed: true,
-                updated: now(),
-            },
-        );
-        d.owners
-            .insert("dedicated-lab".into(), "river@example.com".into());
-        infuser::game_urls::assign(d, "dedicated-lab", "Dedicated Server Lab");
-        Ok(platform::credential(d, "dedicated-lab", "publish", "fixture")?.1)
-    })?;
-    let publisher = token;
-    infuser::private_file::replace(Path::new(output),serde_json::to_vec(&json!({"api":api,"app_id":"dedicated-lab","token":publisher,"state_dir":directory.path(),"backend_port":port,"cert":cert,"key":key}))?.as_slice())?;
+    let publisher = if let Some(previous) = &previous {
+        previous["token"]
+            .as_str()
+            .context("fixture publisher credential missing")?
+            .to_owned()
+    } else {
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(project.join("infuser.game.json"))?)?;
+        let server = serde_json::from_value(
+            json!({"image":format!("sha256:{}","a".repeat(64)),"container_port":port,"web":true,"memory_mb":128,"cpu_millis":250,"idle_seconds":1}),
+        )?;
+        manifest["schema_version"] = json!(1);
+        manifest["app_id"] = json!("dedicated-lab");
+        manifest["cloud_saves"] = json!({"groups":[{"id":"campaign","label":"Progress","files":[{"path":"progress.json","format":"json"}]}]});
+        for key in ["web_dir", "server"] {
+            manifest.as_object_mut().unwrap().remove(key);
+        }
+        let destination = directory.join("content/dedicated-lab/one");
+        let mut files = BTreeMap::new();
+        copy(
+            &project.join("public"),
+            &project.join("public"),
+            &destination,
+            &mut files,
+        )?;
+        let html = std::fs::read_to_string(destination.join("index.html"))?
+            + "\n<script type=module src=\"/_infuser/sdk/v1.js\"></script>";
+        std::fs::write(destination.join("index.html"), &html)?;
+        files.insert("index.html".into(), html.len() as u64);
+        controller.register("dedicated-lab", server)?;
+        p.db.edit(|d| {
+            let build = Build {
+                manifest: serde_json::from_value(manifest)?,
+                server: Some(controller.snapshot().games["dedicated-lab"].spec.clone()),
+                spa: false,
+                cross_origin_isolation: false,
+                ready: true,
+                created: now(),
+                files: files.into(),
+            };
+            build.manifest.validate()?;
+            d.builds.insert("dedicated-lab/one".into(), build);
+            d.apps.insert(
+                "dedicated-lab".into(),
+                App {
+                    build: "one".into(),
+                    listed: true,
+                    updated: now(),
+                },
+            );
+            d.owners
+                .insert("dedicated-lab".into(), "river@example.com".into());
+            infuser::game_urls::assign(d, "dedicated-lab", "Dedicated Server Lab");
+            Ok(platform::credential(d, "dedicated-lab", "publish", "fixture")?.1)
+        })?
+    };
+    infuser::private_file::replace(Path::new(output),serde_json::to_vec(&json!({"api":api,"app_id":"dedicated-lab","token":publisher,"state_dir":directory,"backend_port":port,"cert":cert,"key":key,"pid":std::process::id()}))?.as_slice())?;
     let tick_p = p.clone();
     let tick_controller = controller.clone();
     let ticker = tokio::spawn(async move {

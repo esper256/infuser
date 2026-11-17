@@ -269,9 +269,48 @@ node tests/dedicated_sessions_journey.mjs .local/dedicated-ready.json
 ```
 
 The browser test requires Playwright from `services/peerjs` and an installed Chromium.
+Set `INFUSER_PLAYWRIGHT` and `INFUSER_CHROMIUM` to use other local installations.
 The harness binds only loopback, uses synthetic members and deletes temporary data
 on exit. Its ready file contains a test publishing credential: keep it private.
 Production tests still use the real Docker/Caddy deployment.
+
+### Disruption soak (developer machines, Linux only)
+
+After staging the example and installing its dependencies above:
+
+```sh
+cargo build --locked --example dedicated_fixture
+node tests/reliability_soak.mjs > reliability-soak.jsonl
+```
+
+This opt-in test runs for two hours; it is not part of PR or release CI. It owns
+two browser players and an isolated guest, a real controller/router process,
+and a Node game server. It uses only synthetic accounts and a fresh temporary
+state directory. No production URL, Google login, Docker daemon, or game is used.
+
+The test drops a save response, interrupts file uploads, disconnects transports,
+freezes a renderer for 35 seconds, kills the game server, and kills the controller
+and its backend together. It checks continued gameplay, exact-room reconnects,
+honest rejection of lost rooms, checkpoint retry receipts, save isolation, and
+cleanup of incomplete uploads. Failed servers retain the real 30-second backoff.
+Gameplay is checked every 15 seconds between disruptions, including across server
+credential renewal. Each cycle records controller memory, file descriptors and
+database size as JSON lines.
+
+For a short development check, use
+`INFUSER_SOAK_SECONDS=60 INFUSER_SOAK_INTERVAL_SECONDS=0 node tests/reliability_soak.mjs`.
+It always completes at least one four-disruption cycle, so the short run takes
+longer than a minute. The default interval between disruptions is 120 seconds.
+Successful runs remove their temporary state; failures print its location and
+retain the fixture log. `INFUSER_KEEP_SOAK_STATE=1` also retains successful runs.
+Those files contain disposable credentials; keep them private. Ctrl-C stops the
+owned process group and browser. Do not point the fixture at deployment data.
+
+This test uses a process-based engine adapter, not Docker. Run the manual
+`integration.yml` workflow separately for real container lifecycle, persistent
+volumes, encrypted restore, packaging and Caddy. Renderer freezing is not physical
+laptop sleep, Chromium is not Safari, and these dedicated WebSocket tests do not
+validate TURN renewal or peer-to-peer recovery.
 
 ## Godot web example
 

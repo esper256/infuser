@@ -140,6 +140,27 @@ persistent=true
 #[tokio::test]
 #[ignore = "requires Docker access and INFUSER_TEST_IMAGE containing the built demo image ID"]
 async fn real_game_wakes_serves_sleeps_and_wakes_again() -> Result<()> {
+    async fn ready(c: &Controller, lease: &serde_json::Value) -> Result<()> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+        loop {
+            c.reconcile(now()).await?;
+            let state = c.lease(
+                "demo",
+                lease["lease_id"].as_str().unwrap(),
+                lease["lease_token"].as_str().unwrap(),
+                "renew",
+                now(),
+            )?;
+            if state["state"] == "ready" {
+                return Ok(());
+            }
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "game did not become ready"
+            );
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
     let image = std::env::var("INFUSER_TEST_IMAGE")
         .context("build examples/demo/Dockerfile and set INFUSER_TEST_IMAGE")?;
     let dir = tempfile::tempdir()?;
@@ -155,6 +176,7 @@ memory_budget_mb = 256
 cpu_budget_millis = 500
 port_start = {port}
 port_end = {port}
+retry_seconds = 1
 [games.demo]
 image = "{image}"
 container_port = 7000
@@ -168,7 +190,8 @@ idle_seconds = 1
     let engine = Arc::new(Docker {
         settings: config.controller.clone(),
     });
-    let c = Controller::open(config, engine.clone())?;
+    let mut controller = Some(Controller::open(config.clone(), engine.clone())?);
+    let mut cleanup_state = controller.as_ref().unwrap().snapshot();
     engine.preflight().await?;
     let journey = async {
         let rounds = std::env::var("INFUSER_TEST_ROUNDS")
@@ -181,22 +204,9 @@ idle_seconds = 1
             "INFUSER_TEST_ROUNDS must be 2–100"
         );
         for round in 0..rounds {
-            let lease = c.acquire("demo", "test-player", now())?;
-            let lease_id = lease["lease_id"].as_str().unwrap();
-            let token = lease["lease_token"].as_str().unwrap();
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
-            loop {
-                c.reconcile(now()).await?;
-                let state = c.lease("demo", lease_id, token, "renew", now())?;
-                if state["state"] == "ready" {
-                    break;
-                }
-                ensure!(
-                    tokio::time::Instant::now() < deadline,
-                    "game did not become ready"
-                );
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
+            let c = controller.as_ref().unwrap();
+            let mut lease = c.acquire("demo", "test-player", now())?;
+            ready(c, &lease).await?;
             let response: serde_json::Value = reqwest::get(format!("http://127.0.0.1:{port}/"))
                 .await?
                 .error_for_status()?
@@ -206,7 +216,82 @@ idle_seconds = 1
                 response["visits"] == 1,
                 "round {round}: expected a fresh game process"
             );
-            c.lease("demo", lease_id, token, "delete", now())?;
+            if round == 0 {
+                // The Docker daemon and game survive controller replacement.
+                // Reopen from disk, retaining both the lease and running process.
+                cleanup_state = c.snapshot();
+                drop(controller.take());
+                controller = Some(Controller::open(config.clone(), engine.clone())?);
+                let c = controller.as_ref().unwrap();
+                ready(c, &lease).await?;
+                assert_eq!(
+                    c.snapshot().games["demo"].name,
+                    cleanup_state.games["demo"].name
+                );
+                let response: serde_json::Value = reqwest::get(format!("http://127.0.0.1:{port}/"))
+                    .await?
+                    .error_for_status()?
+                    .json()
+                    .await?;
+                assert_eq!(
+                    response["visits"], 2,
+                    "controller reopen must preserve game memory"
+                );
+                assert_eq!(
+                    engine
+                        .inventory()
+                        .await?
+                        .iter()
+                        .filter(|(_, owner)| owner == &cleanup_state.owner)
+                        .count(),
+                    1
+                );
+            } else if round == 1 {
+                let before = c.snapshot();
+                let output = tokio::process::Command::new("docker")
+                    .args(["kill", "--signal", "KILL", &before.games["demo"].name])
+                    .output()
+                    .await?;
+                ensure!(
+                    output.status.success(),
+                    "could not kill disposable game: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+                loop {
+                    c.reconcile(now()).await?;
+                    if c.snapshot().games["demo"].phase == infuser::store::Phase::Failed {
+                        break;
+                    }
+                    ensure!(
+                        tokio::time::Instant::now() < deadline,
+                        "killed container was not retired"
+                    );
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+                assert_eq!(c.list(now())["reserved_memory_mb"], 0);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                lease = c.acquire("demo", "test-player", now())?;
+                ready(c, &lease).await?;
+                assert_ne!(c.snapshot().games["demo"].name, before.games["demo"].name);
+                let response: serde_json::Value = reqwest::get(format!("http://127.0.0.1:{port}/"))
+                    .await?
+                    .error_for_status()?
+                    .json()
+                    .await?;
+                assert_eq!(
+                    response["visits"], 1,
+                    "recovery must start a new healthy process"
+                );
+            }
+            let c = controller.as_ref().unwrap();
+            c.lease(
+                "demo",
+                lease["lease_id"].as_str().unwrap(),
+                lease["lease_token"].as_str().unwrap(),
+                "delete",
+                now(),
+            )?;
             c.reconcile(now() + 2).await?;
             ensure!(
                 c.list(now())["reserved_memory_mb"] == 0,
@@ -225,7 +310,10 @@ idle_seconds = 1
     }
     .await;
     // Cleanup is attempted even on a failed journey; never prune unrelated Docker objects.
-    let state = c.snapshot();
+    let state = controller
+        .as_ref()
+        .map(Controller::snapshot)
+        .unwrap_or(cleanup_state);
     for (id, instance) in &state.games {
         if !instance.name.is_empty()
             && let Err(error) = engine.remove(id, instance, &state.owner).await
