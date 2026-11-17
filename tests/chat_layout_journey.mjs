@@ -58,7 +58,7 @@ try {
    assert.deepEqual(await send.boundingBox(),button,'count never resizes the send button');
    assert.deepEqual(await page.locator('#chat-log').boundingBox(),logBefore,'count never reduces history space');
    assert(await input.evaluate(e=>{const b=document.querySelector('#chat-send').getBoundingClientRect(),r=e.getBoundingClientRect();return r.right-parseFloat(getComputedStyle(e).paddingRight)<=b.left;}),'typed text stays clear of the inset button');
-   const badge=await count.boundingBox(),fieldBox=await input.boundingBox();
+   const badge=await count.boundingBox(),fieldBox=await page.locator('#chat-input-scroll').boundingBox();
    assert.equal(await count.evaluate(e=>e.closest('button')),null,'count is independent of the send button');
    assert(Math.abs(badge.x+badge.width/2-button.x-button.width/2)<1,'badge centers beneath send');
    assert(Math.abs(badge.y+badge.height/2-fieldBox.y-fieldBox.height)<1,'badge straddles the input bottom border');
@@ -70,7 +70,7 @@ try {
    await input.fill('x'.repeat(280));assert.equal(await count.textContent(),'280/280');
    assert.equal(await count.evaluate(e=>getComputedStyle(e).color),'rgb(255, 107, 107)');
    assert.deepEqual(await send.boundingBox(),button,'reaching the limit leaves the button fixed');
-   if(!mobile&&engine==='chromium')assert(await input.evaluate(e=>e.scrollHeight>e.clientHeight&&e.clientLeft>parseFloat(getComputedStyle(e).borderLeftWidth)),'native scrollbar occupies the left side');
+   if(!mobile&&engine==='chromium')assert(await page.locator('#chat-scrollbar').evaluate(e=>e.scrollHeight>e.clientHeight&&e.clientLeft>parseFloat(getComputedStyle(e).borderLeftWidth)),'native scrollbar occupies the left side');
    await input.fill(('A message with punctuation, numbers 123, and enough lines to scroll. ').repeat(5).slice(0,274));
    assert.equal(await count.evaluate(e=>getComputedStyle(e).color),'rgb(255, 179, 107)','editing below the limit restores orange');
    await mkdir(new URL('../.local/chat-compact/',import.meta.url),{recursive:true});
@@ -103,7 +103,7 @@ try {
     assert.equal(initial.panel.y,12,'mobile panel uses viewport top despite wrapped header');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'chat-log','reading does not automatically summon the keyboard');
     assert.equal(await page.locator('.chat-pointer').count(),0);
-    const close=await page.locator('#chat-close').boundingBox(),field=await input.boundingBox();
+    const close=await page.locator('#chat-close').boundingBox(),field=await page.locator('#chat-input-scroll').boundingBox();
     assert(close.y<initial.panel.y+20&&close.x>initial.panel.x+initial.panel.width-50,'mobile close floats at upper right');
     assert(field.width>=initial.panel.width-28,'composer uses the full width');
     await page.locator('#chat-log').evaluate(e=>e.scrollTop-=100);
@@ -144,9 +144,13 @@ try {
      await settle();
      const short=await geometry(72,280,50);
      console.log(`  short landscape with both status bars and latest button: log ${short.log.height}px`);
-     await page.locator('#chat-text').fill('Draft in landscape');
+     await page.locator('#chat-text').fill('x'.repeat(280));
+     await input.press('Control+End');
+     const shortBadge=await count.boundingBox();
+     assert(shortBadge.y+shortBadge.height<=short.panel.y+short.panel.height,'limit badge fits short viewport');
+     await page.screenshot({path:new URL(`../.local/chat-compact/${theme}-short-limit.png`,import.meta.url).pathname});
      assert(await page.locator('#chat-send').isEnabled());
-     for(const id of ['chat-close','chat-text','chat-send','chat-new','chat-error','chat-connection']){
+     for(const id of ['chat-close','chat-input-scroll','chat-send','chat-new','chat-error','chat-connection']){
       const box=await page.locator('#'+id).boundingBox();
       assert(box.y>=84&&box.y+box.height<=341,`${id} remains inside short viewport`);
      }
