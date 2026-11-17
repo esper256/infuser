@@ -20,7 +20,7 @@ const entryApp=new URLSearchParams(location.search).get('app');
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const reactionMotion=matchMedia('(prefers-reduced-motion: reduce)');
 reactionMotion.addEventListener('change',event=>{if(event.matches)document.querySelector('.reaction-burst')?.remove();});
-const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea'],['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round']];
+const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea'],['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round'],['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises']];
 function setText(node,text){text=String(text);if(node.textContent!==text)node.textContent=text;}
 function reconcileChildren(container,children){
   const retained=new Set(children);
@@ -28,6 +28,16 @@ function reconcileChildren(container,children){
   children.forEach((child,index)=>{if(container.children[index]!==child)container.insertBefore(child,container.children[index]||null);});
 }
 function el(tag, text, cls) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(cls) node.className = cls; return node; }
+// Keep persisted emoji IDs and accessible labels; artwork is local presentation only.
+function reactionFace(emoji,cls){
+  const face=el('span',undefined,cls),art=emojis.find(item=>item[0]===emoji)?.[2];
+  if(art){
+    const image=el('img',undefined,'reaction-image');image.alt='';image.width=256;image.height=256;
+    image.onerror=()=>face.replaceChildren(document.createTextNode(emoji));
+    image.src='/assets/reactions/'+art+'.webp';face.append(image);
+  }else face.textContent=emoji;
+  return face;
+}
 // Fit tag rows without scrolling or covering their text. Overflow keeps the same
 // buttons and handlers in a top-layer popover, including the tag editor action.
 const tagRows=new Map(),tagTargets=new Map();
@@ -145,7 +155,7 @@ function gameBuzz(game){
   for(const reaction of recent){if(!seen.has(reaction.emoji)){seen.add(reaction.emoji);distinct.push(reaction);}else rest.push(reaction);}
   const stack=el('button',undefined,'game-buzz');stack.type='button';stack.setAttribute('aria-haspopup','dialog');
   const label=recent.length+' '+(recent.length===1?'reaction':'reactions')+' in the last 28 days';stack.title=label;stack.setAttribute('aria-label',label+' · View feedback');
-  for(const reaction of [...distinct,...rest].slice(0,count)){const face=el('span',reaction.emoji);face.setAttribute('aria-hidden','true');stack.append(face);}
+  for(const reaction of [...distinct,...rest].slice(0,count)){const face=reactionFace(reaction.emoji);face.style.zIndex=String(count-stack.childElementCount);face.setAttribute('aria-hidden','true');stack.append(face);}
   stack.onclick=()=>openGameDetail(game,recent[0]);return stack;
 }
 const cardStates=new WeakMap();
@@ -318,7 +328,7 @@ function renderGameDetail(){
   const reactions=[...(game.reactions||[])].sort((a,b)=>b.updated-a.updated);
   const choices=el('div',undefined,'detail-reactions');choices.setAttribute('role','group');choices.setAttribute('aria-label','React to this game');
   for(const [emoji,label] of emojis){
-    const count=reactions.filter(r=>r.emoji===emoji).length,button=el('button',undefined,'reaction-choice'),face=el('span',emoji,'reaction-face');
+    const count=reactions.filter(r=>r.emoji===emoji).length,button=el('button',undefined,'reaction-choice'),face=reactionFace(emoji,'reaction-face');
     face.setAttribute('aria-hidden','true');button.type='button';button.setAttribute('aria-label','React: '+label);button.setAttribute('aria-haspopup','dialog');
     button.setAttribute('aria-pressed',String(reactions.some(r=>r.mine&&r.emoji===emoji)));button.title=label+(count?' · '+count:'');button.disabled=!!me.inspecting;
     button.append(face);if(count){const total=el('span',String(count),'reaction-count');total.setAttribute('aria-hidden','true');button.append(total);button.setAttribute('aria-description',count+' reactions');}
@@ -329,7 +339,7 @@ function renderGameDetail(){
     for(const reaction of reactions){
       const row=el('article',undefined,'game-feedback-row');row.dataset.reaction=reactionKey(reaction);row.tabIndex=-1;
       const person=el('div',undefined,'feedback-author');person.title=reaction.name;person.append(profileAvatar(reaction.name,reaction.id||reaction.name,reaction.avatar));person.append(el('span',reaction.name));
-      const bubble=el('div',undefined,'feedback-bubble'),emoji=el('span',reaction.emoji,'feedback-emoji');emoji.setAttribute('aria-label',emojis.find(e=>e[0]===reaction.emoji)?.[1]||reaction.emoji);bubble.append(emoji);
+      const bubble=el('div',undefined,'feedback-bubble'),emoji=reactionFace(reaction.emoji,'feedback-emoji');emoji.setAttribute('role','img');emoji.setAttribute('aria-label',emojis.find(e=>e[0]===reaction.emoji)?.[1]||reaction.emoji);bubble.append(emoji);
       if(reaction.text)bubble.append(el('p',reaction.text));row.append(person,bubble);
       if(game.can_moderate_reactions&&me.admin&&!me.inspecting&&reaction.id){
         const actions=el('details',undefined,'feedback-actions'),trigger=el('summary','⋯'),remove=el('button','Delete reaction'),error=el('p',undefined,'feedback-action-error');
@@ -627,14 +637,14 @@ function renderFeed() {
     body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));
     const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
     if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));
-    mark.append(el('span',entry.emoji,'feed-emoji'));row.append(mark,body);rows.push(row);
+    mark.append(reactionFace(entry.emoji,'feed-emoji'));row.append(mark,body);rows.push(row);
     if(old===focused)replacementFocus=row;
   }
   const hadFocus=feed.contains(focused);
   reconcileChildren(feed,rows);
   if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
-for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,el('span',emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
+for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,reactionFace(emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
 function openReaction(game,selectedEmoji){
   currentReaction=game;$('reaction-title').textContent=game.title;
   const mine=game.reactions.find(r=>r.mine),emoji=selectedEmoji||mine?.emoji;
@@ -987,7 +997,7 @@ function reactionBurst(target,emoji){
     const angle=i*Math.PI*2/18,distance=65+(i%4)*22,dx=Math.cos(angle)*distance,dy=Math.sin(angle)*distance;
     spark.animate([{transform:'translate(-50%,-50%) scale(.3)',opacity:0},{offset:.15,opacity:1},{transform:`translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px)) scale(.2) rotate(140deg)`,opacity:0}],{duration:650+(i%4)*70,easing:'cubic-bezier(.15,.65,.3,1)',fill:'forwards'});
   }
-  const hero=el('span',emoji,'reaction-burst-hero');hero.style.left=x+'px';hero.style.top=y+'px';burst.append(hero);
+  const hero=reactionFace(emoji,'reaction-burst-hero');hero.style.left=x+'px';hero.style.top=y+'px';burst.append(hero);
   hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
   setTimeout(()=>burst.remove(),950);
 }

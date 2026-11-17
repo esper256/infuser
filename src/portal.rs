@@ -49,6 +49,7 @@ mod presence;
 mod profiles;
 mod publication;
 mod pwa;
+mod reaction_art;
 mod runtime;
 mod sdk_v1;
 mod server_builds;
@@ -569,6 +570,7 @@ pub fn router(platform: Platform) -> Router {
         )
         .route("/api/me", get(me))
         .route("/assets/avatars/{id}/{size}", get(avatars::image))
+        .route("/assets/reactions/{file}", get(reaction_art::image))
         .route("/api/profile", get(avatars::usage).put(avatars::update).layer(DefaultBodyLimit::max(1024)))
         .route("/api/library", get(library::list))
         .route("/api/client-state", get(client::state))
@@ -987,7 +989,24 @@ async fn react(
             .to_owned();
     ensure!(
         [
-            "⭐", "👍", "🚀", "❤️", "👏", "💡", "😅", "⚡", "🧠", "🎯", "🧭", "🧲",
+            "⭐",
+            "👍",
+            "🚀",
+            "❤️",
+            "👏",
+            "💡",
+            "😅",
+            "⚡",
+            "🧠",
+            "🎯",
+            "🧭",
+            "🧲",
+            "🐦‍⬛",
+            "🍵",
+            "💎",
+            "🧩",
+            "🎢",
+            "🪄",
         ]
         .contains(&body.emoji.as_str())
             && body.text.chars().count() <= 140,

@@ -339,8 +339,40 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         .json(&json!({"avatar":"circuit-fox"})))
     .await?;
     let user_identity = ok(c.member("user", Method::GET, "/api/me")).await?;
+    // The shipped UI can load every illustrated reaction from the real server.
+    for id in ["atmosphere", "cozy", "gem", "clever", "wild", "surprises"] {
+        let response = c
+            .member("user", Method::GET, &format!("/assets/reactions/{id}.webp"))
+            .send()
+            .await?;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["content-type"], "image/webp");
+        let bytes = response.bytes().await?;
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WEBP");
+    }
+    assert_eq!(
+        c.member("user", Method::GET, "/assets/reactions/unknown.webp")
+            .send()
+            .await?
+            .status(),
+        404
+    );
     // Every expressive reaction round-trips through the real group-scoped API.
-    for emoji in ["😅", "⚡", "🧠", "🎯", "🧭", "🧲"] {
+    for emoji in [
+        "😅",
+        "⚡",
+        "🧠",
+        "🎯",
+        "🧭",
+        "🧲",
+        "🐦‍⬛",
+        "🍵",
+        "💎",
+        "🧩",
+        "🎢",
+        "🪄",
+    ] {
         ok(
             c.member("user", Method::PUT, &format!("/api/apps/{away}/reaction"))
                 .json(&json!({"emoji":emoji,"text":"A new challenge!"})),
