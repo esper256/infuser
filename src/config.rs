@@ -45,6 +45,8 @@ pub struct Settings {
     pub turn: Option<Turn>,
     /// Optional private PeerServer listener on IPv4 loopback; never a public port.
     pub peerjs_port: Option<u16>,
+    /// Optional private LiveKit API; media ports are configured in its sidecar.
+    pub voice: Option<crate::voice::Settings>,
     /// Required before creating groups; older binaries reject this configuration.
     pub private_groups: bool,
     /// Prevent older daemons from serving visit deployments without their access rules.
@@ -87,6 +89,7 @@ impl Default for Settings {
             cloud_save_budget_mb: 512,
             turn: None,
             peerjs_port: None,
+            voice: None,
             private_groups: false,
             visits: false,
             node_packaging: None,
@@ -202,6 +205,24 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
+        if let Some(voice) = &s.voice {
+            ensure!(
+                voice.key_file.is_absolute(),
+                "voice key_file must be absolute"
+            );
+            ensure!(
+                voice.port >= 1024
+                    && voice.port != s.api_port
+                    && s.peerjs_port != Some(voice.port)
+                    && !(s.port_start..=s.port_end).contains(&voice.port)
+                    && s.turn.as_ref().is_none_or(
+                        |t| !(t.relay_port_start..=t.relay_port_end).contains(&voice.port)
+                    )
+                    && reqwest::Url::parse(&s.auth_url)?.port_or_known_default()
+                        != Some(voice.port),
+                "invalid private voice API port or overlap"
+            );
+        }
         ensure!(
             !s.visits || s.private_groups,
             "visits require private_groups"

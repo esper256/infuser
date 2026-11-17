@@ -1,0 +1,25 @@
+# Optional private override; combine with deploy/services/compose.yaml.
+# Only start the explicitly selected livekit service. Keep configuration private.
+services:
+  livekit:
+    container_name: infuser-voice
+    restart: unless-stopped
+    command: [--config, /etc/livekit/voice.yaml]
+    user: '65532:65532'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      GOMAXPROCS: '1'
+    ports:
+      - '127.0.0.1:7880:7880/tcp'
+      - '7881:7881/tcp'
+      - '7882:7882/udp'
+    volumes:
+      - /etc/infuser/voice/livekit.yaml:/etc/livekit/voice.yaml:ro
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: '2'}

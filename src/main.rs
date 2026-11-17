@@ -323,6 +323,24 @@ async fn main() -> Result<()> {
     );
     let platform = infuser::portal::Platform::open(controller.clone())?;
     platform.recover_packaging().await?;
+    let voice = platform.clone();
+    let voice_worker = tokio::spawn(async move {
+        let mut last_warning = 0;
+        loop {
+            match voice.reconcile_voice().await {
+                Err(error) if now().saturating_sub(last_warning) >= 30 => {
+                    tracing::warn!(%error, "voice reconciliation failed; new admission paused");
+                    last_warning = now();
+                }
+                Ok(()) if last_warning != 0 => {
+                    tracing::info!("voice service recovered");
+                    last_warning = 0;
+                }
+                _ => {}
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
     let packaging = platform.clone();
     let package_worker = tokio::spawn(async move {
         loop {
@@ -398,6 +416,7 @@ async fn main() -> Result<()> {
         tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
     });
     tokio::select! {
+        result = voice_worker => { result?; bail!("voice worker stopped"); },
         result = maintenance_worker => { result??; bail!("maintenance worker stopped"); },
         result = publication_worker => { result??; bail!("publication worker stopped"); },
         result = package_worker => { result?; anyhow::bail!("server packaging worker stopped"); },

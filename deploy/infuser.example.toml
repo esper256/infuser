@@ -16,6 +16,9 @@ api_port = 7777
 # Optional private PeerServer container, reachable only through the controller.
 # Requires [controller.turn]; see docs/peerjs.md.
 # peerjs_port = 7780
+# Optional voice: see docs/voice-chat.md for the private sidecar and credentials.
+# Add [controller.voice] at the end of this file, with port = 7880 and
+# key_file = "/etc/infuser/voice/credentials.json".
 lease_seconds = 90
 # Logical JSON checkpoint and retry-receipt storage budget. Default: 512 MiB.
 # cloud_save_budget_mb = 512

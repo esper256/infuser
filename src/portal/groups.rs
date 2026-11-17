@@ -126,12 +126,12 @@ async fn health(State(p): State<Platform>, h: HeaderMap) -> Answer {
         Ok(bytes) => serde_json::from_slice::<crate::host_health::Report>(&bytes)
             .context("invalid host health report")?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(reply(json!({"configured":false})));
+            return Ok(reply(json!({"configured":false,"voice":p.voice_health()})));
         }
         Err(error) => return Err(error.into()),
     };
     Ok(reply(
-        json!({"configured":true,"stale":now().saturating_sub(report.at)>180,"report":report}),
+        json!({"configured":true,"stale":now().saturating_sub(report.at)>180,"report":report,"voice":p.voice_health()}),
     ))
 }
 async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {

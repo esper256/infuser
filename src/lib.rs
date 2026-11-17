@@ -21,6 +21,7 @@ pub mod server_package;
 pub mod store;
 pub mod tags;
 pub mod updater;
+pub mod voice;
 
 pub fn build_timestamp() -> u64 {
     env!("INFUSER_BUILD_TIMESTAMP")

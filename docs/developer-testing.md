@@ -575,3 +575,36 @@ ANSIBLE_COLLECTIONS_PATH="$PWD/.local/ansible-collections" \
 
 It verifies selected-service creation, idempotence, check-mode non-mutation and
 preservation of an unselected neighbor, then removes only its temporary project.
+
+## Voice chat
+
+`cargo test --locked --test voice_journey` exercises real Infuser login and
+channel authorization with a disposable media-control fixture. It checks group
+isolation, visit admission/revocation, read-only inspection, forged credentials,
+reconnect denial, private control requests, one connection per profile, control
+service failure and orphan removal after controller restart.
+
+For actual media, obtain the official LiveKit 1.13.11 binary for your architecture
+and verify its release checksum. With the existing Playwright/Chromium setup:
+
+```sh
+cargo build --locked --example voice_fixture
+INFUSER_TEST_LIVEKIT=/absolute/path/to/livekit-server \
+INFUSER_PLAYWRIGHT=/absolute/path/to/playwright/index.mjs \
+INFUSER_CHROMIUM=/absolute/path/to/chromium \
+  node tests/voice_journey.mjs
+```
+
+This short, opt-in journey launches a disposable LiveKit server and controller,
+uses synthetic microphones, and asserts decoded audio energy in both directions.
+It checks real UI badges, cross-tab off, group isolation, visit cutoff and mobile
+control placement. The fixture login and mutation routes exist only in the example;
+never expose them publicly. This does not replace actual Safari/iPhone microphone,
+physical sleep or restrictive-network/TURN acceptance.
+
+Acceptance on 2026-11-16 (Pacific): LiveKit 1.13.11 with browser SDK 2.24.1
+passed two-way decoded audio, a short offline interval, three participants sharing
+one room, a separate private group's room, visit removal, real orphan-room deletion,
+second-tab off, closing a non-owning tab, and desktop/mobile control placement.
+The fast authorization journey and existing channel/group/maintenance journeys
+passed. Tests used disposable Linux/Chromium fixtures, not personal microphones.

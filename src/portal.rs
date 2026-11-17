@@ -56,6 +56,7 @@ mod server_builds;
 mod server_diagnostics;
 mod urls;
 mod visits;
+mod voice;
 
 pub fn fault(status: u16, message: &str) -> anyhow::Error {
     Fault {
@@ -137,6 +138,7 @@ pub struct Platform {
     connections: Arc<Mutex<crate::connections::Attempts>>,
     connection_epoch: String,
     dedicated: Arc<Mutex<crate::dedicated::Directory>>,
+    voice: Option<Arc<crate::voice::Service>>,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -185,6 +187,14 @@ impl Platform {
             0
         };
         let platform = Self {
+            voice: controller
+                .config
+                .controller
+                .voice
+                .as_ref()
+                .map(crate::voice::Service::open)
+                .transpose()?
+                .map(Arc::new),
             connection_signer: Arc::new(crate::connections::Signer::open(
                 &controller.config.controller.state_dir,
             )?),
@@ -518,6 +528,7 @@ pub fn router(platform: Platform) -> Router {
         .merge(native::routes())
         .merge(groups::routes())
         .merge(profiles::routes())
+        .merge(voice::routes())
         .merge(visits::routes())
         .route("/assets/visits.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/visits.js")) }))
         .merge(feedback::routes())
