@@ -47,6 +47,10 @@ the author portrait opens the reaction picker. Both views use the same launch
 controls, including guest mode, Join, native launch, and sharing. Admin visibility
 actions appear only in the full game popup’s Admin actions (⋯) dropdown. Reaction
 counts stay out of Play menus.
+Active player portraits sit at the upper right of each card with a subtle rotating
+ring (static under reduced motion). Their menu names all active players and guests;
+the visible stack is capped at three portraits plus an overflow count. The tag row
+reserves room for the stack, and presence polling preserves unchanged badges and covers.
 Recently entries open the referenced game, focusing the relevant reaction when
 present. Feedback portraits use the same opaque player IDs and approved avatar
 catalog as presence; email addresses are never sent for this presentation.

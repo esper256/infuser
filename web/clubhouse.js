@@ -158,6 +158,39 @@ function gameBuzz(game){
   for(const reaction of [...distinct,...rest].slice(0,count)){const face=reactionFace(reaction.emoji);face.style.zIndex=String(count-stack.childElementCount);face.setAttribute('aria-hidden','true');stack.append(face);}
   stack.onclick=()=>openGameDetail(game,recent[0]);return stack;
 }
+function renderGamePlayers(card,game){
+  const people=new Map();
+  for(const player of game.players||[]){
+    const key=JSON.stringify([player.id||player.name,!!player.guest]),existing=people.get(key);
+    if(existing){if(player.guest)existing.count++;continue;}
+    people.set(key,{...player,count:1,key});
+  }
+  const players=[...people.values()].sort((a,b)=>a.key.localeCompare(b.key)),state=cardStates.get(card);
+  const signature=JSON.stringify(players),previous=card.querySelector('.game-live');
+  if(state.playerSignature===signature&&(!players.length||previous))return;
+  state.playerSignature=signature;
+  const focused=previous?.contains(document.activeElement);
+  if(!players.length){previous?.remove();card.classList.remove('players-open');card.style.removeProperty('--game-live-space');if(focused)card.querySelector('.game-open')?.focus({preventScroll:true});return;}
+  const name=player=>player.guest?player.name+(player.count>1?'’s guests ('+player.count+')':'’s guest'):player.name;
+  const portrait=player=>{
+    const badge=el('span',undefined,'game-player'+(player.guest?' game-player-guest':''));badge.title=name(player);
+    badge.append(profileAvatar(player.name,player.id||player.name,player.avatar));
+    if(player.guest){const guest=el('span','G','game-player-guest-mark');guest.setAttribute('aria-hidden','true');badge.append(guest);}
+    return badge;
+  };
+  const menu=el('details',undefined,'game-live'),trigger=el('summary');
+  trigger.setAttribute('aria-label','Playing now: '+players.map(name).join(', '));trigger.title='Who’s playing';
+  for(const player of players.slice(0,3)){const badge=portrait(player);badge.setAttribute('aria-hidden','true');trigger.append(badge);}
+  if(players.length>3){const more=el('span','+'+(players.length-3),'game-player-more');more.setAttribute('aria-hidden','true');trigger.append(more);}
+  const panel=el('div',undefined,'game-live-menu'),list=el('ul');panel.append(el('p','Playing now'),list);
+  for(const player of players){const row=el('li');row.append(portrait(player),el('span',name(player)));list.append(row);}
+  menu.append(trigger,panel);menu.open=previous?.open||false;
+  card.classList.toggle('players-open',menu.open);
+  menu.ontoggle=()=>card.classList.toggle('players-open',menu.open);
+  card.style.setProperty('--game-live-space',(Math.min(players.length,4)*28+12)+'px');
+  if(previous)previous.replaceWith(menu);else card.append(menu);
+  if(focused)trigger.focus({preventScroll:true});
+}
 const cardStates=new WeakMap();
 function renderGames() {
   const games = $('games');
@@ -191,6 +224,7 @@ function renderGames() {
     const actionSignature=JSON.stringify([players,reactions,join_targets]);
     const buzzSignature=JSON.stringify(recentReactions(game));
     if(state.signature===signature){
+      renderGamePlayers(card,game);
       if(state.actionSignature!==actionSignature){
         const actions=card.querySelector('.actions'),focused=document.activeElement;
         const index=[...actions.querySelectorAll('button,summary')].indexOf(focused);
@@ -229,6 +263,7 @@ function renderGames() {
     if(game.preview)dock.append(el('p','Hidden','game-visibility'));else card.insertBefore(meta,bottom);
     const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags&&!me.inspecting){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}if(!game.preview){meta.append(tags);prepareTagRow(tags);}
     heading.append(creatorButton(game));dock.append(heading,gameActions(game,card));
+    renderGamePlayers(card,game);
     if(focusIndex>=0)(card.querySelectorAll('button,summary')[focusIndex]||open).focus({preventScroll:true});
     (game.preview?hiddenCards:nextCards).push(card);
   }
@@ -608,8 +643,8 @@ async function startDesktop(game,button,card,{guest=false}={}){
     open.click();
   }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
 }
-document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open]'))if(!menu.contains(event.target))menu.open=false;});
-document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
+document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]'))if(!menu.contains(event.target))menu.open=false;});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
 let feedSignature;
 function renderFeed() {
   const feed=$('feed');const entries=[];

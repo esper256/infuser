@@ -134,6 +134,9 @@ be used as a player login.
   or `null` for an unrecorded owner. `id` is the same opaque player ID used for
   presence; no email is exposed. `avatar` is a curated picture ID or `null` for
   initials. Friends and `/api/me` include the same optional `avatar` field.
+  Each game's `players` entries include `{id, name, avatar, guest}` for allowed,
+  enabled sessions seen within the last 90 seconds. Card badges show these active
+  sessions, combining duplicate signed-in sessions and labeling guests separately.
   `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog.
   Its mixed display order is stable across sessions; new pictures slot in without
   changing existing pictures' relative order. Clients should preserve this order.

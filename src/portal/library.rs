@@ -47,6 +47,7 @@ impl View<'_> {
                 json!({
                     "id":data.player_id(&launch.email),
                     "name":data.members[&launch.email].name,
+                    "avatar":data.members[&launch.email].avatar,
                     "guest":launch.guest,
                 })
             })
