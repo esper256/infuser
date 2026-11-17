@@ -74,19 +74,21 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
     radial-gradient(ellipse at 8% 80%,#72528570,transparent 60%),
     linear-gradient(145deg,#102a36,#101b30 60%,#091e29);
 }
-.game-art:not(.has-game-art)::before,
-.game-art:not(.has-game-art)::after {
+/* An image may still be loading: reserve the decorative fallback for absent art. */
+.game-art:has(img):not(.has-game-art) { background: var(--detail-panel); }
+.game-art:not(:has(img))::before,
+.game-art:not(:has(img))::after {
   content: ''; position: absolute; box-sizing: border-box; border-radius: 999px;
   pointer-events: none;
 }
-.game-art:not(.has-game-art)::before {
+.game-art:not(:has(img))::before {
   width: 55%; height: 98%; left: 33%; top: -22%; transform: rotate(35deg);
   border: clamp(30px,10cqw,48px) solid #9ce7ca;
   border-right-color: #50b6b4; border-bottom-color: #3b8c9d;
   box-shadow: inset 3px 2px 0 #e3ffe9aa, inset -7px -5px 18px #0d435d66,
     3px 2px 0 #c7ffe680, 18px 24px 30px #020f2688;
 }
-.game-art:not(.has-game-art)::after {
+.game-art:not(:has(img))::after {
   width: 93%; height: 43%; left: -27%; top: 43%; transform: rotate(-32deg);
   border: clamp(22px,7cqw,34px) solid #a291d6;
   border-top-color: #c3a6df; border-right-color: #e0af99; border-bottom-color: #6c6fae;
