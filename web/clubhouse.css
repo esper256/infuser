@@ -129,6 +129,9 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game-live-menu p { margin: 0 0 10px; color: var(--quiet); font-size: 12px; }
 .game-live-menu ul { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
 .game-live-menu li { display: flex; align-items: center; gap: 10px; font-size: 13px; overflow-wrap: anywhere; }
+.game-player-info { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.game-player-join { min-height: 36px; padding: 7px 9px; font-size: 12px; text-align: left; white-space: normal; }
+@media (pointer:coarse) { .game-player-join { min-height: 44px; } }
 .game.players-open { z-index: 5; }
 #hidden-game-list .hidden-game:has(.game-live) { padding-top: 52px; }
 @keyframes game-live-orbit { to { transform: rotate(360deg); } }
@@ -148,7 +151,6 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game h2 { min-width: 0; margin: 0; text-align: right; font-size: clamp(19px,4.8cqw,24px); font-weight: 650; line-height: 1.05; letter-spacing: -.045em; }
 .game-heading h2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .play-menu-items .menu-game-title { margin: 0 0 8px; color: var(--ink); font-size: 14px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
-.play-menu-items .players { margin: 8px 0; }
 .actions { grid-area: auto; display: flex; flex: none; margin-left: auto; gap: 0; }
 .creator { position: relative; display: grid; place-items: center; flex: none; width: 44px; min-height: 44px; padding: 4px; border: 0; border-radius: 50%; background: transparent; }
 .creator:hover { background: #b5ead614; }
@@ -159,8 +161,7 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .creator:hover .reaction-hint,.creator:focus-visible .reaction-hint { visibility: visible; opacity: 1; }
 .game:focus-within,.game:hover { z-index: 1; }
 .tone-0 { --avatar-bg: #244d49; }.tone-1 { --avatar-bg: #44405e; }.tone-2 { --avatar-bg: #5a4933; }.tone-3 { --avatar-bg: #28465d; }.tone-4 { --avatar-bg: #573c52; }.tone-5 { --avatar-bg: #40533a; }
-.game-visibility,.game .players { margin: 0; padding: 4px 8px; border-radius: 9px; background: #061b25cf; color: #d2e5df; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
-.game .players { flex-basis: 100%; width: fit-content; max-width: 100%; }
+.game-visibility { margin: 0; padding: 4px 8px; border-radius: 9px; background: #061b25cf; color: #d2e5df; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .game[data-launching] { border-color: #b5ead6; box-shadow: 0 0 25px #b5ead616; }
 .game[data-launching] .game-mark { animation: launch-glow 1.4s ease-in-out infinite alternate; }
 @keyframes launch-glow { to { filter: brightness(1.15); } }

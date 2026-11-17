@@ -436,6 +436,23 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .as_array()
         .unwrap();
     assert_eq!(players.len(), 3);
+    assert!(players.iter().all(|player| {
+        if player["guest"] == true {
+            player["player_id"].as_str().unwrap().starts_with("guest-")
+                && player["player_id"] != player["id"]
+        } else {
+            player["player_id"] == player["id"]
+        }
+    }));
+    let player_ids: std::collections::BTreeSet<_> = players
+        .iter()
+        .map(|player| player["player_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        player_ids.len(),
+        3,
+        "each guest has a distinct join identity"
+    );
     assert_eq!(
         players
             .iter()
