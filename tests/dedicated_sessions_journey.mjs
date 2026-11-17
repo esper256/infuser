@@ -25,7 +25,10 @@ async function opened(main,page){
   await frame.waitForFunction(()=>!!window.fixture);return {main,page,frame};
 }
 async function joinFromLibrary(context,avatar=false){
-  const main=await context.newPage();await main.goto(origin+'/library');
+  const main=await context.newPage();
+  // A fresh synthetic profile may receive the optional first-visit picture picker.
+  await main.addLocatorHandler(main.locator('#profile-dialog[open]'),()=>main.getByLabel('Close profile picture picker',{exact:true}).click(),{times:1});
+  await main.goto(origin+'/library');
   let menu=main;
   if(avatar){await main.getByLabel('River · online',{exact:true}).click();}
   else{

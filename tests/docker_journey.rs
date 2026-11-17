@@ -224,27 +224,28 @@ idle_seconds = 1
                 controller = Some(Controller::open(config.clone(), engine.clone())?);
                 let c = controller.as_ref().unwrap();
                 ready(c, &lease).await?;
-                assert_eq!(
-                    c.snapshot().games["demo"].name,
-                    cleanup_state.games["demo"].name
+                ensure!(
+                    c.snapshot().games["demo"].name == cleanup_state.games["demo"].name,
+                    "controller reopen replaced the running container"
                 );
                 let response: serde_json::Value = reqwest::get(format!("http://127.0.0.1:{port}/"))
                     .await?
                     .error_for_status()?
                     .json()
                     .await?;
-                assert_eq!(
-                    response["visits"], 2,
+                ensure!(
+                    response["visits"] == 2,
                     "controller reopen must preserve game memory"
                 );
-                assert_eq!(
+                ensure!(
                     engine
                         .inventory()
                         .await?
                         .iter()
                         .filter(|(_, owner)| owner == &cleanup_state.owner)
-                        .count(),
-                    1
+                        .count()
+                        == 1,
+                    "controller reopen left duplicate containers"
                 );
             } else if round == 1 {
                 let before = c.snapshot();
@@ -269,18 +270,24 @@ idle_seconds = 1
                     );
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 }
-                assert_eq!(c.list(now())["reserved_memory_mb"], 0);
+                ensure!(
+                    c.list(now())["reserved_memory_mb"] == 0,
+                    "crashed container retained its reservation"
+                );
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 lease = c.acquire("demo", "test-player", now())?;
                 ready(c, &lease).await?;
-                assert_ne!(c.snapshot().games["demo"].name, before.games["demo"].name);
+                ensure!(
+                    c.snapshot().games["demo"].name != before.games["demo"].name,
+                    "crash recovery reused the dead instance"
+                );
                 let response: serde_json::Value = reqwest::get(format!("http://127.0.0.1:{port}/"))
                     .await?
                     .error_for_status()?
                     .json()
                     .await?;
-                assert_eq!(
-                    response["visits"], 1,
+                ensure!(
+                    response["visits"] == 1,
                     "recovery must start a new healthy process"
                 );
             }

@@ -27,8 +27,14 @@ let child,config,proxy,browser,origin,cycles=0,complete=false;
 let cleaning;
 const started=Date.now();
 const evidence=(event,fields={})=>console.log(JSON.stringify({time:new Date().toISOString(),elapsed_seconds:Math.round((Date.now()-started)/1000),event,...fields}));
+// A stuck API request must fail the run, not keep a developer machine busy forever.
+const watchdog=setTimeout(()=>{
+  evidence('timed_out');void cleanup().finally(()=>process.exit(1));
+},duration+300000);
+watchdog.unref();
 function cleanup() {
   return cleaning ??= (async()=>{
+    clearTimeout(watchdog);
     if(child?.pid){try{process.kill(-child.pid,'SIGKILL');}catch(error){if(error.code!=='ESRCH')throw error;}}
     if(browser)await browser.close();
     if(proxy){proxy.closeAllConnections();await new Promise(resolve=>proxy.close(resolve));}
