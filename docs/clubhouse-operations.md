@@ -26,6 +26,24 @@ profile`, and `set_xauthrequest=true`. Configure the Google redirect URI as
 Google cookie across game subdomains. Keep client ID/secret and cookie key in a
 root-readable private environment file, never in GitHub.
 
+Use the session settings in
+[`deploy/oauth2-proxy.example.cfg`](../deploy/oauth2-proxy.example.cfg):
+`cookie_expire="168h"`, `cookie_refresh="0s"` and `session_cookie_minimal=true`.
+Infuser uses Google to verify sign-in, not to call Google APIs. These settings
+keep a fixed seven-day login and leave OAuth tokens out of new cookies. Reloads
+and other tabs share that login. Keep all token-forwarding options disabled.
+Do not enable periodic refresh: Google can return a successful sign-in without
+a refresh token, causing those sessions to fail when its access token expires.
+
+Signing out clears the browser's login. Disabling an Infuser account or profile
+still denies access immediately; revoking Google's grant alone does not revoke
+an already issued Infuser login before its seven-day expiry. See OAuth2 Proxy's
+[session and cookie options](https://oauth2-proxy.github.io/oauth2-proxy/configuration/overview/).
+For an existing installation, preserve the cookie secret and name when adopting
+these settings. Existing signed cookies remain usable until their normal expiry.
+Apply the configuration through the host's maintenance procedure and recreate
+the login container so it sees the updated bind-mounted file.
+
 Set `prompt="select_account"` explicitly. Otherwise OAuth2 Proxy's legacy default
 can send `approval_prompt=force`, asking Google to repeat consent during login.
 Account selection is useful on shared laptops; it does not force another consent
