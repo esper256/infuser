@@ -20,7 +20,7 @@ const entryApp=new URLSearchParams(location.search).get('app');
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const reactionMotion=matchMedia('(prefers-reduced-motion: reduce)');
 reactionMotion.addEventListener('change',event=>{if(event.matches)document.querySelector('.reaction-burst')?.remove();});
-const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea'],['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round'],['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises']];
+const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea'],['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round'],['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises'],['🎨','Beautiful art','art'],['🎵','Great soundtrack','music'],['😄','Made me smile','smile'],['🤝','Fun together','together']];
 function setText(node,text){text=String(text);if(node.textContent!==text)node.textContent=text;}
 function reconcileChildren(container,children){
   const retained=new Set(children);
@@ -86,7 +86,7 @@ function fitTagRow(row,state){
   const focused=document.activeElement;
   strip.append(...buttons);more.hidden=true;strip.style.width='auto';
   const widths=buttons.map(button=>button.getBoundingClientRect().width),sum=widths.reduce((a,b)=>a+b,0);
-  const spacing=row.id==='tag-filters'?10:4;
+  const spacing=row.id==='tag-filters'?10:3;
   strip.style.setProperty('--tag-spacing',spacing+'px');
   let count=buttons.length,width=sum+spacing*Math.max(0,count-1);
   const limit=row.id==='tag-filters'?7:3;

@@ -9,6 +9,10 @@ pub(super) async fn image(Path(file): Path<String>) -> Answer {
         "clever.webp" => include_bytes!("../../assets/reactions/clever.webp"),
         "wild.webp" => include_bytes!("../../assets/reactions/wild.webp"),
         "surprises.webp" => include_bytes!("../../assets/reactions/surprises.webp"),
+        "art.webp" => include_bytes!("../../assets/reactions/art.webp"),
+        "music.webp" => include_bytes!("../../assets/reactions/music.webp"),
+        "smile.webp" => include_bytes!("../../assets/reactions/smile.webp"),
+        "together.webp" => include_bytes!("../../assets/reactions/together.webp"),
         _ => return Err(fault(404, "Unknown reaction artwork.").into()),
     };
     Ok((

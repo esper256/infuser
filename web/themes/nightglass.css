@@ -32,7 +32,7 @@
 [data-theme="nightglass"] .tag-filter.selected:hover { background: var(--accent-hover); }
 [data-theme="nightglass"] #recent-toggle { background: none; border-color: transparent; }
 [data-theme="nightglass"] #recent-toggle:hover { background: var(--surface); }
-[data-theme="nightglass"] .game-tags { width: fit-content; max-width: 100%; border-radius: 18px; padding: 2px 7px; background: #081a20cf; backdrop-filter: blur(10px); }
-[data-theme="nightglass"] .game-tags .tag-chip { background: none; border-color: transparent; padding-inline: 3px; backdrop-filter: none; }
-[data-theme="nightglass"] .game-tags .tag-strip > .tag-chip + .tag-chip::before { content: '·'; margin-right: 7px; color: var(--quiet); }
-[data-theme="nightglass"] .game-tags .tag-more { background: none; border-color: transparent; padding-inline: 5px; }
+[data-theme="nightglass"] .game-tags { width: fit-content; max-width: 100%; border-radius: 18px; padding: 1.5px 5.25px; background: #081a20cf; backdrop-filter: blur(10px); }
+[data-theme="nightglass"] .game-tags .tag-chip { background: none; border-color: transparent; padding-inline: 2.25px; backdrop-filter: none; }
+[data-theme="nightglass"] .game-tags .tag-strip > .tag-chip + .tag-chip::before { content: '·'; margin-right: 5.25px; color: var(--quiet); }
+[data-theme="nightglass"] .game-tags .tag-more { background: none; border-color: transparent; padding-inline: 3.75px; }

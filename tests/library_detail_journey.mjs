@@ -6,7 +6,7 @@ const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const root=new URL('../',import.meta.url),out=new URL('.local/library-detail-review/',root);
 await mkdir(out,{recursive:true});
 const avatars=[...String(await readFile(new URL('src/portal/avatars.rs',root))).matchAll(/avatar!\("([a-z-]+)", "([^"]+)"\)/g)].map(([,id,name])=>({id,name}));
-const illustrated=[['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises']];
+const illustrated=[['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises'],['🎨','Beautiful art','art'],['🎵','Great soundtrack','music'],['😄','Made me smile','smile'],['🤝','Fun together','together']];
 const me={name:'KwamiKwami',player_id:'one',admin:true,avatar:'loot-raccoon',avatars};
 const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'OrbitFox',avatar:'ember-raven'};
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
@@ -193,7 +193,7 @@ try {
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);
-   assert.equal(await dialog.locator('.reaction-choice').count(),18);
+   assert.equal(await dialog.locator('.reaction-choice').count(),22);
    assert(await dialog.locator('.reaction-face').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=44));
    assert.equal(await dialog.locator('.feedback-author img').first().getAttribute('src'),'/assets/avatars/ember-raven/128.webp');
    assert(await dialog.locator('.game-updated').textContent());
@@ -245,7 +245,7 @@ try {
      assert.equal(await page.locator('.reaction-burst-hero img').getAttribute('src'),'/assets/reactions/'+art+'.webp');
     }
 
-    assert.equal(await page.locator('#emoji input').count(),18);
+    assert.equal(await page.locator('#emoji input').count(),22);
     assert(await page.locator('#emoji').evaluate(e=>e.scrollWidth<=e.clientWidth));
     assert(await radio.locator('..').locator('span').evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=48));
     await page.locator('#reaction-text').fill('');
@@ -255,7 +255,7 @@ try {
     assert.equal(game.reactions.find(r=>r.mine).emoji,emoji);
    }
    await dialog.locator('.creator').click();
-   await page.getByRole('radio',{name:'Amazing atmosphere',exact:true}).check();
+   await page.getByRole('radio',{name:'Great soundtrack',exact:true}).check();
    if(width===320)assert(await page.locator('#emoji').evaluate(e=>e.scrollHeight>e.clientHeight),'picker scrolls instead of shrinking emojis');
    await page.screenshot({path:new URL('expanded-reactions-'+theme+'-'+width+'.png',out).pathname});
    await page.locator('#close-reaction').click();await close();
@@ -264,11 +264,11 @@ try {
  // Saved artwork is shared by the review, card stack and Recently. A failed
  // decorative image falls back to its persisted emoji without losing the label.
  await open();
- assert.equal(await dialog.locator('.feedback-emoji img').last().getAttribute('src'),'/assets/reactions/surprises.webp');
+ assert.equal(await dialog.locator('.feedback-emoji img').last().getAttribute('src'),'/assets/reactions/together.webp');
  await close();
- assert.equal(await card().locator('.game-buzz img').first().getAttribute('src'),'/assets/reactions/surprises.webp');
+ assert.equal(await card().locator('.game-buzz img').first().getAttribute('src'),'/assets/reactions/together.webp');
  await page.locator('#recent-toggle').click();
- assert(await page.locator('#feed .feed-emoji img[src="/assets/reactions/surprises.webp"]').count()>0);
+ assert(await page.locator('#feed .feed-emoji img[src="/assets/reactions/together.webp"]').count()>0);
  await page.locator('#close-recent').click();
  await open();await dialog.getByRole('button',{name:'React: A little gem',exact:true}).click();
  const gemFace=page.getByRole('radio',{name:'A little gem',exact:true}).locator('..').locator('span');
@@ -377,7 +377,7 @@ try {
  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transitionDuration),'0s');
  await page.emulateMedia({forcedColors:'active'});await open();assert(await dialog.isVisible());await close();await page.emulateMedia({forcedColors:'none'});
  // The same detail UI works read-only in operator inspection.
- me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),18);await close();
+ me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),22);await close();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);
  console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, pending-art transitions, author search, 28-day attenuated reaction stacks, positive reactions with optional notes and bursts, unread Recently, centered card scaling, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');
