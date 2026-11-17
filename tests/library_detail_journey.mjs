@@ -13,7 +13,7 @@ const game={can_manage_visibility:true,can_moderate_reactions:true,id:'firefly-d
 const apps=[game,{...game,id:'nocomgame',title:'NoCOMgame',description:null,author:friend,card_art_url:null,tags:['3d','sandbox','action','survival','exploration'],reactions:[]},{...game,id:'event-horizon',title:'Event Horizon',author:friend,card_art_url:'/test-art/event',reactions:[]},{...game,id:'dodge',title:'Dodge the Creeps',author:null,preview:true,card_art_url:null,reactions:[]},{...game,id:'lantern',title:'Lantern Lake',author:null,preview:true,card_art_url:null,reactions:[]}];
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
-let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false;
+let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility;
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
@@ -30,7 +30,7 @@ try {
   else if(path==='/api/profile'&&method==='GET')data={users:[]};
   else if(path==='/api/profile'){me.avatar=request.postDataJSON().avatar;author.avatar=me.avatar;data={avatar:me.avatar};}
   else if(path.endsWith('/launch')){launches.push(request.postDataJSON());data={state:'ready',url:'https://library.test/game-fixture'};}
-  else if(path.endsWith('/visibility')){const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
+  else if(path.endsWith('/visibility')){if(failVisibility){await new Promise(resolve=>{releaseVisibility=resolve;});return route.fulfill({status:503,json:{error:'Please retry visibility.'}});}const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
   else if(/^\/api\/admin\/apps\/[^/]+\/reactions\//.test(path)){
    if(failModeration)return route.fulfill({status:503,json:{error:'Please retry deletion.'}});
    const app=apps.find(g=>g.id===path.split('/')[4]);app.reactions=app.reactions.filter(r=>r.id!==path.split('/')[6]);data={ok:true};
@@ -224,6 +224,39 @@ try {
  await page.evaluate(()=>refreshTestLibrary());assert(await dialog.locator('.game-admin-menu').evaluate(e=>e.open),'polling preserves the open admin menu');
  await page.keyboard.press('Escape');assert(await dialog.isVisible());assert.equal(await dialog.locator('.game-admin-menu').evaluate(e=>e.open),false);
  await close();
+ // Exercise failure, pending requests, dismissal and retry independently in each layout.
+ for(const theme of ['nightglass','cartridge-club']){
+  await page.evaluate(t=>InfuserThemes.select(t),theme);
+  for(const width of [1280,390,320]){
+   await page.setViewportSize({width,height:900});await open();
+   const menu=dialog.locator('.game-admin-menu'),trigger=dialog.getByLabel('Admin actions',{exact:true});
+   await trigger.click();
+   assert(await menu.locator('.game-admin-items').evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;}));
+   await page.screenshot({path:new URL(`${theme}-${width}-admin.png`,out).pathname});
+   await dialog.locator('.detail-creator p').click();assert.equal(await menu.evaluate(e=>e.open),false);
+   await trigger.click();failVisibility=true;releaseVisibility=undefined;
+   const action=menu.getByRole('button',{name:'Hide game',exact:true});
+   const requested=page.waitForRequest(r=>r.url().endsWith('/visibility'));
+   await action.click();await requested;
+   assert(await action.isDisabled());
+   const count=writes.filter(w=>w.path.endsWith('/visibility')).length;
+   await action.evaluate(e=>e.click());await page.evaluate(()=>refreshTestLibrary());
+   assert(await action.isDisabled());assert.equal(writes.filter(w=>w.path.endsWith('/visibility')).length,count);
+   assert(releaseVisibility);releaseVisibility();
+   await menu.getByRole('alert').waitFor();assert.equal(await menu.getByRole('alert').textContent(),'Please retry visibility.');
+   assert(await action.isEnabled());assert(await menu.evaluate(e=>e.open));
+   await page.evaluate(()=>refreshTestLibrary());assert(await menu.getByRole('alert').isVisible());
+   await page.screenshot({path:new URL(`${theme}-${width}-admin-error.png`,out).pathname});
+   failVisibility=false;await action.click();
+   await page.waitForFunction(()=>document.querySelector('#game-detail .game-visibility')?.textContent==='Hidden');
+   await dialog.getByLabel('Admin actions',{exact:true}).click();
+   await dialog.getByRole('button',{name:'Unhide game',exact:true}).click();
+   await page.waitForFunction(()=>!document.querySelector('#game-detail .game-visibility'));
+   await dialog.getByLabel('Admin actions',{exact:true}).click();await page.keyboard.press('Escape');
+   assert(await dialog.isVisible());assert.equal(await dialog.locator('.game-admin-menu').evaluate(e=>e.open),false);
+   assert(await dialog.getByLabel('Admin actions',{exact:true}).evaluate(e=>e===document.activeElement));await close();
+  }
+ }
  // Admin visibility moves a game between the shared shelves.
  await page.setViewportSize({width:1280,height:900});await page.locator('#hidden-games').evaluate(e=>e.open=false);await open();await dialog.getByLabel('Admin actions',{exact:true}).click();await dialog.getByRole('button',{name:'Hide game',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===2);await close();await page.waitForFunction(()=>document.querySelector('#hidden-games > summary')===document.activeElement);
  await page.locator('#hidden-games').evaluate(e=>e.open=true);await page.locator('#hidden-game-list [data-app="firefly-drift"] .game-open').click();await dialog.getByLabel('Admin actions',{exact:true}).click();await dialog.getByRole('button',{name:'Unhide game',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===3);await close();
