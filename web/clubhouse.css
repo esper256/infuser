@@ -454,7 +454,7 @@ img.avatar { object-fit: cover; }
 #chat-input-scroll { position: relative; height: 64px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--field); }
 #chat-input-scroll:hover { border-color: #4b696a; }
 #chat-input-scroll:focus-within { border-color: #9bcab8; outline: 2px solid var(--focus); outline-offset: 4px; }
-#chat-text { margin: 0; resize: none; height: 100%; border: 0; border-radius: 0; padding: 10px 58px 10px 22px; line-height: 1.35; direction: ltr; unicode-bidi: plaintext; text-align: left; outline: none; scrollbar-width: none; }
+#chat-text { margin: 0; resize: none; height: 100%; border: 0; border-radius: 0; padding: 10px 102px 10px 22px; line-height: 1.35; direction: ltr; unicode-bidi: plaintext; text-align: left; outline: none; scrollbar-width: none; }
 #chat-text::-webkit-scrollbar { display: none; }
 #chat-scrollbar { position: absolute; inset: 0 auto 0 0; width: 16px; overflow-x: hidden; overflow-y: scroll; direction: rtl; }
 #chat-scroll-range { width: 1px; pointer-events: none; }
@@ -692,3 +692,21 @@ button.feed-row:hover { border-color: var(--accent); }
 .profile-chooser #profile-status{min-height:1.5em}.profile-chooser #profile-signout{display:block;margin:24px auto}
 @media(prefers-reduced-motion:no-preference){.profile-choice{transition:transform .15s ease}.profile-choice:hover{transform:translateY(-4px)}}
 @media(max-width:500px){.profile-chooser{margin:3vh auto;padding:20px}.profile-chooser h1{margin:24px 0}.profile-choice{min-height:190px;padding:20px 12px}.profile-choice img,.profile-choice-fallback{width:88px;height:88px}}
+
+
+/* Chat emoji layer shares theme tokens and fits inside the keyboard-aware panel. */
+#chat-emoji-toggle { position: absolute; bottom: 12px; right: 54px; width: 36px; height: 36px; min-height: 36px; padding: 6px; background: transparent; color: var(--quiet); border: 0; }
+#chat-emoji-toggle:hover, #chat-emoji-toggle[aria-expanded="true"] { background: var(--surface); color: var(--accent); }
+#chat-emoji-toggle svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+#chat-emoji-toggle::before { content: ""; position: absolute; inset: -4px; }
+#chat-emoji-panel { position: absolute; z-index: 5; inset: auto 8px 84px; height: min(420px, calc(100% - 100px)); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: 0 12px 36px #0008; }
+#chat-emoji-panel[hidden] { display: none; }
+.chat-emoji-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 14px; flex: none; }
+.chat-emoji-heading button { width: 44px; height: 44px; padding: 0; background: transparent; color: var(--quiet); border: 0; font-size: 24px; }
+#chat-emoji-panel p { margin: 0; padding: 6px 12px; font-size: 13px; color: var(--quiet); }
+#chat-emoji-panel p:empty { display: none; }
+.chat-emoji-mount { min-height: 0; flex: 1; display: flex; }
+#chat-emoji-panel emoji-picker { width: 100%; height: 100%; min-height: 0; --background: var(--panel); --border-color: var(--line); --input-border-color: var(--line); --input-font-color: var(--ink); --input-placeholder-color: var(--quiet); --category-font-color: var(--ink); --outline-color: var(--focus); --indicator-color: var(--accent); --button-hover-background: var(--surface); --button-active-background: var(--field); --border-size: 0; --emoji-size: 28px; --emoji-padding: 8px; --category-emoji-size: 18px; --category-emoji-padding: 7px; --input-font-size: 16px; --num-columns: 8; }
+@media (max-width: 420px) { #chat-emoji-panel emoji-picker { --num-columns: 7; --category-emoji-padding: 5px; } }
+@media (max-width: 360px) { #chat-emoji-panel emoji-picker { --num-columns: 6; --category-emoji-size: 16px; --category-emoji-padding: 4px; } }
+#library-chat[data-short] #chat-emoji-panel { bottom: 76px; height: calc(100% - 84px); }

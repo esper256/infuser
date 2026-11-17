@@ -101,6 +101,18 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
             .header("host", "games.example.com")
             .header("cookie", format!("member={who}"))
     };
+    for (path, content_type) in [
+        ("/assets/chat-emoji.js", "text/javascript"),
+        ("/assets/vendor/emoji-picker/picker.js", "text/javascript"),
+        ("/assets/vendor/emoji-picker/database.js", "text/javascript"),
+        ("/assets/vendor/emoji-picker/picker.css", "text/css"),
+        ("/assets/vendor/emoji-picker/data.json", "application/json"),
+    ] {
+        let response = req(Method::GET, path, "two").send().await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], content_type);
+        assert!(!response.bytes().await?.is_empty());
+    }
     let send = |who: &str, id: &str, text: &str| {
         req(Method::POST, "/api/chat", who)
             .header("origin", "https://games.example.com")
