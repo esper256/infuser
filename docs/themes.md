@@ -47,6 +47,12 @@ the author portrait opens the reaction picker. Both views use the same launch
 controls, including guest mode, Join, native launch, and sharing. Admin visibility
 actions appear only in the full game popup’s Admin actions (⋯) dropdown. Reaction
 counts stay out of Play menus.
+Active player portraits sit at the upper right of each card with a subtle rotating
+ring (static under reduced motion). Their menu names all active players and guests
+and offers Join actions only for server-advertised joinable sessions;
+the visible stack is capped at three portraits plus an overflow count. Play menus
+keep launch and Join actions without repeating the player list. The tag row
+reserves room for the stack, and presence polling preserves unchanged badges and covers.
 Recently entries open the referenced game, focusing the relevant reaction when
 present. Feedback portraits use the same opaque player IDs and approved avatar
 catalog as presence; email addresses are never sent for this presentation.
@@ -93,11 +99,16 @@ filters, normal/guest/join launch, copy link, creator reactions, tag editing,
 profile selection, the single Add a game prompt, and admin tools under each
 selectable theme. Check open dialogs survive a presentation change.
 
-Recently shows existing updates and reactions. Its dot means an event appeared
-since the panel was last viewed during this page visit; it is not a server-side
-unread count or a persistent inbox. Opening the panel clears the unread state.
-Until then, a bold accent fill, larger dot, and repeating pulse/hop draw attention.
-Reduced-motion preferences disable the animation while keeping the highlight.
+The header's glass Infuser icon opens Recently; the separate wordmark stays static
+and links to the Library. A halo and intermittently timed wiggle mean an event
+appeared since the panel was last viewed during this page visit. Opening Recently
+clears that state. Motion stops in hidden tabs and with reduced-motion preferences,
+which retain a static halo. Only the newest event has a rounded relative time;
+older events stay uncluttered. This is not a persistent inbox or server unread count.
+
+Card reaction stacks display up to eight faces with diminishing growth. Small
+stacks have modest breathing room, gradually returning to the original 15px overlap
+at eight faces. The Play dock uses 8px padding to leave more artwork visible.
 
 Run `node --test tests/themes.mjs` for registry/preference checks. Browser checks
 must exercise the shared UI in both themes; screenshots alone do not demonstrate

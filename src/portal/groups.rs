@@ -86,12 +86,16 @@ async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
     {
         reasons.push("Waiting for another host maintenance job".into());
     }
+    let publishing = p.controller.maintenance.publishing() > 0
+        || reasons.iter().any(|reason| reason.contains("publishing"));
+    reasons.sort_by_key(|reason| !reason.contains("publishing"));
     let stale = now().saturating_sub(record.checked_at) >= 180;
     if stale {
         reasons.insert(0, "Waiting for a fresh update check".into());
     }
     Ok(reply(
-        json!({"configured":record.report.is_some(),"current_build":crate::BUILD_SHA,
+        json!({"configured":record.report.is_some(),"current_build":crate::BUILD_SHA,"current_built_at":crate::build_timestamp(),
+        "release_built_at":record.release_built_at,"publishing":publishing,
         "available":record.available(),"available_since":record.available_since,"checked_at":record.checked_at,
         "report":record.report,"stale":stale,"reasons":reasons,
         "authorized_until":record.grant.filter(|g|g.expires>now() && g.current_build==crate::BUILD_SHA).map(|g|g.expires)}),

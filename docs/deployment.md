@@ -79,11 +79,19 @@ failed release appears in [host monitoring](monitoring-operations.md).
 
 ## Update from Admin tools
 
-The server operator sees **Update available** inside **Admin tools** when a
-published release is waiting. It shows elapsed waiting time and the current
-reason: games, publishing, other requests or another maintenance job. A newer
-release does not reset the waiting counter. Regular private-group admins do not
-get this server-wide control.
+The server operator sees **Server updates** inside **Admin tools**, including when
+no update is waiting. **Running now** and **Next update** compare the build IDs,
+ages and local build dates. Hover a shortened ID for the full commit. Build ages
+come from embedded compile timestamps, independently of the update waiting time.
+Older binaries or updater installations without this metadata show **Build time
+unknown**. Adopt the updated stable updater to report candidate build timestamps;
+release manifests remain compatible with older updaters.
+
+A bold publishing warning stays above the other activity reasons, including while
+players are active, a check is stale, or an update is downloading or authorized.
+The panel also shows the last check and elapsed waiting time; a newer release does
+not reset the waiting counter. Regular private-group admins do not get this
+server-wide control.
 
 Choose **Update anyway**, then **Authorize one update** to permit one activation
 that can disconnect games and interrupt uploads or publishing across all groups.

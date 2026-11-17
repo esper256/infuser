@@ -31,3 +31,9 @@ magick \( lockup-light-512.png -background '#0c1017' -alpha remove \) \
 # Landing artwork is embedded in index.html because the portal serves a fixed asset list.
 magick lockup-light-master.png -crop 760x1100+250+10 +repage -resize 760x1100 -quality 90 landing-logo.webp
 magick header-light-640.png -quality 90 header-light.webp
+
+# Split the Library identity from the original PNG, never the lossy header WebP.
+magick lockup-light-master.png -crop 700x880+320+30 +repage header-icon-master.png
+magick lockup-light-master.png -crop 560x130+350+950 +repage header-wordmark-master.png
+magick header-icon-master.png -resize 140x176 -define webp:lossless=true header-icon.webp
+magick header-wordmark-master.png -resize 480x -define webp:lossless=true header-wordmark.webp

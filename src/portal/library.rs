@@ -33,8 +33,8 @@ impl View<'_> {
         let build = &data.builds[&build_key(id, &app.build)];
         let players: Vec<_> = data
             .launches
-            .values()
-            .filter(|launch| {
+            .iter()
+            .filter(|(_, launch)| {
                 launch.runtime_id() == runtime
                     && launch.seen + 90 > self.time
                     && data.launch_allowed(launch, self.time)
@@ -43,10 +43,12 @@ impl View<'_> {
                         .get(&launch.email)
                         .is_some_and(|member| member.enabled)
             })
-            .map(|launch| {
+            .map(|(launch_id, launch)| {
                 json!({
                     "id":data.player_id(&launch.email),
+                    "player_id":if launch.guest {format!("guest-{launch_id}")} else {data.player_id(&launch.email)},
                     "name":data.members[&launch.email].name,
+                    "avatar":data.members[&launch.email].avatar,
                     "guest":launch.guest,
                 })
             })

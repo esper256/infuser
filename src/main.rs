@@ -219,6 +219,13 @@ async fn main() -> Result<()> {
         println!("Game manifest valid. Check installation capabilities before publishing.");
         return Ok(());
     }
+    if args.first().is_some_and(|s| s == "build-info") {
+        println!(
+            "{}",
+            serde_json::json!({"commit": infuser::BUILD_SHA, "built_at": infuser::build_timestamp()})
+        );
+        return Ok(());
+    }
     if args
         .first()
         .is_some_and(|s| s == "version" || s == "--version")

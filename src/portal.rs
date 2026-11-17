@@ -1019,6 +1019,10 @@ async fn react(
             "🧩",
             "🎢",
             "🪄",
+            "🎨",
+            "🎵",
+            "😄",
+            "🤝",
         ]
         .contains(&body.emoji.as_str())
             && body.text.chars().count() <= 140,
