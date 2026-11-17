@@ -12,7 +12,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       <button id="chat-new" class="chat-new" type="button" hidden>New messages ↓</button>
       <p id="chat-connection" role="status"></p><p id="chat-error" role="alert"></p>
       <div class="chat-compose-row">
-        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg></button><span id="chat-limit" hidden></span></form>
+        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><div id="chat-input-scroll"><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><div id="chat-scrollbar" aria-hidden="true" tabindex="-1" hidden><div id="chat-scroll-range"></div></div></div><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg></button><span id="chat-limit" hidden></span></form>
       </div>
       <span id="chat-announcement" class="sr-only" role="status"></span>
     </section>
@@ -204,7 +204,29 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     lastScrollTop=log.scrollTop;lastScrollAt=now;
     if(bottom()&&isOpen())markRead();schedulePosition();
   },{passive:true});
+  // Keep the native textarea's direction, caret scrolling and selection intact.
+  // A separate native scrollport exposes the same vertical range on the left.
+  const scrollbar=$('scrollbar');
+  let mirroredScrollTop=0;
+  function syncInputScroll() {
+    if(!input.clientHeight)return;
+    setHidden(scrollbar,input.scrollHeight<=input.clientHeight);
+    const height=input.scrollHeight-input.clientHeight+scrollbar.clientHeight+'px';
+    if($('scroll-range').style.height!==height)$('scroll-range').style.height=height;
+    if(scrollbar.scrollTop!==input.scrollTop)scrollbar.scrollTop=input.scrollTop;
+    mirroredScrollTop=scrollbar.scrollTop;
+  }
+  input.addEventListener('scroll',syncInputScroll,{passive:true});
+  scrollbar.addEventListener('scroll',()=>{
+    // Ignore queued events from our own writes: they must not undo a newer
+    // native caret movement before the textarea's scroll event is delivered.
+    if(scrollbar.scrollTop===mirroredScrollTop)return;
+    mirroredScrollTop=scrollbar.scrollTop;
+    input.scrollTop=mirroredScrollTop;
+  },{passive:true});
+  new ResizeObserver(syncInputScroll).observe(input);
   input.oninput=()=>{
+    syncInputScroll();
     const length=Array.from(input.value).length;
     setText($('limit'),length+'/280');setHidden($('limit'),length<240);
     $('limit').classList.toggle('at-limit',length>=280);
