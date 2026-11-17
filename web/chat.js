@@ -1,3 +1,4 @@
+import { initChatEmoji } from '/assets/chat-emoji.js';
 import { openHomeChat } from '/assets/groups.js';
 // Shared Library room. All message text stays text, never markup or links.
 export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
@@ -12,13 +13,15 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       <button id="chat-new" class="chat-new" type="button" hidden>New messages ↓</button>
       <p id="chat-connection" role="status"></p><p id="chat-error" role="alert"></p>
       <div class="chat-compose-row">
-        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg><span id="chat-limit" hidden></span></button></form>
+        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-emoji-toggle" type="button" aria-label="Choose emoji" title="Choose emoji" aria-expanded="false" aria-controls="chat-emoji-panel" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14c1 4 7 4 8 0M8 8h.01M16 8h.01"/></svg></button><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg><span id="chat-limit" hidden></span></button></form>
       </div>
+      <section id="chat-emoji-panel" role="dialog" aria-label="Choose emoji" hidden><div class="chat-emoji-heading"><strong>Emoji</strong><button class="chat-emoji-close" type="button" aria-label="Close emoji picker">×</button></div><p role="status"></p><div class="chat-emoji-mount"></div></section>
       <span id="chat-announcement" class="sr-only" role="status"></span>
     </section>
     <div id="chat-actions" popover="manual" role="menu" aria-label="Message actions"><button id="chat-delete" type="button" role="menuitem">Delete message</button><button id="chat-cancel-action" type="button" role="menuitem">Cancel</button></div>`;
   document.body.append(root);
   const $=id=>document.getElementById('chat-'+id), log=$('log'), input=$('text');
+  const emojiPicker=initChatEmoji({root,input,button:$('emoji-toggle'),panel:$('emoji-panel')});
   if(me.inspecting)$('form').hidden=true;
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
@@ -178,6 +181,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     updateToggle();
     if(open){scrollDirection=0;scrollSpeed=0;position(true);scrollLatest();schedulePosition();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}
     else{
+      emojiPicker.close();
       resetActions();
       cancelAnimationFrame(positionFrame);positionFrame=null;speakerSignature=null;scrollDirection=0;scrollSpeed=0;
       $('pointers').replaceChildren();onSpeakerContext(null);
@@ -203,6 +207,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     const length=Array.from(input.value).length;
     setText($('limit'),length+'/280');setHidden($('limit'),length<240);
     $('send').disabled=sending||!input.value.trim();
+    $('emoji-toggle').disabled=sending;
   };
   input.addEventListener('keydown',event=>{
     if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();if(!$('send').disabled)$('form').requestSubmit();}
@@ -278,6 +283,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     event.preventDefault();if(sending||!input.value.trim())return;
     const text=input.value.trim();
     if(!retry||retry.text!==text)retry={text,client_id:crypto.randomUUID()};
+    emojiPicker.close();
     sending=true;root.dataset.sending='true';input.readOnly=true;input.oninput();$('error').textContent='';$('send').setAttribute('aria-label','Sending message');$('send').setAttribute('aria-busy','true');
     try{
       await request('/api/chat',{method:'POST',body:JSON.stringify(retry)});

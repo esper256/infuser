@@ -6,7 +6,10 @@ Open **Chat** beside the online players at the top of the Library. Everyone in
 your private group shares the room. Enter sends a message; Shift+Enter adds a
 line. The arrow inside the message box also sends. Messages can contain up to
 280 characters; a small count appears near the arrow for the last 40 characters.
-There are no attachments or links.
+Use the smiley beside the send arrow to pick emoji. Search matches parts of names
+and keywords (two or more characters); categories, skin tones and frequently used
+choices are also available. Selecting inserts at your cursor without sending.
+Escape closes the picker first. There are no attachments or links.
 
 During a visit, the host room also includes its selected visitors. The Library
 banner shows who is visiting. Visitors can read messages from their admission
