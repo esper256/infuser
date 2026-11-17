@@ -179,6 +179,14 @@ the current code. `identity_journey` covers stable Google subjects, email change
 preserved saves, profile isolation and version rejection. `update_journey` covers
 the rollback floor during failed activation and interrupted recovery.
 
+The identity journey also tests cross-group invitations, explicit profile
+selection, stale/foreign selectors, artwork URLs, chat isolation and unchanged
+game tickets/saves after switching. Set `INFUSER_PROFILE_BROWSER_NODE` to a Node
+executable to include `tests/profile_chooser_journey.mjs`. It exercises the
+single-profile bypass, desktop/mobile chooser, independent tabs, Switch Profile
+and the Infuser Play pairing handoff. `INFUSER_PLAYWRIGHT` and `INFUSER_CHROMIUM`
+can select locally installed browser tooling.
+
 The optional local load case exchanges frames between two clients while uploading
 and publishing a 64 MiB file, with Library/chat polling. The larger synthetic
 catalog has 25 apps, five builds each and 500 files per build:

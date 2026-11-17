@@ -1,3 +1,4 @@
+import {forgetProfile} from '/assets/profiles.js';
 let installPrompt, registration;
 const standalone=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const iphone=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
@@ -8,6 +9,16 @@ if('serviceWorker' in navigator){
 }
 const keyBytes=value=>Uint8Array.from(atob(value.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0));
 const clean=sub=>({endpoint:sub.endpoint});
+
+export async function clearNotifications(){
+  if('serviceWorker' in navigator){
+    const reg=await navigator.serviceWorker.getRegistration('/');
+    const sub=await reg?.pushManager?.getSubscription();
+    if(sub)await sub.unsubscribe();
+    for(const notification of await reg?.getNotifications()||[])notification.close();
+  }
+  try{localStorage.removeItem('infuser-push-owner');}catch{/* No stored owner. */}
+}
 
 export function setupPwa({panel,me,api,notice}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
@@ -29,7 +40,7 @@ export function setupPwa({panel,me,api,notice}) {
   async function refresh(){
     if(!supported()||me.inspecting)return;
     const reg=await registration;subscription=await reg.pushManager.getSubscription();
-    if(subscription && localStorage.getItem(ownerKey)!==me.player_id){await subscription.unsubscribe();subscription=null;}
+    if(subscription && localStorage.getItem(ownerKey)!==me.player_id){await clearNotifications();subscription=null;}
     if(subscription){await request('/api/notifications',{method:'PUT',body:JSON.stringify(clean(subscription))});}
     state();
   }
@@ -62,7 +73,7 @@ export function setupPwa({panel,me,api,notice}) {
   // session available for a retry instead of leaving a hidden subscription.
   const out=panel.querySelector('a[href*="sign_out"]');
   out?.addEventListener('click',async event=>{
-    if(!supported())return;
+    if(!supported()){forgetProfile();return;}
     event.preventDefault();
     try{
       const reg=await navigator.serviceWorker.getRegistration('/');
@@ -75,6 +86,7 @@ export function setupPwa({panel,me,api,notice}) {
       }
       localStorage.removeItem(ownerKey);
       const notifications=await reg?.getNotifications()||[];for(const n of notifications)n.close();
+      forgetProfile();
       location.assign(out.href);
     }catch{hint.textContent='Could not turn off notifications before signing out. Reconnect and try again.';}
   });

@@ -35,10 +35,8 @@ active build must not be replaced merely to rerun a fixture.
 
 ## Design before expanding
 
-- Build profile selection on the [identity foundation](proposals/identity-foundation.md):
-  one account may have separate profiles in different groups, with an explicit
-  chooser and full reload when switching. Keep credentials bound to one profile.
-  Add other major sign-in providers only with explicit authenticated account linking;
+- Add other major sign-in providers on the [identity foundation](proposals/identity-foundation.md)
+  only with explicit authenticated account linking;
   shared email addresses must not silently merge accounts.
 - Design direct messages, custom chats, temporary channels and notification
   preferences on the [channel foundations](proposals/chat-channels.md) before
