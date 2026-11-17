@@ -65,7 +65,7 @@ try {
  async function open(){await card().locator('.game-open').click();await dialog.waitFor();}
  async function popup(action){const opening=page.waitForEvent('popup');await action();const tab=await opening;await tab.waitForURL('**/game-fixture');await tab.close();}
  // Active player badges are separate from reactions and do not recreate covers.
- game.players=[{...author},{...author},{...friend},{...friend,guest:true},{...friend,guest:true},{id:'three',name:'Nova',avatar:'circuit-fox'},{id:'four',name:'Sky',avatar:'moss-knight'}];
+ game.players=[{...author},{...author},{...friend},{...friend,guest:true,player_id:'guest-one'},{...friend,guest:true,player_id:'guest-two'},{id:'three',name:'Nova',avatar:'circuit-fox'},{id:'four',name:'Sky',avatar:'moss-knight'}];
  await page.evaluate(()=>refreshTestLibrary());
  const live=()=>card().locator('.game-live');
  assert.equal(await live().locator('summary .game-player').count(),3);
@@ -77,6 +77,25 @@ try {
  await page.evaluate(()=>refreshTestLibrary());
  assert(await live().evaluate(e=>e===liveBadge),'unchanged polling retains badges and animations');
  await live().locator('summary').click();assert(await live().locator('.game-live-menu').isVisible());assert(await dialog.isHidden());
+ assert.equal(await live().getByRole('button',{name:'Join OrbitFox',exact:true}).count(),1);
+ assert.equal(await live().getByRole('button').count(),1,'non-joinable players and guests have no Join action');
+ await popup(()=>live().getByRole('button',{name:'Join OrbitFox',exact:true}).click());
+ assert.deepEqual(launches.at(-1),{guest:false,intent:{kind:'join_friend',session_id:'session',player_id:'two'}});
+ const normalTargets=[...game.join_targets];
+ game.join_targets.push({name:'Guest',guest:true,session_id:'guest-session',player_id:'guest-one'});await page.evaluate(()=>refreshTestLibrary());
+ await live().locator('summary').click();await popup(()=>live().getByRole('button',{name:'Join OrbitFox’s guest',exact:true}).click());
+ assert.deepEqual(launches.at(-1).intent,{kind:'join_friend',session_id:'guest-session',player_id:'guest-one'},'guest join uses the guest identity, never its owner');
+ await live().locator('summary').click();
+ await live().getByRole('button',{name:'Join OrbitFox',exact:true}).evaluate(e=>window.staleJoin=e);
+ const beforeStaleJoin=launches.length;game.join_targets=[];await page.evaluate(()=>refreshTestLibrary());
+ assert.equal(await live().getByRole('button').count(),0,'availability updates remove stale Join options');
+ await page.evaluate(()=>staleJoin.click());assert.equal(launches.length,beforeStaleJoin,'stale click never falls back to ordinary Play');
+ assert(await page.locator('#notice').getByText('That session is no longer available to join.',{exact:true}).isVisible());
+ game.join_targets=normalTargets;game.native_only=true;await page.evaluate(()=>refreshTestLibrary());
+ assert.equal(await live().locator('button').count(),0,'native launches that cannot carry a join intent offer no shortcut');
+ game.native_only=false;game.play_unavailable='Unavailable while visiting';await page.evaluate(()=>refreshTestLibrary());assert.equal(await live().locator('button').count(),0);
+ delete game.play_unavailable;await page.evaluate(()=>refreshTestLibrary());await live().locator('summary').click();
+
  game.players=game.players.filter(p=>p.id!=='four');await page.evaluate(()=>refreshTestLibrary());
  assert(await live().evaluate(e=>e.open),'player changes keep the open list usable');
  assert.equal(await live().locator('li').count(),4);

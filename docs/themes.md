@@ -48,7 +48,8 @@ controls, including guest mode, Join, native launch, and sharing. Admin visibili
 actions appear only in the full game popup’s Admin actions (⋯) dropdown. Reaction
 counts stay out of Play menus.
 Active player portraits sit at the upper right of each card with a subtle rotating
-ring (static under reduced motion). Their menu names all active players and guests;
+ring (static under reduced motion). Their menu names all active players and guests
+and offers Join actions only for server-advertised joinable sessions;
 the visible stack is capped at three portraits plus an overflow count. Play menus
 keep launch and Join actions without repeating the player list. The tag row
 reserves room for the stack, and presence polling preserves unchanged badges and covers.

@@ -50,7 +50,7 @@ try{
   assert.equal(await art.getAttribute('class'),'game-art game-mark has-game-art');
   assert.equal(await art.evaluate(node=>getComputedStyle(node,'::after').content),'none','fallback must stay hidden');
   assert.equal(await page.locator('[data-app="firefly"] h2').textContent(),'Updated title');
-  assert.equal(await page.locator('[data-app="firefly"] .game-live-menu li > span:last-child').textContent(),'Player');
+  assert.equal(await page.locator('[data-app="firefly"] .game-live-menu .game-player-name').textContent(),'Player');
   assert.equal(await page.locator('.play-menu .players').count(),0,'Play menus do not duplicate player lists');
 
   await render([game('other'),game('firefly')]);

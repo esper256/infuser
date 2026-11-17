@@ -83,7 +83,7 @@ try{
  apps[0].players=[{name:'New player'}];apps[0].join_targets=[{name:'New player',session_id:'new-session',player_id:'new-player'}];
  apps[0].reactions=[{id:'reactor',name:'Reactor',emoji:'⭐',updated:Date.now()/1000,text:'Great!'}];
  await page.evaluate(()=>refreshLibrary());
- assert.equal(await first.locator('.game-live-menu li > span:last-child').textContent(),'New player');
+ assert.equal(await first.locator('.game-live-menu .game-player-name').textContent(),'New player');
  assert.equal(await first.locator('.play-menu .players').count(),0,'players are listed only in the portrait menu');
  assert.equal(await first.locator('.play-menu').getByRole('button',{name:'Join New player',exact:true,includeHidden:true}).count(),1,'Join actions remain available');
  assert.equal(await first.locator('.game-buzz span').count(),1);

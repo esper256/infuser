@@ -160,16 +160,26 @@ function gameBuzz(game){
 }
 function renderGamePlayers(card,game){
   const people=new Map();
+  const sessionPlayer=player=>player.player_id||(!player.guest?player.id:null);
   for(const player of game.players||[]){
     const key=JSON.stringify([player.id||player.name,!!player.guest]),existing=people.get(key);
-    if(existing){if(player.guest)existing.count++;continue;}
-    people.set(key,{...player,count:1,key});
+    if(existing){if(player.guest)existing.count++;if(sessionPlayer(player))existing.playerIds.add(sessionPlayer(player));continue;}
+    people.set(key,{...player,count:1,key,playerIds:new Set(sessionPlayer(player)?[sessionPlayer(player)]:[])});
   }
-  const players=[...people.values()].sort((a,b)=>a.key.localeCompare(b.key)),state=cardStates.get(card);
-  const signature=JSON.stringify(players),previous=card.querySelector('.game-live');
+  const players=[...people.values()].map(player=>({...player,playerIds:[...player.playerIds].sort()})).sort((a,b)=>a.key.localeCompare(b.key)),state=cardStates.get(card);
+  const targets=player=>{
+    if(me.inspecting||game.play_unavailable||game.native_only)return [];
+    const seen=new Set();
+    return (game.join_targets||[]).filter(target=>{
+      const key=JSON.stringify([target.session_id,target.player_id]);
+      if(seen.has(key)||!player.playerIds.includes(target.player_id)||!!target.guest!==!!player.guest||!(game.players||[]).some(p=>sessionPlayer(p)===target.player_id))return false;
+      seen.add(key);return true;
+    });
+  };
+  const signature=JSON.stringify([players,game.join_targets,me.inspecting,game.play_unavailable,game.native_only]),previous=card.querySelector('.game-live');
   if(state.playerSignature===signature&&(!players.length||previous))return;
   state.playerSignature=signature;
-  const focused=previous?.contains(document.activeElement);
+  const focused=previous?.contains(document.activeElement),focusedTarget=document.activeElement.dataset.joinTarget;
   if(!players.length){previous?.remove();card.classList.remove('players-open');card.style.removeProperty('--game-live-space');if(focused)card.querySelector('.game-open')?.focus({preventScroll:true});return;}
   const name=player=>player.guest?player.name+(player.count>1?'’s guests ('+player.count+')':'’s guest'):player.name;
   const portrait=player=>{
@@ -183,13 +193,28 @@ function renderGamePlayers(card,game){
   for(const player of players.slice(0,3)){const badge=portrait(player);badge.setAttribute('aria-hidden','true');trigger.append(badge);}
   if(players.length>3){const more=el('span','+'+(players.length-3),'game-player-more');more.setAttribute('aria-hidden','true');trigger.append(more);}
   const panel=el('div',undefined,'game-live-menu'),list=el('ul');panel.append(el('p','Playing now'),list);
-  for(const player of players){const row=el('li');row.append(portrait(player),el('span',name(player)));list.append(row);}
+  for(const player of players){
+    const row=el('li'),info=el('div',undefined,'game-player-info'),joinable=targets(player);
+    info.append(el('span',name(player),'game-player-name'));
+    joinable.forEach((target,index)=>{
+      const join=el('button','Join '+(player.guest?player.name+'’s guest':player.name)+(joinable.length>1?' · session '+(index+1):''),'game-player-join');join.type='button';
+      join.dataset.joinTarget=JSON.stringify([target.session_id,target.player_id]);
+      join.onclick=()=>{
+        const current=targets(player).find(t=>t.session_id===target.session_id&&t.player_id===target.player_id);
+        menu.open=false;
+        if(!current){notice('That session is no longer available to join.');return;}
+        start(game,join,card,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
+      };
+      info.append(join);
+    });
+    row.append(portrait(player),info);list.append(row);
+  }
   menu.append(trigger,panel);menu.open=previous?.open||false;
   card.classList.toggle('players-open',menu.open);
   menu.ontoggle=()=>card.classList.toggle('players-open',menu.open);
   card.style.setProperty('--game-live-space',(Math.min(players.length,4)*28+12)+'px');
   if(previous)previous.replaceWith(menu);else card.append(menu);
-  if(focused)trigger.focus({preventScroll:true});
+  if(focused)([...menu.querySelectorAll('[data-join-target]')].find(button=>button.dataset.joinTarget===focusedTarget)||trigger).focus({preventScroll:true});
 }
 const cardStates=new WeakMap();
 function renderGames() {
