@@ -201,6 +201,7 @@ async fn private_queue_enforces_admin_group_boundaries_consent_and_retention() -
         .await?;
     assert_eq!(own["entries"].as_array().unwrap().len(), 1);
     assert_eq!(own["entries"][0]["report"], report);
+    assert_eq!(own["entries"][0]["submitter"], "One");
     assert_eq!(own["available"], false);
     assert!(!own.to_string().contains("one@example.com"));
     assert_eq!(

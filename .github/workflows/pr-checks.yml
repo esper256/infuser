@@ -39,7 +39,7 @@ jobs:
         run: cargo test --locked
       - name: Fast SDK and theme journeys
         if: ${{ !cancelled() && matrix.check == 'fast-tests' }}
-        run: node --test tests/*_sdk.mjs tests/themes.mjs
+        run: node --test tests/*_sdk.mjs tests/themes.mjs tests/voice_chimes.mjs
       - name: Rust formatting
         if: matrix.check == 'formatting'
         run: cargo fmt --all -- --check

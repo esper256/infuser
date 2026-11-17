@@ -14,7 +14,8 @@ close or reload the form.
 
 ## Review as an admin
 
-Open **Profile → Review feedback**. You can edit a report, remove diagnostics, or
+Open **Profile → Review feedback**. The queue and review screen show the
+submitter's profile name privately to admins. You can edit a report, remove diagnostics, or
 dismiss it. Before choosing **Post public issue**, remove private information,
 preview the exact text, and confirm you want it public. Only that edited version
 goes to GitHub; the submitter's identity is not attached. Neither you nor the user
