@@ -83,13 +83,15 @@ try{
  apps[0].players=[{name:'New player'}];apps[0].join_targets=[{name:'New player',session_id:'new-session',player_id:'new-player'}];
  apps[0].reactions=[{id:'reactor',name:'Reactor',emoji:'⭐',updated:Date.now()/1000,text:'Great!'}];
  await page.evaluate(()=>refreshLibrary());
- assert.equal(await first.locator('.players').textContent(),'New player · game open');
+ assert.equal(await first.locator('.game-live-menu li > span:last-child').textContent(),'New player');
+ assert.equal(await first.locator('.play-menu .players').count(),0,'players are listed only in the portrait menu');
+ assert.equal(await first.locator('.play-menu').getByRole('button',{name:'Join New player',exact:true,includeHidden:true}).count(),1,'Join actions remain available');
  assert.equal(await first.locator('.game-buzz span').count(),1);
  assert(await page.evaluate(()=>retained.title===document.activeElement&&retained.art===document.querySelector('.game-art img')&&retained.tags===document.querySelector('.game-tags')),'presence/reactions retain title focus, cover and tags');
  assert.equal(await other.innerHTML(),await page.evaluate(()=>retained.other),'unrelated cards remain unchanged');
  // Retained handlers must open the newest data, not the old API response.
  await first.locator('.creator').click();assert(await page.locator('#reaction-dialog').isVisible());await page.locator('#close-reaction').click();
- await first.locator('.game-open').click();assert.equal(await page.locator('.game-feedback-row').count(),1);await page.locator('#close-game-detail').click();
+ await first.locator('.game-open').click();assert.equal(await page.locator('.game-feedback-row').count(),1);assert.equal(await page.locator('#game-detail .play-menu .players').count(),0);await page.locator('#close-game-detail').click();
  apps[0].title='Renamed game';tags[0].label='Renamed tag';await page.evaluate(()=>refreshLibrary());
  assert.equal(await first.locator('.game-open').textContent(),'Renamed game');
  assert.equal(await first.locator('.tag-chip').first().textContent(),'Renamed tag');
@@ -102,7 +104,7 @@ try{
  // Open controls are not dismantled under a pointer while backend state changes.
  await first.locator('.play-menu summary').click();apps[0].players=[];
  await page.evaluate(()=>refreshLibrary());assert(await first.locator('.play-menu').evaluate(e=>e.open));
- await first.locator('.play-menu summary').click();await page.evaluate(()=>refreshLibrary());assert.equal(await first.locator('.players').count(),0);
+ await first.locator('.play-menu summary').click();await page.evaluate(()=>refreshLibrary());assert.equal(await first.locator('.game-live').count(),0);
  // Slow requests cannot accumulate; timeout/failure keeps the mounted library.
  holdLibrary=true;const beforeRequests=libraryRequests;
  const waiting=page.waitForRequest('**/api/library');

@@ -221,7 +221,7 @@ function renderGames() {
     Object.assign(game,incoming);
     const {players,reactions,join_targets,...metadata}=game;
     const signature=JSON.stringify([metadata,(game.tags||[]).map(tagLabel),me.admin,me.inspecting,me.avatars]);
-    const actionSignature=JSON.stringify([players,reactions,join_targets]);
+    const actionSignature=JSON.stringify(join_targets);
     const buzzSignature=JSON.stringify(recentReactions(game));
     if(state.signature===signature){
       renderGamePlayers(card,game);
@@ -273,7 +273,6 @@ function renderGames() {
   layoutTagRows();
 }
 function gameActions(game,card){
-    const names = [...new Set(game.players.map(p => p.name + (p.guest ? '’s guest' : '')))];
     const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
     const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
     const items=el('div',undefined,'play-menu-items');
@@ -284,7 +283,6 @@ function gameActions(game,card){
       const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
     }
     if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
-    if(names.length)items.append(el('p',names.join(', ')+' · game open','players'));
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
     play.disabled=!!me.inspecting||!!game.play_unavailable;guest.disabled=play.disabled;
     if(game.play_unavailable){play.title=game.play_unavailable;items.prepend(el('p',game.play_unavailable));for(const b of items.querySelectorAll('button'))if(b.textContent.startsWith('Join ')||b.textContent==='Open in Infuser Play')b.disabled=true;}
