@@ -114,6 +114,10 @@ impl Data {
             email
         };
         let avatar = self.members.get(&email).and_then(|m| m.avatar.clone());
+        let avatar_prompt_seen = self
+            .members
+            .get(&email)
+            .is_some_and(|m| m.avatar_prompt_seen);
         self.members.insert(
             email.clone(),
             Member {
@@ -121,6 +125,7 @@ impl Data {
                 admin,
                 enabled,
                 avatar,
+                avatar_prompt_seen,
             },
         );
         self.groups.members.insert(email, group.into());

@@ -770,8 +770,29 @@ document.addEventListener('keydown',event=>{
 });
 $('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();});
 $('close-recent').onclick=()=>{$('recent-menu').open=false;$('recent-toggle').focus();};
-let profileUsageRequest;
+let profileUsageRequest,profileReminderBusy=false,profileReminderPending=false,profileReminderAttempted=false,profilePickerOpened=false;
+function profileReminderReady(){return me&&!me.inspecting&&library&&!document.hidden&&!document.querySelector('dialog[open]');}
+async function offerProfilePicture(){
+  if(profileReminderBusy||profilePickerOpened||!profileReminderReady())return;
+  if(profileReminderPending){openProfile();return;}
+  if(profileReminderAttempted||me.avatar||me.avatar_prompt_seen!==false)return;
+  profileReminderAttempted=true;profileReminderBusy=true;
+  try{
+    const result=await api('/api/profile/picture-prompt',{method:'POST',body:'{}',signal:AbortSignal.timeout(10000)});
+    me.avatar_prompt_seen=true;profileReminderPending=result.show&&!profilePickerOpened;
+  }catch(error){/* An optional reminder must not block the Library. Try next visit. */}
+  finally{profileReminderBusy=false;}
+  if(profileReminderPending&&profileReminderReady())openProfile();
+}
+// A linked game or another task keeps its dialog until the user closes it.
+document.addEventListener('close',()=>{void offerProfilePicture();},true);
+document.addEventListener('visibilitychange',()=>{void offerProfilePicture();});
 async function openProfile(){
+  profilePickerOpened=true;profileReminderPending=false;
+  if(me.avatar_prompt_seen===false&&!me.inspecting){
+    me.avatar_prompt_seen=true;
+    void api('/api/profile/picture-prompt',{method:'POST',body:'{}',signal:AbortSignal.timeout(10000)}).catch(()=>{});
+  }
   profileUsageRequest?.abort();
   const request=new AbortController();profileUsageRequest=request;
   $('profile-error').textContent='';
@@ -815,7 +836,7 @@ $('profile-form').onsubmit=async event=>{
   $('profile-error').textContent='';$('save-profile').disabled=true;$('save-profile').textContent='Saving…';$('close-profile').disabled=true;$('profile-choices').disabled=true;
   try{
     const saved=await api('/api/profile',{method:'PUT',body:JSON.stringify({avatar})});
-    me.avatar=saved.avatar;renderAccount();
+    me.avatar=saved.avatar;me.avatar_prompt_seen=true;renderAccount();
     if(library){for(const game of library.apps)if(game.author?.id===me.player_id)game.author.avatar=me.avatar;for(const person of library.friends||[])if(person.id===me.player_id)person.avatar=me.avatar;renderGames();renderPresence();renderGameDetail();}
     $('profile-dialog').close();notice('Profile picture saved.');
   }catch(error){$('profile-error').textContent=error.message;}
@@ -829,7 +850,7 @@ try {
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
   initClientUpdates({api});
-  await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
+  await refresh();void offerProfilePicture();setInterval(()=>{if(!document.hidden)refresh();},25000);
 } catch(error) {
   if(error.profileRequired){/* The profile selector owns this navigation. */}
   else if(inspection){sessionStorage.removeItem('infuser.group-inspection');location.replace('/library');}

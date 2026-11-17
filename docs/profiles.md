@@ -11,6 +11,14 @@ the site into that group. Other open tabs and games keep their original profile.
 Your names, pictures, uploaded games, permissions and saves are separate in each
 group. Switching does not copy or merge them.
 
+## Profile picture reminder
+
+The first Library visit without a profile picture opens the picture picker once.
+Close it to keep your initials, or choose a picture. Infuser remembers this on your
+profile across browsers and devices; keeping initials does not cause repeat prompts.
+You can always open **Change profile picture** from your own portrait in the top bar.
+Profiles with pictures and read-only admin inspection do not show the reminder.
+
 ## Add another profile
 
 A group admin can invite your existing Google email from **Admin tools**, just
