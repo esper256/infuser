@@ -13,7 +13,9 @@ Linux executables are in `build-<commit>` server/Play releases. Mac executables
 are in separate `macos-<commit>` releases (labelled pre-release solely to keep
 them out of server/Play automatic updates). Choose the newest completed Mac
 release, or a matching commit when available; Mac runner delays do not delay
-server releases. Older `build-<commit>` releases may also contain Mac downloads.
+server releases. Mac builds are batched daily when publisher inputs change;
+maintainers can [request an urgent build](ci.md) manually after the server release
+publishes. Older `build-<commit>` releases may also contain Mac downloads.
 Check `/api/publisher/capabilities` before integrating features. The publisher
 uses the same HTTP API and credentials on every supported publishing platform.
 
