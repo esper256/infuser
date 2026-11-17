@@ -1,5 +1,21 @@
 import { initChatEmoji } from '/assets/chat-emoji.js';
 import { openHomeChat } from '/assets/groups.js';
+const graphemes=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'grapheme'}):null;
+const emojiPresentation=/\p{Emoji_Presentation}|\p{Emoji}\uFE0F|[#*0-9]\uFE0F?\u20E3/u;
+function messageText(value){
+  const text=document.createElement('p');
+  if(!graphemes||!emojiPresentation.test(value)){text.textContent=value;return text;}
+  let plain='';
+  for(const {segment} of graphemes.segment(value)){
+    // Respect explicit text presentation and keep joined emoji sequences intact.
+    if(!segment.includes('\uFE0E')&&emojiPresentation.test(segment)){
+      if(plain){text.append(plain);plain='';}
+      const emoji=document.createElement('span');emoji.className='chat-inline-emoji';emoji.textContent=segment;text.append(emoji);
+    }else plain+=segment;
+  }
+  if(plain)text.append(plain);
+  return text;
+}
 // Shared Library room. All message text stays text, never markup or links.
 export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
@@ -270,7 +286,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       bubble.addEventListener('contextmenu',event=>{event.preventDefault();cancelPress();suppressReleaseClick=true;showActions(message,bubble);});
       meta.append(remove);
     }
-    const text=document.createElement('p');text.textContent=message.text;bubble.append(meta,text);article.append(portrait,bubble);return article;
+    bubble.append(meta,messageText(message.text));article.append(portrait,bubble);return article;
   }
   function render(next) {
     const stick=bottom(), previousIds=new Set(messages.map(m=>m.id));

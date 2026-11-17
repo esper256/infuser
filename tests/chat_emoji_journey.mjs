@@ -5,6 +5,8 @@ const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const browser=await chromium.launch({headless:true,...(process.env.INFUSER_CHROMIUM?{executablePath:process.env.INFUSER_CHROMIUM}:{})});
 const fixture=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/clubhouse.css"><link rel="stylesheet" href="/assets/themes/nightglass.css"><link rel="stylesheet" href="/assets/themes/cartridge-club.css"></head><body><header><div id="friends"><span data-player-id="friend">OrbitFox</span></div></header><script type="module" src="/fixture.js"></script></body></html>`;
 const setup=`import {initChat} from '/assets/chat.js';initChat({me:{player_id:'me'},api:async(path,options)=>{const r=await fetch(path,options);if(!r.ok)throw Error('Try again.');return r.json();},profileAvatar:()=>document.createElement('span')});`;
+const textSamples=['Claude usage at 96%😨','Together 👨‍👩‍👧‍👦 👍🏽 🇺🇸 1️⃣ ❤️','Text 96% © ™ ♥︎ ✈︎','<img src=x onerror=alert(1)>😨','Hey🙂!'];
+const history=textSamples.map((text,i)=>({id:i+1,author:{id:'friend',name:'Frizz'},text,created:Date.now()/1000,can_delete:false}));
 try{
  for(const theme of ['nightglass','cartridge-club']){
   for(const width of [1280,390,320]){
@@ -16,7 +18,7 @@ try{
     requests.push(url.href);assert.equal(url.origin,'https://chat.test','no CDN requests');
     if(path==='/api/chat'){
      if(route.request().method()==='POST'){posts.push(route.request().postDataJSON());return route.fulfill({status:503,json:{error:'Try again.'}});}
-     return route.fulfill({json:{messages:[]}});
+     return route.fulfill({json:{messages:history}});
     }
     if(path==='/fixture.js')return route.fulfill({body:setup,contentType:'text/javascript'});
     if(path.startsWith('/assets/')){
@@ -31,6 +33,24 @@ try{
    await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
    await page.locator('#chat-toggle').click();
    assert(!requests.some(url=>url.includes('/vendor/')),'picker assets load only on demand');
+   await page.locator('.chat-message').last().waitFor();
+   const paragraphs=page.locator('.chat-bubble p');
+   assert.deepEqual(await paragraphs.allTextContents(),textSamples,'rendering preserves exact message text');
+   assert.deepEqual(await paragraphs.nth(1).locator('.chat-inline-emoji').allTextContents(),['👨‍👩‍👧‍👦','👍🏽','🇺🇸','1️⃣','❤️'],'combined emoji remain whole');
+   assert.equal(await paragraphs.nth(2).locator('span').count(),0,'numbers and text symbols keep normal typography');
+   assert.equal(await paragraphs.nth(3).locator('img').count(),0,'message markup remains literal text');
+   assert.equal(await paragraphs.nth(0).evaluate(e=>{const selection=getSelection(),range=document.createRange();range.selectNodeContents(e);selection.removeAllRanges();selection.addRange(range);const result=selection.toString();selection.removeAllRanges();return result;}),textSamples[0],'selection adds no synthetic spaces');
+   const metrics=await paragraphs.last().evaluate(e=>{
+    const emoji=e.querySelector('span'),style=getComputedStyle(emoji),base=getComputedStyle(e),height=e.getBoundingClientRect().height;
+    const plain=e.cloneNode();plain.textContent=e.textContent;e.after(plain);const plainHeight=plain.getBoundingClientRect().height;plain.remove();
+    return {ratio:parseFloat(style.fontSize)/parseFloat(base.fontSize),before:style.marginInlineStart,after:style.marginInlineEnd,height,plainHeight};
+   });
+   assert(Math.abs(metrics.ratio-1.2)<.001);assert.equal(metrics.before,'3px');assert.equal(metrics.after,'2px');
+   assert.equal(metrics.height,metrics.plainHeight,'larger emoji do not increase the line height');
+   assert(await page.locator('#chat-log').evaluate(e=>e.scrollWidth<=e.clientWidth),'message text still fits the chat');
+   await mkdir(new URL('../.local/chat-emoji/',import.meta.url),{recursive:true});
+   await page.screenshot({path:new URL(`../.local/chat-emoji/${theme}-${width}-messages.png`,import.meta.url).pathname});
+
    const input=page.locator('#chat-text'),button=page.locator('#chat-emoji-toggle'),panel=page.locator('#chat-emoji-panel');
    await input.fill('Hello WORLD!');
    await input.evaluate(e=>{e.focus();e.setSelectionRange(6,11);e.dispatchEvent(new Event('select'));});
@@ -97,5 +117,5 @@ try{
    await context.close();
   }
  }
- console.log('PASS: substring search, selection/cursor insertion, limits, no accidental sends, retry draft, Escape/outside dismissal, local assets and strict CSP; both themes at 1280/390/320px.');
+ console.log('PASS: larger spaced emoji, intact graphemes, unchanged line height and copied text, safe message rendering; substring search, selection/cursor insertion, limits, no accidental sends, retry draft, Escape/outside dismissal, local assets and strict CSP; both themes at 1280/390/320px.');
 }finally{await browser.close();}
