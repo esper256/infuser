@@ -121,7 +121,7 @@ test('invalid commits, channels and repositories cannot publish', async t => {
   assert.throws(() => prepare(f.directory, commit, 'other'));
   await assert.rejects(publish({ directory: f.directory, commit, channel: 'server', repository: 'other/repo' }));
 });
-test('workflow boundaries keep server release independent and Mac source tied to the trusted upstream run', () => {
+test('workflow boundaries keep server release independent and Mac source tied to the selected published commit', () => {
   const server = fs.readFileSync(path.join(__dirname, '../workflows/release.yml'), 'utf8');
   const mac = fs.readFileSync(path.join(__dirname, '../workflows/macos-publisher.yml'), 'utf8');
   const releaseSteps = server.slice(server.indexOf('  release:'));
@@ -131,13 +131,13 @@ test('workflow boundaries keep server release independent and Mac source tied to
     assert.match(workflow, /cancel-in-progress: false/);
     assert.doesNotMatch(workflow, /cancel-in-progress: true|allow-unsafe-pr-checkout|pull_request_target/);
   }
-  assert.match(mac, /group: release-macos-.*workflow_run\.conclusion \|\| 'success'/, 'failed upstream completions use a different queue');
-  assert.match(mac, /workflows: \[Build and release\]/);
-  assert.match(mac, /workflow_run\.conclusion == 'success'/);
-  assert.match(mac, /workflow_run\.head_repository\.full_name == github\.repository/);
-  assert.match(mac, /workflow_run\.head_sha \|\| github.sha/);
+  assert.doesNotMatch(mac, /workflow_run:/);
+  assert.match(mac, /cron: '23 6 \* \* \*'/);
+  assert.match(mac, /github.ref == 'refs\/heads\/main'/);
+  assert.match(mac, /INFUSER_BUILD_SHA: \$\{\{ needs.plan.outputs.commit \}\}/);
   assert.match(mac, /ref: \$\{\{ env.INFUSER_BUILD_SHA \}\}/);
-  assert.match(mac, /needs: macos-publisher/);
+  assert.match(mac, /if: needs.plan.outputs.build == 'true'/);
+  assert.match(mac, /needs: \[plan, macos-publisher\]/);
 });
 
 test('a draft targeting another commit is never reused', async t => {

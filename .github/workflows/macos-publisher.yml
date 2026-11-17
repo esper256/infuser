@@ -1,32 +1,48 @@
 name: Mac publisher release
 
 on:
-  workflow_run:
-    workflows: [Build and release]
-    types: [completed]
-    branches: [main]
+  schedule:
+    - cron: '23 6 * * *'
   workflow_dispatch:
 
-# Mac capacity never holds up servers. Coalesce bursts without cancelling work.
+# One daily batch, or an explicit manual build. Never cancel a running pair.
 concurrency:
-  # Failed/skipped upstream runs must not evict a pending successful build.
-  group: release-macos-${{ github.event.workflow_run.head_branch || github.ref_name }}-${{ github.event.workflow_run.conclusion || 'success' }}
+  group: release-macos-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
-env:
-  INFUSER_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-
 jobs:
-  macos-publisher:
+  plan:
     if: >-
-      github.repository == 'esper256/infuser' &&
-      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_branch == 'main' &&
-        github.event.workflow_run.head_repository.full_name == github.repository))
+      github.repository == 'esper256/infuser' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      commit: ${{ steps.plan.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Select published commit and compare Mac inputs
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/mac-release-plan.cjs
+
+  macos-publisher:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    env:
+      INFUSER_BUILD_SHA: ${{ needs.plan.outputs.commit }}
     strategy:
       fail-fast: false
       matrix:
@@ -61,12 +77,13 @@ jobs:
           retention-days: 3
 
   release:
-    needs: macos-publisher
+    needs: [plan, macos-publisher]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
     env:
+      INFUSER_BUILD_SHA: ${{ needs.plan.outputs.commit }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:

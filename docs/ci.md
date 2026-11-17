@@ -59,13 +59,32 @@ an older rerun cannot replace a newer release. Missing assets, failed tests,
 unknown ancestry or upload failure leave the release unpublished. Published
 assets are never replaced. A queued candidate can still fail and require a retry.
 
-`Mac publisher release` follows successful main server workflows and builds the
-exact upstream commit. Its independent queue publishes the two tested Mac
-architectures as `macos-<commit>` with its own manifest and checksums. These are
-marked pre-release to prevent them becoming the server/Play `latest` release;
-this is channel separation, not a waiver of tests. Mac capacity delays affect
-only Mac publisher availability. Use the releases list, not `latest/download`,
-for Mac downloads. Manual dispatch on main can retry that channel independently.
+`Mac publisher release` checks daily at **06:23 UTC**, using a cheap Linux job.
+It selects the latest published `build-<commit>` server release and verifies that
+commit belongs to main. It builds only when Mac inputs differ from the nearest
+completed Mac release in that commit's ancestry (or no such release exists).
+The conservative input set includes the shared Rust source, Cargo dependencies,
+native protocol, SDK/examples, publisher journey fixtures and release tooling.
+Docs, web UI and desktop-only changes do not trigger a Mac pair. Failed or draft
+Mac releases are not a baseline, so the next daily check retries them. GitHub
+may delay scheduled jobs; this is a daily batch, not an exact delivery deadline.
+
+For an urgent publisher fix or retry, open **Actions → Mac publisher release →
+Run workflow**, select **main**, and run it after the server release publishes.
+Manual dispatch builds the latest published server commit even if the input
+filter finds no change. Both triggers skip an already complete exact Mac
+release. Dispatches on other branches are skipped. The independent queue never
+cancels a running pair; bursts can replace the pending run.
+
+Both tested Mac architectures publish together as `macos-<actual-commit>` with
+their own same-commit manifest and checksums. These remain pre-releases and never
+become server/Play `latest`. Existing installer/updater URLs are unchanged; Mac
+downloads use the releases list, not `latest/download`. Mac versions can trail
+the server between batches: check publisher capabilities before using new
+features, or dispatch manually. Mac capacity delays affect only Mac availability.
+Published assets are immutable; there is no relabelling of old binaries with a
+new server version. Scheduled workflows may need re-enabling after 60 days of
+repository inactivity.
 
 Both tracks use standard GitHub-hosted runners and no paid service. Linux
 server publication still waits for Windows/Linux Play packaging to preserve
