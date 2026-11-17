@@ -24,5 +24,6 @@ reviews, Recently, the picker, and the celebration. Native emoji remains the
 fallback if an asset cannot load. Other reactions retain their native emoji.
 New entries must also join the server reaction allowlist and API/browser coverage.
 Labels remain accessible independently of the decorative images. Both themes use
-the same renderer. Card reactions overlap with the leftmost on top, without a
-circle or shadow behind each face. Reduced motion suppresses the celebration.
+the same renderer. Card reactions overlap with the leftmost on top, with a
+4px-right/2px-down silhouette shadow (60% black, 0.5px blur) separating each face
+from its neighbor. Keep backgrounds transparent; do not add circular backings. Reduced motion suppresses the celebration.

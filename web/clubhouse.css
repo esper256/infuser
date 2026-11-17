@@ -685,7 +685,7 @@ button.feed-row:hover { border-color: var(--accent); }
 .game-bottom .game-dock { margin-top: 0; margin-left: auto; min-width: 0; }
 .game-buzz { --buzz-size: 28px; position: absolute; z-index: 2; left: 4px; bottom: calc(var(--buzz-size) * -.2 - 1px); display: flex; align-items: flex-end; flex: none; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink); }
 .game-buzz:hover { background: transparent; }
-.game-buzz span { display: grid; place-items: center; position: relative; width: var(--buzz-size); height: var(--buzz-size); font-size: 23px; line-height: 1; background: transparent; }
+.game-buzz span { display: grid; place-items: center; position: relative; width: var(--buzz-size); height: var(--buzz-size); font-size: 23px; line-height: 1; background: transparent; filter: drop-shadow(4px 2px .5px rgb(0 0 0 / 60%)); }
 .game-buzz span + span { margin-left: -15px; }
 .hidden-game .game-bottom { display: block; }
 .hidden-game .game-buzz { --buzz-size: 24px; }
