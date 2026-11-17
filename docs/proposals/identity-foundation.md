@@ -2,9 +2,8 @@
 
 Audience: Infuser developers.
 
-Status: implemented foundation. Google remains the only sign-in provider and the
-website still opens one profile. Profile selection and additional providers are
-separate follow-up work.
+Status: implemented foundation and profile chooser. Google remains the only
+sign-in provider; additional providers are separate follow-up work.
 
 ## Permanent decisions
 
@@ -60,9 +59,9 @@ current email. `Data.player_id()` returns the stored identity; runtime code must
 not hash a login email to identify a player.
 
 Migration and the current invitation flow initialize a first profile's ID from
-the historical handle once. A future second-profile creation flow must generate
-an independent opaque handle and permanent ID. It must not reuse email-derived
-IDs. Removing or renaming a profile must not recycle its identity.
+the historical handle once. Inviting the account into another group generates
+an independent opaque handle and permanent ID. Removing or renaming a profile
+must not recycle its identity.
 
 No game reupload, save copy, native re-pairing or publisher-key replacement is
 required. Credentials keep their original profile scope. Profile names and
@@ -85,20 +84,39 @@ After acceptance, genesis is the oldest supported rollback target. Returning
 earlier would require restoring an entire matching pre-migration snapshot, losing
 subsequent changes. See [operator procedure](../identity-operations.md).
 
-## Next: profile selection
+## Profile selection
 
-Authentication already resolves an account separately from profile selection.
-Today one enabled profile is selected automatically; more than one returns an
-explicit selection-required error. Do not add a second live profile before the
-chooser is implemented.
+The authenticated provider session identifies the account. `GET /api/profiles`
+lists only that account's enabled profiles. All other website API requests use
+`X-Infuser-Profile` to select a permanent player ID. The server checks account
+ownership and current enabled state on every request; this header is not a
+credential. Incoming internal account/profile headers are discarded.
 
-The chooser will create a server-validated session bound to one selected profile.
-Switch Profile will return to that chooser and reload the site. Old tabs, game
-tickets, publisher keys and native credentials must remain bound to their original
-profile; switching must not retarget them. Group permissions and visit windows
-must be checked against that profile on every request. Browser storage, push
-subscriptions and native login handoff need explicit profile scoping before
-shipping the chooser.
+With no selector, exactly one enabled profile opens directly. Multiple profiles
+or a stale explicit selector return 409 with `X-Infuser-Profile-Required: 1`.
+An invalid selector never silently falls back to another profile. Artwork GETs
+also accept a `profile` query selector because image elements cannot set headers;
+it has the same authorization check and is not accepted for other API routes.
+Private conditional responses vary by profile, visit and inspection context.
+
+The website pins the selector in memory for each page and stores it in
+`sessionStorage` for that tab's reloads. Switch Profile clears selection, visit
+and inspection state, opens `/profiles`, and reloads into the selected group.
+Other tabs retain their selectors. Google sign-out clears the current tab's
+selection. A session from a different account cannot use a stale selector.
+
+Game tickets, publisher keys and native credentials remain bound to their
+original profile. The native login handoff preserves its pairing request through
+the chooser and names the profile/group before approval. Push endpoints also
+remain profile-owned; switching revokes the browser subscription and closes old
+notifications. Notification clicks open a fresh page that resolves the stored
+subscription owner against the authenticated profile list, rather than reusing
+an arbitrary group's tab. Group permissions and visit windows are checked against
+the selected profile as before.
+
+The chooser adds no new storage version. Genesis can read these profiles, but
+rolling back to a build before the chooser leaves multi-profile accounts unable
+to enter the website until chooser support is restored. Their data is preserved.
 
 ## Evidence
 

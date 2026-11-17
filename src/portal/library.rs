@@ -130,18 +130,36 @@ impl View<'_> {
                 .get(owner)
                 .map(|member| json!({"id":data.player_id(owner),"name":member.name,"avatar":member.avatar}))
         });
-        let card_art_url = card_art::url(id, &app.build, build, data.metadata.get(id)).map(|url| {
-            if self.inspecting {
-                format!("{url}?inspect_group={}", self.group)
-            } else {
-                if data.groups.member(self.email) != self.group {
-                    data.active_visit(self.group, self.time)
-                        .map_or(url.clone(), |(id, _)| format!("{url}?visit={id}"))
+        let card_art_url = card_art::url(id, &app.build, build, data.metadata.get(id))
+            .map(|url| {
+                if self.inspecting {
+                    format!("{url}?inspect_group={}", self.group)
+                } else {
+                    if data.groups.member(self.email) != self.group {
+                        data.active_visit(self.group, self.time)
+                            .map_or(url.clone(), |(id, _)| format!("{url}?visit={id}"))
+                    } else {
+                        url
+                    }
+                }
+            })
+            .map(|url| {
+                let profile = &data.identities.profiles[self.email];
+                if data
+                    .identities
+                    .profiles
+                    .values()
+                    .any(|p| p.account_id == profile.account_id && p.id != profile.id)
+                {
+                    format!(
+                        "{url}{}profile={}",
+                        if url.contains('?') { "&" } else { "?" },
+                        profile.id
+                    )
                 } else {
                     url
                 }
-            }
-        });
+            });
         json!({
             "id":id,
             "deployment_id":runtime,

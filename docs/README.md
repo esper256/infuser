@@ -5,6 +5,7 @@ Infuser; developer guides describe changing Infuser itself.
 
 ## Players and admins
 
+- [Profiles and switching groups](profiles.md)
 - [Chat, phone installation, and notifications](library-chat.md)
 - [Infuser Play updates](play-updates.md)
 - [Send and review feedback](feedback.md)

@@ -120,6 +120,82 @@ impl Identities {
     }
 }
 impl Data {
+    pub fn account_profiles(&self, account: &str) -> Result<Vec<(&str, &Profile)>> {
+        ensure!(
+            self.identities
+                .accounts
+                .get(account)
+                .is_some_and(|a| a.enabled),
+            crate::portal::fault(403, "Account disabled.")
+        );
+        Ok(self
+            .identities
+            .profiles
+            .iter()
+            .filter(|(key, p)| {
+                p.account_id == account && self.members.get(*key).is_some_and(|m| m.enabled)
+            })
+            .map(|(k, p)| (k.as_str(), p))
+            .collect())
+    }
+    pub fn select_profile(&self, account: &str, player: Option<&str>) -> Result<String> {
+        let profiles = self.account_profiles(account)?;
+        ensure!(
+            !profiles.is_empty(),
+            crate::portal::fault(403, "Ask your admin for an Infuser invitation.")
+        );
+        if let Some(player) = player {
+            return profiles
+                .iter()
+                .find(|(_, p)| p.id == player)
+                .map(|(key, _)| key.to_string())
+                .ok_or_else(|| crate::portal::fault(409, "Choose your Infuser profile."));
+        }
+        ensure!(
+            profiles.len() == 1,
+            crate::portal::fault(409, "Choose your Infuser profile.")
+        );
+        Ok(profiles[0].0.to_string())
+    }
+    /// Invitation lookup only: never authenticates or links provider identities.
+    pub fn invitation_account(&self, query: &str) -> Result<Option<String>> {
+        let query = query.trim().to_lowercase();
+        if let Some(profile) = self.identities.profiles.get(&query) {
+            return Ok(Some(profile.account_id.clone()));
+        }
+        let accounts: BTreeSet<_> = self
+            .identities
+            .logins
+            .values()
+            .filter(|l| l.email == query)
+            .map(|l| l.account_id.clone())
+            .chain(self.identities.pending_google.get(&query).cloned())
+            .collect();
+        ensure!(
+            accounts.len() <= 1,
+            crate::portal::fault(409, "Use an existing profile handle for this account.")
+        );
+        Ok(accounts.into_iter().next())
+    }
+    pub fn group_member_key(&self, query: &str, group: &str) -> Result<Option<String>> {
+        let handle = query.trim().to_lowercase();
+        if self.members.contains_key(&handle) && !handle.contains('@') {
+            return Ok((self.groups.member(&handle) == group).then_some(handle));
+        }
+        let Some(account) = self.invitation_account(query)? else {
+            return Ok(None);
+        };
+        Ok(self
+            .identities
+            .profiles
+            .iter()
+            .find(|(key, p)| {
+                p.account_id == account
+                    && self.members.contains_key(*key)
+                    && self.groups.member(key) == group
+            })
+            .map(|(key, _)| key.clone()))
+    }
     pub(crate) fn initialize_identities(&mut self) -> Result<()> {
         self.identities.initialize_profiles(&self.members);
         // Old operator entries name member handles. Persist account authority.
@@ -168,27 +244,7 @@ impl Data {
         Ok(())
     }
     pub fn single_profile(&self, account: &str) -> Result<String> {
-        ensure!(
-            self.identities
-                .accounts
-                .get(account)
-                .is_some_and(|a| a.enabled),
-            crate::portal::fault(403, "Account disabled.")
-        );
-        let mut profiles = self.identities.profiles.iter().filter(|(key, p)| {
-            p.account_id == account && self.members.get(*key).is_some_and(|m| m.enabled)
-        });
-        let (key, _) = profiles.next().ok_or_else(|| {
-            crate::portal::fault(403, "Ask your admin for an Infuser invitation.")
-        })?;
-        ensure!(
-            profiles.next().is_none(),
-            crate::portal::fault(
-                409,
-                "Profile selection is required; this version does not support switching profiles yet."
-            )
-        );
-        Ok(key.clone())
+        self.select_profile(account, None)
     }
     /// Operator/admin lookup only. It never authenticates an incoming login.
     pub fn member_key(&self, email_or_key: &str) -> Result<String> {
@@ -247,6 +303,13 @@ impl Data {
             .values()
             .find(|l| l.account_id == profile.account_id && l.issuer == GOOGLE)
             .map(|l| l.email.as_str())
+            .or_else(|| {
+                self.identities
+                    .pending_google
+                    .iter()
+                    .find(|(_, account)| **account == profile.account_id)
+                    .map(|(email, _)| email.as_str())
+            })
             .unwrap_or(key)
     }
     fn bind_google(&mut self, subject: &str, email: &str) -> Result<String> {

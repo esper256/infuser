@@ -18,9 +18,8 @@ self.addEventListener('push',event=>{
 self.addEventListener('notificationclick',event=>{
   event.notification.close();
   event.waitUntil((async()=>{
-    const tabs=await self.clients.matchAll({type:'window',includeUncontrolled:true});
-    const tab=tabs.find(t=>{const u=new URL(t.url);return u.origin===self.location.origin&&['/','/library','/clubhouse'].includes(u.pathname);});
-    if(tab){await tab.focus();tab.postMessage({type:'infuser-open-chat'});}
-    else await self.clients.openWindow('/library#chat');
+    // Resolve the subscription's profile in a fresh page. Never reuse an
+    // arbitrary tab that may be showing another group's conversation.
+    await self.clients.openWindow('/profiles?notification=chat&next='+encodeURIComponent('/library?chat#chat'));
   })());
 });

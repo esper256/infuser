@@ -25,6 +25,286 @@ const EMAIL: &str = "original@example.test";
 const HOST: &str = "games.example.com";
 
 #[test]
+fn repeated_invitations_before_first_login_share_one_account_but_not_profiles() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let db = Database::open(root.path())?;
+    db.edit(|d| {
+        d.groups.names.insert("away".into(), "Away".into());
+        d.invite_to_group("home", EMAIL, "Home Name", true, true)?;
+        d.invite_to_group("away", EMAIL, "Away Name", false, true)
+    })?;
+    let d = db.read()?;
+    assert_eq!(d.identities.accounts.len(), 1);
+    assert_eq!(d.identities.pending_google.len(), 1);
+    let key = d.group_member_key(EMAIL, "away")?.unwrap();
+    assert_eq!(d.contact_email(&key), EMAIL);
+    assert!(!d.members[&key].admin);
+    assert_ne!(d.player_id(EMAIL), d.player_id(&key));
+    let account = db.google_account("first-google-subject", EMAIL)?;
+    assert_eq!(db.read()?.account_profiles(&account)?.len(), 2);
+    assert!(db.read()?.identities.pending_google.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn profile_chooser_keeps_groups_tabs_and_existing_game_tickets_separate() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    legacy(root.path())?;
+    let (auth_url, _auth) = serve(Router::new().route(
+        "/auth",
+        get(|h: HeaderMap| async move {
+            let (email, subject) = match h.get("cookie").and_then(|v| v.to_str().ok()) {
+                Some("member=one") => (EMAIL, "stable-one"),
+                Some("member=other") => ("other@example.test", "stable-other"),
+                _ => return (StatusCode::UNAUTHORIZED, HeaderMap::new()),
+            };
+            let mut h = HeaderMap::new();
+            h.insert("x-auth-request-email", email.parse().unwrap());
+            h.insert("x-auth-request-user", subject.parse().unwrap());
+            (StatusCode::ACCEPTED, h)
+        }),
+    ))
+    .await?;
+    let cfg: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}\nauth_url={:?}\nprivate_groups=true",
+        root.path(),
+        format!("{auth_url}/auth")
+    ))?;
+    platform::member(&cfg, "other@example.test", "Only Profile", false, true)?;
+    let p = portal::Platform::open(Arc::new(Controller::open(
+        cfg.clone(),
+        Arc::new(Docker {
+            settings: cfg.controller.clone(),
+        }),
+    )?))?;
+    let db = p.db.clone();
+    let (url, _server) = serve(portal::router(p)).await?;
+    let http = reqwest::Client::new();
+    let request = |who: &str, method: reqwest::Method, path: &str, profile: Option<&str>| {
+        let r = http
+            .request(method, format!("{url}{path}"))
+            .header("host", HOST)
+            .header("origin", format!("https://{HOST}"))
+            .header("cookie", format!("member={who}"));
+        if let Some(profile) = profile {
+            r.header("x-infuser-profile", profile)
+        } else {
+            r
+        }
+    };
+    const GET: reqwest::Method = reqwest::Method::GET;
+    const POST: reqwest::Method = reqwest::Method::POST;
+    const PUT: reqwest::Method = reqwest::Method::PUT;
+    let me: Value = request("one", GET, "/api/me", None)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let home = me["player_id"].as_str().unwrap();
+    assert_eq!(me["profile_count"], 1);
+    // Creating another group for the same Google account creates another profile,
+    // never moves or renames the original one.
+    let group: Value = request("one", POST, "/api/operator/groups", Some(home))
+        .json(&json!({"name":"Away group","admin_email":EMAIL,"admin_name":"Away Profile"}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let group = group["id"].as_str().unwrap();
+    let choices: Value = request("one", GET, "/api/profiles", None)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(choices["profiles"].as_array().unwrap().len(), 2);
+    let away = choices["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["group"]["id"] == group)
+        .unwrap()["player_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(away, home);
+    assert!(!choices.to_string().contains("account-"));
+    assert!(!choices.to_string().contains("Only Profile"));
+    let required = request("one", GET, "/api/me", None).send().await?;
+    assert_eq!(required.status(), 409);
+    assert_eq!(required.headers()["x-infuser-profile-required"], "1");
+    assert_eq!(
+        request("other", GET, "/api/me", Some(&away))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    assert_eq!(
+        request("one", POST, &format!("/api/chat?profile={home}"), None)
+            .json(&json!({"text":"Wrong context"}))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    let away_key = db.read()?.group_member_key(EMAIL, group)?.unwrap();
+    assert!(away_key.starts_with("profile-"));
+    assert_eq!(db.read()?.members[EMAIL].name, "Original profile");
+    // An admin editing their own group's invite must not touch the other profile.
+    request("one", POST, "/api/admin/members", Some(&away))
+        .json(&json!({"email":EMAIL,"name":"Away Profile","admin":true}))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(db.read()?.members[EMAIL].name, "Original profile");
+    assert_eq!(
+        request("one", PUT, "/api/admin/members/handle", Some(home))
+            .json(&json!({"email":away_key,"name":"Wrong group"}))
+            .send()
+            .await?
+            .status(),
+        404
+    );
+    let profile: Value = request("one", PUT, "/api/profile", Some(&away))
+        .json(&json!({"avatar":"circuit-fox"}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(profile["avatar"], "circuit-fox");
+    assert_eq!(db.read()?.members[EMAIL].avatar, None);
+    let mut art = Vec::new();
+    image_webp::WebPEncoder::new(&mut art).encode(
+        &vec![80; 1024 * 1024 * 3],
+        1024,
+        1024,
+        image_webp::ColorType::Rgb8,
+    )?;
+    db.edit(|d| {
+        let home_build = d.builds.get_mut("pond/one").unwrap();
+        Arc::make_mut(&mut home_build.files)
+            .insert(infuser::card_art::PATH.into(), art.len() as u64);
+        let mut away_build = home_build.clone();
+        away_build.manifest.app_id = "away-game".into();
+        away_build.manifest.title = "Away Game".into();
+        d.builds.insert("away-game/one".into(), away_build);
+        d.apps.insert("away-game".into(), d.apps["pond"].clone());
+        d.groups.apps.insert("away-game".into(), group.into());
+        d.owners.insert("away-game".into(), away_key.clone());
+        Ok(())
+    })?;
+    for app in ["pond", "away-game"] {
+        let folder = root.path().join("content").join(app).join("one");
+        std::fs::create_dir_all(folder.join("infuser-art"))?;
+        std::fs::write(folder.join("index.html"), "game")?;
+        std::fs::write(folder.join(infuser::card_art::PATH), &art)?;
+    }
+    for (id, app) in [(home, "pond"), (away.as_str(), "away-game")] {
+        let library: Value = request("one", GET, "/api/library", Some(id))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(library["apps"].as_array().unwrap().len(), 1);
+        assert_eq!(library["apps"][0]["id"], app);
+        let art = library["apps"][0]["card_art_url"].as_str().unwrap();
+        assert!(art.contains("profile="));
+        request("one", GET, art, None)
+            .send()
+            .await?
+            .error_for_status()?;
+        assert_eq!(request("other", GET, art, None).send().await?.status(), 409);
+        request("one",POST,"/api/chat",Some(id)).json(&json!({"client_id":format!("profile-chat-{app}-00001"),"text":format!("Only {app}")})).send().await?.error_for_status()?;
+    }
+    let chat: Value = request("one", GET, "/api/chat", Some(home))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(chat.to_string().contains("Only pond"));
+    assert!(!chat.to_string().contains("Only away-game"));
+    let launch: Value = request("one", POST, "/api/apps/pond/launch", Some(home))
+        .json(&json!({}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let link = reqwest::Url::parse(launch["url"].as_str().unwrap())?;
+    let token = link.fragment().unwrap().strip_prefix("infuser=").unwrap();
+    let game_host = link.host_str().unwrap();
+    http.post(format!("{url}/_infuser/session"))
+        .header("host", game_host)
+        .header("origin", format!("https://{game_host}"))
+        .json(&json!({"token":token}))
+        .send()
+        .await?
+        .error_for_status()?;
+    request("one", GET, "/api/me", Some(&away))
+        .send()
+        .await?
+        .error_for_status()?;
+    let context: Value = http
+        .get(format!("{url}/_infuser/context"))
+        .header("host", game_host)
+        .bearer_auth(token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(context["player_id"], home);
+    let save: Value = http
+        .get(format!("{url}/_infuser/saves/progress"))
+        .header("host", game_host)
+        .bearer_auth(token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(save["data"]["level"], 9);
+    if let Ok(node) = std::env::var("INFUSER_PROFILE_BROWSER_NODE") {
+        let status = tokio::process::Command::new(node)
+            .args(["tests/profile_chooser_journey.mjs", &url, home, &away])
+            .status()
+            .await?;
+        anyhow::ensure!(status.success(), "profile chooser browser journey failed");
+    }
+    db.edit(|d| {
+        d.members.get_mut(&away_key).unwrap().enabled = false;
+        Ok(())
+    })?;
+    // Stale selected profiles fail, rather than quietly posting as the remaining one.
+    assert_eq!(
+        request("one", GET, "/api/me", Some(&away))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    let remaining: Value = request("one", GET, "/api/me", None)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(remaining["profile_count"], 1);
+    assert_eq!(remaining["player_id"], home);
+    assert_eq!(
+        Database::open(root.path())?.read()?.identities.profiles[&away_key].id,
+        away
+    );
+    Ok(())
+}
+
+#[test]
 fn rehearsal_migrates_only_a_disposable_copy() -> Result<()> {
     let root = tempfile::tempdir()?;
     legacy(root.path())?;
@@ -307,7 +587,7 @@ fn separate_profiles_require_selection_and_do_not_inherit_identity_or_group_priv
         db.google_profile("google-subject-123", EMAIL)
             .unwrap_err()
             .to_string()
-            .contains("Profile selection")
+            .contains("Choose your Infuser profile")
     );
     let d = db.read()?;
     assert_ne!(d.player_id(EMAIL), d.player_id(second));

@@ -179,6 +179,32 @@ the current code. `identity_journey` covers stable Google subjects, email change
 preserved saves, profile isolation and version rejection. `update_journey` covers
 the rollback floor during failed activation and interrupted recovery.
 
+The identity journey also tests cross-group invitations, explicit profile
+selection, stale/foreign selectors, artwork URLs, chat isolation and unchanged
+game tickets/saves after switching. Set `INFUSER_PROFILE_BROWSER_NODE` to a Node
+executable to include `tests/profile_chooser_journey.mjs`. It exercises the
+single-profile bypass, desktop/mobile chooser, independent tabs, Switch Profile
+and the Infuser Play pairing handoff. `INFUSER_PLAYWRIGHT` and `INFUSER_CHROMIUM`
+can select locally installed browser tooling.
+
+For login lifetime regressions, use the deployed OAuth2 Proxy version's binary
+(verify its release checksum) and existing Playwright/Chromium installations:
+
+```sh
+INFUSER_OAUTH2_PROXY=/path/to/oauth2-proxy \
+INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs \
+INFUSER_CHROMIUM=/path/to/chromium \
+  node tests/login_session_journey.mjs
+```
+
+This starts an isolated OIDC provider and proxy on loopback. It reproduces expiry
+without a refresh token, then exercises the shipped minimal-cookie settings:
+existing cookies survive adoption, reloads/new tabs/concurrent requests retain
+the login, identity headers remain available, and forged/expired cookies fail.
+Token and cookie lifetimes are shortened to keep the test under a minute. It
+uses no Google credentials or production state. The provider is a fixture; this
+does not substitute for checking Google sign-in on an actual Apple device.
+
 The optional local load case exchanges frames between two clients while uploading
 and publishing a 64 MiB file, with Library/chat polling. The larger synthetic
 catalog has 25 apps, five builds each and 500 files per build:

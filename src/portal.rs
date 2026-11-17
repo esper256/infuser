@@ -46,6 +46,7 @@ mod metadata;
 mod native;
 mod peerjs;
 mod presence;
+mod profiles;
 mod publication;
 mod pwa;
 mod runtime;
@@ -515,6 +516,7 @@ pub fn router(platform: Platform) -> Router {
         .merge(publishing)
         .merge(native::routes())
         .merge(groups::routes())
+        .merge(profiles::routes())
         .merge(visits::routes())
         .route("/assets/visits.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/visits.js")) }))
         .merge(feedback::routes())
@@ -647,6 +649,7 @@ async fn session_auth(
 ) -> Response {
     request.headers_mut().remove("x-infuser-verified-email");
     request.headers_mut().remove("x-infuser-verified-profile");
+    request.headers_mut().remove(profiles::ACCOUNT);
     let path = request.uri().path();
     let player_api = path.starts_with("/api/")
         && !path.starts_with("/api/publisher/")
@@ -656,6 +659,12 @@ async fn session_auth(
         return next.run(request).await;
     }
     let cookie = request.headers().get("cookie").cloned();
+    let selected_profile = profiles::requested(
+        request.headers(),
+        request.uri(),
+        request.method() == axum::http::Method::GET,
+    );
+    let choosing = path == "/api/profiles";
     let verified: Result<_> = async {
         let cookie = cookie.ok_or_else(|| fault(401, "Please sign in with Google."))?;
         let response = p
@@ -683,30 +692,55 @@ async fn session_auth(
                     "Sign in again: Google session did not supply a stable identity.",
                 )
             })?;
-        let profile = p.db.google_profile(
+        let account = p.db.google_account(
             subject,
             email
                 .to_str()
                 .map_err(|_| fault(401, "Invalid provider email."))?,
         )?;
-        let profile: axum::http::HeaderValue = profile
-            .parse()
-            .map_err(|_| fault(500, "Invalid stored profile handle."))?;
+        let profile = if choosing {
+            None
+        } else {
+            let key =
+                p.db.read()?
+                    .select_profile(&account, selected_profile?.as_deref())?;
+            Some(
+                key.parse::<axum::http::HeaderValue>()
+                    .map_err(|_| fault(500, "Invalid stored profile handle."))?,
+            )
+        };
         let cookies: Vec<_> = response
             .headers()
             .get_all("set-cookie")
             .iter()
             .cloned()
             .collect();
-        Ok((profile, cookies))
+        Ok((account, profile, cookies))
     }
     .await;
     match verified {
-        Err(error) => Error(error).into_response(),
-        Ok((profile, cookies)) => {
-            request
-                .headers_mut()
-                .insert("x-infuser-verified-profile", profile);
+        Err(error) => {
+            let selection = error
+                .downcast_ref::<Fault>()
+                .is_some_and(|f| f.status == 409);
+            let mut response = Error(error).into_response();
+            if selection {
+                response
+                    .headers_mut()
+                    .insert("x-infuser-profile-required", "1".parse().unwrap());
+            }
+            response
+        }
+        Ok((account, profile, cookies)) => {
+            request.headers_mut().insert(
+                profiles::ACCOUNT,
+                account.parse().expect("generated account ID"),
+            );
+            if let Some(profile) = profile {
+                request
+                    .headers_mut()
+                    .insert("x-infuser-verified-profile", profile);
+            }
             let mut response = next.run(request).await;
             for cookie in cookies {
                 response.headers_mut().append("set-cookie", cookie);
@@ -734,8 +768,11 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let admitted = if inspecting { false } else { p.admit(&h).await };
     let data = p.db.read()?;
     let member = &data.members[&email];
+    let profile_count = data
+        .account_profiles(&data.identities.profiles[&email].account_id)?
+        .len();
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":p.db.read()?.player_id(&email),"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
+        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
     ))
 }
 #[derive(Deserialize)]
@@ -1012,7 +1049,9 @@ async fn members(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (group, _) = p.group_view(&h, &email)?;
     let data = p.db.read()?;
     Ok(reply(
-        json!({"members":data.members.iter().filter(|(email,_)|data.groups.member(email)==group).collect::<BTreeMap<_,_>>()}),
+        json!({"members":data.members.iter().filter(|(email,_)|data.groups.member(email)==group).map(|(key,m)| {
+            let mut value=serde_json::to_value(m).expect("member serialization");value["contact_email"]=data.contact_email(key).into();(key,value)
+        }).collect::<BTreeMap<_,_>>()}),
     ))
 }
 #[derive(Deserialize)]
@@ -1066,8 +1105,8 @@ async fn rename_member(
     );
     let player = p.db.edit(|d| {
         let email = d
-            .member_key(&email)
-            .map_err(|_| fault(404, "Member not found."))?;
+            .group_member_key(&email, d.groups.member(&actor))?
+            .ok_or_else(|| fault(404, "Member not found."))?;
         ensure!(
             d.groups.member(&actor) == d.groups.member(&email),
             fault(404, "Member not found.")
@@ -1097,14 +1136,14 @@ fn yes() -> bool {
 async fn invite(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Invite>) -> Answer {
     let email = p.admin(&h, true).await?;
     p.db.edit(|d| {
-        let target = d.invitation_key(&body.email)?;
+        let group = d.groups.member(&email).to_owned();
+        let target = d.group_member_key(&body.email, &group)?;
         ensure!(
-            target != email || (body.enabled && body.admin),
+            target.as_deref() != Some(&email) || (body.enabled && body.admin),
             fault(400, "You cannot disable or demote your own admin account.")
         );
-        let group = d.groups.member(&email).to_owned();
         ensure!(
-            !d.operator(&target) || body.enabled,
+            target.as_deref().is_none_or(|target| !d.operator(target)) || body.enabled,
             fault(403, "Only the operator can disable an operator account.")
         );
         d.invite_to_group(&group, &body.email, &body.name, body.admin, body.enabled)

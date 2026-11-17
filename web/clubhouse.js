@@ -1,6 +1,7 @@
 import { initFeedback } from '/assets/feedback.js';
 import { selectedVisit, visitHeaders, initVisits, updateVisit, returnHome } from '/assets/visits.js';
-import { setupPwa } from '/assets/pwa.js';
+import { setupPwa, clearNotifications } from '/assets/pwa.js';
+import { profileFetch, pinProfile, chooser } from '/assets/profiles.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
 import { initClientUpdates } from '/assets/client-updates.js';
@@ -106,7 +107,7 @@ function notice(message) {
 }
 async function api(path, options = {}) {
   if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
-  const r = await fetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });
+  const r = await profileFetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });
   const result = await r.json();
   if(!r.ok) { if(selectedVisit && r.status===403 && String(result.error).includes('visit has ended'))returnHome(); const error = new Error(result.error || 'Please try again.'); error.status = r.status; throw error; }
   return result;
@@ -661,7 +662,7 @@ async function adminRefresh(){
   $('members').replaceChildren();
   for(const[email,m]of Object.entries(members.members)){
     const row=el('div'),label=el('span'),actions=el('div',undefined,'member-actions'),rename=el('button','Rename','secondary');
-    const updateLabel=()=>{label.textContent=`${m.name} · ${email}${m.admin?' · admin':''}${m.enabled?'':' · disabled'}`;rename.setAttribute('aria-label','Rename '+m.name);};updateLabel();
+    const updateLabel=()=>{label.textContent=`${m.name} · ${m.contact_email||email}${m.admin?' · admin':''}${m.enabled?'':' · disabled'}`;rename.setAttribute('aria-label','Rename '+m.name);};updateLabel();
     rename.type='button';rename.onclick=()=>openMemberRename(row,actions,email,m,updateLabel,rename);actions.append(rename);
     if(!m.admin){const toggle=el('button',m.enabled?'Disable':'Enable','secondary');toggle.onclick=async()=>{try{await api('/api/admin/members',{method:'POST',body:JSON.stringify({email,name:m.name,admin:m.admin,enabled:!m.enabled})});await adminRefresh();}catch(error){showError(error);}};actions.append(toggle);}
     row.append(label,actions);$('members').append(row);
@@ -728,6 +729,11 @@ function setupAccount(){
   const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
   const reviewFeedback=initFeedback(feedback,()=>{menu.open=false;},api,me.admin&&!me.inspecting);
   panel.append(profile,label,feedback,...(reviewFeedback?[reviewFeedback]:[]));
+  if(me.profile_count>1){
+    const switcher=el('button','Switch Profile');switcher.id='switch-profile';switcher.type='button';
+    switcher.onclick=async()=>{switcher.disabled=true;try{await clearNotifications();chooser('/library');}catch(error){notice(error.message||'Could not switch profiles. Try again.');switcher.disabled=false;}};
+    panel.append(switcher);
+  }
   if(me.admin||me.operator){
     const admin=el('button','Admin tools');admin.id='open-admin';admin.type='button';admin.setAttribute('aria-haspopup','dialog');admin.setAttribute('aria-controls','admin');
     admin.onclick=()=>{menu.open=false;openAdmin();};panel.append(admin);
@@ -802,7 +808,7 @@ $('profile-form').onsubmit=async event=>{
 };
 
 try {
-  me=await api('/api/me');$('welcome').hidden=true;$('clubhouse').hidden=false;
+  me=await api('/api/me');pinProfile(me.player_id);$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar,onSpeakerContext:arrangeChatParticipants});
   presenceResize.observe($('friends').closest('.presence-chat'));
@@ -810,7 +816,8 @@ try {
   initClientUpdates({api});
   await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
 } catch(error) {
-  if(inspection){sessionStorage.removeItem('infuser.group-inspection');location.replace('/library');}
+  if(error.profileRequired){/* The profile selector owns this navigation. */}
+  else if(inspection){sessionStorage.removeItem('infuser.group-inspection');location.replace('/library');}
   else if(error.status!==401)$('login-message').textContent=error.message;
 }
 
