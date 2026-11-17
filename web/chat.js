@@ -12,7 +12,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       <button id="chat-new" class="chat-new" type="button" hidden>New messages ↓</button>
       <p id="chat-connection" role="status"></p><p id="chat-error" role="alert"></p>
       <div class="chat-compose-row">
-        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg><span id="chat-limit" hidden></span></button></form>
+        <form id="chat-form"><label class="sr-only" for="chat-text">Message</label><textarea id="chat-text" maxlength="280" rows="2" placeholder="Message…" aria-describedby="chat-help chat-limit"></textarea><span id="chat-help" class="sr-only">280 characters maximum. Enter to send; Shift+Enter for a new line.</span><button id="chat-send" type="submit" aria-label="Send message" title="Send message" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3v7l15 2-15 2v7l21-9z"/></svg></button><span id="chat-limit" hidden></span></form>
       </div>
       <span id="chat-announcement" class="sr-only" role="status"></span>
     </section>
@@ -202,6 +202,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   input.oninput=()=>{
     const length=Array.from(input.value).length;
     setText($('limit'),length+'/280');setHidden($('limit'),length<240);
+    $('limit').classList.toggle('at-limit',length>=280);
     $('send').disabled=sending||!input.value.trim();
   };
   input.addEventListener('keydown',event=>{
