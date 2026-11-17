@@ -437,12 +437,17 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .unwrap();
     assert_eq!(players.len(), 3);
     assert_eq!(
-        players.iter().filter(|player| player["guest"] == true).count(),
+        players
+            .iter()
+            .filter(|player| player["guest"] == true)
+            .count(),
         2
     );
-    assert!(players.iter().all(|player| {
-        player["avatar"] == "moss-knight" && player.get("email").is_none()
-    }));
+    assert!(
+        players
+            .iter()
+            .all(|player| { player["avatar"] == "moss-knight" && player.get("email").is_none() })
+    );
     assert_ne!(sessions[0].0, sessions[1].0);
     assert_ne!(sessions[1].0, sessions[2].0);
     let game = |n: usize, method: reqwest::Method, path: &str| {
