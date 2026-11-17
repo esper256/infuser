@@ -429,6 +429,7 @@ img.avatar { object-fit: cover; }
 .chat-bubble { --bubble: var(--surface); position: relative; min-width: 0; max-width: calc(100% - 48px); padding: 10px 13px 12px; border: 1px solid var(--line); border-radius: 17px 17px 17px 5px; background: var(--bubble); color: var(--ink); box-shadow: 0 3px 0 #0004; }
 .chat-bubble::before { content: ''; position: absolute; width: 10px; height: 10px; bottom: 12px; left: -6px; background: var(--bubble); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg); }
 .chat-bubble p { position: relative; margin: 3px 0 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-inline-emoji { display: inline-block; margin-inline: 3px 2px; font-size: 1.2em; line-height: 0; vertical-align: -.05em; }
 .chat-meta { display: flex; align-items: center; gap: 8px; min-height: 22px; font-size: 10px; color: var(--quiet); }
 .chat-meta strong { color: var(--accent); font-size: 11px; overflow-wrap: anywhere; min-width: 0; }
 .chat-meta time { white-space: nowrap; margin-left: auto; font-size: 9px; }
