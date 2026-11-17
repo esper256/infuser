@@ -986,7 +986,10 @@ async fn react(
             .ok_or_else(|| fault(404, "Game not found."))?
             .to_owned();
     ensure!(
-        ["⭐", "👍", "🚀", "❤️", "👏", "💡"].contains(&body.emoji.as_str())
+        [
+            "⭐", "👍", "🚀", "❤️", "👏", "💡", "😅", "⚡", "🧠", "🎯", "🧭", "🧲",
+        ]
+        .contains(&body.emoji.as_str())
             && body.text.chars().count() <= 140,
         fault(
             400,

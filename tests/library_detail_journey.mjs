@@ -129,7 +129,7 @@ try {
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);
-   assert.equal(await dialog.locator('.reaction-choice').count(),6);
+   assert.equal(await dialog.locator('.reaction-choice').count(),12);
    assert(await dialog.locator('.reaction-face').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=44));
    assert.equal(await dialog.locator('.feedback-author img').first().getAttribute('src'),'/assets/avatars/ember-raven/128.webp');
    assert(await dialog.locator('.game-updated').textContent());
@@ -163,6 +163,32 @@ try {
   await card().dispatchEvent('pointerdown',{pointerType:'touch',isPrimary:true,pointerId:1,clientX:80,clientY:180});
   await page.locator('#tags-dialog').waitFor();await card().dispatchEvent('pointerup',{pointerType:'touch',pointerId:1});
   await card().dispatchEvent('click');assert(!(await dialog.isVisible()));await page.locator('#tags-dialog').evaluate(e=>e.close());
+ }
+
+ // Expanded reactions retain large targets, labels and a bounded scrolling picker.
+ for(const theme of ['nightglass','cartridge-club']){
+  await page.evaluate(t=>InfuserThemes.select(t),theme);
+  for(const width of [1280,390,320]){
+   await page.setViewportSize({width,height:width===1280?900:568});await open();
+   for(const [emoji,label] of [['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round']]){
+    await dialog.getByRole('button',{name:'React: '+label,exact:true}).click();
+    const radio=page.getByRole('radio',{name:label,exact:true});
+    assert(await radio.isChecked());
+    assert.equal(await page.locator('#emoji input').count(),12);
+    assert(await page.locator('#emoji').evaluate(e=>e.scrollWidth<=e.clientWidth));
+    assert(await radio.locator('..').locator('span').evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=48));
+    await page.locator('#reaction-text').fill('');
+    await page.getByRole('button',{name:'Send reaction',exact:true}).click();
+    await page.waitForFunction(()=>!document.querySelector('#reaction-dialog').open);
+    await page.waitForFunction(label=>document.querySelector('.reaction-choice[aria-label="React: '+label+'"]')?.getAttribute('aria-pressed')==='true',label);
+    assert.equal(game.reactions.find(r=>r.mine).emoji,emoji);
+   }
+   await dialog.locator('.creator').click();
+   await page.getByRole('radio',{name:'Tough challenge',exact:true}).check();
+   if(width===320)assert(await page.locator('#emoji').evaluate(e=>e.scrollHeight>e.clientHeight),'picker scrolls instead of shrinking emojis');
+   await page.screenshot({path:new URL('expanded-reactions-'+theme+'-'+width+'.png',out).pathname});
+   await page.locator('#close-reaction').click();await close();
+  }
  }
  // Obvious reaction controls: choose, add an optional kind note, or send emoji-only.
  await page.setViewportSize({width:390,height:844});await open();
@@ -266,7 +292,7 @@ try {
  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transitionDuration),'0s');
  await page.emulateMedia({forcedColors:'active'});await open();assert(await dialog.isVisible());await close();await page.emulateMedia({forcedColors:'none'});
  // The same detail UI works read-only in operator inspection.
- me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),6);await close();
+ me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),12);await close();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);
  console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, pending-art transitions, author search, 28-day attenuated reaction stacks, positive reactions with optional notes and bursts, unread Recently, centered card scaling, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');
