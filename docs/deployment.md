@@ -84,6 +84,63 @@ Unattended updates do not interrupt activity without an operator's one-time
 authorization. A deferred update over 24 hours or a
 failed release appears in [host monitoring](monitoring-operations.md).
 
+## Separately installed helpers
+
+An automatic daemon release does not replace every executable on the host.
+Check these when adopting new controller configuration or storage changes:
+
+| Component | How it receives updates |
+| --- | --- |
+| Controller and health collector | Use `/opt/infuser/current`; the updater restarts the controller and the next health timer run uses the current binary. |
+| Firewall admission worker | Uses the current binary but stays running between requests. With the current firewall unit and controller drop-in installed, controller restarts also restart this worker. Existing kernel admission grants remain intact. |
+| Stable updater | `/usr/local/libexec/infuser-updater` is adopted explicitly. It remains independent so it can recover from a failed daemon candidate. |
+| Backup/recovery worker | `/usr/local/libexec/infuser-operations` is adopted explicitly after backup/restore verification. Check compatibility even when storage is not configured yet. |
+| Reboot, lock, firewall loader and monitoring scripts | Installed files, not daemon release assets. Adopt tracked files through host maintenance; retain private rules and inputs. |
+
+Compare the installed helper build IDs with the working daemon:
+
+```sh
+/opt/infuser/current/infuser version
+sudo /usr/local/libexec/infuser-updater version
+sudo /usr/local/libexec/infuser-operations version
+sudo /usr/local/libexec/infuser-operations check /etc/infuser/infuser.toml
+```
+
+The last command validates configuration without starting a backup. It does not
+prove storage access or restore correctness. For the firewall worker, inspect
+its actual process executable: changing the `current` symlink alone does not
+replace an already running process. Restart only `infuser-firewall-agent.service`
+when adopting it manually; restarting `infuser-firewall.service` clears grants.
+
+To adopt a verified working release as either stable helper, run this in a root
+shell. Set `helper` to exactly one of the two paths below; repeat only when that
+helper's changes have been verified:
+
+```sh
+helper=/usr/local/libexec/infuser-operations # or /usr/local/libexec/infuser-updater
+(
+  set -eu
+  exec 9>/run/lock/infuser-host-maintenance.lock
+  flock -n 9
+  case "$helper" in
+    /usr/local/libexec/infuser-operations|/usr/local/libexec/infuser-updater) ;;
+    *) exit 2 ;;
+  esac
+  binary=$(readlink -f /opt/infuser/current/infuser)
+  "$binary" check /etc/infuser/infuser.toml
+  if [ -e "$helper" ]; then cp -p "$helper" "$helper.before-$(date +%s)"; fi
+  install -m 0755 "$binary" "$helper.next"
+  mv -Tf "$helper.next" "$helper"
+  "$helper" version
+)
+```
+
+Use the same host-lock path as your maintenance jobs if customized. Do not retain
+one-time helper binary overrides in the routine Ansible inventory: a pinned old
+source can silently undo a later adoption. Keep archived inventories and previous
+executables for deliberate recovery, not routine apply. This procedure does not
+enable backup timers or configure backup storage.
+
 ## Update from Admin tools
 
 The server operator sees **Server updates** inside **Admin tools**, including when
