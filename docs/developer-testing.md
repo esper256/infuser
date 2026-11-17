@@ -601,3 +601,10 @@ It checks real UI badges, cross-tab off, group isolation, visit cutoff and mobil
 control placement. The fixture login and mutation routes exist only in the example;
 never expose them publicly. This does not replace actual Safari/iPhone microphone,
 physical sleep or restrictive-network/TURN acceptance.
+
+Acceptance on 2026-11-16 (Pacific): LiveKit 1.13.11 with browser SDK 2.24.1
+passed two-way decoded audio, a short offline interval, three participants sharing
+one room, a separate private group's room, visit removal, real orphan-room deletion,
+second-tab off, closing a non-owning tab, and desktop/mobile control placement.
+The fast authorization journey and existing channel/group/maintenance journeys
+passed. Tests used disposable Linux/Chromium fixtures, not personal microphones.

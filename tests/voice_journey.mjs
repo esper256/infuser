@@ -47,6 +47,10 @@ try{
   const tab=await river.context.newPage();await tab.goto(origin+'/library');
   await tab.waitForFunction(()=>document.querySelector('#voice-toggle')?.dataset.state==='elsewhere');
   assert.equal(await tab.evaluate(()=>window.connections.length),0);
+  const observerTab=await river.context.newPage();await observerTab.goto(origin+'/library');
+  await observerTab.waitForFunction(()=>document.querySelector('#voice-toggle')?.dataset.state==='elsewhere');
+  await observerTab.close();await sleep(3500);
+  assert.equal(await river.page.locator('#voice-toggle').getAttribute('data-state'),'on','closing a non-owning tab must not stop voice');
   await tab.locator('#voice-toggle').click();
   await river.page.waitForFunction(()=>document.querySelector('#voice-toggle').dataset.state==='off');
   console.log('Second-tab status and remote off passed.');

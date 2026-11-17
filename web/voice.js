@@ -83,7 +83,7 @@ export function initVoice({me,api,notice}) {
   }
   // Page navigation (including profile/visit changes) stops capture immediately.
   // A pinned request retains the old profile headers while navigation proceeds.
-  addEventListener('pagehide',()=>{alive=false;observer.disconnect();clearInterval(timer);void stop();});
+  addEventListener('pagehide',()=>{alive=false;observer.disconnect();clearInterval(timer);void stop({remote:!!lease});});
   const timer=setInterval(()=>{if(lease||!document.hidden)void poll();},3000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)void poll();});
   void poll();

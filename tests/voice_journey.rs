@@ -58,6 +58,9 @@ async fn control(
         .unwrap();
     let grant = claims(token);
     assert!(grant["video"]["roomJoin"].is_null());
+    if method == "DeleteRoom" {
+        assert_eq!(grant["video"]["roomCreate"], true);
+    }
     let mut s = s.lock().unwrap();
     if s.down {
         return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({})));
@@ -412,6 +415,34 @@ async fn voice_admission_reconnect_revocation_and_restart_follow_channel_access(
             .unwrap()
             .removed
             .contains(&hc["sub"].as_str().unwrap().to_owned())
+    );
+    let new_host: Value = post("host", "host-voice-request-001")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_ne!(
+        host["id"], new_host["id"],
+        "fresh admission has a server-generated identity even with a reused request ID"
+    );
+    assert_eq!(
+        validate(host["token"].as_str().unwrap())
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    p.db.edit(|d| {
+        d.members.get_mut("host@example.com").unwrap().enabled = false;
+        Ok(())
+    })?;
+    assert_eq!(
+        validate(new_host["token"].as_str().unwrap())
+            .send()
+            .await?
+            .status(),
+        403
     );
     let restarted = portal::Platform::open(controller)?;
     restarted.reconcile_voice().await?;
