@@ -182,7 +182,25 @@ pub(super) async fn update(
             .filter(|m| m.enabled)
             .ok_or_else(|| fault(403, "Your invitation is no longer active."))?;
         member.avatar = avatar.clone();
+        member.avatar_prompt_seen = true;
         Ok(())
     })?;
     Ok(reply(json!({"avatar":avatar})))
+}
+
+// Claim once per profile, atomically across tabs/devices. Closing with initials
+// is a valid choice, so the reminder does not depend on saving an avatar.
+pub(super) async fn picture_prompt(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let email = p.member(&h, true).await?;
+    let show = p.db.edit(|d| {
+        let member = d
+            .members
+            .get_mut(&email)
+            .filter(|m| m.enabled)
+            .ok_or_else(|| fault(403, "Your invitation is no longer active."))?;
+        let show = member.avatar.is_none() && !member.avatar_prompt_seen;
+        member.avatar_prompt_seen = true;
+        Ok(show)
+    })?;
+    Ok(reply(json!({"show":show})))
 }

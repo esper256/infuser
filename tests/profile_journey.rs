@@ -156,6 +156,50 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .json()
         .await?;
     assert!(before["avatar"].is_null());
+    assert_eq!(before["avatar_prompt_seen"], false);
+    // The reminder is authenticated, origin checked and unavailable in inspection.
+    assert_eq!(
+        request(Method::POST, "/api/profile/picture-prompt", "")
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    assert_eq!(
+        request(Method::POST, "/api/profile/picture-prompt", "member=one")
+            .header("origin", "https://elsewhere.example")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        request(Method::POST, "/api/profile/picture-prompt", "member=two")
+            .header("x-infuser-inspect-group", "away")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    // Two tabs race: exactly one gets the reminder, without changing initials.
+    let (a, b) = tokio::join!(
+        request(Method::POST, "/api/profile/picture-prompt", "member=one").send(),
+        request(Method::POST, "/api/profile/picture-prompt", "member=one").send()
+    );
+    let a: Value = a?.error_for_status()?.json().await?;
+    let b: Value = b?.error_for_status()?.json().await?;
+    assert_ne!(a["show"], b["show"]);
+    let saved = platform::Database::open(dir.path())?.read()?;
+    assert!(saved.members["one@example.com"].avatar_prompt_seen);
+    assert!(saved.members["one@example.com"].avatar.is_none());
+    assert!(!saved.members["two@example.com"].avatar_prompt_seen);
+    let again: Value = request(Method::POST, "/api/profile/picture-prompt", "member=one")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(again, json!({"show":false}));
     let catalog = before["avatars"].as_array().unwrap();
     assert_eq!(catalog.len(), 81);
     let last_avatar = catalog.last().unwrap()["id"].as_str().unwrap();
@@ -414,5 +458,26 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
     let legacy: platform::Member =
         serde_json::from_value(json!({"name":"Old member","admin":false,"enabled":true}))?;
     assert!(legacy.avatar.is_none());
+    assert!(!legacy.avatar_prompt_seen);
+    // Keeping initials and admin re-invites never reset the reminder.
+    platform::member(&cfg, "one@example.com", "One", false, true)?;
+    let db = platform::Database::open(dir.path())?;
+    assert!(db.read()?.members["one@example.com"].avatar_prompt_seen);
+    db.edit(|data| data.invite_to_group("home", "one@example.com", "One", false, true))?;
+    assert!(db.read()?.members["one@example.com"].avatar_prompt_seen);
+    let after: Value = request(Method::GET, "/api/me", "member=one")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(after["avatar_prompt_seen"], true);
+    let again: Value = request(Method::POST, "/api/profile/picture-prompt", "member=one")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(again["show"], false);
     Ok(())
 }

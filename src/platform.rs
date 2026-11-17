@@ -37,6 +37,8 @@ pub struct Member {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
+    #[serde(default)]
+    pub avatar_prompt_seen: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Credential {
@@ -586,6 +588,7 @@ pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bo
     Database::open(&config.controller.state_dir)?.edit(|d| {
         let email = d.invitation_key(&email)?;
         let avatar = d.members.get(&email).and_then(|m| m.avatar.clone());
+        let avatar_prompt_seen = d.members.get(&email).is_some_and(|m| m.avatar_prompt_seen);
         d.members.insert(
             email,
             Member {
@@ -593,6 +596,7 @@ pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bo
                 admin,
                 enabled,
                 avatar,
+                avatar_prompt_seen,
             },
         );
         Ok(())
