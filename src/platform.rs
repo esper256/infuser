@@ -9,7 +9,11 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, path::Path, sync::Mutex};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::Mutex,
+};
 mod activity;
 pub(crate) mod channels;
 mod chat;
@@ -135,6 +139,9 @@ pub struct Data {
     pub identity_version: u32,
     pub credentials: BTreeMap<String, Credential>,
     pub apps: BTreeMap<String, App>,
+    // Admin hides survive publication, including updates already queued.
+    #[serde(default)]
+    pub admin_hidden_apps: BTreeSet<String>,
     pub builds: BTreeMap<String, Build>,
     pub launches: BTreeMap<String, Launch>,
     pub presence: BTreeMap<String, u64>,

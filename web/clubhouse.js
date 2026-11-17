@@ -236,27 +236,31 @@ function gameActions(game,card){
       const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
     }
     if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
-    if(me.admin&&!game.borrowed){
-      const visibility=el('button',game.preview?'Make visible':'Make invisible');visibility.type='button';
-      visibility.onclick=async()=>{
-        if(visibility.disabled)return;visibility.disabled=true;
-        try{
-          const result=await api(`/api/admin/apps/${encodeURIComponent(game.id)}/visibility`,{method:'PUT',body:JSON.stringify({listed:game.preview})});
-          game.preview=!result.listed;menu.open=false;
-          notice(result.listed?'Visible in the Library.':'Invisible to players.');await refresh();
-        }catch(error){showError(error);}finally{visibility.disabled=false;}
-      };
-      items.append(visibility);
-    }
     if(names.length)items.append(el('p',names.join(', ')+' · game open','players'));
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
     play.disabled=!!me.inspecting||!!game.play_unavailable;guest.disabled=play.disabled;
     if(game.play_unavailable){play.title=game.play_unavailable;items.prepend(el('p',game.play_unavailable));for(const b of items.querySelectorAll('button'))if(b.textContent.startsWith('Join ')||b.textContent==='Open in Infuser Play')b.disabled=true;}
     if(me.inspecting)for(const button of items.querySelectorAll('button')){if(button.textContent!=='Copy game link')button.disabled=true;}
     play.onclick=()=>start(game,play,card);actions.append(play,menu);
-    if(game.reactions.length){const chips=el('div',undefined,'chips');for(const [emoji]of emojis){const count=game.reactions.filter(r=>r.emoji===emoji).length;if(count)chips.append(el('span',emoji+' '+count,'chip'));}items.append(chips);}
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags');edit.onclick=()=>{menu.open=false;openTags(game);};items.append(edit);}
   return actions;
+}
+function gameAdminActions(game){
+  const menu=el('details',undefined,'game-admin-menu'),trigger=el('summary','⋯');
+  trigger.setAttribute('aria-label','Admin actions');trigger.title='Admin actions';
+  const items=el('div',undefined,'game-admin-items'),visibility=el('button',game.preview?'Unhide game':'Hide game');
+  visibility.type='button';
+  const error=el('p',undefined,'feedback-action-error');error.setAttribute('role','alert');error.hidden=true;
+  visibility.onclick=async()=>{
+    if(visibility.disabled)return;visibility.disabled=true;error.hidden=true;
+    try{
+      const result=await api(`/api/admin/apps/${encodeURIComponent(game.id)}/visibility`,{method:'PUT',body:JSON.stringify({listed:game.preview}),signal:AbortSignal.timeout(12000)});
+      game.preview=!result.listed;menu.open=false;
+      notice(result.listed?'Game visible in the Library.':'Game hidden from players.');await refresh();
+    }catch(failure){error.textContent=failure.message;error.hidden=false;}
+    finally{visibility.disabled=false;}
+  };
+  items.append(visibility,error);menu.append(trigger,items);return menu;
 }
 function creatorButton(game){
     const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
@@ -279,7 +283,7 @@ function renderGameDetail(){
   if(!detailGameId)return;
   const game=library?.apps.find(g=>g.id===detailGameId),dialog=$('game-detail');
   if(!game){dialog.close();return;}
-  if(removingReaction===detailGameId||dialog.querySelector('[data-launching],.play-menu[open],.feedback-actions[open]')||$('reaction-dialog').open||$('tags-dialog').open)return;
+  if(removingReaction===detailGameId||dialog.querySelector('[data-launching],.play-menu[open],.game-admin-menu[open],.feedback-actions[open]')||$('reaction-dialog').open||$('tags-dialog').open)return;
   const signature=JSON.stringify(game);
   if(signature===detailSignature)return;
   detailSignature=signature;
@@ -293,7 +297,10 @@ function renderGameDetail(){
     if(artSource){const image=el('img');image.alt='';image.decoding='async';image.onload=()=>art.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=artSource;art.append(image);}
   }
   describeArt(art,game);
-  const title=el('h2',game.title);title.id='game-detail-title';info.append(title);
+  const title=el('h2',game.title);title.id='game-detail-title';
+  const headingRow=el('div',undefined,'detail-heading');headingRow.append(title);
+  if(game.can_manage_visibility&&me.admin&&!me.inspecting)headingRow.append(gameAdminActions(game));
+  info.append(headingRow);
   if(game.preview)info.append(el('p','Hidden','game-visibility'));
   const creator=el('div',undefined,'detail-creator'),react=creatorButton(game);
   creator.append(react);if(game.author?.name){const by=el('p','by ');by.append(el('strong',game.author.name));creator.append(by);}info.append(creator);
@@ -588,8 +595,8 @@ async function startDesktop(game,button,card,{guest=false}={}){
     open.click();
   }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
 }
-document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open]'))if(!menu.contains(event.target))menu.open=false;});
-document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
+document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open]'))if(!menu.contains(event.target))menu.open=false;});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
 let feedSignature;
 function renderFeed() {
   const feed=$('feed');const entries=[];

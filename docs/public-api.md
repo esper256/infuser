@@ -177,10 +177,13 @@ be used as a player login.
   including borrowed games; it never deletes the source group’s reactions.
 - Admin-only `PUT /api/admin/apps/APP/visibility` with `{"listed":true}` or
   `{"listed":false}` changes the active game's visibility without publishing a build.
-  Requires the exact HTTPS Origin. In the game's Play dropdown, choose **Make visible**
-  or **Make invisible**. Invisible games remain available to admins but are omitted
+  Requires the exact HTTPS Origin. In the full game popup's **Admin actions** (⋯)
+  dropdown, choose **Hide game** or **Unhide game**. Hidden games remain available to admins but are omitted
   from player Libraries and reject new player launches. Existing sessions continue.
-  Pending/future build publications retain their own explicit visibility settings.
+  Admin hides persist through pending/future build publications, even when the publisher
+  requests `listed:true`. Metadata and build updates remain available through the API.
+  **Unhide game** clears the admin hide and shows the latest active build.
+  Library games expose `can_manage_visibility` only for admins managing their own group's games.
 - Admin-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
   DELETE `/api/admin/credentials/ID` revokes a credential.
 - Admin-only `PUT /api/admin/members/handle` with `{"email":"player@example.com","name":"New handle"}`

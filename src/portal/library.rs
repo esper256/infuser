@@ -164,6 +164,7 @@ impl View<'_> {
             "players":players,
             "reactions":reactions,
             "can_moderate_reactions":self.moderates_reactions,
+            "can_manage_visibility":self.moderates_reactions && runtime == id && data.groups.allows(self.email,id),
             "join_targets":join_targets,
             "tags":data.tags.get(id).cloned().unwrap_or_default(),
             "can_edit_tags":!self.inspecting && data.groups.allows(self.email,id) && (data.members[self.email].admin || data.owners.get(id).is_some_and(|owner|owner==self.email)),

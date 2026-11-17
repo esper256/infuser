@@ -571,7 +571,7 @@ impl Platform {
                 App {
                     build: build.into(),
                     updated: now(),
-                    listed,
+                    listed: listed && !d.admin_hidden_apps.contains(app),
                 },
             );
             d.pending_promotions.remove(app);

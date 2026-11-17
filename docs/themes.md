@@ -44,7 +44,9 @@ Keep DOM and keyboard order coherent when changing layout.
 
 Card artwork and titles open the shared game-detail dialog. Play launches directly;
 the author portrait opens the reaction picker. Both views use the same launch
-controls, including guest mode, Join, native launch, sharing, and admin visibility.
+controls, including guest mode, Join, native launch, and sharing. Admin visibility
+actions appear only in the full game popup’s Admin actions (⋯) dropdown. Reaction
+counts stay out of Play menus.
 Recently entries open the referenced game, focusing the relevant reaction when
 present. Feedback portraits use the same opaque player IDs and approved avatar
 catalog as presence; email addresses are never sent for this presentation.
