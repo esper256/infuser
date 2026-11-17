@@ -267,6 +267,22 @@ fn acquire_host_lock(path: &Path) -> Result<Option<File>> {
 #[cfg(test)]
 mod host_lock_tests {
     use super::*;
+    #[tokio::test]
+    async fn build_metadata_is_optional_and_bound_to_verified_candidate() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let binary = dir.path().join("candidate");
+        for (body, expected) in [
+            ("echo '{\"commit\":\"abc\",\"built_at\":123}'", Some(123)),
+            ("echo '{\"commit\":\"other\",\"built_at\":123}'", None),
+            ("echo '{\"commit\":\"abc\",\"built_at\":0}'", None),
+            ("echo old-version; exit 1", None),
+        ] {
+            fs::write(&binary, format!("#!/bin/sh\n{body}\n"))?;
+            fs::set_permissions(&binary, fs::Permissions::from_mode(0o755))?;
+            assert_eq!(candidate_build_timestamp(&binary, "abc").await, expected);
+        }
+        Ok(())
+    }
     #[test]
     fn activation_uses_the_same_lock_as_shell_maintenance_jobs() -> Result<()> {
         let dir = tempfile::tempdir()?;
@@ -377,6 +393,7 @@ pub async fn run_force(config: Settings, force: bool) -> Result<String> {
         service
             .report(Report {
                 release: None,
+                built_at: None,
                 phase: Phase::Failed,
                 maintenance_blocked: false,
             })
@@ -450,6 +467,7 @@ pub async fn update(
     service
         .report(Report {
             release: None,
+            built_at: None,
             phase: Phase::Checking,
             maintenance_blocked: false,
         })
@@ -494,6 +512,7 @@ pub async fn update(
         service
             .report(Report {
                 release: Some(release.commit.clone()),
+                built_at: None,
                 phase: Phase::Current,
                 maintenance_blocked: false,
             })
@@ -507,6 +526,7 @@ pub async fn update(
         service
             .report(Report {
                 release: Some(release.commit.clone()),
+                built_at: None,
                 phase: Phase::Failed,
                 maintenance_blocked: false,
             })
@@ -519,6 +539,7 @@ pub async fn update(
     service
         .report(Report {
             release: Some(release.commit.clone()),
+            built_at: None,
             phase: Phase::Downloading,
             maintenance_blocked: false,
         })
@@ -573,10 +594,12 @@ pub async fn update(
     drop(file);
     fs::rename(staging, &binary)?;
     File::open(&candidate_dir)?.sync_all()?;
+    let built_at = candidate_build_timestamp(&binary, &release.commit).await;
     if !service.lock_activation().await? {
         service
             .report(Report {
                 release: Some(release.commit.clone()),
+                built_at,
                 phase: Phase::Waiting,
                 maintenance_blocked: true,
             })
@@ -601,6 +624,7 @@ pub async fn update(
         service
             .report(Report {
                 release: Some(latest.commit),
+                built_at: None,
                 phase: Phase::Downloading,
                 maintenance_blocked: false,
             })
@@ -619,6 +643,7 @@ pub async fn update(
         service
             .report(Report {
                 release: Some(release.commit.clone()),
+                built_at,
                 phase: Phase::Waiting,
                 maintenance_blocked: matches!(readiness, Readiness::Maintenance),
             })
@@ -635,6 +660,7 @@ pub async fn update(
     service
         .report(Report {
             release: Some(release.commit.clone()),
+            built_at,
             phase: Phase::Activating,
             maintenance_blocked: false,
         })
@@ -684,11 +710,34 @@ pub async fn update(
     service
         .report(Report {
             release: Some(release.commit.clone()),
+            built_at,
             phase: Phase::Current,
             maintenance_blocked: false,
         })
         .await;
     Ok(format!("Activated {}", release.commit))
+}
+
+// Metadata is optional for old binaries and must never prevent an update.
+async fn candidate_build_timestamp(binary: &Path, commit: &str) -> Option<u64> {
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new(binary)
+            .arg("build-info")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let info: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let timestamp = info["built_at"].as_u64()?;
+    (info["commit"] == commit && timestamp > 0 && timestamp <= crate::controller::now())
+        .then_some(timestamp)
 }
 
 fn prune_releases(config: &Settings, candidate: &str) -> Result<()> {

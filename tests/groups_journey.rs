@@ -180,7 +180,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         false
     );
     let report_url = format!("{}/v1/deployment", c.url);
-    let report = json!({"release":"b".repeat(40),"phase":"waiting","maintenance_blocked":false});
+    let report = json!({"release":"b".repeat(40),"phase":"waiting","maintenance_blocked":false,"built_at":123});
     assert_eq!(
         c.http
             .post(&report_url)
@@ -199,6 +199,21 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         .error_for_status()?;
     let first = ok(c.member("frizz", Method::GET, "/api/operator/update")).await?;
     assert_eq!(first["available"], true);
+    assert_eq!(first["release_built_at"], 123);
+    assert_eq!(first["current_built_at"], infuser::build_timestamp());
+    assert_eq!(first["publishing"], false);
+    assert!(p.controller.reserve_build("update-warning-test", 1, 1)?);
+    let publishing = ok(c.member("frizz", Method::GET, "/api/operator/update")).await?;
+    assert_eq!(publishing["publishing"], true);
+    assert!(
+        publishing["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|reason| reason.as_str().unwrap().contains("publishing"))
+    );
+    p.controller.release_build("update-warning-test")?;
+
     let authorization = json!({"request_id":"1".repeat(32),"current_build":infuser::BUILD_SHA});
     ok(c.member("frizz", Method::POST, "/api/operator/update")
         .json(&authorization))
@@ -274,6 +289,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         .deployment
         .report(infuser::deployment::Report {
             release: Some("c".repeat(40)),
+            built_at: None,
             phase: infuser::deployment::Phase::Current,
             maintenance_blocked: false,
         })?;
