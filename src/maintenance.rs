@@ -199,17 +199,49 @@ impl Client {
         Ok(true)
     }
     pub fn new(config: &crate::config::Config) -> Result<Self> {
+        Self::connect(config.controller.api_port, &config.controller.token_file)
+    }
+    /// Stable helpers only need the control connection. New daemon features must
+    /// not prevent an older helper from asking the running daemon for admission.
+    /// The candidate binary still validates the complete configuration itself.
+    pub(crate) fn from_config_file(path: &std::path::Path) -> Result<Self> {
+        #[derive(serde::Deserialize)]
+        struct Config {
+            controller: Connection,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(default)]
+        struct Connection {
+            api_port: u16,
+            token_file: std::path::PathBuf,
+        }
+        impl Default for Connection {
+            fn default() -> Self {
+                let defaults = crate::config::Settings::default();
+                Self {
+                    api_port: defaults.api_port,
+                    token_file: defaults.token_file,
+                }
+            }
+        }
+        let config: Config = toml::from_str(&std::fs::read_to_string(path)?)?;
+        ensure!(
+            config.controller.api_port >= 1024,
+            "invalid control API port"
+        );
+        ensure!(
+            config.controller.token_file.is_absolute(),
+            "control token path must be absolute"
+        );
+        Self::connect(config.controller.api_port, &config.controller.token_file)
+    }
+    fn connect(api_port: u16, token_file: &std::path::Path) -> Result<Self> {
         Ok(Self {
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .build()?,
-            url: format!(
-                "http://127.0.0.1:{}/v1/maintenance",
-                config.controller.api_port
-            ),
-            token: std::fs::read_to_string(&config.controller.token_file)?
-                .trim()
-                .into(),
+            url: format!("http://127.0.0.1:{api_port}/v1/maintenance"),
+            token: std::fs::read_to_string(token_file)?.trim().into(),
         })
     }
     pub async fn acquire(&self, purpose: &str, force: bool) -> Result<Option<String>> {
