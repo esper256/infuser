@@ -154,7 +154,9 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
             settings: cfg.controller.clone(),
         }),
     )?))?;
-    let (url, _server) = serve(portal::router(p.clone())).await?;
+    let (url, _server) =
+        serve(portal::router(p.clone()).merge(infuser::operations::routes(p.clone(), "control")))
+            .await?;
     let c = ClientFixture {
         url,
         http: Client::new(),
@@ -162,11 +164,119 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     // Existing admins do not automatically gain installation-wide authority.
     denied(c.member("frizz", Method::GET, "/api/operator/groups")).await?;
     denied(c.member("frizz", Method::GET, "/api/operator/health")).await?;
+    denied(c.member("frizz", Method::GET, "/api/operator/update")).await?;
+    denied(
+        c.member("frizz", Method::POST, "/api/operator/update")
+            .json(&json!({"request_id":"1".repeat(32),"current_build":infuser::BUILD_SHA})),
+    )
+    .await?;
     p.db.edit(|d| {
         d.groups.operators.insert("frizz@example.com".into());
         Ok(())
     })?;
     assert_eq!(p.db.read()?.groups.member("frizz@example.com"), "home");
+    assert_eq!(
+        ok(c.member("frizz", Method::GET, "/api/operator/update")).await?["configured"],
+        false
+    );
+    let report_url = format!("{}/v1/deployment", c.url);
+    let report = json!({"release":"b".repeat(40),"phase":"waiting","maintenance_blocked":false});
+    assert_eq!(
+        c.http
+            .post(&report_url)
+            .json(&report)
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    c.http
+        .post(&report_url)
+        .bearer_auth("control")
+        .json(&report)
+        .send()
+        .await?
+        .error_for_status()?;
+    let first = ok(c.member("frizz", Method::GET, "/api/operator/update")).await?;
+    assert_eq!(first["available"], true);
+    let authorization = json!({"request_id":"1".repeat(32),"current_build":infuser::BUILD_SHA});
+    ok(c.member("frizz", Method::POST, "/api/operator/update")
+        .json(&authorization))
+    .await?;
+    // A newer staged release inherits the one-time approval, but not a fresh wait counter.
+    c.http
+        .post(&report_url)
+        .bearer_auth("control")
+        .json(&json!({"release":"c".repeat(40),"phase":"waiting"}))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(
+        ok(c.member("frizz", Method::GET, "/api/operator/update")).await?["available_since"],
+        first["available_since"]
+    );
+    let maintenance = p
+        .controller
+        .maintenance
+        .begin("backup", || Ok(true))?
+        .unwrap();
+    assert_eq!(
+        c.http
+            .post(format!("{}/v1/deployment/admit", c.url))
+            .bearer_auth("control")
+            .json(&json!({"release":"c".repeat(40)}))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    assert!(
+        p.controller.deployment.read().authorized(),
+        "another maintenance lease must not consume approval"
+    );
+    p.controller.maintenance.end(&maintenance.id);
+    let work = p.controller.maintenance.enter()?;
+    let admitted: Value = c
+        .http
+        .post(format!("{}/v1/deployment/admit", c.url))
+        .bearer_auth("control")
+        .json(&json!({"release":"c".repeat(40)}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        admitted["forced"], true,
+        "approval may interrupt an active request"
+    );
+    assert!(p.controller.deployment.read().grant.is_none());
+    p.controller
+        .maintenance
+        .end(admitted["lease"]["id"].as_str().unwrap());
+    // Retrying the same browser POST must not create a second permission.
+    ok(c.member("frizz", Method::POST, "/api/operator/update")
+        .json(&authorization))
+    .await?;
+    assert!(p.controller.deployment.read().grant.is_none());
+    assert_eq!(
+        c.http
+            .post(format!("{}/v1/deployment/admit", c.url))
+            .bearer_auth("control")
+            .json(&json!({"release":"c".repeat(40)}))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    drop(work);
+    p.controller
+        .deployment
+        .report(infuser::deployment::Report {
+            release: Some("c".repeat(40)),
+            phase: infuser::deployment::Phase::Current,
+            maintenance_blocked: false,
+        })?;
     assert_eq!(
         ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["configured"],
         false

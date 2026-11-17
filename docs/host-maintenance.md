@@ -94,10 +94,13 @@ If the window stays busy, the next attempt is the following day. Inspect
 this policy never escalates to kicking players off automatically.
 
 The installer disables Ubuntu's separate automatic-reboot mechanism so it cannot
-bypass these checks. Package installation remains enabled. Systemd drop-ins wrap
-the existing Infuser backup/update commands with a common lock; the backup lock
-covers remote upload and verification as well as local staging. Use the wrapper
-for manually launched maintenance too. Custom unit paths need matching drop-ins.
+bypass these checks. Package installation remains enabled. Backup and reboot
+commands use a common lock; the backup lock covers remote upload and verification
+as well as local staging. The updater takes that same lock internally for
+validation, activation and interrupted-update recovery, allowing downloads while
+another job holds it. Do not wrap the new updater in the lock again. Use the
+wrapper for other manually launched maintenance. Custom unit paths need matching
+drop-ins. See [updater adoption](deployment.md#update-from-admin-tools).
 
 To inspect without rebooting, run the same guarded operation in check mode:
 

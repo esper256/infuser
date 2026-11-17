@@ -60,7 +60,60 @@ pub(super) fn routes() -> Router<Platform> {
     Router::new()
         .route("/api/operator/groups", get(list).post(create))
         .route("/api/operator/health", get(health))
+        .route(
+            "/api/operator/update",
+            get(update_status).post(authorize_update),
+        )
         .layer(DefaultBodyLimit::max(4096))
+}
+async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.operator(&h, false).await?;
+    let record = p.controller.deployment.read();
+    let mut reasons = crate::operations::update_activity(&p)?
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if p.controller.maintenance.publishing() > 0 {
+        reasons.push("Waiting for game uploads or publishing to finish".into());
+    } else if p.controller.maintenance.working() > 1 {
+        reasons.push("Waiting for requests to finish".into());
+    }
+    if p.controller.maintenance.active()
+        || record
+            .report
+            .as_ref()
+            .is_some_and(|r| r.maintenance_blocked)
+    {
+        reasons.push("Waiting for another host maintenance job".into());
+    }
+    let stale = now().saturating_sub(record.checked_at) >= 180;
+    if stale {
+        reasons.insert(0, "Waiting for a fresh update check".into());
+    }
+    Ok(reply(
+        json!({"configured":record.report.is_some(),"current_build":crate::BUILD_SHA,
+        "available":record.available(),"available_since":record.available_since,"checked_at":record.checked_at,
+        "report":record.report,"stale":stale,"reasons":reasons,
+        "authorized_until":record.grant.filter(|g|g.expires>now() && g.current_build==crate::BUILD_SHA).map(|g|g.expires)}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuthorizeUpdate {
+    request_id: String,
+    current_build: String,
+}
+async fn authorize_update(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<AuthorizeUpdate>,
+) -> Answer {
+    let actor = p.operator(&h, true).await?;
+    p.controller
+        .deployment
+        .authorize(&body.request_id, &body.current_build, &actor)?;
+    tracing::info!(actor=%actor, "operator authorized one deployment interruption");
+    Ok(reply(json!({"ok":true})))
 }
 async fn health(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.operator(&h, false).await?;

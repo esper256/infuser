@@ -1,4 +1,5 @@
 //! Pull CI-approved binaries. Keep development and the live deployment independent.
+use crate::deployment::{Phase, Report};
 use crate::private_file::replace as write_atomic;
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
@@ -11,6 +12,7 @@ use std::{
     os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink},
     path::{Path, PathBuf},
     process::Stdio,
+    sync::Mutex,
     time::Duration,
 };
 
@@ -103,6 +105,17 @@ impl Settings {
 
 #[async_trait]
 pub trait Service: Send + Sync {
+    async fn lock_activation(&self) -> Result<bool> {
+        Ok(true)
+    }
+    async fn report(&self, _report: Report) {}
+    async fn ready_for_release(&self, _release: &str) -> Result<Readiness> {
+        Ok(if self.ready_to_update().await? {
+            Readiness::Ready
+        } else {
+            Readiness::Busy
+        })
+    }
     async fn ready_to_update(&self) -> Result<bool> {
         Ok(true)
     }
@@ -113,21 +126,60 @@ pub trait Service: Send + Sync {
     async fn restart(&self) -> Result<()>;
     async fn healthy(&self, commit: &str) -> Result<bool>;
 }
+pub enum Readiness {
+    Ready,
+    Busy,
+    Maintenance,
+}
 
 struct Systemd {
     config: Settings,
     http: reqwest::Client,
     force: bool,
+    activation_lock: Mutex<Option<File>>,
 }
 #[async_trait]
 impl Service for Systemd {
-    async fn ready_to_update(&self) -> Result<bool> {
-        if self.force {
+    async fn report(&self, report: Report) {
+        let result = async {
+            let config = crate::config::Config::load(&self.config.controller_config)?;
+            crate::maintenance::Client::new(&config)?
+                .report_update(&report)
+                .await
+        }
+        .await;
+        if let Err(error) = result {
+            tracing::debug!(%error,"deployment status unavailable (older or restarting controller)");
+        }
+    }
+    async fn lock_activation(&self) -> Result<bool> {
+        if self.activation_lock.lock().unwrap().is_some() {
             return Ok(true);
         }
+        let path = std::env::var_os("INFUSER_HOST_LOCK")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| "/run/lock/infuser-host-maintenance.lock".into());
+        let Some(lock) = acquire_host_lock(&path)? else {
+            return Ok(false);
+        };
+        *self.activation_lock.lock().unwrap() = Some(lock);
+        Ok(true)
+    }
+    async fn ready_for_release(&self, release: &str) -> Result<Readiness> {
+        if !self.lock_activation().await? {
+            return Ok(Readiness::Maintenance);
+        }
         let config = crate::config::Config::load(&self.config.controller_config)?;
-        let client = crate::maintenance::Client::new(&config)?;
-        Ok(client.acquire("update", false).await?.is_some())
+        Ok(
+            if crate::maintenance::Client::new(&config)?
+                .admit_update(release, self.force)
+                .await?
+            {
+                Readiness::Ready
+            } else {
+                Readiness::Busy
+            },
+        )
     }
     async fn check(&self, binary: &Path) -> Result<()> {
         let output = tokio::time::timeout(
@@ -198,6 +250,50 @@ impl Service for Systemd {
     }
 }
 
+fn acquire_host_lock(path: &Path) -> Result<Option<File>> {
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(path)?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+    }
+}
+
+#[cfg(test)]
+mod host_lock_tests {
+    use super::*;
+    #[test]
+    fn activation_uses_the_same_lock_as_shell_maintenance_jobs() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("maintenance.lock");
+        let held = acquire_host_lock(&path)?.unwrap();
+        assert!(acquire_host_lock(&path)?.is_none());
+        assert!(
+            !std::process::Command::new("flock")
+                .arg("-n")
+                .arg(&path)
+                .arg("true")
+                .status()?
+                .success()
+        );
+        drop(held);
+        assert!(
+            std::process::Command::new("flock")
+                .arg("-n")
+                .arg(&path)
+                .arg("true")
+                .status()?
+                .success()
+        );
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct Pending {
     commit: String,
@@ -250,6 +346,14 @@ async fn download(http: &reqwest::Client, url: &str, max: usize) -> Result<Vec<u
     }
     Ok(bytes)
 }
+fn manifest_url(source: &str) -> String {
+    // Separate cache keys even when staging and the final lookup take <1 second.
+    format!(
+        "{source}/latest/download/release.json?infuser_check={}-{}",
+        crate::controller::now(),
+        crate::store::secret()
+    )
+}
 
 pub async fn run(config: Settings) -> Result<String> {
     run_force(config, false).await
@@ -260,6 +364,7 @@ pub async fn run_force(config: Settings, force: bool) -> Result<String> {
         .user_agent("infuser-updater")
         .build()?;
     let service = Systemd {
+        activation_lock: Mutex::new(None),
         force,
         config: config.clone(),
         http: reqwest::Client::builder()
@@ -267,7 +372,17 @@ pub async fn run_force(config: Settings, force: bool) -> Result<String> {
             .build()?,
     };
     let source = format!("https://github.com/{}/releases", config.repository);
-    update(&config, &source, platform()?, &http, &service).await
+    let result = update(&config, &source, platform()?, &http, &service).await;
+    if result.is_err() {
+        service
+            .report(Report {
+                release: None,
+                phase: Phase::Failed,
+                maintenance_blocked: false,
+            })
+            .await;
+    }
+    result
 }
 
 /// `source` and `service` are injectable so the entire update/rollback journey can run locally.
@@ -294,6 +409,9 @@ pub async fn update(
     let failed_file = config.state_dir.join("failed-release");
     let current = config.install_dir.join("current");
     if pending_file.exists() {
+        if !service.lock_activation().await? {
+            return Ok("Interrupted update recovery is waiting for host maintenance".into());
+        }
         let pending: Pending = serde_json::from_slice(&fs::read(&pending_file)?)?;
         ensure!(
             hex(&pending.commit, 40)
@@ -329,15 +447,19 @@ pub async fn update(
             pending.commit
         ));
     }
+    service
+        .report(Report {
+            release: None,
+            phase: Phase::Checking,
+            maintenance_blocked: false,
+        })
+        .await;
     let manifest = download(
         http,
         // GitHub's mutable latest redirect can stay cached after a release is
         // published. Refresh only this lookup; binaries still use immutable tags
         // and must match the manifest's SHA-256 before activation.
-        &format!(
-            "{source}/latest/download/release.json?infuser_check={}",
-            crate::controller::now()
-        ),
+        &manifest_url(source),
         16384,
     )
     .await?;
@@ -369,17 +491,38 @@ pub async fn update(
     // staged binary per release could accumulate indefinitely on a busy host.
     prune_releases(config, &release.commit)?;
     if previous_commit == release.commit {
+        service
+            .report(Report {
+                release: Some(release.commit.clone()),
+                phase: Phase::Current,
+                maintenance_blocked: false,
+            })
+            .await;
         return Ok(format!("Already running {}", release.commit));
     }
     if fs::read_to_string(&failed_file)
         .ok()
         .is_some_and(|s| s.trim() == release.commit)
     {
+        service
+            .report(Report {
+                release: Some(release.commit.clone()),
+                phase: Phase::Failed,
+                maintenance_blocked: false,
+            })
+            .await;
         return Ok(format!(
             "Release {} previously failed; waiting for a newer build",
             release.commit
         ));
     }
+    service
+        .report(Report {
+            release: Some(release.commit.clone()),
+            phase: Phase::Downloading,
+            maintenance_blocked: false,
+        })
+        .await;
     let candidate_dir = config.install_dir.join("releases").join(&release.commit);
     let cached = fs::read(candidate_dir.join("infuser"))
         .ok()
@@ -430,13 +573,56 @@ pub async fn update(
     drop(file);
     fs::rename(staging, &binary)?;
     File::open(&candidate_dir)?.sync_all()?;
+    if !service.lock_activation().await? {
+        service
+            .report(Report {
+                release: Some(release.commit.clone()),
+                phase: Phase::Waiting,
+                maintenance_blocked: true,
+            })
+            .await;
+        return Ok(
+            "Release downloaded; waiting for host maintenance before validation and activation"
+                .into(),
+        );
+    }
     if let Err(error) = service.check(&binary).await {
         write_atomic(&failed_file, release.commit.as_bytes())?;
         return Err(
             error.context("candidate rejected before activation; current version unchanged")
         );
     }
-    if !service.ready_to_update().await? {
+    // Resolve the mutable latest pointer again after staging. If it advanced,
+    // leave the one-time permission untouched and fetch that release next tick.
+    let latest: Release =
+        serde_json::from_slice(&download(http, &manifest_url(source), 16384).await?)?;
+    ensure!(hex(&latest.commit, 40), "invalid latest release commit");
+    if latest.commit != release.commit {
+        service
+            .report(Report {
+                release: Some(latest.commit),
+                phase: Phase::Downloading,
+                maintenance_blocked: false,
+            })
+            .await;
+        return Ok("A newer release appeared during staging; fetching it on the next check".into());
+    }
+    ensure!(
+        latest
+            .artifacts
+            .get(platform)
+            .is_some_and(|a| a.file == artifact.file && a.sha256 == artifact.sha256),
+        "release artifact changed after verification"
+    );
+    let readiness = service.ready_for_release(&release.commit).await?;
+    if !matches!(readiness, Readiness::Ready) {
+        service
+            .report(Report {
+                release: Some(release.commit.clone()),
+                phase: Phase::Waiting,
+                maintenance_blocked: matches!(readiness, Readiness::Maintenance),
+            })
+            .await;
         let deferred = config.state_dir.join("deferred-release");
         if fs::read_to_string(&deferred).ok().as_deref() != Some(release.commit.as_str()) {
             write_atomic(&deferred, release.commit.as_bytes())?;
@@ -446,6 +632,13 @@ pub async fn update(
             release.commit
         ));
     }
+    service
+        .report(Report {
+            release: Some(release.commit.clone()),
+            phase: Phase::Activating,
+            maintenance_blocked: false,
+        })
+        .await;
     let _ = fs::remove_file(config.state_dir.join("deferred-release"));
     atomic_link(&previous_dir, &config.install_dir.join("previous"))?;
     write_atomic(
@@ -488,6 +681,13 @@ pub async fn update(
     }
     fs::remove_file(&pending_file)?;
     prune_releases(config, &release.commit)?;
+    service
+        .report(Report {
+            release: Some(release.commit.clone()),
+            phase: Phase::Current,
+            maintenance_blocked: false,
+        })
+        .await;
     Ok(format!("Activated {}", release.commit))
 }
 

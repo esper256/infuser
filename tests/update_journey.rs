@@ -17,15 +17,23 @@ struct TestService {
     restarts: Mutex<usize>,
     busy: std::sync::atomic::AtomicBool,
     rollback_allowed: std::sync::atomic::AtomicBool,
+    maintenance: std::sync::atomic::AtomicBool,
+    advance: Mutex<Option<(Arc<Mutex<Release>>, String)>>,
 }
 
 const CANDIDATE: &[u8] = b"#!/bin/sh\nexit 0\n";
 #[async_trait]
 impl Service for TestService {
+    async fn lock_activation(&self) -> Result<bool> {
+        Ok(!self.maintenance.load(std::sync::atomic::Ordering::Relaxed))
+    }
     async fn ready_to_update(&self) -> Result<bool> {
         Ok(!self.busy.load(std::sync::atomic::Ordering::Relaxed))
     }
     async fn check(&self, binary: &Path) -> Result<()> {
+        if let Some((manifest, commit)) = self.advance.lock().unwrap().take() {
+            manifest.lock().unwrap().commit = commit;
+        }
         ensure!(fs::read(binary)? == CANDIDATE, "wrong download");
         ensure!(
             fs::metadata(binary.parent().unwrap())?.permissions().mode() & 0o055 == 0o055,
@@ -112,6 +120,8 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
         restarts: Mutex::new(0),
         busy: std::sync::atomic::AtomicBool::new(false),
         rollback_allowed: std::sync::atomic::AtomicBool::new(true),
+        maintenance: std::sync::atomic::AtomicBool::new(false),
+        advance: Mutex::new(None),
     };
     let http = reqwest::Client::new();
     // A checksum mismatch must fail before activation or service restart.
@@ -142,6 +152,51 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
         .get_mut("linux-amd64")
         .unwrap()
         .sha256 = expected;
+    service
+        .maintenance
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    assert!(
+        updater::update(&config, &source, "linux-amd64", &http, &service)
+            .await?
+            .contains("waiting for host maintenance")
+    );
+    assert!(
+        install
+            .join("releases")
+            .join(&good)
+            .join("infuser")
+            .is_file(),
+        "backup contention must not prevent staging"
+    );
+    assert_eq!(*service.restarts.lock().unwrap(), 0);
+    service
+        .maintenance
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    let newer = "e".repeat(40);
+    *service.advance.lock().unwrap() = Some((manifest.clone(), newer.clone()));
+    assert!(
+        updater::update(&config, &source, "linux-amd64", &http, &service)
+            .await?
+            .contains("newer release appeared")
+    );
+    assert_eq!(
+        *service.restarts.lock().unwrap(),
+        0,
+        "never activate a candidate superseded during staging"
+    );
+    service
+        .busy
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    updater::update(&config, &source, "linux-amd64", &http, &service).await?;
+    assert!(
+        install
+            .join("releases")
+            .join(&newer)
+            .join("infuser")
+            .is_file(),
+        "stage the freshest build while players remain active"
+    );
+    manifest.lock().unwrap().commit = good.clone();
     service
         .busy
         .store(true, std::sync::atomic::Ordering::Relaxed);

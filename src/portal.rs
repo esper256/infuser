@@ -573,6 +573,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/library", get(library::list))
         .route("/api/client-state", get(client::state))
         .route("/assets/client-updates.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/client-updates.js")) }))
+        .route("/assets/server-updates.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/server-updates.js")) }))
         .route("/api/chat", get(chat::list).post(chat::send).layer(DefaultBodyLimit::max(4096)))
         .route("/api/chat/{id}", delete(chat::remove))
         .route("/assets/chat.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/chat.js")) }))
