@@ -20,7 +20,7 @@ const entryApp=new URLSearchParams(location.search).get('app');
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const reactionMotion=matchMedia('(prefers-reduced-motion: reduce)');
 reactionMotion.addEventListener('change',event=>{if(event.matches)document.querySelector('.reaction-burst')?.remove();});
-const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea']];
+const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea'],['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round'],['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises']];
 function setText(node,text){text=String(text);if(node.textContent!==text)node.textContent=text;}
 function reconcileChildren(container,children){
   const retained=new Set(children);
@@ -28,6 +28,16 @@ function reconcileChildren(container,children){
   children.forEach((child,index)=>{if(container.children[index]!==child)container.insertBefore(child,container.children[index]||null);});
 }
 function el(tag, text, cls) { const node = document.createElement(tag); if(text !== undefined) node.textContent = text; if(cls) node.className = cls; return node; }
+// Keep persisted emoji IDs and accessible labels; artwork is local presentation only.
+function reactionFace(emoji,cls){
+  const face=el('span',undefined,cls),art=emojis.find(item=>item[0]===emoji)?.[2];
+  if(art){
+    const image=el('img',undefined,'reaction-image');image.alt='';image.width=256;image.height=256;
+    image.onerror=()=>face.replaceChildren(document.createTextNode(emoji));
+    image.src='/assets/reactions/'+art+'.webp';face.append(image);
+  }else face.textContent=emoji;
+  return face;
+}
 // Fit tag rows without scrolling or covering their text. Overflow keeps the same
 // buttons and handlers in a top-layer popover, including the tag editor action.
 const tagRows=new Map(),tagTargets=new Map();
@@ -145,7 +155,7 @@ function gameBuzz(game){
   for(const reaction of recent){if(!seen.has(reaction.emoji)){seen.add(reaction.emoji);distinct.push(reaction);}else rest.push(reaction);}
   const stack=el('button',undefined,'game-buzz');stack.type='button';stack.setAttribute('aria-haspopup','dialog');
   const label=recent.length+' '+(recent.length===1?'reaction':'reactions')+' in the last 28 days';stack.title=label;stack.setAttribute('aria-label',label+' · View feedback');
-  for(const reaction of [...distinct,...rest].slice(0,count)){const face=el('span',reaction.emoji);face.setAttribute('aria-hidden','true');stack.append(face);}
+  for(const reaction of [...distinct,...rest].slice(0,count)){const face=reactionFace(reaction.emoji);face.style.zIndex=String(count-stack.childElementCount);face.setAttribute('aria-hidden','true');stack.append(face);}
   stack.onclick=()=>openGameDetail(game,recent[0]);return stack;
 }
 const cardStates=new WeakMap();
@@ -318,7 +328,7 @@ function renderGameDetail(){
   const reactions=[...(game.reactions||[])].sort((a,b)=>b.updated-a.updated);
   const choices=el('div',undefined,'detail-reactions');choices.setAttribute('role','group');choices.setAttribute('aria-label','React to this game');
   for(const [emoji,label] of emojis){
-    const count=reactions.filter(r=>r.emoji===emoji).length,button=el('button',undefined,'reaction-choice'),face=el('span',emoji,'reaction-face');
+    const count=reactions.filter(r=>r.emoji===emoji).length,button=el('button',undefined,'reaction-choice'),face=reactionFace(emoji,'reaction-face');
     face.setAttribute('aria-hidden','true');button.type='button';button.setAttribute('aria-label','React: '+label);button.setAttribute('aria-haspopup','dialog');
     button.setAttribute('aria-pressed',String(reactions.some(r=>r.mine&&r.emoji===emoji)));button.title=label+(count?' · '+count:'');button.disabled=!!me.inspecting;
     button.append(face);if(count){const total=el('span',String(count),'reaction-count');total.setAttribute('aria-hidden','true');button.append(total);button.setAttribute('aria-description',count+' reactions');}
@@ -329,7 +339,7 @@ function renderGameDetail(){
     for(const reaction of reactions){
       const row=el('article',undefined,'game-feedback-row');row.dataset.reaction=reactionKey(reaction);row.tabIndex=-1;
       const person=el('div',undefined,'feedback-author');person.title=reaction.name;person.append(profileAvatar(reaction.name,reaction.id||reaction.name,reaction.avatar));person.append(el('span',reaction.name));
-      const bubble=el('div',undefined,'feedback-bubble'),emoji=el('span',reaction.emoji,'feedback-emoji');emoji.setAttribute('aria-label',emojis.find(e=>e[0]===reaction.emoji)?.[1]||reaction.emoji);bubble.append(emoji);
+      const bubble=el('div',undefined,'feedback-bubble'),emoji=reactionFace(reaction.emoji,'feedback-emoji');emoji.setAttribute('role','img');emoji.setAttribute('aria-label',emojis.find(e=>e[0]===reaction.emoji)?.[1]||reaction.emoji);bubble.append(emoji);
       if(reaction.text)bubble.append(el('p',reaction.text));row.append(person,bubble);
       if(game.can_moderate_reactions&&me.admin&&!me.inspecting&&reaction.id){
         const actions=el('details',undefined,'feedback-actions'),trigger=el('summary','⋯'),remove=el('button','Delete reaction'),error=el('p',undefined,'feedback-action-error');
@@ -627,14 +637,14 @@ function renderFeed() {
     body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));
     const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
     if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));
-    mark.append(el('span',entry.emoji,'feed-emoji'));row.append(mark,body);rows.push(row);
+    mark.append(reactionFace(entry.emoji,'feed-emoji'));row.append(mark,body);rows.push(row);
     if(old===focused)replacementFocus=row;
   }
   const hadFocus=feed.contains(focused);
   reconcileChildren(feed,rows);
   if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
-for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.append(radio,el('span',emoji));$('emoji').append(l);}
+for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,reactionFace(emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
 function openReaction(game,selectedEmoji){
   currentReaction=game;$('reaction-title').textContent=game.title;
   const mine=game.reactions.find(r=>r.mine),emoji=selectedEmoji||mine?.emoji;
@@ -642,6 +652,7 @@ function openReaction(game,selectedEmoji){
   if(emoji)$('reaction-form').elements.emoji.value=emoji;
   if(mine)$('reaction-form').elements.text.value=mine.text;
   $('remove-reaction').hidden=!mine;$('reaction-dialog').showModal();
+  $('emoji').scrollTop=0;document.querySelector('#emoji input:checked')?.closest('label').scrollIntoView({block:'nearest'});
   if(selectedEmoji){$('reaction-text').focus();reactionBurst(document.querySelector('#emoji input:checked+span'),selectedEmoji);}
 }
 $('close-reaction').onclick=()=>$('reaction-dialog').close();
@@ -759,8 +770,29 @@ document.addEventListener('keydown',event=>{
 });
 $('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();});
 $('close-recent').onclick=()=>{$('recent-menu').open=false;$('recent-toggle').focus();};
-let profileUsageRequest;
+let profileUsageRequest,profileReminderBusy=false,profileReminderPending=false,profileReminderAttempted=false,profilePickerOpened=false;
+function profileReminderReady(){return me&&!me.inspecting&&library&&!document.hidden&&!document.querySelector('dialog[open]');}
+async function offerProfilePicture(){
+  if(profileReminderBusy||profilePickerOpened||!profileReminderReady())return;
+  if(profileReminderPending){openProfile();return;}
+  if(profileReminderAttempted||me.avatar||me.avatar_prompt_seen!==false)return;
+  profileReminderAttempted=true;profileReminderBusy=true;
+  try{
+    const result=await api('/api/profile/picture-prompt',{method:'POST',body:'{}',signal:AbortSignal.timeout(10000)});
+    me.avatar_prompt_seen=true;profileReminderPending=result.show&&!profilePickerOpened;
+  }catch(error){/* An optional reminder must not block the Library. Try next visit. */}
+  finally{profileReminderBusy=false;}
+  if(profileReminderPending&&profileReminderReady())openProfile();
+}
+// A linked game or another task keeps its dialog until the user closes it.
+document.addEventListener('close',()=>{void offerProfilePicture();},true);
+document.addEventListener('visibilitychange',()=>{void offerProfilePicture();});
 async function openProfile(){
+  profilePickerOpened=true;profileReminderPending=false;
+  if(me.avatar_prompt_seen===false&&!me.inspecting){
+    me.avatar_prompt_seen=true;
+    void api('/api/profile/picture-prompt',{method:'POST',body:'{}',signal:AbortSignal.timeout(10000)}).catch(()=>{});
+  }
   profileUsageRequest?.abort();
   const request=new AbortController();profileUsageRequest=request;
   $('profile-error').textContent='';
@@ -804,7 +836,7 @@ $('profile-form').onsubmit=async event=>{
   $('profile-error').textContent='';$('save-profile').disabled=true;$('save-profile').textContent='Saving…';$('close-profile').disabled=true;$('profile-choices').disabled=true;
   try{
     const saved=await api('/api/profile',{method:'PUT',body:JSON.stringify({avatar})});
-    me.avatar=saved.avatar;renderAccount();
+    me.avatar=saved.avatar;me.avatar_prompt_seen=true;renderAccount();
     if(library){for(const game of library.apps)if(game.author?.id===me.player_id)game.author.avatar=me.avatar;for(const person of library.friends||[])if(person.id===me.player_id)person.avatar=me.avatar;renderGames();renderPresence();renderGameDetail();}
     $('profile-dialog').close();notice('Profile picture saved.');
   }catch(error){$('profile-error').textContent=error.message;}
@@ -818,7 +850,7 @@ try {
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
   initClientUpdates({api});
-  await refresh();setInterval(()=>{if(!document.hidden)refresh();},25000);
+  await refresh();void offerProfilePicture();setInterval(()=>{if(!document.hidden)refresh();},25000);
 } catch(error) {
   if(error.profileRequired){/* The profile selector owns this navigation. */}
   else if(inspection){sessionStorage.removeItem('infuser.group-inspection');location.replace('/library');}
@@ -986,7 +1018,7 @@ function reactionBurst(target,emoji){
     const angle=i*Math.PI*2/18,distance=65+(i%4)*22,dx=Math.cos(angle)*distance,dy=Math.sin(angle)*distance;
     spark.animate([{transform:'translate(-50%,-50%) scale(.3)',opacity:0},{offset:.15,opacity:1},{transform:`translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px)) scale(.2) rotate(140deg)`,opacity:0}],{duration:650+(i%4)*70,easing:'cubic-bezier(.15,.65,.3,1)',fill:'forwards'});
   }
-  const hero=el('span',emoji,'reaction-burst-hero');hero.style.left=x+'px';hero.style.top=y+'px';burst.append(hero);
+  const hero=reactionFace(emoji,'reaction-burst-hero');hero.style.left=x+'px';hero.style.top=y+'px';burst.append(hero);
   hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
   setTimeout(()=>burst.remove(),950);
 }

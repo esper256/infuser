@@ -27,6 +27,7 @@ fn people() -> Data {
                 enabled: true,
                 admin: email != "host",
                 avatar: None,
+                avatar_prompt_seen: false,
             },
         );
     }

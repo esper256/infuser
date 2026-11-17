@@ -6,6 +6,7 @@ const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const root=new URL('../',import.meta.url),out=new URL('.local/library-detail-review/',root);
 await mkdir(out,{recursive:true});
 const avatars=[...String(await readFile(new URL('src/portal/avatars.rs',root))).matchAll(/avatar!\("([a-z-]+)", "([^"]+)"\)/g)].map(([,id,name])=>({id,name}));
+const illustrated=[['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises']];
 const me={name:'KwamiKwami',player_id:'one',admin:true,avatar:'loot-raccoon',avatars};
 const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'OrbitFox',avatar:'ember-raven'};
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
@@ -44,6 +45,7 @@ try {
    let file,type;
    if(path==='/test-art/firefly'){file='docs/design-explorations/card-art-guide/firefly-drift.webp';type='image/webp';}
    else if(path==='/test-art/event'){file='assets/avatars/event-horizon.png';type='image/png';}
+   else if(path.startsWith('/assets/reactions/')){file=path.slice(1);type='image/webp';}
    else if(path.startsWith('/assets/avatars/')){const [,id,size]=path.match(/\/avatars\/([^/]+)\/(\d+)\.webp$/);file=`assets/avatars/${id}-${size}.webp`;type='image/webp';}
    else if(path==='/assets/card-generating.webp'){file='assets/card-fallback/generating.webp';type='image/webp';}
    else if(path==='/assets/google-signin.png'){file='assets/google/sign-in-with-google-pill.png';type='image/png';}
@@ -104,6 +106,16 @@ try {
  }
  apps[1].reactions=recentReactions(8);await page.evaluate(()=>refreshTestLibrary());
  assert.equal(new Set(await pendingCard().locator('.game-buzz span').allTextContents()).size,4);
+ apps[1].reactions=recentReactions(8).map((r,i)=>({...r,emoji:illustrated[i%6][0]}));
+ apps[2].reactions=recentReactions(18).map((r,i)=>({...r,emoji:illustrated[i%6][0]}));
+ await page.evaluate(()=>refreshTestLibrary());
+ await page.waitForFunction(()=>[...document.querySelectorAll('.game-buzz img')].every(i=>i.complete&&i.naturalWidth===256));
+ assert.equal(await pendingCard().locator('.game-buzz img').count(),4);
+ assert(await pendingCard().locator('.game-buzz span').evaluateAll(faces=>faces.every((face,i)=>{
+  const style=getComputedStyle(face);
+  return style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.filter==='none'&&style.textShadow==='none'&&(!i||Number(style.zIndex)<Number(getComputedStyle(faces[i-1]).zIndex));
+ })),'leftmost reaction is on top; no circles or shadows behind card faces');
+
  await pendingCard().locator('.game-buzz').click();assert(await dialog.isVisible());assert(await page.evaluate(()=>document.activeElement.classList.contains('game-feedback-row')));await close();
  for(const theme of ['nightglass','cartridge-club']){
   await page.evaluate(t=>InfuserThemes.select(t),theme);
@@ -129,7 +141,7 @@ try {
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);
-   assert.equal(await dialog.locator('.reaction-choice').count(),6);
+   assert.equal(await dialog.locator('.reaction-choice').count(),18);
    assert(await dialog.locator('.reaction-face').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=44));
    assert.equal(await dialog.locator('.feedback-author img').first().getAttribute('src'),'/assets/avatars/ember-raven/128.webp');
    assert(await dialog.locator('.game-updated').textContent());
@@ -164,6 +176,53 @@ try {
   await page.locator('#tags-dialog').waitFor();await card().dispatchEvent('pointerup',{pointerType:'touch',pointerId:1});
   await card().dispatchEvent('click');assert(!(await dialog.isVisible()));await page.locator('#tags-dialog').evaluate(e=>e.close());
  }
+
+ // Expanded reactions retain large targets, labels and a bounded scrolling picker.
+ for(const theme of ['nightglass','cartridge-club']){
+  await page.evaluate(t=>InfuserThemes.select(t),theme);
+  for(const width of [1280,390,320]){
+   await page.setViewportSize({width,height:width===1280?900:568});await open();
+   for(const [emoji,label,art] of [['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round'],...illustrated]){
+    await dialog.getByRole('button',{name:'React: '+label,exact:true}).click();
+    const radio=page.getByRole('radio',{name:label,exact:true});
+    assert(await radio.isChecked());
+    if(art){
+     const face=radio.locator('..').locator('img');
+     assert.equal(await face.getAttribute('src'),'/assets/reactions/'+art+'.webp');
+     assert(await face.evaluate(i=>i.complete&&i.naturalWidth===256));
+     assert.equal(await page.locator('.reaction-burst-hero img').getAttribute('src'),'/assets/reactions/'+art+'.webp');
+    }
+
+    assert.equal(await page.locator('#emoji input').count(),18);
+    assert(await page.locator('#emoji').evaluate(e=>e.scrollWidth<=e.clientWidth));
+    assert(await radio.locator('..').locator('span').evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=48));
+    await page.locator('#reaction-text').fill('');
+    await page.getByRole('button',{name:'Send reaction',exact:true}).click();
+    await page.waitForFunction(()=>!document.querySelector('#reaction-dialog').open);
+    await page.waitForFunction(label=>document.querySelector('.reaction-choice[aria-label="React: '+label+'"]')?.getAttribute('aria-pressed')==='true',label);
+    assert.equal(game.reactions.find(r=>r.mine).emoji,emoji);
+   }
+   await dialog.locator('.creator').click();
+   await page.getByRole('radio',{name:'Amazing atmosphere',exact:true}).check();
+   if(width===320)assert(await page.locator('#emoji').evaluate(e=>e.scrollHeight>e.clientHeight),'picker scrolls instead of shrinking emojis');
+   await page.screenshot({path:new URL('expanded-reactions-'+theme+'-'+width+'.png',out).pathname});
+   await page.locator('#close-reaction').click();await close();
+  }
+ }
+ // Saved artwork is shared by the review, card stack and Recently. A failed
+ // decorative image falls back to its persisted emoji without losing the label.
+ await open();
+ assert.equal(await dialog.locator('.feedback-emoji img').last().getAttribute('src'),'/assets/reactions/surprises.webp');
+ await close();
+ assert.equal(await card().locator('.game-buzz img').first().getAttribute('src'),'/assets/reactions/surprises.webp');
+ await page.locator('#recent-toggle').click();
+ assert(await page.locator('#feed .feed-emoji img[src="/assets/reactions/surprises.webp"]').count()>0);
+ await page.locator('#close-recent').click();
+ await open();await dialog.getByRole('button',{name:'React: A little gem',exact:true}).click();
+ const gemFace=page.getByRole('radio',{name:'A little gem',exact:true}).locator('..').locator('span');
+ await gemFace.locator('img').dispatchEvent('error');assert.equal(await gemFace.textContent(),'💎');
+ assert(await page.getByRole('radio',{name:'A little gem',exact:true}).isChecked());
+ await page.locator('#close-reaction').click();await close();
  // Obvious reaction controls: choose, add an optional kind note, or send emoji-only.
  await page.setViewportSize({width:390,height:844});await open();
  await dialog.getByRole('button',{name:'React: Exciting',exact:true}).click();
@@ -195,7 +254,7 @@ try {
   assert(after.width>before.width&&after.height>before.height);assert(Math.abs((before.x+before.width/2)-(after.x+after.width/2))<1);assert(Math.abs((before.y+before.height/2)-(after.y+after.height/2))<1);
   await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transform),'none');await page.emulateMedia({reducedMotion:'no-preference'});
  }
- await page.emulateMedia({reducedMotion:'reduce'});await open();await dialog.getByRole('button',{name:'React: Amazing',exact:true}).click();assert.equal(await page.locator('.reaction-burst').count(),0);await page.locator('#close-reaction').click();await close();await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.emulateMedia({reducedMotion:'reduce'});await open();await dialog.getByRole('button',{name:'React: Cozy world',exact:true}).click();assert.equal(await page.locator('.reaction-burst').count(),0);await page.locator('#close-reaction').click();await close();await page.emulateMedia({reducedMotion:'no-preference'});
  // Admin moderation deletes the chosen reaction and note, with a recoverable error.
  const beforeModeration=[...game.reactions];await open();
  const target=dialog.locator('.game-feedback-row').filter({hasText:'Love the atmosphere.'});
@@ -266,7 +325,7 @@ try {
  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transitionDuration),'0s');
  await page.emulateMedia({forcedColors:'active'});await open();assert(await dialog.isVisible());await close();await page.emulateMedia({forcedColors:'none'});
  // The same detail UI works read-only in operator inspection.
- me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),6);await close();
+ me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),18);await close();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);
  console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, pending-art transitions, author search, 28-day attenuated reaction stacks, positive reactions with optional notes and bursts, unread Recently, centered card scaling, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');

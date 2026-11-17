@@ -346,6 +346,7 @@ fn legacy(root: &Path) -> Result<()> {
             admin: true,
             enabled: true,
             avatar: None,
+            avatar_prompt_seen: false,
         },
     );
     data.groups.operators.insert(EMAIL.into());
@@ -569,6 +570,7 @@ fn separate_profiles_require_selection_and_do_not_inherit_identity_or_group_priv
             Member {
                 name: "Separate name".into(),
                 avatar: None,
+                avatar_prompt_seen: false,
                 admin: false,
                 enabled: true,
             },

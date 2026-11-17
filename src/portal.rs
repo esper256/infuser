@@ -49,6 +49,7 @@ mod presence;
 mod profiles;
 mod publication;
 mod pwa;
+mod reaction_art;
 mod runtime;
 mod sdk_v1;
 mod server_builds;
@@ -569,6 +570,8 @@ pub fn router(platform: Platform) -> Router {
         )
         .route("/api/me", get(me))
         .route("/assets/avatars/{id}/{size}", get(avatars::image))
+        .route("/assets/reactions/{file}", get(reaction_art::image))
+        .route("/api/profile/picture-prompt", post(avatars::picture_prompt))
         .route("/api/profile", get(avatars::usage).put(avatars::update).layer(DefaultBodyLimit::max(1024)))
         .route("/api/library", get(library::list))
         .route("/api/client-state", get(client::state))
@@ -778,7 +781,7 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .account_profiles(&data.identities.profiles[&email].account_id)?
         .len();
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
+        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatar_prompt_seen":member.avatar_prompt_seen,"avatars":avatars::catalog(),"game_ports_admitted":admitted}),
     ))
 }
 #[derive(Deserialize)]
@@ -986,7 +989,27 @@ async fn react(
             .ok_or_else(|| fault(404, "Game not found."))?
             .to_owned();
     ensure!(
-        ["⭐", "👍", "🚀", "❤️", "👏", "💡"].contains(&body.emoji.as_str())
+        [
+            "⭐",
+            "👍",
+            "🚀",
+            "❤️",
+            "👏",
+            "💡",
+            "😅",
+            "⚡",
+            "🧠",
+            "🎯",
+            "🧭",
+            "🧲",
+            "🐦‍⬛",
+            "🍵",
+            "💎",
+            "🧩",
+            "🎢",
+            "🪄",
+        ]
+        .contains(&body.emoji.as_str())
             && body.text.chars().count() <= 140,
         fault(
             400,
