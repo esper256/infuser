@@ -99,11 +99,16 @@ filters, normal/guest/join launch, copy link, creator reactions, tag editing,
 profile selection, the single Add a game prompt, and admin tools under each
 selectable theme. Check open dialogs survive a presentation change.
 
-Recently shows existing updates and reactions. Its dot means an event appeared
-since the panel was last viewed during this page visit; it is not a server-side
-unread count or a persistent inbox. Opening the panel clears the unread state.
-Until then, a bold accent fill, larger dot, and repeating pulse/hop draw attention.
-Reduced-motion preferences disable the animation while keeping the highlight.
+The header's glass Infuser icon opens Recently; the separate wordmark stays static
+and links to the Library. A halo and intermittently timed wiggle mean an event
+appeared since the panel was last viewed during this page visit. Opening Recently
+clears that state. Motion stops in hidden tabs and with reduced-motion preferences,
+which retain a static halo. Only the newest event has a rounded relative time;
+older events stay uncluttered. This is not a persistent inbox or server unread count.
+
+Card reaction stacks display up to eight faces with diminishing growth. Small
+stacks have modest breathing room, gradually returning to the original 15px overlap
+at eight faces. The Play dock uses 8px padding to leave more artwork visible.
 
 Run `node --test tests/themes.mjs` for registry/preference checks. Browser checks
 must exercise the shared UI in both themes; screenshots alone do not demonstrate

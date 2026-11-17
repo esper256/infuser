@@ -23,7 +23,7 @@
     radial-gradient(ellipse at 100% 30%,#3e9a9320,transparent 50%),var(--page);
 }
 [data-theme="cartridge-club"] header { border-bottom-color: #afc6e030; gap: 16px; padding-block: 26px; }
-[data-theme="cartridge-club"] .brand img { width: 248px; height: 62px; filter: drop-shadow(0 2px 9px #82cabb22); }
+[data-theme="cartridge-club"] .brand-wordmark img { filter: drop-shadow(0 2px 9px #82cabb22); }
 [data-theme="cartridge-club"] main { padding-top: 28px; }
 [data-theme="cartridge-club"] #library-title {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -71,7 +71,6 @@
 }
 @media (max-width:650px) {
   [data-theme="cartridge-club"] header { padding-block: 18px; gap: 12px; }
-  [data-theme="cartridge-club"] .brand img { width: 184px; height: 46px; }
   [data-theme="cartridge-club"] main { padding-top: 22px; }
   [data-theme="cartridge-club"] .games { gap: 22px; }
 }

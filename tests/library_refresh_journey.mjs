@@ -100,6 +100,7 @@ try{
  await page.evaluate(()=>{window.focusedEvent=document.activeElement;});
  apps[1].updated=Date.now()/1000+2;await page.evaluate(()=>refreshLibrary());
  assert(await page.evaluate(()=>focusedEvent===document.activeElement&&focusedEvent.isConnected),'new activity preserves the focused row');
+ assert.equal(await page.locator('#feed time').count(),1);assert.equal(await page.locator('#feed .feed-row').first().locator('time').count(),1);
  await page.locator('#close-recent').click();
  // Open controls are not dismantled under a pointer while backend state changes.
  await first.locator('.play-menu summary').click();apps[0].players=[];
