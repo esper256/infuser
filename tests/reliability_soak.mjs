@@ -8,6 +8,7 @@ import {spawn} from 'node:child_process';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {randomUUID} from 'node:crypto';
 import http from 'node:http';
+import {DatabaseSync} from 'node:sqlite';
 import {startProxy,chromium,browserOptions} from './support/dedicated_browser.mjs';
 
 assert.equal(process.platform,'linux','This harness uses Linux process groups and /proc.');
@@ -220,7 +221,10 @@ try {
   }
   await river.frame.evaluate(()=>fixture.socket.send(JSON.stringify({type:'finish'})));
   await Promise.all([river,sky].map(game=>game.frame.waitForFunction(()=>!fixture.socket)));
-  evidence('passed',{cycles,...resources()});complete=true;
+  const database=new DatabaseSync(path.join(state,'platform.sqlite'),{readOnly:true});
+  try {assert.equal(database.prepare('PRAGMA integrity_check').get().integrity_check,'ok');}
+  finally {database.close();}
+  evidence('passed',{cycles,database_integrity:'ok',...resources()});complete=true;
 } finally {
   await cleanup();
 }
