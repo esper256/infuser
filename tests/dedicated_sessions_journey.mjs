@@ -1,36 +1,11 @@
 // Real browser + Node ws + production Rust gateway. Run dedicated_fixture first.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import http from 'node:http';
-import https from 'node:https';
-import {chromium} from '../services/peerjs/node_modules/playwright/index.mjs';
+import {startProxy,chromium,browserOptions} from './support/dedicated_browser.mjs';
 const config=JSON.parse(fs.readFileSync(process.argv[2]));
-const headers=req=>({...req.headers,host:req.headers.host.split(':')[0],...(req.headers.origin?{origin:new URL(req.headers.origin).origin.replace(/:\d+$/,'')}: {})});
-const proxy=https.createServer({cert:fs.readFileSync(config.cert),key:fs.readFileSync(config.key)},(req,res)=>{
-  const upstream=http.request(config.api+req.url,{method:req.method,headers:headers(req)},r=>{
-    if(req.url.startsWith('/api/apps/') && req.url.endsWith('/launch') && r.statusCode===200){
-      let body='';r.on('data',c=>body+=c);r.on('end',()=>{
-        const value=JSON.parse(body);if(value.url){const url=new URL(value.url);url.port=String(proxy.address().port);value.url=url.href;}
-        const h={...r.headers};delete h['content-length'];res.writeHead(r.statusCode,h);res.end(JSON.stringify(value));
-      });
-    }else{res.writeHead(r.statusCode,r.headers);r.pipe(res);}
-  });
-  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
-});
-proxy.on('upgrade',(req,socket,head)=>{
-  socket.on('error',()=>{});
-  const upstream=http.request(config.api+req.url,{headers:headers(req)});
-  upstream.on('upgrade',(response,backend,backendHead)=>{
-    socket.write('HTTP/1.1 101 Switching Protocols\r\n'+Object.entries(response.headers).map(([k,v])=>k+': '+v).join('\r\n')+'\r\n\r\n');
-    if(backendHead.length)socket.write(backendHead);if(head.length)backend.write(head);
-    backend.on('error',()=>socket.destroy());socket.on('close',()=>backend.destroy());backend.on('close',()=>socket.destroy());backend.pipe(socket);socket.pipe(backend);
-  });
-  upstream.on('response',r=>{socket.end(`HTTP/1.1 ${r.statusCode} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);r.resume();});
-  upstream.on('error',()=>socket.destroy());upstream.end();
-});
-await new Promise(resolve=>proxy.listen(0,'127.0.0.1',resolve));
+const proxy=await startProxy(config);
 const origin=`https://games.example.com:${proxy.address().port}`;
-const browser=await chromium.launch({headless:true,args:['--ignore-certificate-errors','--no-proxy-server','--host-resolver-rules=MAP *.games.example.com 127.0.0.1, MAP games.example.com 127.0.0.1']});
+const browser=await chromium.launch(browserOptions);
 const errors=[];
 async function member(name){
   const context=await browser.newContext({ignoreHTTPSErrors:true});
@@ -50,7 +25,10 @@ async function opened(main,page){
   await frame.waitForFunction(()=>!!window.fixture);return {main,page,frame};
 }
 async function joinFromLibrary(context,avatar=false){
-  const main=await context.newPage();await main.goto(origin+'/library');
+  const main=await context.newPage();
+  // A fresh synthetic profile may receive the optional first-visit picture picker.
+  await main.addLocatorHandler(main.locator('#profile-dialog[open]'),()=>main.getByLabel('Close profile picture picker',{exact:true}).click(),{times:1});
+  await main.goto(origin+'/library');
   let menu=main;
   if(avatar){await main.getByLabel('River · online',{exact:true}).click();}
   else{
@@ -100,10 +78,14 @@ try{
   const own=await launch(sky,{guest:true});const solo=await play(own,'own');assert.notEqual(solo.session,first.session);
   const separate=await launch(river,{guest:true});const second=await play(separate,'new');assert.notEqual(second.session,first.session);
   console.log('Dedicated: guest identity, single player and explicit separate run passed.');
-  // Lose the transport without cancelling the launch or its reconnect reservation.
-  await a.frame.evaluate(()=>fixture.socket.close());await a.frame.locator('#resume').waitFor({state:'visible'});
+  // Lose network access without cancelling the launch or its reconnect reservation.
+  await river.setOffline(true);
+  await a.frame.evaluate(()=>fixture.socket.close());
+  await new Promise(resolve=>setTimeout(resolve,3000));
+  await river.setOffline(false);
+  await a.frame.locator('#resume').waitFor({state:'visible'});
   const resumed=await play(a,'resume');assert.deepEqual(resumed,first);
-  console.log('Dedicated: reconnect resumes the exact run and identity.');
+  console.log('Dedicated: network loss/reconnect resumes the exact run and identity.');
   // A different launch cannot claim someone else's held seat.
   const stranger=await launch(sky,{guest:true});
   const denied=await stranger.frame.evaluate(async target=>{try{await fixture.platform.sessions.connect({action:'resume',target});return 'accepted';}catch(e){return e.code;}},{session_id:first.session});

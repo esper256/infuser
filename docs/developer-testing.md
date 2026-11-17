@@ -269,9 +269,79 @@ node tests/dedicated_sessions_journey.mjs .local/dedicated-ready.json
 ```
 
 The browser test requires Playwright from `services/peerjs` and an installed Chromium.
-The harness binds only loopback, uses synthetic members and deletes temporary data
+Set `INFUSER_PLAYWRIGHT` and `INFUSER_CHROMIUM` to use other local installations.
+The controller API binds to loopback, uses synthetic members and deletes temporary data
 on exit. Its ready file contains a test publishing credential: keep it private.
 Production tests still use the real Docker/Caddy deployment.
+
+### Disruption soak (developer machines, Linux only)
+
+Use Node 24. After staging the example and installing its dependencies above:
+
+```sh
+cargo build --locked --example dedicated_fixture
+node tests/reliability_soak.mjs > reliability-soak.jsonl
+```
+
+This opt-in test runs for two hours; it is not part of PR or release CI. It owns
+two browser players and an isolated guest, a real controller/router process,
+and a Node game server. It uses only synthetic accounts and a fresh temporary
+state directory. No production URL, Google login, Docker daemon, or game is used.
+
+The test drops a save response, interrupts file uploads, disconnects transports,
+freezes a renderer for 35 seconds, kills the game server, and kills the controller
+and its backend together. It checks continued gameplay, exact-room reconnects,
+honest rejection of lost rooms, checkpoint retry receipts, save isolation, and
+cleanup of incomplete uploads. Failed servers retain the real 30-second backoff.
+Gameplay is checked every 15 seconds between disruptions, including across server
+credential renewal. Each cycle records controller memory, file descriptors and
+database size as JSON lines.
+The final check verifies SQLite integrity before marking the run passed.
+
+For a short development check, use
+`INFUSER_SOAK_SECONDS=60 INFUSER_SOAK_INTERVAL_SECONDS=0 node tests/reliability_soak.mjs`.
+It always completes at least one four-disruption cycle, so the short run takes
+longer than a minute. The default interval between disruptions is 120 seconds.
+Use `INFUSER_SOAK_FAULTS=transport,background` to keep the same controller and game
+process alive throughout a run, checking credential renewal and resource growth
+without resetting them during crash tests.
+Successful runs remove their temporary state; failures print its location and
+retain the fixture log. `INFUSER_KEEP_SOAK_STATE=1` also retains successful runs.
+Those files contain disposable credentials; keep them private. Ctrl-C stops the
+owned process group and browser. Do not point the fixture at deployment data.
+
+This test uses a process-based engine adapter, not Docker. Run the manual
+`integration.yml` workflow separately for real container lifecycle, persistent
+volumes, encrypted restore, packaging and Caddy. Renderer freezing is not physical
+laptop sleep, Chromium is not Safari, and these dedicated WebSocket tests do not
+validate TURN renewal or peer-to-peer recovery.
+
+### Recorded acceptance (2026-11-17 UTC)
+
+- Two hours passed 50 disruptions: 13 transport disconnects, 13 renderer freezes,
+  12 game-server crashes and 12 controller/process-group crashes. Checkpoint
+  retries, guest isolation, interrupted-upload cleanup and continued gameplay
+  passed. Controller RSS peaked at 43.03 MiB; sampled file-descriptor counts were
+  20–34. The retained database passed SQLite integrity checks, and recorded cloud
+  save usage matched stored bytes.
+- An hour with the same controller and game process passed 27 transport/background
+  disruptions in the same multiplayer room. Controller RSS settled near 44 MiB (44.34 MiB
+  peak); sampled file-descriptor counts were 23–32. The retained database passed
+  SQLite integrity checks, and recorded cloud save usage matched stored bytes.
+- [100 real Docker lifecycle cycles](https://github.com/esper256/infuser/actions/runs/44011607500)
+  passed alongside world/image snapshots, encrypted restore, managed Node hosting
+  and Caddy. A [second run](https://github.com/esper256/infuser/actions/runs/44014205151)
+  also passed deliberate container death and controller reopen while preserving
+  a surviving container's memory and lease.
+- Browser journeys passed offline recovery, exact-room reconnect, concurrent
+  last-seat admission, queued publishing, credential renewal, profile switching,
+  visits and OAuth-proxy login continuity. Save conflicts, access isolation,
+  publisher retries, update rollback and large-upload responsiveness checks passed.
+
+The long runs used runtime baseline `0a01f0f`. The combined UI through `184ac9e`
+also passed the short crash cycle and extended browser journey, including its
+prompt to choose a profile picture. These are disposable Linux/Chromium fixtures;
+the memory figures are local measurements, not production capacity guarantees.
 
 ## Godot web example
 
