@@ -64,6 +64,39 @@ try {
  async function close(){await page.locator('#close-game-detail').click();await page.waitForFunction(()=>!document.querySelector('#game-detail').open);}
  async function open(){await card().locator('.game-open').click();await dialog.waitFor();}
  async function popup(action){const opening=page.waitForEvent('popup');await action();const tab=await opening;await tab.waitForURL('**/game-fixture');await tab.close();}
+ // Active player badges are separate from reactions and do not recreate covers.
+ game.players=[{...author},{...author},{...friend},{...friend,guest:true},{...friend,guest:true},{id:'three',name:'Nova',avatar:'circuit-fox'},{id:'four',name:'Sky',avatar:'moss-knight'}];
+ await page.evaluate(()=>refreshTestLibrary());
+ const live=()=>card().locator('.game-live');
+ assert.equal(await live().locator('summary .game-player').count(),3);
+ assert.equal(await live().locator('.game-player-more').textContent(),'+2');
+ assert.equal(await live().locator('li').count(),5,'duplicate signed-in sessions share one badge');
+ assert(await live().getByText('OrbitFox’s guests (2)',{exact:true}).count());
+ assert(await live().locator('img[src="/assets/avatars/loot-raccoon/128.webp"]').count());
+ await page.evaluate(()=>{window.liveBadge=document.querySelector('.game-live');window.liveCover=document.querySelector('[data-app="firefly-drift"] .game-art img');});
+ await page.evaluate(()=>refreshTestLibrary());
+ assert(await live().evaluate(e=>e===liveBadge),'unchanged polling retains badges and animations');
+ await live().locator('summary').click();assert(await live().locator('.game-live-menu').isVisible());assert(await dialog.isHidden());
+ game.players=game.players.filter(p=>p.id!=='four');await page.evaluate(()=>refreshTestLibrary());
+ assert(await live().evaluate(e=>e.open),'player changes keep the open list usable');
+ assert.equal(await live().locator('li').count(),4);
+ assert(await card().locator('.game-art img').evaluate(e=>e===liveCover),'presence changes retain mounted artwork');
+ await page.keyboard.press('Escape');assert.equal(await live().evaluate(e=>e.open),false);
+ for(const theme of ['nightglass','cartridge-club'])for(const width of [1280,390,320]){
+  await page.evaluate(t=>InfuserThemes.select(t),theme);await page.setViewportSize({width,height:900});
+  await card().scrollIntoViewIfNeeded();
+  const cardBox=await card().boundingBox(),badgeBox=await live().locator('summary').boundingBox();
+  assert(badgeBox.x>cardBox.x+cardBox.width/2&&badgeBox.y<cardBox.y+30,'badges sit at the upper right');
+  assert(await card().evaluate(e=>{const badges=e.querySelector('.game-live').getBoundingClientRect();return [...e.querySelectorAll('.tag-strip,.tag-more:not([hidden])')].every(tag=>tag.getBoundingClientRect().right<=badges.left);}),'tags do not overlap the player badges');
+  await live().locator('summary').click();const panelBox=await live().locator('.game-live-menu').boundingBox();assert(panelBox.x>=0&&panelBox.x+panelBox.width<=width,'full player list fits viewport');
+  await page.screenshot({path:new URL(`players-${theme}-${width}.png`,out).pathname});
+  await page.keyboard.press('Escape');
+ }
+ await page.emulateMedia({reducedMotion:'reduce'});
+ assert.equal(await live().locator('summary .game-player').first().evaluate(e=>getComputedStyle(e,'::before').animationName),'none');
+ await page.emulateMedia({reducedMotion:'no-preference'});
+ game.players=[];await page.evaluate(()=>refreshTestLibrary());assert.equal(await live().count(),0,'badges disappear when sessions end');
+ await page.setViewportSize({width:1500,height:1000});
  // Pending placeholder transitions and author search use the real shared renderer.
  const pendingCard=()=>page.locator('#visible-games [data-app="nocomgame"]');
  assert.equal(await pendingCard().locator('.game-art img').getAttribute('src'),'/assets/card-generating.webp');

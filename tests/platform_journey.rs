@@ -416,6 +416,33 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         );
         sessions.push((game_host, ticket));
     }
+    user(reqwest::Method::PUT, "/api/profile")
+        .json(&json!({"avatar":"moss-knight"}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let playing: Value = user(reqwest::Method::GET, "/api/library")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let players = playing["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|app| app["id"] == "moon")
+        .unwrap()["players"]
+        .as_array()
+        .unwrap();
+    assert_eq!(players.len(), 3);
+    assert_eq!(
+        players.iter().filter(|player| player["guest"] == true).count(),
+        2
+    );
+    assert!(players.iter().all(|player| {
+        player["avatar"] == "moss-knight" && player.get("email").is_none()
+    }));
     assert_ne!(sessions[0].0, sessions[1].0);
     assert_ne!(sessions[1].0, sessions[2].0);
     let game = |n: usize, method: reqwest::Method, path: &str| {
