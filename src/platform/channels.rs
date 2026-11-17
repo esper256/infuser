@@ -207,6 +207,34 @@ pub(super) fn initialize(c: &mut Connection) -> Result<()> {
 }
 
 impl Database {
+    pub(crate) fn voice_channel_allowed(
+        &self,
+        owner: &str,
+        id: &str,
+        visit: Option<&str>,
+        time: u64,
+    ) -> Result<bool> {
+        let c = self.connection.lock().unwrap();
+        let data = self.cached_catalog(&c)?;
+        let channel = Channel::load(&c, id)?;
+        if let Some(visit) = visit {
+            if data
+                .visit_access(visit, owner, time)
+                .is_none_or(|v| channel.group.as_deref() != Some(&v.host))
+            {
+                return Ok(false);
+            }
+        } else if channel
+            .group
+            .as_deref()
+            .is_some_and(|g| data.groups.member(owner) != g)
+        {
+            return Ok(false);
+        }
+        Ok(channel
+            .access(&data, owner, false, time)
+            .is_some_and(|a| a.writable))
+    }
     pub(crate) fn default_chat_channel(&self, group: &str) -> Result<String> {
         let c = self.connection.lock().unwrap();
         if let Some(id) = c

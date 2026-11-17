@@ -21,6 +21,7 @@ pub mod server_package;
 pub mod store;
 pub mod tags;
 pub mod updater;
+pub mod voice;
 
 pub const BUILD_SHA: &str = match option_env!("INFUSER_BUILD_SHA") {
     Some(value) => value,

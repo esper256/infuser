@@ -4,6 +4,7 @@ import { setupPwa, clearNotifications } from '/assets/pwa.js';
 import { profileFetch, pinProfile, chooser } from '/assets/profiles.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
 import { initChat } from '/assets/chat.js';
+import { initVoice } from '/assets/voice.js';
 import { initClientUpdates } from '/assets/client-updates.js';
 import { initServerUpdates } from '/assets/server-updates.js';
 const $ = id => document.getElementById(id);
@@ -456,7 +457,8 @@ reactionMotion.addEventListener('change',()=>{if(reactionMotion.matches){for(con
 function visiblePresenceCount(people){
   const list=$('friends'),cluster=list.closest('.presence-chat');
   if(!cluster||!people.length)return people.length;
-  const room=cluster.clientWidth-$('chat-toggle').offsetWidth-parseFloat(getComputedStyle(cluster).columnGap);
+  const voice=$('voice-toggle'),gap=parseFloat(getComputedStyle(cluster).columnGap);
+  const room=cluster.clientWidth-$('chat-toggle').offsetWidth-gap-(voice&&!voice.hidden?voice.offsetWidth+gap:0);
   const self=list.querySelector('.presence-self');
   const outerWidth=node=>{const style=getComputedStyle(node);return node.offsetWidth+parseFloat(style.marginLeft)+parseFloat(style.marginRight);};
   const base=self?outerWidth(self):0;
@@ -847,6 +849,7 @@ try {
   me=await api('/api/me');pinProfile(me.player_id);$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar,onSpeakerContext:arrangeChatParticipants});
+  initVoice({me,api,notice});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
   initClientUpdates({api});

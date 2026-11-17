@@ -22,5 +22,8 @@ table inet infuser_ingress {
         # Match the host's original port before Docker's destination NAT.
         # The local-destination test leaves container outbound traffic alone.
         fib daddr type local meta l4proto { tcp, udp } th dport 8000-9000 jump clients
+        # Optional voice media, using the same signed-in client grants.
+        fib daddr type local tcp dport 7881 jump clients
+        fib daddr type local udp dport 7882 jump clients
     }
 }

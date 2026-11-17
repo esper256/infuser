@@ -42,6 +42,9 @@ pub fn update_activity(p: &Platform) -> anyhow::Result<Vec<&'static str>> {
     let state = p.controller.snapshot();
     let data = p.db.read()?;
     let mut reasons = Vec::new();
+    if p.voice_active() {
+        reasons.push("Waiting for voice chat to finish");
+    }
     if state.build_reservation.is_some() || data.server_builds.values().any(|j| j.active()) {
         reasons.push("Waiting for game publishing or server builds to finish");
     }
