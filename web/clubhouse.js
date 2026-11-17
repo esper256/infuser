@@ -20,7 +20,7 @@ const entryApp=new URLSearchParams(location.search).get('app');
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const reactionMotion=matchMedia('(prefers-reduced-motion: reduce)');
 reactionMotion.addEventListener('change',event=>{if(event.matches)document.querySelector('.reaction-burst')?.remove();});
-const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea']];
+const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea'],['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round']];
 function setText(node,text){text=String(text);if(node.textContent!==text)node.textContent=text;}
 function reconcileChildren(container,children){
   const retained=new Set(children);
@@ -634,7 +634,7 @@ function renderFeed() {
   reconcileChildren(feed,rows);
   if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
-for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.append(radio,el('span',emoji));$('emoji').append(l);}
+for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,el('span',emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
 function openReaction(game,selectedEmoji){
   currentReaction=game;$('reaction-title').textContent=game.title;
   const mine=game.reactions.find(r=>r.mine),emoji=selectedEmoji||mine?.emoji;
@@ -642,6 +642,7 @@ function openReaction(game,selectedEmoji){
   if(emoji)$('reaction-form').elements.emoji.value=emoji;
   if(mine)$('reaction-form').elements.text.value=mine.text;
   $('remove-reaction').hidden=!mine;$('reaction-dialog').showModal();
+  $('emoji').scrollTop=0;document.querySelector('#emoji input:checked')?.closest('label').scrollIntoView({block:'nearest'});
   if(selectedEmoji){$('reaction-text').focus();reactionBurst(document.querySelector('#emoji input:checked+span'),selectedEmoji);}
 }
 $('close-reaction').onclick=()=>$('reaction-dialog').close();

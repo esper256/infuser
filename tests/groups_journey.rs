@@ -339,6 +339,29 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         .json(&json!({"avatar":"circuit-fox"})))
     .await?;
     let user_identity = ok(c.member("user", Method::GET, "/api/me")).await?;
+    // Every expressive reaction round-trips through the real group-scoped API.
+    for emoji in ["😅", "⚡", "🧠", "🎯", "🧭", "🧲"] {
+        ok(
+            c.member("user", Method::PUT, &format!("/api/apps/{away}/reaction"))
+                .json(&json!({"emoji":emoji,"text":"A new challenge!"})),
+        )
+        .await?;
+        let library = ok(c.member("user", Method::GET, "/api/library")).await?;
+        assert_eq!(library["apps"][0]["reactions"][0]["emoji"], emoji);
+        assert_eq!(
+            library["apps"][0]["reactions"][0]["text"],
+            "A new challenge!"
+        );
+    }
+    assert_eq!(
+        c.member("user", Method::PUT, &format!("/api/apps/{away}/reaction"))
+            .json(&json!({"emoji":"😡","text":""}))
+            .send()
+            .await?
+            .status(),
+        400
+    );
+
     ok(
         c.member("user", Method::PUT, &format!("/api/apps/{away}/reaction"))
             .json(&json!({"emoji":"🚀","text":"Our game"})),
