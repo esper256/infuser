@@ -13,8 +13,10 @@ import {startProxy,chromium,browserOptions} from './support/dedicated_browser.mj
 assert.equal(process.platform,'linux','This harness uses Linux process groups and /proc.');
 const duration=Number(process.env.INFUSER_SOAK_SECONDS || 7200)*1000;
 const interval=Number(process.env.INFUSER_SOAK_INTERVAL_SECONDS || 120)*1000;
+const faults=(process.env.INFUSER_SOAK_FAULTS || 'transport,background,backend,controller').split(',');
 assert(Number.isFinite(duration) && duration>=60000 && duration<=86400000);
 assert(Number.isFinite(interval) && interval>=0 && interval<=600000);
+assert(faults.length && faults.every(fault=>['transport','background','backend','controller'].includes(fault)));
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'infuser-reliability-'));
 fs.chmodSync(root,0o700);
 const ready=path.join(root,'ready.json'),state=path.join(root,'state');
@@ -149,12 +151,12 @@ try {
   const original=await publish('/builds/one');
   await publish('/builds/recovery','PUT',{manifest:original.manifest,server:original.server});
   await publish('/builds/recovery/files/probe.bin','PUT',uploadBytes);
-  evidence('started',{duration_seconds:duration/1000,interval_seconds:interval/1000,...resources()});
-  while(Date.now()-started<duration || cycles<4) {
+  evidence('started',{duration_seconds:duration/1000,interval_seconds:interval/1000,faults,...resources()});
+  while(Date.now()-started<duration || cycles<faults.length) {
     const cycleStarted=Date.now();cycles++;
     const checkpoint=packet(revision,cycles);
     const saved=await commit(river,checkpoint);assert.equal(saved.status,'saved');revision=saved.revision;
-    const fault=['transport','background','backend','controller'][(cycles-1)%4];
+    const fault=faults[(cycles-1)%faults.length];
     if(fault==='transport') {
       const upload=await partialUpload();upload.destroy();await verifyUploadRecovery();
       const original=room;

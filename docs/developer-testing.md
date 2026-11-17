@@ -301,6 +301,9 @@ For a short development check, use
 `INFUSER_SOAK_SECONDS=60 INFUSER_SOAK_INTERVAL_SECONDS=0 node tests/reliability_soak.mjs`.
 It always completes at least one four-disruption cycle, so the short run takes
 longer than a minute. The default interval between disruptions is 120 seconds.
+Use `INFUSER_SOAK_FAULTS=transport,background` to keep the same controller and game
+process alive throughout a run, checking credential renewal and resource growth
+without resetting them during crash tests.
 Successful runs remove their temporary state; failures print its location and
 retain the fixture log. `INFUSER_KEEP_SOAK_STATE=1` also retains successful runs.
 Those files contain disposable credentials; keep them private. Ctrl-C stops the

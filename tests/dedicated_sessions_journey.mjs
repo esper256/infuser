@@ -75,10 +75,14 @@ try{
   const own=await launch(sky,{guest:true});const solo=await play(own,'own');assert.notEqual(solo.session,first.session);
   const separate=await launch(river,{guest:true});const second=await play(separate,'new');assert.notEqual(second.session,first.session);
   console.log('Dedicated: guest identity, single player and explicit separate run passed.');
-  // Lose the transport without cancelling the launch or its reconnect reservation.
-  await a.frame.evaluate(()=>fixture.socket.close());await a.frame.locator('#resume').waitFor({state:'visible'});
+  // Lose network access without cancelling the launch or its reconnect reservation.
+  await river.setOffline(true);
+  await a.frame.evaluate(()=>fixture.socket.close());
+  await new Promise(resolve=>setTimeout(resolve,3000));
+  await river.setOffline(false);
+  await a.frame.locator('#resume').waitFor({state:'visible'});
   const resumed=await play(a,'resume');assert.deepEqual(resumed,first);
-  console.log('Dedicated: reconnect resumes the exact run and identity.');
+  console.log('Dedicated: network loss/reconnect resumes the exact run and identity.');
   // A different launch cannot claim someone else's held seat.
   const stranger=await launch(sky,{guest:true});
   const denied=await stranger.frame.evaluate(async target=>{try{await fixture.platform.sessions.connect({action:'resume',target});return 'accepted';}catch(e){return e.code;}},{session_id:first.session});
