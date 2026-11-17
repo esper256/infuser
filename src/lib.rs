@@ -22,6 +22,12 @@ pub mod store;
 pub mod tags;
 pub mod updater;
 
+pub fn build_timestamp() -> u64 {
+    env!("INFUSER_BUILD_TIMESTAMP")
+        .parse()
+        .expect("validated build timestamp")
+}
+
 pub const BUILD_SHA: &str = match option_env!("INFUSER_BUILD_SHA") {
     Some(value) => value,
     None => "development",

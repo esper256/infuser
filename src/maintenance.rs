@@ -160,13 +160,24 @@ pub struct Client {
 
 impl Client {
     pub async fn report_update(&self, report: &crate::deployment::Report) -> Result<()> {
-        self.http
-            .post(self.url.replace("/v1/maintenance", "/v1/deployment"))
-            .bearer_auth(&self.token)
-            .json(report)
-            .send()
-            .await?
-            .error_for_status()?;
+        let send = |report: crate::deployment::Report| {
+            self.http
+                .post(self.url.replace("/v1/maintenance", "/v1/deployment"))
+                .bearer_auth(&self.token)
+                .json(&report)
+                .send()
+        };
+        let response = send(report.clone()).await?;
+        if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY
+            && report.built_at.is_some()
+        {
+            // A rollback/older controller may not understand optional metadata.
+            let mut legacy = report.clone();
+            legacy.built_at = None;
+            send(legacy).await?.error_for_status()?;
+        } else {
+            response.error_for_status()?;
+        }
         Ok(())
     }
     pub async fn admit_update(&self, release: &str, force: bool) -> Result<bool> {

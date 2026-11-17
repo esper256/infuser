@@ -23,6 +23,8 @@ pub enum Phase {
 #[serde(deny_unknown_fields)]
 pub struct Report {
     pub release: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built_at: Option<u64>,
     pub phase: Phase,
     #[serde(default)]
     pub maintenance_blocked: bool,
@@ -37,6 +39,8 @@ pub struct Grant {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Record {
     pub report: Option<Report>,
+    #[serde(default)]
+    pub release_built_at: Option<u64>,
     pub checked_at: u64,
     pub available_since: Option<u64>,
     pub grant: Option<Grant>,
@@ -84,6 +88,15 @@ impl Tracker {
             if report.release.is_none() {
                 report.release = r.report.as_ref().and_then(|old| old.release.clone());
             }
+            // Keep timestamp metadata outside the strict Report stored on disk so
+            // rollback binaries can still deserialize deployment.json.
+            let same_release =
+                r.report.as_ref().and_then(|old| old.release.as_ref()) == report.release.as_ref();
+            r.release_built_at = report.built_at.take().or(if same_release {
+                r.release_built_at
+            } else {
+                None
+            });
             r.checked_at = now();
             if report.phase == Phase::Current {
                 r.available_since = None;
@@ -160,11 +173,45 @@ fn valid_id(value: &str, len: usize) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn build_age_follows_release_identity_and_keeps_rollback_state_readable() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let tracker = Tracker::open(dir.path())?;
+        let report = |release, built_at| Report {
+            release,
+            built_at,
+            phase: Phase::Waiting,
+            maintenance_blocked: false,
+        };
+        tracker.report(report(Some("b".repeat(40)), Some(123)))?;
+        assert_eq!(
+            Tracker::open(dir.path())?.read().release_built_at,
+            Some(123)
+        );
+        let disk: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("deployment.json"))?)?;
+        assert!(
+            disk["report"].get("built_at").is_none(),
+            "strict legacy Report must remain readable"
+        );
+        tracker.report(report(None, None))?;
+        assert_eq!(tracker.read().release_built_at, Some(123));
+        tracker.report(report(Some("b".repeat(40)), None))?;
+        assert_eq!(tracker.read().release_built_at, Some(123));
+        tracker.report(report(Some("c".repeat(40)), None))?;
+        assert_eq!(
+            tracker.read().release_built_at,
+            None,
+            "never reuse a previous release's age"
+        );
+        Ok(())
+    }
+    #[test]
     fn permissions_expire_persist_and_do_not_follow_a_changed_running_build() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let tracker = Tracker::open(dir.path())?;
         tracker.report(Report {
             release: Some("b".repeat(40)),
+            built_at: None,
             phase: Phase::Waiting,
             maintenance_blocked: false,
         })?;
@@ -193,6 +240,7 @@ mod tests {
         );
         tracker.report(Report {
             release: Some("c".repeat(40)),
+            built_at: None,
             phase: Phase::Failed,
             maintenance_blocked: false,
         })?;
@@ -203,6 +251,7 @@ mod tests {
         );
         tracker.report(Report {
             release: Some("c".repeat(40)),
+            built_at: None,
             phase: Phase::Current,
             maintenance_blocked: false,
         })?;
