@@ -413,7 +413,7 @@ img.avatar { object-fit: cover; }
 #chat-toggle.has-unread[aria-expanded="false"] { animation: chat-unread-wiggle 8s ease-in-out infinite; transform-origin: 50% 75%; }
 #chat-panel { position: relative; display: flex; flex-direction: column; height: var(--chat-height,672px); overflow: hidden; border: 1px solid var(--line); border-top-color: var(--accent); border-radius: 18px 18px 24px 24px; background: var(--page); box-shadow: 0 5px 0 #030912,0 20px 70px #0009; }
 #chat-pointers { pointer-events: none; }
-.chat-pointer { position: absolute; top: calc(-1 * var(--tail-height)); width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: var(--tail-height) solid var(--accent); transform: translateX(-50%); transform-origin: bottom center; }
+.chat-pointer { position: absolute; top: calc(-1 * var(--tail-height)); width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: var(--tail-height) solid var(--accent); transform: translateX(-50%) scaleX(var(--tail-scale,1)); transform-origin: bottom center; transition: transform 220ms ease-out; }
 .chat-pointer::after { content: ''; position: absolute; top: 2px; left: -9px; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: calc(var(--tail-height) - 1px) solid var(--page); }
 #chat-close { display: none; position: absolute; z-index: 3; top: 8px; right: 8px; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--panel); color: var(--ink); box-shadow: 0 2px 8px #0006; font-size: 22px; line-height: 1; }
 #chat-close::before { content: ""; position: absolute; inset: -6px; }
@@ -474,7 +474,7 @@ img.avatar { object-fit: cover; }
 #library-chat[data-short] .chat-compose-row { padding-block: 4px 10px; }
 #library-chat[data-short] #chat-text { height: 56px; padding-block: 6px; }
 #library-chat[data-short] #chat-error, #library-chat[data-short] #chat-connection { flex: none; padding: 3px 12px; }
-@media (prefers-reduced-motion: reduce) { #chat-toggle.has-unread[aria-expanded="false"] { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #chat-toggle.has-unread[aria-expanded="false"] { animation: none; } .chat-pointer { transition: none; } }
 @media (forced-colors: active) { .chat-bubble::before { background: Canvas; border-color: CanvasText; } .chat-pointer { border-bottom-color: CanvasText; } .chat-pointer::after { border-bottom-color: Canvas; } #chat-toggle { border: 1px solid ButtonText; } }
 
 /* Tag rows keep legible spacing and offer excess categories in a popover. */

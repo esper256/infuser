@@ -81,10 +81,25 @@ try{
  assert.deepEqual(await page.locator('#chat-panel').boundingBox(),beforeOpenBounds,'sorting must not move the chat panel');
  // Existing connectable speakers stay put; neither scrolling nor polling churns them.
  const settledOrder=await order();
- await scrollToRow(18);await pause(500);
+ const tailWidth=async id=>page.locator(`#chat-pointers [data-player-id="${id}"]`).evaluate(e=>e.getBoundingClientRect().width);
+ assert(Math.abs(await tailWidth('t')-23)<.05,'many visible messages cap the tail at 115%');
+ const widths=await page.evaluate(async()=>{
+  const pointer=document.querySelector('#chat-pointers [data-player-id="t"]'),log=document.querySelector('#chat-log');
+  const widths=[pointer.getBoundingClientRect().width],row=log.querySelectorAll('.chat-message')[18];
+  log.scrollTop+=row.getBoundingClientRect().top-log.getBoundingClientRect().top-log.clientTop;
+  for(let i=0;i<24;i++){await new Promise(requestAnimationFrame);widths.push(pointer.getBoundingClientRect().width);}
+  if(pointer!==document.querySelector('#chat-pointers [data-player-id="t"]'))throw new Error('resizing replaced the tail');
+  return widths;
+ });
+ assert(widths.at(-1)<widths[0]-.5,'fewer visible messages shrink the same tail');
+ assert(widths.some(w=>w<widths[0]-.1&&w>widths.at(-1)+.1),'size changes have intermediate animation frames');
+ assert(widths.every(w=>w>=16.95&&w<=23.05),'animation stays within the ±15% range');
+ await pause(100);
  assert.deepEqual(await pointers(),['t','z'],'partially visible authors each receive one tail');
  assert.deepEqual(await order(),settledOrder,'connectable speakers keep their places');
  assert(Math.abs(await slot('t')-await slot('z'))>1,'speakers have breathing room across the row');
+ await scrollToRow(19);await pause(300);
+ assert(Math.abs(await tailWidth('t')-17)<.05,'one visible message uses the 85% minimum');
  await log.evaluate(e=>e.scrollTop=0);await pause(500);
  const top=await log.evaluate(e=>e.scrollTop);await page.evaluate(()=>refreshLibrary());await pause(80);
  assert.deepEqual(await order(),settledOrder);assert.equal(await log.evaluate(e=>e.scrollTop),top);
@@ -134,10 +149,11 @@ try{
  }
  await page.setViewportSize({width:1500,height:1000});await pause(100);await page.emulateMedia({reducedMotion:'reduce'});await page.locator('#chat-toggle').click();await pause(100);
  await mounted('z');assert(await page.locator('#chat-pointers [data-player-id="z"]').isVisible());
+ assert.equal(await page.locator('#chat-pointers [data-player-id="z"]').evaluate(e=>getComputedStyle(e).transitionDuration),'0s','reduced motion disables size interpolation');
  assert.equal(await page.locator('#friends').evaluate(e=>e.getAnimations({subtree:true}).filter(a=>a.id==='presence-reorder').length),0,'reduced motion uses no avatar animation');
  // Offline authors remain in history but never invent an online badge/tail.
  friends=friends.filter(f=>f.id!=='z');await page.evaluate(()=>refreshLibrary());await pause(100);
  assert.equal(await page.locator('#chat-pointers [data-player-id="z"]').count(),0);
  assert.deepEqual(errors,[]);
- console.log('PASS: viewport-only tails, stable spread-out speakers, directional preparation without premature tails; acceleration/deceleration, late aligned tails, idle stability, polling, overflow at 650/390/320px in both themes, close reset, reduced motion and offline authors.');
+ console.log('PASS: smoothly resized viewport-count tails within ±15%, viewport-only tails, stable spread-out speakers, directional preparation without premature tails; acceleration/deceleration, late aligned tails, idle stability, polling, overflow at 650/390/320px in both themes, close reset, reduced motion and offline authors.');
 }finally{await browser.close();}
