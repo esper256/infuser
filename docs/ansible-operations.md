@@ -60,6 +60,11 @@ state remain outside that list. To retain a customized managed file, add an
 `infuser_extra_files` entry with the same destination and a private source. Do not
 edit both the installed output and its source independently.
 
+Stable updater and backup executables have an explicit
+[adoption procedure](deployment.md#separately-installed-helpers). Remove temporary
+`infuser_extra_files` entries for those binaries after adoption; otherwise a later
+routine apply can reinstall an obsolete helper from its pinned source.
+
 `infuser_caddy_domain` optionally renders the public site template into only
 `/etc/caddy/sites-enabled/infuser.caddy`. Keep it empty for a customized provider
 or routing configuration and supply a private file override instead. It never

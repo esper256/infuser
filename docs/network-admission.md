@@ -25,7 +25,11 @@ Install the rules under `/etc/infuser/game-ingress.nft`, the loader as
 Keep the configured port range aligned with `controller.port_start/port_end`.
 Install `deploy/infuser-firewall.conf` as
 `/etc/systemd/system/infuser.service.d/firewall.conf` on installations using this
-policy. It makes firewall startup a prerequisite for controller startup.
+policy. It makes firewall startup a prerequisite for controller startup and
+starts the admission worker. Install the matching
+`deploy/infuser-firewall-agent.service` and run `systemctl daemon-reload` when
+adopting these units. The worker restarts with the controller to use its current
+binary; this does not reload the firewall table or clear existing grants.
 
 For an operator test, a short grant can be added with:
 
