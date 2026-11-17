@@ -1,5 +1,7 @@
 //! Shared native presentation. Launching, credentials and network state stay in App.
+use crate::about::{self, UpdateInfo};
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
+use std::time::{Duration, Instant};
 
 const BACKGROUND: Color32 = Color32::from_rgb(18, 22, 25);
 const SURFACE: Color32 = Color32::from_rgb(32, 38, 42);
@@ -27,6 +29,9 @@ pub enum Action {
 
 pub struct Presentation {
     logo: egui::TextureHandle,
+    pub about_open: bool,
+    about_info: Option<(Instant, UpdateInfo)>,
+    copied: bool,
 }
 
 pub fn viewport() -> egui::ViewportBuilder {
@@ -111,11 +116,43 @@ impl Presentation {
             ),
             egui::TextureOptions::LINEAR,
         );
-        Self { logo }
+        Self {
+            logo,
+            about_open: false,
+            about_info: None,
+            copied: false,
+        }
     }
 
-    pub fn show(&self, ctx: &egui::Context, screen: Screen<'_>) -> Action {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        screen: Screen<'_>,
+        update_info: impl FnOnce() -> UpdateInfo,
+    ) -> Action {
         let mut action = Action::None;
+        egui::TopBottomPanel::bottom("about-link")
+            .show_separator_line(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(BACKGROUND)
+                    .inner_margin(egui::Margin::symmetric(24, 8)),
+            )
+            .show(ctx, |ui| {
+                if ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new("About Infuser Play").size(13.0).color(MUTED),
+                        )
+                        .frame(false),
+                    )
+                    .clicked()
+                {
+                    self.about_open = true;
+                    self.about_info = None;
+                    self.copied = false;
+                }
+            });
         if matches!(
             screen,
             Screen::Connect { .. }
@@ -206,6 +243,68 @@ impl Presentation {
                     }
                 });
             });
+        if self.about_open {
+            if self
+                .about_info
+                .as_ref()
+                .is_none_or(|(at, _)| at.elapsed() >= Duration::from_secs(1))
+            {
+                self.about_info = Some((Instant::now(), update_info()));
+            }
+            let info = &self.about_info.as_ref().unwrap().1;
+            let mut close = false;
+            let modal = egui::Modal::new(egui::Id::new("about-infuser-play")).show(ctx, |ui| {
+                ui.set_width((ctx.content_rect().width() - 64.0).clamp(200.0, 360.0));
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                heading(ui, "About Infuser Play");
+                egui::ScrollArea::vertical()
+                    .max_height((ctx.content_rect().height() - 200.0).max(80.0))
+                    .show(ui, |ui| {
+                        ui.label(format!("Version {}", about::VERSION));
+                        ui.label(format!(
+                            "Build {}",
+                            about::BUILD.get(..12).unwrap_or(about::BUILD)
+                        ))
+                        .on_hover_text(about::BUILD);
+                        ui.label(
+                            RichText::new(format!(
+                                "{} · {}",
+                                std::env::consts::OS,
+                                std::env::consts::ARCH
+                            ))
+                            .color(MUTED),
+                        );
+                        ui.separator();
+                        ui.label(info.status);
+                        ui.label(RichText::new(info.last_check()).small().color(MUTED));
+                        ui.label(
+                            RichText::new("Updates are checked at launch, at most once an hour.")
+                                .small()
+                                .color(MUTED),
+                        );
+                    });
+                if primary(
+                    ui,
+                    if self.copied {
+                        "Copied!"
+                    } else {
+                        "Copy diagnostic info"
+                    },
+                )
+                .clicked()
+                {
+                    ctx.copy_text(info.diagnostics());
+                    self.copied = true;
+                }
+                if ui.button("Close").clicked() {
+                    close = true;
+                }
+            });
+            if close || modal.should_close() {
+                self.about_open = false;
+            }
+            ctx.request_repaint_after(Duration::from_secs(1));
+        }
         action
     }
 }
@@ -289,4 +388,94 @@ fn activity(ui: &mut egui::Ui) {
     );
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_millis(33));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn about_opens_copies_running_build_and_closes_at_minimum_window_size() {
+        let ctx = egui::Context::default();
+        let mut presentation = Presentation::new(&ctx);
+        let mut time = 0.0;
+        let mut frame = |events| {
+            time += 0.25;
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::splat(360.0),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    presentation.show(ctx, Screen::Idle, || UpdateInfo {
+                        status: "Update check or download failed; using a working version",
+                        checked: Some(123),
+                    });
+                },
+            )
+        };
+        fn find(shape: &egui::epaint::Shape, text: &str) -> Option<egui::Pos2> {
+            match shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == text => {
+                    Some(t.pos + t.galley.size() * 0.5)
+                }
+                egui::epaint::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, text)),
+                _ => None,
+            }
+        }
+        fn position(output: &egui::FullOutput, text: &str) -> egui::Pos2 {
+            let pos = output
+                .shapes
+                .iter()
+                .find_map(|s| find(&s.shape, text))
+                .expect(text);
+            assert!(
+                egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(360.0)).contains(pos),
+                "{text} must be visible"
+            );
+            pos
+        }
+        let click = |pos, pressed| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        frame(vec![]);
+        let idle = frame(vec![]);
+        let about = position(&idle, "About Infuser Play");
+        frame(click(about, true));
+        frame(click(about, false));
+        frame(vec![]);
+        let opened = frame(vec![]);
+        let copy = position(&opened, "Copy diagnostic info");
+        frame(click(copy, true));
+        let copied = frame(click(copy, false));
+        let text = copied
+            .platform_output
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                egui::OutputCommand::CopyText(text) => Some(text),
+                _ => None,
+            })
+            .expect("copy button must write the diagnostic payload");
+        assert!(text.contains(&format!("Build: {}", about::BUILD)));
+        assert!(text.contains("Update check or download failed"));
+        let close = position(&frame(vec![]), "Close");
+        frame(click(close, true));
+        frame(click(close, false));
+        frame(vec![]);
+        assert!(!presentation.about_open);
+    }
 }

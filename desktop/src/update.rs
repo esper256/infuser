@@ -1,5 +1,6 @@
 //! The installed executable stays put; only verified, versioned workers change.
 //! Release trust is this project's HTTPS GitHub release, never a game/server URL.
+use crate::about::{BUILD, UpdateInfo};
 use anyhow::{Context, Result, ensure};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -12,10 +13,6 @@ use std::{
 };
 
 const RELEASES: &str = "https://github.com/esper256/infuser/releases";
-const BUILD: &str = match option_env!("INFUSER_BUILD_SHA") {
-    Some(value) => value,
-    None => "development",
-};
 const MAX_BINARY: u64 = 128 * 1024 * 1024;
 #[cfg(target_os = "windows")]
 const PLATFORM: &str = "windows-x86_64";
@@ -35,6 +32,59 @@ struct State {
     checked: u64,
     #[serde(default)]
     launcher: String,
+    #[serde(default)]
+    check_outcome: CheckOutcome,
+    #[serde(default)]
+    latest: Option<String>,
+}
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CheckOutcome {
+    #[default]
+    Unknown,
+    Checking,
+    Checked,
+    Failed,
+}
+
+fn supported() -> bool {
+    cfg!(all(
+        target_arch = "x86_64",
+        any(target_os = "linux", target_os = "windows")
+    )) && hex(BUILD, 40)
+}
+
+pub fn info(root: &Path, checking: bool) -> UpdateInfo {
+    if !supported() {
+        return UpdateInfo {
+            status: "Automatic updates unavailable for this build",
+            checked: None,
+        };
+    }
+    summarize(&read_state(&root.join("play-updates")), BUILD, checking)
+}
+
+fn summarize(state: &State, running_build: &str, checking: bool) -> UpdateInfo {
+    let status = if checking {
+        "Checking for updates…"
+    } else {
+        match state.check_outcome {
+            CheckOutcome::Unknown => "Last update result unavailable",
+            CheckOutcome::Checking => "Update check interrupted; will retry on a later launch",
+            CheckOutcome::Failed => "Update check or download failed; using a working version",
+            CheckOutcome::Checked if state.latest.as_deref() == Some(running_build) => {
+                "Up to date at last check"
+            }
+            CheckOutcome::Checked if state.rejected.is_some() && state.rejected == state.latest => {
+                "Update could not start; using a working version"
+            }
+            CheckOutcome::Checked => "Another build is available; using a working version",
+        }
+    };
+    UpdateInfo {
+        status,
+        checked: (state.checked != 0).then_some(state.checked),
+    }
 }
 #[derive(Deserialize)]
 struct Release {
@@ -168,7 +218,21 @@ fn fetch(dir: &Path, state: &mut State) -> Result<Option<Version>> {
     }
     // Offline launches try again in an hour; they still use a working copy.
     state.checked = now;
+    state.check_outcome = CheckOutcome::Checking;
+    state.latest = None;
     save_state(dir, state)?;
+    let result = fetch_release(dir, state);
+    // Persist before handoff so the new worker can report the completed check.
+    state.check_outcome = if result.is_ok() {
+        CheckOutcome::Checked
+    } else {
+        CheckOutcome::Failed
+    };
+    save_state(dir, state).ok();
+    result
+}
+
+fn fetch_release(dir: &Path, state: &mut State) -> Result<Option<Version>> {
     let client = Client::builder()
         .https_only(true)
         .timeout(Duration::from_secs(12))
@@ -186,6 +250,7 @@ fn fetch(dir: &Path, state: &mut State) -> Result<Option<Version>> {
         release.protocol == 1 && hex(&release.commit, 40),
         "unsupported update manifest"
     );
+    state.latest = Some(release.commit.clone());
     if release.commit == BUILD
         || state
             .active
@@ -221,11 +286,7 @@ fn fetch(dir: &Path, state: &mut State) -> Result<Option<Version>> {
 /// Best effort: update failure always leaves the installed companion usable.
 /// Called on a background thread while the existing window shows progress.
 pub fn run(root: &Path, args: &[String]) -> Option<Child> {
-    if !cfg!(all(
-        target_arch = "x86_64",
-        any(target_os = "linux", target_os = "windows")
-    )) || !hex(BUILD, 40)
-    {
+    if !supported() {
         return None;
     }
     run_inner(root, args).unwrap_or(None)
@@ -301,6 +362,64 @@ fn prune(dir: &Path, state: &State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn about_reports_running_worker_and_preserves_failed_or_legacy_checks() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        // Older launchers have no outcome field. Never infer success from the
+        // existing timestamp: it is written before the network request.
+        fs::write(
+            dir.path().join("state.json"),
+            format!(r#"{{"checked":{now},"launcher":"{}"}}"#, "a".repeat(40)),
+        )?;
+        let mut state = read_state(dir.path());
+        assert!(
+            summarize(&state, &"a".repeat(40), false)
+                .status
+                .contains("unavailable")
+        );
+        state.latest = Some("b".repeat(40));
+        state.check_outcome = CheckOutcome::Checked;
+        save_state(dir.path(), &state)?;
+        let mut state = read_state(dir.path());
+        assert_eq!(
+            summarize(&state, &"b".repeat(40), false).status,
+            "Up to date at last check"
+        );
+        assert_ne!(
+            summarize(&state, &"a".repeat(40), false).status,
+            "Up to date at last check"
+        );
+        state.rejected = state.latest.clone();
+        assert!(
+            summarize(&state, &"a".repeat(40), false)
+                .status
+                .contains("could not start")
+        );
+        for outcome in [
+            CheckOutcome::Failed,
+            CheckOutcome::Checking,
+            CheckOutcome::Unknown,
+        ] {
+            state.check_outcome = outcome;
+            save_state(dir.path(), &state)?;
+            let previous = summarize(&state, &"a".repeat(40), false).status;
+            assert!(
+                fetch(dir.path(), &mut state)?.is_none(),
+                "Hourly throttle must not contact GitHub"
+            );
+            assert_eq!(summarize(&state, &"a".repeat(40), false).status, previous);
+        }
+        // Only allowlisted descriptions go into the clipboard, never raw state.
+        state.latest = Some("https://private.example/?token=secret".into());
+        state.launcher = "private/local/path".into();
+        let copied = summarize(&state, BUILD, false).diagnostics();
+        assert!(!copied.contains("private"));
+        assert!(!copied.contains("secret"));
+        assert!(copied.contains(&format!("Build: {BUILD}")));
+        Ok(())
+    }
+
     #[test]
     fn download_is_atomic_and_never_replaces_a_good_worker_with_bad_bytes() -> Result<()> {
         let dir = tempfile::tempdir()?;
