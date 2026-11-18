@@ -350,6 +350,51 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         .json(&json!({"listed":false})),
     )
     .await?;
+    let host_vote = format!(
+        "/api/apps/{brought}/updates/{}/reaction",
+        borrowed["update_id"].as_str().unwrap()
+    );
+    ok(w.member("visitor", Method::PUT, &host_vote)
+        .header("x-infuser-visit", &visit)
+        .json(&json!({"emoji":"🚀"})))
+    .await?;
+    assert_eq!(
+        w.member("visitor", Method::PUT, &host_vote)
+            .json(&json!({"emoji":"⭐"}))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    let host_library = ok(w.member("operator", Method::GET, "/api/library")).await?;
+    let source_library = ok(w.member("visitor", Method::GET, "/api/library")).await?;
+    for (library, counts) in [(host_library, json!({"🚀":1})), (source_library, json!({}))] {
+        let card = library["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|app| app["id"] == brought)
+            .unwrap();
+        assert_eq!(
+            card["update_reactions"],
+            json!({"counts":counts,"mine":null})
+        );
+    }
+    // Republishing identical artifacts is still a new update in a borrowed deployment.
+    p.db.edit(|d| {
+        d.apps.get_mut(&brought).unwrap().publication = Some("republished".into());
+        Ok(())
+    })?;
+    p.reconcile_publications()?;
+    assert_eq!(
+        w.member("visitor", Method::PUT, &host_vote)
+            .header("x-infuser-visit", &visit)
+            .json(&json!({"emoji":"🚀"}))
+            .send()
+            .await?
+            .status(),
+        409
+    );
     // Host moderation of a borrowed game only deletes the host deployment copy.
     let reaction_path = format!("/api/apps/{brought}/reaction");
     ok(w.member("visitor", Method::PUT, &reaction_path)

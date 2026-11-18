@@ -610,6 +610,52 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         list["apps"][0]["reactions"][0]["text"],
         "I loved the stars!"
     );
+    let vote_path = format!(
+        "/api/apps/moon/updates/{}/reaction",
+        list["apps"][0]["update_id"].as_str().unwrap()
+    );
+    for emoji in ["⭐", "👍", "👍"] {
+        assert_eq!(
+            user(reqwest::Method::PUT, &vote_path)
+                .json(&json!({"emoji":emoji}))
+                .send()
+                .await?
+                .status(),
+            200
+        );
+    }
+    assert_eq!(
+        admin(reqwest::Method::PUT, &vote_path)
+            .json(&json!({"emoji":"👍"}))
+            .send()
+            .await?
+            .status(),
+        200
+    );
+    for bad in [json!({"emoji":"no"}), json!({"emoji":"⭐","text":"a note"})] {
+        assert!(
+            user(reqwest::Method::PUT, &vote_path)
+                .json(&bad)
+                .send()
+                .await?
+                .status()
+                .is_client_error()
+        );
+    }
+    let voted: Value = user(reqwest::Method::GET, "/api/library")
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        voted["apps"][0]["update_reactions"],
+        json!({"counts":{"👍":2},"mine":"👍"})
+    );
+    assert_eq!(
+        voted["apps"][0]["reactions"][0]["text"],
+        "I loved the stars!"
+    );
+    assert_eq!(voted["apps"][0]["reactions"][0]["emoji"], "🚀");
     // A new static build does not swap assets underneath existing players.
     publisher(
         reqwest::Method::PUT,
@@ -655,6 +701,19 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .await?
         .json()
         .await?;
+    assert_eq!(
+        user(reqwest::Method::PUT, &vote_path)
+            .json(&json!({"emoji":"❤️"}))
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    assert_ne!(tags["apps"][0]["update_id"], list["apps"][0]["update_id"]);
+    assert_eq!(
+        tags["apps"][0]["update_reactions"],
+        json!({"counts":{},"mine":null})
+    );
     assert_eq!(
         tags["apps"][0]["tags"],
         json!(["chill", "puzzle"]),

@@ -56,6 +56,7 @@ mod screenshots;
 mod sdk_v1;
 mod server_builds;
 mod server_diagnostics;
+mod update_reactions;
 mod urls;
 mod visits;
 mod voice;
@@ -607,6 +608,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/apps/{app}/launch", post(launch))
         .route("/api/apps/{app}/card-art/{build}", get(card_art::image))
         .route("/api/launches/{id}", get(launch_status))
+        .route("/api/apps/{app}/updates/{publication}/reaction", put(update_reactions::set))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/apps/{app}/reactions/{player}", delete(remove_game_reaction))
         .route("/api/admin/game-authors", get(authors::inventory))
@@ -992,6 +994,33 @@ struct React {
     #[serde(default)]
     screenshot: Option<String>,
 }
+fn valid_emoji(emoji: &str) -> bool {
+    [
+        "⭐",
+        "👍",
+        "🚀",
+        "❤️",
+        "👏",
+        "💡",
+        "😅",
+        "⚡",
+        "🧠",
+        "🎯",
+        "🧭",
+        "🧲",
+        "🐦‍⬛",
+        "🍵",
+        "💎",
+        "🧩",
+        "🎢",
+        "🪄",
+        "🎨",
+        "🎵",
+        "😄",
+        "🤝",
+    ]
+    .contains(&emoji)
+}
 async fn react(
     State(p): State<Platform>,
     Path(app): Path<String>,
@@ -1007,32 +1036,7 @@ async fn react(
             .ok_or_else(|| fault(404, "Game not found."))?
             .to_owned();
     ensure!(
-        [
-            "⭐",
-            "👍",
-            "🚀",
-            "❤️",
-            "👏",
-            "💡",
-            "😅",
-            "⚡",
-            "🧠",
-            "🎯",
-            "🧭",
-            "🧲",
-            "🐦‍⬛",
-            "🍵",
-            "💎",
-            "🧩",
-            "🎢",
-            "🪄",
-            "🎨",
-            "🎵",
-            "😄",
-            "🤝",
-        ]
-        .contains(&body.emoji.as_str())
-            && body.text.chars().count() <= 140,
+        valid_emoji(&body.emoji) && body.text.chars().count() <= 140,
         fault(
             400,
             "Choose a reaction and keep your note to 140 characters."

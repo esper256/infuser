@@ -113,6 +113,7 @@ async fn main() -> Result<()> {
         d.apps.insert(
             "lantern-lake".into(),
             App {
+                publication: None,
                 build: "test".into(),
                 updated: now(),
                 listed: true,

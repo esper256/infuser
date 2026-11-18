@@ -13,7 +13,7 @@ const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
 let noticeTimer,adminLoaded=false,adminLoading=false,networkHealthBusy=false;
 let refreshServerUpdates=()=>{};
-let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
+let me, library, currentReaction, refreshing = false, refreshQueued = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
 let entryGame, detailGameId, detailReturnFocus, detailSignature, removingReaction=null;
@@ -127,8 +127,9 @@ async function api(path, options = {}) {
   return result;
 }
 function showError(error) { notice(error.message); }
-async function refresh() {
-  if (refreshing) return; refreshing = true;
+async function refresh(afterWrite = false) {
+  if (refreshing) { if (afterWrite === true) refreshQueued = true; return; }
+  refreshing = true;
   try {
     library = await api('/api/library',{signal:AbortSignal.timeout(12000)});
     updateVisit(library.visit);
@@ -138,7 +139,7 @@ async function refresh() {
     renderPresence();
     renderFilters(); renderGames(); renderFeed(); renderGameDetail();
     if(!$('search-options').hidden)renderSearchOptions();
-  } catch (error) { showError(error); } finally { refreshing = false; }
+  } catch (error) { showError(error); } finally { refreshing = false; if (refreshQueued) { refreshQueued = false; await refresh(); } }
 }
 function gameArtSource(game){return game.card_art_url||(game.card_art_pending?'/assets/card-generating.webp':null);}
 function describeArt(art,game){
@@ -714,11 +715,10 @@ let feedSignature;
 const pendingFeedReactions=new Set();
 const feedPicker=el('div',undefined,'feed-reaction-picker');feedPicker.id='feed-reaction-picker';
 feedPicker.setAttribute('popover','auto');feedPicker.setAttribute('role','dialog');$('recent-menu').append(feedPicker);
-function feedReactionState(game){return [game.reactions.find(reaction=>reaction.mine)?.emoji||null,!!(inspection||me?.inspecting)];}
-function feedReactionTrigger(id){return [...$('feed').querySelectorAll('.feed-react-toggle')].find(button=>button.dataset.game===id);}
+function feedReactionTrigger(id){return [...$('feed').querySelectorAll('.feed-react-toggle')].find(button=>button.dataset.update===id);}
 function positionFeedPicker(){
   if(!feedPicker.matches(':popover-open'))return;
-  const trigger=feedReactionTrigger(feedPicker.dataset.game);
+  const trigger=feedReactionTrigger(feedPicker.dataset.update);
   if(!trigger||!$('recent-menu').open){feedPicker.hidePopover();return;}
   const bounds=trigger.getBoundingClientRect(),width=Math.min(356,innerWidth-32);
   feedPicker.style.width=width+'px';feedPicker.style.left=Math.max(16,Math.min(bounds.right-width,innerWidth-width-16))+'px';
@@ -728,89 +728,109 @@ function positionFeedPicker(){
 }
 feedPicker.addEventListener('toggle',()=>{
   const open=feedPicker.matches(':popover-open');
-  for(const trigger of $('feed').querySelectorAll('.feed-react-toggle'))trigger.setAttribute('aria-expanded',String(open&&trigger.dataset.game===feedPicker.dataset.game));
+  for(const trigger of $('feed').querySelectorAll('.feed-react-toggle'))trigger.setAttribute('aria-expanded',String(open&&trigger.dataset.update===feedPicker.dataset.update));
 });
 feedPicker.addEventListener('keydown',event=>{
-  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();feedPicker.hidePopover();feedReactionTrigger(feedPicker.dataset.game)?.focus({preventScroll:true});}
+  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();feedPicker.hidePopover();feedReactionTrigger(feedPicker.dataset.update)?.focus({preventScroll:true});}
 });
 window.addEventListener('resize',positionFeedPicker);
 $('activity').addEventListener('scroll',positionFeedPicker);
+function syncFeedChoices(game){
+  for(const choice of feedPicker.children){
+    choice.setAttribute('aria-pressed',String(choice.dataset.emoji===game.update_reactions?.mine));
+    choice.setAttribute('aria-disabled',String(pendingFeedReactions.has(game.update_id)));
+  }
+}
+async function saveFeedReaction(game,button){
+  const id=game.update_id;
+  if(pendingFeedReactions.has(id))return;
+  pendingFeedReactions.add(id);
+  syncFeedChoices(game);
+  try{
+    await api('/api/apps/'+encodeURIComponent(game.id)+'/updates/'+encodeURIComponent(id)+'/reaction',{
+      method:'PUT',body:JSON.stringify({emoji:button.dataset.emoji}),signal:AbortSignal.timeout(12000)
+    });
+    if(feedPicker.matches(':popover-open')&&feedPicker.contains(button)){
+      clearTimeout(noticeTimer);$('notice').classList.remove('visible');$('notice').textContent='';
+      updateConfetti(button);feedPicker.hidePopover();feedReactionTrigger(id)?.focus({preventScroll:true});
+    }
+    await refresh(true);
+  }catch(error){
+    showError(error);
+    if(error.status===409)await refresh(true);
+  }finally{
+    pendingFeedReactions.delete(id);
+    const current=library.apps.find(app=>app.update_id===id);
+    if(current&&feedPicker.dataset.update===id)syncFeedChoices(current);
+  }
+}
 function openFeedReactions(game){
   if(inspection||me?.inspecting)return;
-  game=library.apps.find(app=>app.id===game.id);if(!game)return;
   if(feedPicker.matches(':popover-open'))feedPicker.hidePopover();
-  feedPicker.dataset.game=game.id;feedPicker.setAttribute('aria-label','React to '+game.title+' update');feedPicker.replaceChildren();
+  feedPicker.dataset.update=game.update_id;
+  feedPicker.setAttribute('aria-label','React to '+game.title+' update');feedPicker.replaceChildren();
   for(const [emoji,label] of emojis){
-    const button=el('button');button.type='button';button.dataset.emoji=emoji;button.append(reactionFace(emoji,'feed-reaction-face'));
-    button.setAttribute('aria-label','React: '+label);button.setAttribute('aria-pressed',String(game.reactions.some(reaction=>reaction.mine&&reaction.emoji===emoji)));
-    button.setAttribute('aria-disabled',String(pendingFeedReactions.has(game.id)));
-    button.onclick=async()=>{
-      if(pendingFeedReactions.has(game.id))return;
-      const current=library.apps.find(app=>app.id===game.id);if(!current)return;
-      const mine=current.reactions.find(reaction=>reaction.mine);
-      pendingFeedReactions.add(game.id);for(const choice of feedPicker.children)choice.setAttribute('aria-disabled','true');
-      try{
-        // Changing the emoji here must retain an existing note or screenshot.
-        await api('/api/apps/'+game.id+'/reaction',{method:'PUT',body:JSON.stringify({emoji,text:mine?.text||'',screenshot:mine?.screenshot||null}),signal:AbortSignal.timeout(12000)});
-        clearTimeout(noticeTimer);$('notice').classList.remove('visible');$('notice').textContent='';
-        if(feedPicker.dataset.game===game.id&&feedPicker.matches(':popover-open')){
-          updateConfetti(button);feedPicker.hidePopover();feedReactionTrigger(game.id)?.focus({preventScroll:true});
-        }
-        const latest=library.apps.find(app=>app.id===game.id);
-        if(latest){latest.reactions=latest.reactions.filter(reaction=>!reaction.mine);latest.reactions.push({...mine,id:mine?.id||me.player_id,name:me.name,avatar:me.avatar,mine:true,emoji,text:mine?.text||'',screenshot:mine?.screenshot||null,updated:Date.now()/1000});}
-        renderFeed();renderGames();renderGameDetail();
-        await refresh();
-      }catch(error){showError(error);}
-      finally{
-        pendingFeedReactions.delete(game.id);
-        if(feedPicker.dataset.game===game.id)for(const choice of feedPicker.children)choice.setAttribute('aria-disabled','false');
-      }
-    };
-    feedPicker.append(button);
+    const button=el('button');button.type='button';button.dataset.emoji=emoji;
+    button.append(reactionFace(emoji,'feed-reaction-face'));button.setAttribute('aria-label','React: '+label);
+    button.onclick=()=>saveFeedReaction(game,button);feedPicker.append(button);
   }
-  feedPicker.showPopover();positionFeedPicker();
+  syncFeedChoices(game);feedPicker.showPopover();positionFeedPicker();
   (feedPicker.querySelector('[aria-pressed="true"]')||feedPicker.firstElementChild).focus({preventScroll:true});
 }
 function feedReactions(game){
-  const button=el('button',undefined,'feed-react-toggle');button.type='button';button.dataset.game=game.id;
-  const mine=game.reactions.find(reaction=>reaction.mine);
-  button.append(reactionFace(mine?.emoji||'☺️','feed-reaction-face'));
-  button.setAttribute('aria-label','React to '+game.title+' update');button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-controls',feedPicker.id);button.setAttribute('aria-expanded','false');
+  const button=el('button',undefined,'feed-react-toggle');button.type='button';button.dataset.update=game.update_id;
+  button.append(reactionFace(game.update_reactions?.mine||'☺️','feed-reaction-face'));
+  button.setAttribute('aria-label','React to '+game.title+' update');button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-controls',feedPicker.id);
+  button.setAttribute('aria-expanded',String(feedPicker.matches(':popover-open')&&feedPicker.dataset.update===game.update_id));
   button.onclick=()=>openFeedReactions(game);return button;
+}
+function appendUpdateCounts(body,counts){
+  const tally=el('span',undefined,'feed-update-counts');
+  for(const [emoji,label] of emojis){
+    const count=counts?.[emoji];if(!count)continue;
+    const chip=el('span');chip.setAttribute('role','img');chip.setAttribute('aria-label',label+' × '+count);
+    chip.append(reactionFace(emoji),String(count));tally.append(chip);
+  }
+  if(tally.childElementCount)body.append(tally);
 }
 function renderFeed() {
   const feed=$('feed');const entries=[];
   for(const game of library.apps){entries.push({game,at:game.updated,emoji:'↗',title:game.author?.name?game.author.name+' updated '+game.title:game.title+' updated',text:'',person:game.author});for(const r of game.reactions)entries.push({game,reaction:r,at:r.updated,emoji:r.emoji,title:r.name+' reacted to '+game.title,text:r.text,person:{id:r.id,name:r.name,avatar:r.avatar}});}
   entries.sort((a,b)=>b.at-a.at);
-  const keys=new Set(entries.slice(0,12).map(entry=>JSON.stringify([entry.at,entry.title,entry.text])));
+  const keys=new Set(entries.slice(0,12).map(entry=>JSON.stringify([entry.game.id,entry.reaction?.id??entry.game.update_id,entry.at,entry.title,entry.text])));
   if(!seenEvents||$('recent-menu').open)seenEvents=keys;
   const unseen=[...keys].some(key=>!seenEvents.has(key));
   $('recent-toggle').classList.toggle('has-updates',unseen);syncRecentMotion();
   const label=unseen?'Recently · new events':'Recently';
   if($('recent-toggle').getAttribute('aria-label')!==label)$('recent-toggle').setAttribute('aria-label',label);
-  const signature=JSON.stringify(entries.slice(0,12).map(({game,...entry})=>[game.id,entry,feedReactionState(game)]));
+  const signature=JSON.stringify(entries.slice(0,12).map(({game,...entry})=>[game.id,entry,entry.reaction?null:[game.update_id,game.update_reactions],!!(inspection||me?.inspecting)]));
   if(signature===feedSignature){updateRecentAge();return;}feedSignature=signature;
   const previous=new Map([...feed.children].map(row=>[row.dataset.key,row])),rows=[],focused=document.activeElement;
   let replacementFocus;
   if(!entries.length)rows.push(el('p','Game updates and reactions show up here.','quiet'));
   for(const entry of entries.slice(0,12)){
     const key=JSON.stringify([entry.game.id,entry.reaction?entry.reaction.id||entry.reaction.name:null]);
-    const signature=JSON.stringify([entry.at,entry.title,entry.text,entry.emoji,entry.person,feedReactionState(entry.game)]);
+    const signature=JSON.stringify([entry.at,entry.title,entry.text,entry.emoji,entry.person,entry.reaction?null:[entry.game.update_id,entry.game.update_reactions],!!(inspection||me?.inspecting)]);
     const old=previous.get(key);
     if(old?.dataset.signature===signature){rows.push(old);continue;}
     const item=el('div',undefined,'feed-entry'),row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');
     item.dataset.key=key;item.dataset.signature=signature;row.dataset.at=entry.at;
     row.onclick=()=>{$('recent-menu').open=false;const game=library.apps.find(game=>game.id===entry.game.id);if(game)openGameDetail(game,entry.reaction);};
     body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));
+    if(!entry.reaction)appendUpdateCounts(body,entry.game.update_reactions?.counts);
     const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
     if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));
     mark.append(reactionFace(entry.emoji,'feed-emoji'));row.append(mark,body);item.append(row);
-    if(!entry.reaction&&!inspection&&!me?.inspecting)item.append(feedReactions(entry.game));
+    if(!entry.reaction&&entry.game.update_id&&!inspection&&!me?.inspecting)item.append(feedReactions(entry.game));
     rows.push(item);
     if(old?.contains(focused))replacementFocus=focused.classList.contains('feed-react-toggle')?item.querySelector('.feed-react-toggle')||row:row;
   }
   const hadFocus=feed.contains(focused);
   reconcileChildren(feed,rows);updateRecentAge();positionFeedPicker();
+  if(feedPicker.matches(':popover-open')){
+    const current=library.apps.find(app=>app.update_id===feedPicker.dataset.update);
+    if(current)syncFeedChoices(current);
+  }
   if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,reactionFace(emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}

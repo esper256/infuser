@@ -146,7 +146,7 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
         for app in ["pond","plain","hidden"] {
             let manifest=json!({"schema_version":1,"app_id":app,"title":app,"play_modes":["solo","multiplayer"],"solo_runtime":"client_only","multiplayer":{"mode":"peer_hosted","transport":"webrtc","max_players":2,"join_policy":"anytime","direct_connect":"disabled","relay_fallback":"required"},"launch_intents":if app=="plain"{json!([])}else{json!(["join_friend"])}});
             d.builds.insert(format!("{app}/one"),Build{manifest:serde_json::from_value(manifest)?,server:None,spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
-            d.apps.insert(app.into(),App{build:"one".into(),updated:now(),listed:app!="hidden"});
+            d.apps.insert(app.into(),App {publication: None,build:"one".into(),updated:now(),listed:app!="hidden"});
         }Ok(())
     })?;
     let (url, _server) = serve(portal::router(p.clone())).await?;

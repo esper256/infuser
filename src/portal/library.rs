@@ -11,18 +11,15 @@ struct View<'a> {
     time: u64,
 }
 impl View<'_> {
-    fn includes(&self, id: &str, app: &App) -> bool {
-        (self.data.groups.app(id) == self.group
-            || self
-                .data
-                .active_visit(self.group, self.time)
-                .is_some_and(|(_, v)| v.games.contains(id)))
-            && self.data.deployment_for(id, self.group).is_some()
-            && (app.listed
-                || self.inspecting
-                || (self.data.groups.app(id) == self.group
-                    && self.data.groups.member(self.email) == self.group
-                    && self.data.members[self.email].admin))
+    fn includes(&self, id: &str) -> bool {
+        groups::visible(
+            self.data,
+            self.email,
+            id,
+            self.group,
+            self.inspecting,
+            self.time,
+        ) && self.data.deployment_for(id, self.group).is_some()
     }
 
     fn card(&self, p: &Platform, id: &str, app: &App) -> Value {
@@ -162,6 +159,7 @@ impl View<'_> {
         json!({
             "id":id,
             "deployment_id":runtime,
+            "update_id":app.update_id(runtime),
             "borrowed":runtime!=id,
             "play_unavailable":if runtime!=id || data.groups.member(self.email)!=self.group {build.visit_unavailable()}else{None},
             "title":metadata::title(data,id,&build.manifest.title),
@@ -244,12 +242,13 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
             && data.members[&email].admin,
         time,
     };
-    let apps: Vec<_> = data
+    let mut apps: Vec<_> = data
         .apps
         .iter()
-        .filter(|(id, app)| view.includes(id, app))
+        .filter(|(id, _)| view.includes(id))
         .map(|(id, app)| view.card(&p, id, app))
         .collect();
+    update_reactions::add_summaries(&p.db, &data, &email, &mut apps)?;
     let friends = view.friends(&apps);
     Ok(conditional::json(
         json!({

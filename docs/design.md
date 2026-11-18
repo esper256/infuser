@@ -78,8 +78,9 @@ Unread Recently activity gives the logo a soft, pulsing glow. An occasional smal
 nudge leads into a stronger wiggle. Opening Recently clears the attention effects.
 Each game-update entry has one reaction button. It opens a popup with all 22
 reaction icons, without visible labels or a comment field. Selecting an icon
-saves immediately. This changes the player's game reaction while retaining
-an existing note or screenshot. A successful reaction launches multicolored
+saves immediately. Each player gets one emoji per update and can change it.
+Counts appear on the update itself. Each new publication starts fresh. Game
+reviews, notes and screenshots stay on the game card. A successful reaction launches multicolored
 confetti from the selected emoji. Reduced motion keeps a static unread glow and
 suppresses the wiggle and confetti; hidden tabs stop the attention animation.
 

@@ -158,6 +158,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
         d.apps.insert(
             "pond".into(),
             App {
+                publication: None,
                 build: "one".into(),
                 listed: false,
                 updated: now(),

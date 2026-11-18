@@ -69,10 +69,20 @@ pub struct Build {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct App {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication: Option<String>,
     pub build: String,
     pub updated: u64,
     #[serde(default = "listed")]
     pub listed: bool,
+}
+impl App {
+    pub fn update_id(&self, deployment: &str) -> String {
+        match &self.publication {
+            Some(id) => format!("{deployment}.{id}"),
+            None => format!("{deployment}.legacy.{}-{}", self.build, self.updated),
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PendingPromotion {
@@ -405,6 +415,9 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO visits VALUES(1,'{}');")?;
         channels::initialize(&mut c)?;
         screenshots::initialize(&c)?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS update_reactions(
+            deployment TEXT NOT NULL, profile TEXT NOT NULL, publication TEXT NOT NULL, emoji TEXT NOT NULL,
+            PRIMARY KEY(deployment,profile)) WITHOUT ROWID;")?;
         crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS portrait_builds(build_key TEXT PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);

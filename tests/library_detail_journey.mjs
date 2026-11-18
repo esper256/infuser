@@ -12,6 +12,7 @@ const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'Orb
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
 const game={can_manage_visibility:true,can_moderate_reactions:true,id:'firefly-drift',title:'Firefly Drift',description:'A quiet flight through a glowing forest.',author,updated:now-60,card_art_url:'/test-art/firefly',url:'https://library.test/games/firefly-drift',tags:['3d','arcade','chill'],can_edit_tags:true,players:[],join_targets:[{name:'OrbitFox',session_id:'session',player_id:'two'}],reactions:[{...friend,emoji:'👏',text:'Love the atmosphere.',updated:now,mine:false},{...author,emoji:'⭐',text:'',updated:now-10,mine:true}]};
 const apps=[game,{...game,id:'nocomgame',title:'NoCOMgame',description:null,author:friend,card_art_url:null,tags:['3d','sandbox','action','survival','exploration'],reactions:[]},{...game,id:'event-horizon',title:'Event Horizon',author:friend,card_art_url:'/test-art/event',reactions:[]},{...game,id:'dodge',title:'Dodge the Creeps',author:null,preview:true,card_art_url:null,reactions:[]},{...game,id:'lantern',title:'Lantern Lake',author:null,preview:true,card_art_url:null,reactions:[]}];
+for(const app of apps){app.update_id=app.id+'-release-a';app.update_reactions={mine:null,counts:{}};}
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
 let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility,failAuthors=false,failReaction=false,releaseReaction;
@@ -40,7 +41,14 @@ try {
    if(failModeration)return route.fulfill({status:503,json:{error:'Please retry deletion.'}});
    const app=apps.find(g=>g.id===path.split('/')[4]);app.reactions=app.reactions.filter(r=>r.id!==path.split('/')[6]);data={ok:true};
   }
-  else if(path.endsWith('/reaction')){if(failReaction){await new Promise(resolve=>{releaseReaction=resolve;});return route.fulfill({status:503,json:{error:'Please retry reaction.'}});}game.reactions=game.reactions.filter(r=>!r.mine);if(method==='PUT')game.reactions.push({...author,...request.postDataJSON(),updated:now+1,mine:true});data={ok:true};}
+  else if(path.includes('/updates/') && path.endsWith('/reaction')){
+   if(failReaction){await new Promise(resolve=>{releaseReaction=resolve;});return route.fulfill({status:503,json:{error:'Please retry reaction.'}});}
+   if(path.split('/')[5]!==game.update_id)return route.fulfill({status:409,json:{error:'A newer update is available.'}});
+   const {emoji}=request.postDataJSON(),votes=game.update_reactions;
+   if(votes.mine)votes.counts[votes.mine]--;
+   votes.mine=emoji;votes.counts[emoji]=(votes.counts[emoji]||0)+1;data={ok:true};
+  }
+  else if(path.endsWith('/reaction')){game.reactions=game.reactions.filter(r=>!r.mine);if(method==='PUT')game.reactions.push({...author,...request.postDataJSON(),updated:now+1,mine:true});data={ok:true};}
   else if(path.endsWith('/tags')){game.tags=request.postDataJSON().tags;data={ok:true};}
   else if(path==='/api/my-games')data={api_url:'https://library.test',app_id:'new-game',setup_code:'TEST-ONLY',expires_at:now+10800};
   else if(path==='/api/feedback')data={available:false};
@@ -342,8 +350,8 @@ try {
  assert.equal(game.reactions.find(r=>r.mine).screenshot,'shot');
  await open();await dialog.locator('.screenshot-tile').click();await page.locator('.screenshot-viewer img').waitFor();await page.keyboard.press('Escape');assert(await dialog.isVisible());await close();
  assert.deepEqual(await page.evaluate(()=>[0,60,3600,7200,86400,-20].map(age=>testRecentAge(100000-age,100000))),['just now','a minute ago','an hour ago','2 hours ago','a day ago','just now']);
- // Updates use one button and the complete emoji-only picker, preserving notes/images.
- game.updated=now+2;game.reactions=game.reactions.filter(r=>!r.mine);
+ // A game review and an update vote are independent, even when another tab edits the review.
+ game.updated=now+2;game.update_reactions.counts={'❤️':1};game.reactions=game.reactions.filter(r=>!r.mine);
  game.reactions.push({...author,emoji:'⭐',text:'Keep my note',screenshot:'shot',updated:now,mine:true});
  await page.evaluate(()=>refreshTestLibrary());await page.locator('#recent-toggle').click();
  const update=()=>page.locator('#feed').getByRole('button',{name:'React to Firefly Drift update',exact:true});
@@ -367,11 +375,13 @@ try {
  await page.getByText('Please retry reaction.',{exact:true}).waitFor();
  await page.waitForFunction(()=>!document.querySelector('#feed-reaction-picker button[aria-disabled="true"]'));
  assert.equal(await page.locator('.update-confetti').count(),0);
- assert.equal(await picker.getByRole('button',{name:'React: Amazing',exact:true}).getAttribute('aria-pressed'),'true');
+ assert.equal(await picker.locator('[aria-pressed=true]').count(),0);
+ game.reactions.find(r=>r.mine).text='Edited in another tab';
  await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
  await page.locator('.update-confetti:popover-open').waitFor();
- assert.deepEqual(writes.at(-1).body,{emoji:'❤️',text:'Keep my note',screenshot:'shot'});
- await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-game="firefly-drift"]')?.textContent==='❤️');
+ assert.deepEqual(writes.at(-1),{path:'/api/apps/firefly-drift/updates/'+game.update_id+'/reaction',body:{emoji:'❤️'}});
+ await page.locator('#feed').getByRole('img',{name:'Loved it × 2',exact:true}).waitFor();
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-update="firefly-drift-release-a"]')?.textContent==='❤️');
  assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await dialog.isHidden());
  assert.equal(await page.locator('#notice.visible').count(),0,'a successful retry clears the earlier error');
  assert(await page.locator('.update-confetti-piece').count()>0);
@@ -379,12 +389,12 @@ try {
  await page.screenshot({path:new URL('recent-reaction-confetti.png',out).pathname});
  await page.waitForFunction(()=>!document.querySelector('.update-confetti'));
  await update().click();await picker.getByRole('button',{name:'React: Nice!',exact:true}).focus();await page.keyboard.press('Enter');
- await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-game="firefly-drift"]')?.textContent==='👍');
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-update="firefly-drift-release-a"]')?.textContent==='👍');
  assert(await update().evaluate(e=>e===document.activeElement),'saving returns keyboard focus to the reaction button');
  await page.emulateMedia({reducedMotion:'reduce'});
  await update().click();await picker.getByRole('button',{name:'React: Fun together',exact:true}).click();
- await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-game="firefly-drift"] img')?.getAttribute('src')==='/assets/reactions/together.webp');
- assert.equal(game.reactions.find(r=>r.mine).emoji,'🤝');assert.equal(await page.locator('.update-confetti').count(),0);
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-update="firefly-drift-release-a"] img')?.getAttribute('src')==='/assets/reactions/together.webp');
+ assert.equal(game.update_reactions.mine,'🤝');assert.deepEqual(game.reactions.find(r=>r.mine),{...author,emoji:'⭐',text:'Edited in another tab',screenshot:'shot',updated:now,mine:true});assert.equal(await page.locator('.update-confetti').count(),0);
  for(const theme of ['nightglass','cartridge-club'])for(const width of [320,390,1500]){
   await page.setViewportSize({width,height:900});await page.evaluate(t=>InfuserThemes.select(t),theme);
   await update().click();
@@ -393,6 +403,12 @@ try {
   await page.screenshot({path:new URL('recent-picker-'+theme+'-'+width+'.png',out).pathname});
   await page.keyboard.press('Escape');
  }
+ // A publication arriving between opening the picker and submitting cannot inherit the vote.
+ await update().click();game.update_id='firefly-drift-release-b';game.update_reactions={mine:null,counts:{}};
+ await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
+ await page.getByText('A newer update is available.',{exact:true}).waitFor();await picker.waitFor({state:'hidden'});
+ assert.equal(game.update_reactions.mine,null);assert.equal(await page.locator('.update-confetti').count(),0);
+ await update().click();assert.equal(await picker.locator('[aria-pressed=true]').count(),0);await page.keyboard.press('Escape');
  await page.setViewportSize({width:390,height:844});
  await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
  // Unread Recently animates only the icon, clears on opening,

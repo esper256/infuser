@@ -455,6 +455,9 @@ form.admin-region-body { margin: 0; }
 .recent-panel .feed-row { align-items: center; padding: 13px; border-radius: 14px 14px 14px 5px; }
 .recent-panel .feed-row small { font-size: 13px; color: var(--ink); }
 .feed-entry { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.feed-update-counts { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; }
+.feed-update-counts > span { display: inline-flex; align-items: center; gap: 3px; color: var(--ink); font-size: 12px; }
+.feed-update-counts img { width: 18px; height: 18px; vertical-align: middle; }
 .feed-entry > .feed-row { flex: 1; min-width: 0; }
 .feed-entry:nth-child(3n+2) > .feed-row { background: #1b2831; border-color: #38474f; }
 .feed-react-toggle { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 5px; border: 1px solid var(--line); border-radius: 50%; background: var(--field); }
