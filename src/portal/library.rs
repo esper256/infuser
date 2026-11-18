@@ -128,11 +128,7 @@ impl View<'_> {
             }
         }
         let desktop = native::bundle(p, id, &app.build, build).ok().flatten();
-        let author = data.owners.get(id).and_then(|owner| {
-            data.members
-                .get(owner)
-                .map(|member| json!({"id":data.player_id(owner),"name":member.name,"avatar":member.avatar}))
-        });
+        let authors = authors::credits(data, id);
         let card_art_url = card_art::url(id, &app.build, build, data.metadata.get(id))
             .map(|url| {
                 if self.inspecting {
@@ -171,7 +167,8 @@ impl View<'_> {
             "title":metadata::title(data,id,&build.manifest.title),
             "orientation":build.manifest.orientation,
             "description":data.metadata.get(id).and_then(|m|m.description.as_deref()),
-            "author":author,
+            "author":authors.first(),
+            "authors":authors,
             "slug":data.game_urls.get(id).map(|u|&u.slug),
             "url":if runtime!=id {Some(format!("https://{}/library?app={id}",p.domain()))}else{data.game_urls.get(id).map(|u|format!("https://{}/games/{}",p.domain(),u.slug))},
             "card_art_pending":card_art_url.is_none() && metadata::art_pending(data,id),

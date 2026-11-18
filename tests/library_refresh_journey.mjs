@@ -23,6 +23,7 @@ try{
    healthRequests++;if(holdHealth){heldHealth.push(route);return;}
    return route.fulfill({json:{sessions:[]}});
   }
+  if(path==='/api/admin/game-authors')return route.fulfill({json:{games:[],members:[]}});
   if(path==='/api/admin/members')return route.fulfill({json:{members:{}}});
   if(path==='/api/admin/credentials')return route.fulfill({json:{credentials:[]}});
   if(path==='/api/chat')return route.fulfill({json:{messages}});
