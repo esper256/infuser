@@ -51,6 +51,14 @@ publishing, old SDKs, private groups, chat, metadata, saves, native handoff, pee
 signaling, and updater recovery. They do not need real Google accounts or the
 production server.
 
+Screenshot coverage: `cargo test --locked --test screenshots_journey` checks
+rotation, chat/reaction attachment access and visit boundaries.
+`node tests/screenshots_browser.mjs` uses the same `INFUSER_PLAYWRIGHT` and
+`INFUSER_CHROMIUM` overrides as the other browser journeys. It checks the real UI
+and WebP encoding, then real Chromium tab capture/cropping of a WebGL iframe.
+The test browser auto-approves its own fixture tab. Cancellation and unsupported
+capture use mocks. Manually choose the game tab to check the OS sharing picker.
+
 For the real private-group browser flow:
 
 ```sh

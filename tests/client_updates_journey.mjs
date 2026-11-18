@@ -20,6 +20,8 @@ try {
    ['Admin tools open','<dialog id="admin" open></dialog>',false,0],
    ['Game details open','<dialog open></dialog>',false,0],
    ['Chat draft','<textarea id="chat-text">Unfinished</textarea>',false,0],
+   ['Screenshot draft','<div class="screenshot-draft"></div>',false,0],
+   ['Cleared screenshot draft','<div class="screenshot-draft" hidden></div>',false,1],
    ['Launching','<div data-launching></div>',false,0],
    ['Sending chat','<div id="library-chat" data-sending></div>',false,0],
    ['Game open','',true,0],

@@ -35,7 +35,7 @@ impl Database {
         let access = channel
             .access(&data, email, inspecting, now())
             .ok_or_else(|| fault(403, "Group access denied."))?;
-        let mut statement = tx.prepare("SELECT id,author,text,created FROM library_chat WHERE channel_id=?2 AND text IS NOT NULL AND created>?1 AND id>?3 ORDER BY id")?;
+        let mut statement = tx.prepare("SELECT id,author,text,created,screenshot FROM library_chat WHERE channel_id=?2 AND text IS NOT NULL AND created>?1 AND id>?3 ORDER BY id")?;
         let rows = statement.query_map(
             params![
                 now().saturating_sub(RETENTION),
@@ -48,14 +48,15 @@ impl Database {
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
                     r.get::<_, u64>(3)?,
+                    r.get::<_, Option<String>>(4)?,
                 ))
             },
         )?;
         let mut messages = Vec::new();
         for row in rows {
-            let (id, author, text, created) = row?;
+            let (id, author, text, created, screenshot) = row?;
             if let Some(member) = data.members.get(&author).filter(|m| m.enabled) {
-                messages.push(json!({"id":id,"text":text,"created":created,
+                messages.push(json!({"id":id,"text":text,"created":created,"screenshot":screenshot,
                     "author":{"id":data.player_id(&author),"name":member.name,"avatar":member.avatar},
                     "can_delete":access.can_delete(email, &author)}));
             }
@@ -83,9 +84,19 @@ impl Database {
         client_id: &str,
         text: &str,
     ) -> Result<Value> {
+        self.chat_send_attachment(email, channel_id, client_id, text, None)
+    }
+    pub fn chat_send_attachment(
+        &self,
+        email: &str,
+        channel_id: &str,
+        client_id: &str,
+        text: &str,
+        screenshot: Option<&str>,
+    ) -> Result<Value> {
         let text = text.trim();
         ensure!(
-            !text.is_empty()
+            (!text.is_empty() || screenshot.is_some())
                 && text.chars().count() <= 280
                 && !text.chars().any(|c| c.is_control() && c != '\n'),
             fault(422, "Use 1–280 characters.")
@@ -111,15 +122,16 @@ impl Database {
             params![time.saturating_sub(RETENTION), channel.id],
         )?;
         // Retrying a lost response must not create a duplicate or resurrect a removed message.
-        if let Some((id, original, original_channel)) = tx
+        if let Some((id, original, original_channel, original_screenshot)) = tx
             .query_row(
-                "SELECT id,text,channel_id FROM library_chat WHERE author=?1 AND client_id=?2",
+                "SELECT id,text,channel_id,screenshot FROM library_chat WHERE author=?1 AND client_id=?2",
                 params![email, client_id],
                 |r| {
                     Ok((
                         r.get::<_, u64>(0)?,
                         r.get::<_, Option<String>>(1)?,
                         r.get::<_, String>(2)?,
+                        r.get::<_, Option<String>>(3)?,
                     ))
                 },
             )
@@ -128,7 +140,7 @@ impl Database {
             ensure!(
                 original_channel == channel.id
                     && access.sees(id)
-                    && original.as_deref().is_none_or(|s| s == text),
+                    && original.as_deref().is_none_or(|s| s == text && original_screenshot.as_deref()==screenshot),
                 fault(409, "Message ID already used.")
             );
             return Ok(json!({"id":id}));
@@ -142,9 +154,12 @@ impl Database {
             recent < 10,
             fault(429, "Give it a moment. Try again in a minute.")
         );
+        if let Some(id) = screenshot {
+            screenshots::owned(&tx, email, id)?;
+        }
         tx.execute(
-            "INSERT INTO library_chat(author,client_id,text,created,private_group,channel_id) VALUES(?1,?2,?3,?4,?5,?6)",
-            params![email, client_id, text, time, channel.legacy_group(), channel.id],
+            "INSERT INTO library_chat(author,client_id,text,created,private_group,channel_id,screenshot) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![email, client_id, text, time, channel.legacy_group(), channel.id, screenshot],
         )?;
         let id = tx.last_insert_rowid();
         crate::notifications::enqueue(&tx, &data, email, &channel, id, time)?;

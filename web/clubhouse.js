@@ -1,4 +1,5 @@
 import { initFeedback } from '/assets/feedback.js';
+import { screenshotTile, fillScreenshotPicker, attachmentDraft } from '/assets/screenshots.js';
 import { selectedVisit, visitHeaders, initVisits, updateVisit, returnHome } from '/assets/visits.js';
 import { setupPwa, clearNotifications } from '/assets/pwa.js';
 import { profileFetch, pinProfile, chooser } from '/assets/profiles.js';
@@ -417,6 +418,7 @@ function renderGameDetail(){
           finally{removingReaction=null;remove.disabled=false;renderGameDetail();if(deleted&&dialog.open&&detailGameId===game.id)$('game-feedback').focus({preventScroll:true});}
         };
       }
+      if(reaction.screenshot)bubble.append(screenshotTile({id:reaction.screenshot,api,context:{app:game.id}}));
       feedback.append(row);
     }
   }
@@ -732,9 +734,19 @@ function renderFeed() {
   if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,reactionFace(emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
+let reactionScreenshot=null;
+const reactionTabs=el('div',undefined,'attachment-tabs'),reactionEmojiTab=el('button','Emoji'),reactionShotTab=el('button','Screenshots'),reactionShots=el('div',undefined,'screenshot-picker'),reactionDraft=el('div',undefined,'screenshot-draft');
+reactionTabs.setAttribute('role','tablist');reactionTabs.setAttribute('aria-label','Reaction or screenshot');reactionShots.hidden=true;reactionDraft.hidden=true;$('emoji').before(reactionTabs);$('emoji').after(reactionShots,reactionDraft);
+reactionShots.id='reaction-screenshots';
+for(const [tab,target,label] of [[reactionEmojiTab,$('emoji'),'reaction-emoji-tab'],[reactionShotTab,reactionShots,'reaction-screenshot-tab']]){tab.type='button';tab.id=label;tab.setAttribute('role','tab');tab.setAttribute('aria-controls',target.id);target.setAttribute('aria-labelledby',label);reactionTabs.append(tab);}
+function attachReaction(id){reactionScreenshot=id;attachmentDraft(reactionDraft,id,api,()=>attachReaction(null));}
+function reactionTab(shots){$('emoji').hidden=shots;reactionShots.hidden=!shots;reactionEmojiTab.setAttribute('aria-selected',String(!shots));reactionShotTab.setAttribute('aria-selected',String(shots));reactionEmojiTab.tabIndex=shots?-1:0;reactionShotTab.tabIndex=shots?0:-1;if(shots)void fillScreenshotPicker(reactionShots,api,id=>{attachReaction(id);reactionTab(false);});}
+reactionEmojiTab.onclick=()=>reactionTab(false);reactionShotTab.onclick=()=>reactionTab(true);
+reactionTabs.onkeydown=event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?reactionEmojiTab:event.key==='End'?reactionShotTab:document.activeElement===reactionEmojiTab?reactionShotTab:reactionEmojiTab;next.click();next.focus();}};
 function openReaction(game,selectedEmoji){
   currentReaction=game;$('reaction-title').textContent=game.title;
   const mine=game.reactions.find(r=>r.mine),emoji=selectedEmoji||mine?.emoji;
+  reactionTab(false);attachReaction(mine?.screenshot||null);
   $('reaction-form').reset();$('reaction-comment').hidden=!emoji;
   if(emoji)$('reaction-form').elements.emoji.value=emoji;
   if(mine)$('reaction-form').elements.text.value=mine.text;
@@ -743,7 +755,7 @@ function openReaction(game,selectedEmoji){
   if(selectedEmoji){$('reaction-text').focus();reactionBurst(document.querySelector('#emoji input:checked+span'),selectedEmoji);}
 }
 $('close-reaction').onclick=()=>$('reaction-dialog').close();
-$('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text')})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
+$('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text'),screenshot:reactionScreenshot})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
 async function openAdmin(){
   refreshServerUpdates();

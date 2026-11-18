@@ -9,7 +9,27 @@ line. The arrow inside the message box also sends. Messages can contain up to
 Use the smiley beside the send arrow to pick emoji. Search matches parts of names
 and keywords (two or more characters); categories, skin tones and frequently used
 choices are also available. Selecting inserts at your cursor without sending.
-Escape closes the picker first. There are no attachments or links.
+Escape closes the picker first. The **Screenshots** tab attaches a saved game
+screenshot; selecting one does not send it. Add a message, or send the image on
+its own. Tap a thumbnail in chat to open the full image. Links remain plain text.
+
+## Game screenshots
+
+Use the camera beside **Fullscreen** in a web game's title bar. In the browser's
+sharing prompt, choose that game's tab. Infuser captures just the game area,
+stops sharing immediately, and saves a compressed image to your current profile.
+It does not record audio or post the image automatically. Capture currently needs
+a desktop browser with tab cropping, such as Chrome or Edge. Unsupported browsers
+show a message; you can still view and attach existing screenshots on your phone.
+
+Your latest **10 screenshots** appear in **Emoji → Screenshots** in chat and
+the reaction popup. Each new capture beyond ten removes the oldest image,
+including its attachments in past messages and reactions. Their text remains.
+Screenshots are private until you attach them. Attached images follow the same
+group and visit access rules as their message or reaction. Guest-mode captures
+belong to the signed-in profile; switching profiles gives you a separate collection.
+
+## Conversations
 
 During a visit, the host room also includes its selected visitors. The Library
 banner shows who is visiting. Visitors can read messages from their admission

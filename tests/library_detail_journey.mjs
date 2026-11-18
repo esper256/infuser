@@ -24,6 +24,8 @@ try {
   if(path==='/api/me')return route.fulfill({status:unauthorized?401:200,json:unauthorized?{error:'Sign in'}:me});
   if(path==='/api/library'){reads++;data={apps,friends:[author,friend],tags:tags.map(id=>({id,label:id==='3d'?'3D':id[0].toUpperCase()+id.slice(1),count:apps.filter(g=>g.tags.includes(id)).length}))};}
   else if(path==='/api/chat')data={messages:[]};
+  else if(path==='/api/screenshots')data={screenshots:[{id:'shot'}]};
+  else if(path==='/api/screenshots/shot')data={image:'data:image/webp;base64,'+(await readFile(new URL('assets/avatars/loot-raccoon-128.webp',root))).toString('base64')};
   else if(path==='/api/client-state')data={version:'review',game_open:false};
   else if(path==='/api/admin/members')data={members:{}};
   else if(path==='/api/admin/credentials')data={credentials:[]};
@@ -289,8 +291,16 @@ try {
  await dialog.locator('.creator').click();assert(await page.locator('#reaction-comment').isHidden());
  await page.getByRole('radio',{name:'Loved it',exact:true}).check();await page.locator('#reaction-text').fill('I liked the glowing trail!');
  assert.equal(await page.locator('.reaction-burst:popover-open').count(),1);
+ await page.locator('#reaction-dialog').getByRole('tab',{name:'Screenshots',exact:true}).click();
+ await page.locator('#reaction-screenshots img').waitFor();
+ await page.waitForFunction(()=>document.querySelector('#reaction-screenshots img')?.naturalWidth>0);
+ await page.locator('#reaction-screenshots .screenshot-tile').click();
+ assert(await page.getByRole('radio',{name:'Loved it',exact:true}).isChecked());
+ assert.equal(await page.locator('#reaction-text').inputValue(),'I liked the glowing trail!');
  await page.screenshot({path:new URL('reaction-composer-phone.png',out).pathname});
  await page.getByRole('button',{name:'Send reaction',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#reaction-dialog').open);await close();
+ assert.equal(game.reactions.find(r=>r.mine).screenshot,'shot');
+ await open();await dialog.locator('.screenshot-tile').click();await page.locator('.screenshot-viewer img').waitFor();await page.keyboard.press('Escape');assert(await dialog.isVisible());await close();
  assert.deepEqual(await page.evaluate(()=>[0,60,3600,7200,86400,-20].map(age=>testRecentAge(100000-age,100000))),['just now','a minute ago','an hour ago','2 hours ago','a day ago','just now']);
  // Unread Recently animates only the icon, clears on opening,
  // and retains a static highlight with reduced motion.

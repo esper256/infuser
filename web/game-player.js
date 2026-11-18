@@ -1,5 +1,7 @@
+import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
 function message(text){status.textContent=text;status.hidden=!text;}
+initScreenshotCapture({button:document.getElementById('screenshot'),viewport:document.getElementById('viewport'),message});
 button.addEventListener('click',async()=>{
   try{
     if(document.fullscreenElement)await document.exitFullscreen();
@@ -21,11 +23,11 @@ try{
   document.getElementById('guest').hidden=!session.guest;
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
-  game.addEventListener('load',()=>game.contentWindow.focus(),{once:true});
+  game.addEventListener('load',()=>{document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.src='/'+location.search;game.hidden=false;
   if(session.visit){
     let checked=performance.now(),checkedWall=Date.now(),ended=false,checking=false;
-    const end=()=>{if(ended)return;ended=true;game.removeAttribute('src');game.hidden=true;button.disabled=true;message('This visit has ended. Return to your Library.');};
+    const end=()=>{if(ended)return;ended=true;game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;message('This visit has ended. Return to your Library.');};
     const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)end();};
     async function check(){
       watch();if(ended||checking)return;checking=true;
