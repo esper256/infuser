@@ -14,7 +14,7 @@ const game={can_manage_visibility:true,can_moderate_reactions:true,id:'firefly-d
 const apps=[game,{...game,id:'nocomgame',title:'NoCOMgame',description:null,author:friend,card_art_url:null,tags:['3d','sandbox','action','survival','exploration'],reactions:[]},{...game,id:'event-horizon',title:'Event Horizon',author:friend,card_art_url:'/test-art/event',reactions:[]},{...game,id:'dodge',title:'Dodge the Creeps',author:null,preview:true,card_art_url:null,reactions:[]},{...game,id:'lantern',title:'Lantern Lake',author:null,preview:true,card_art_url:null,reactions:[]}];
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
-let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility;
+let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility,failAuthors=false;
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
@@ -27,6 +27,8 @@ try {
   else if(path==='/api/screenshots')data={screenshots:[{id:'shot'}]};
   else if(path==='/api/screenshots/shot')data={image:'data:image/webp;base64,'+(await readFile(new URL('assets/avatars/loot-raccoon-128.webp',root))).toString('base64')};
   else if(path==='/api/client-state')data={version:'review',game_open:false};
+  else if(path==='/api/admin/game-authors')data={games:apps.map(g=>({id:g.id,title:g.title,authors:g.authors??(g.author?[g.author]:[])})),members:[author,friend]};
+  else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:503,json:{error:'Please retry author credits.'}});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
   else if(path==='/api/admin/members')data={members:{}};
   else if(path==='/api/admin/credentials')data={credentials:[]};
   else if(path==='/api/admin/peer-health')data={sessions:[]};
@@ -66,6 +68,40 @@ try {
  async function close(){await page.locator('#close-game-detail').click();await page.waitForFunction(()=>!document.querySelector('#game-detail').open);}
  async function open(){await card().locator('.game-open').click();await dialog.waitFor();}
  async function popup(action){const opening=page.waitForEvent('popup');await action();const tab=await opening;await tab.waitForURL('**/game-fixture');await tab.close();}
+ // Admin credits reorder without granting ownership; compact portraits keep the dock size.
+ const originalCreator=await card().locator('.creator').boundingBox();
+ await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
+ const editor=page.locator('#game-authors');await editor.getByLabel('Game to credit').selectOption(game.id);
+ await editor.getByLabel('Author to add').selectOption(friend.id);await editor.getByRole('button',{name:'Add',exact:true}).click();
+ await editor.getByLabel('Move earlier '+friend.name,{exact:true}).click();
+ assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);
+ await page.evaluate(()=>refreshTestLibrary());assert.equal(await editor.locator('.author-person').count(),2,'polling preserves draft');
+ failAuthors=true;await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Please retry author credits.',{exact:true}).waitFor();
+ assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);failAuthors=false;
+ await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Authors saved.',{exact:true}).waitFor();
+ assert.deepEqual(writes.at(-1).body.authors,[friend.id,author.id]);
+ await page.locator('#close-admin').click();
+ assert.equal((await card().locator('.creator').boundingBox()).width,originalCreator.width);
+ assert.equal(await card().locator('.author-stack .avatar').count(),2);
+ await open();assert.deepEqual(await dialog.locator('.detail-authors strong').allTextContents(),[friend.name,author.name]);await close();
+ for(const width of [320,900]){
+   await page.setViewportSize({width,height:900});
+   for(const theme of ['nightglass','cartridge-club']){
+     await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);
+     await card().scrollIntoViewIfNeeded();await card().screenshot({path:new URL(`authors-${theme}-${width}-card.png`,out).pathname});
+     await open();assert.deepEqual(await dialog.locator('.detail-authors strong').allTextContents(),[friend.name,author.name]);
+     assert(await dialog.locator('.detail-authors').evaluate(e=>e.scrollWidth<=e.clientWidth+1));
+     await page.screenshot({path:new URL(`authors-${theme}-${width}-detail.png`,out).pathname});await close();
+   }
+ }
+ await page.setViewportSize({width:1500,height:1000});await page.evaluate(()=>{document.documentElement.dataset.theme='nightglass';});
+ // Search finds a secondary author, then return to the original fixture for existing journeys.
+ await page.locator('#game-search').fill(author.name);await page.keyboard.press('Escape');assert(await card().isVisible());await page.locator('#game-search').fill('');
+ await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
+ await editor.getByLabel('Game to credit').selectOption(game.id);
+ for(const width of [320,1500]){await page.setViewportSize({width,height:1000});assert(await editor.evaluate(e=>e.scrollWidth<=e.clientWidth+1));await page.screenshot({path:new URL(`authors-editor-${width}.png`,out).pathname});}
+ await editor.getByLabel('Remove '+friend.name,{exact:true}).click();await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Authors saved.',{exact:true}).waitFor();await page.locator('#close-admin').click();
+ delete game.authors;game.author=author;
  // Active player badges are separate from reactions and do not recreate covers.
  game.players=[{...author},{...author},{...friend},{...friend,guest:true,player_id:'guest-one'},{...friend,guest:true,player_id:'guest-two'},{id:'three',name:'Nova',avatar:'circuit-fox'},{id:'four',name:'Sky',avatar:'moss-knight'}];
  await page.evaluate(()=>refreshTestLibrary());
@@ -366,7 +402,7 @@ try {
    await trigger.click();
    assert(await menu.locator('.game-admin-items').evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;}));
    await page.screenshot({path:new URL(`${theme}-${width}-admin.png`,out).pathname});
-   await dialog.locator('.detail-creator p').click();assert.equal(await menu.evaluate(e=>e.open),false);
+   await dialog.locator('.detail-authors').click();assert.equal(await menu.evaluate(e=>e.open),false);
    await trigger.click();failVisibility=true;releaseVisibility=undefined;
    const action=menu.getByRole('button',{name:'Hide game',exact:true});
    const requested=page.waitForRequest(r=>r.url().endsWith('/visibility'));

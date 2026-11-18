@@ -798,3 +798,24 @@ button.feed-row:hover { border-color: var(--accent); }
 
 #chosen-reaction { width:56px; height:56px; padding:3px; font-size:36px; line-height:1; background:var(--surface); }
 #chosen-reaction span, #chosen-reaction img { display:block; max-width:100%; max-height:100%; object-fit:contain; }
+
+/* Credits occupy the same creator control footprint, regardless of team size. */
+.author-stack { position: relative; width: 36px; height: 36px; }
+.creator .author-stack .avatar { position: absolute; width: calc(40px - var(--author-count) * 6px); height: calc(40px - var(--author-count) * 6px); left: calc(var(--author-index) * 7px); top: calc(var(--author-index) * 4px); z-index: calc(3 - var(--author-index)); box-shadow: 0 0 0 2px var(--page,#101a20); }
+.author-overflow { position: absolute; z-index: 4; bottom: -3px; right: -4px; border-radius: 12px; padding: 1px 3px; background: var(--page,#101a20); color: var(--ink); font-size: 9px; line-height: 1.3; }
+.detail-creator { align-items: flex-start; }
+.detail-authors { display: flex; flex-wrap: wrap; gap: 16px 24px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.detail-authors li,.author-person { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.detail-authors .avatar,.author-person .avatar { flex: none; }
+.author-editor { display: grid; gap: 14px; max-width: 640px; }
+.author-editor label { display: grid; gap: 6px; min-width: 0; }
+.author-editor select { width: 100%; min-width: 0; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); font-size: 16px; }
+.author-editor > button { justify-self: start; }
+.author-order { display: grid; gap: 10px; margin: 0; padding: 0; }
+.author-order li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.author-order .author-person { flex: 1; min-width: min(100%,160px); }
+.author-actions { display: flex; flex: none; gap: 4px; margin-left: auto; }
+.author-actions button { min-width: 36px; min-height: 40px; padding: 6px; }
+.author-add { display: flex; align-items: end; gap: 10px; }
+.author-add label { flex: 1; }
+.author-status { min-height: 1.5em; margin: 0; }

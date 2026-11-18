@@ -232,7 +232,7 @@ function renderGames() {
   }
   if(!library.apps.length)nextCards.push(emptyState('No games yet','Add a game to get started.'));
   const query=$('game-search').value.trim().toLowerCase();
-  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?g.author?.id===selectedAuthor:!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?gameAuthors(g).some(author=>author.id===selectedAuthor):!query||(g.title+' '+authorNames(g)+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   // Stable sort keeps equal timestamps in catalog order across refreshes.
   matching.sort((a,b)=>(b.updated||0)-(a.updated||0));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
@@ -335,11 +335,20 @@ function gameAdminActions(game){
   };
   items.append(visibility,error);menu.append(trigger,items);return menu;
 }
-function creatorButton(game){
-    const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
+function gameAuthors(game){return game.authors??(game.author?[game.author]:[]);}
+function authorNames(game){return gameAuthors(game).map(author=>author.name).join(', ');}
+
+function creatorButton(game,authors=gameAuthors(game)){
+    const names=authorNames(game),label=names?'React to '+names+'’s game':'React to '+game.title;
     const react=el('button',undefined,'creator react-button');react.type='button';react.setAttribute('aria-label',label);react.setAttribute('aria-haspopup','dialog');
-    const avatar=profileAvatar(game.author?.name,game.author?.id||game.id,game.author?.avatar),hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
-    react.disabled=!!me.inspecting;react.append(avatar,hint);react.onclick=()=>openReaction(game);return react;
+    const hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
+    if(authors.length>1){
+      const stack=el('span',undefined,'author-stack');stack.setAttribute('aria-hidden','true');stack.style.setProperty('--author-count',Math.min(authors.length,3));
+      for(const [index,author] of authors.slice(0,3).entries()){const avatar=profileAvatar(author.name,author.id,author.avatar);avatar.style.setProperty('--author-index',index);stack.append(avatar);}
+      if(authors.length>3)stack.append(el('span','+'+(authors.length-3),'author-overflow'));
+      react.append(stack);
+    }else react.append(profileAvatar(authors[0]?.name,authors[0]?.id||game.id,authors[0]?.avatar));
+    react.disabled=!!me.inspecting;react.append(hint);react.onclick=()=>openReaction(game);return react;
 }
 function reactionKey(reaction){return JSON.stringify([reaction.id||reaction.name,reaction.updated,reaction.emoji]);}
 function openGameDetail(game,reaction){
@@ -375,8 +384,10 @@ function renderGameDetail(){
   if(game.can_manage_visibility&&me.admin&&!me.inspecting)headingRow.append(gameAdminActions(game));
   info.append(headingRow);
   if(game.preview)info.append(el('p','Hidden','game-visibility'));
-  const creator=el('div',undefined,'detail-creator'),react=creatorButton(game);
-  creator.append(react);if(game.author?.name){const by=el('p','by ');by.append(el('strong',game.author.name));creator.append(by);}info.append(creator);
+  const creator=el('div',undefined,'detail-creator');
+  const credits=el('ol',undefined,'detail-authors');credits.setAttribute('aria-label','Game authors');
+  for(const author of gameAuthors(game)){const credit=el('li');credit.append(creatorButton(game,[author]),el('strong',author.name));credits.append(credit);}
+  if(credits.childElementCount)creator.append(credits);else creator.append(creatorButton(game));info.append(creator);
   const tags=el('div',undefined,'detail-tags');tags.setAttribute('aria-label','Game categories');
   for(const tag of game.tags||[]){const button=el('button',tagLabel(tag),'tag-chip');button.type='button';button.onclick=()=>{detailReturnFocus=$('game-search');dialog.close();activeTag=tag;renderFilters();renderGames();$('game-search').focus();};tags.append(button);}
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags','text-button');edit.type='button';edit.onclick=()=>openTags(game);tags.append(edit);}if(tags.childElementCount)info.append(tags);
@@ -804,10 +815,63 @@ function openReaction(game, selectedEmoji) {
 $('close-reaction').onclick=()=>$('reaction-dialog').close();
 $('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text'),screenshot:reactionScreenshot})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
+async function loadAuthorTools(){
+  if(!me.admin||me.inspecting||$('game-authors')?.dataset.dirty==='true')return;
+  const data=await api('/api/admin/game-authors');
+  if(!$('admin').open||$('game-authors')?.dataset.dirty==='true')return;
+  let section=$('game-authors');
+  if(!section){section=el('section');section.id='game-authors';$('admin-controls').prepend(section);}
+  const previous=section.querySelector('select')?.value;
+  section.replaceChildren(el('h2','Game authors'),el('p','Credit collaborators in the order you choose. Publishing access stays the same.','quiet'));
+  const form=el('form',undefined,'author-editor'),gameLabel=el('label','Game'),gameSelect=el('select'),list=el('ol',undefined,'author-order'),addLabel=el('label','Add author'),candidate=el('select'),add=el('button','Add','secondary'),save=el('button','Save authors'),status=el('p',undefined,'author-status');
+  gameSelect.setAttribute('aria-label','Game to credit');candidate.setAttribute('aria-label','Author to add');list.setAttribute('aria-label','Authors in credit order');status.setAttribute('role','status');
+  add.type='button';save.type='submit';
+  for(const game of data.games){const option=el('option',game.title);option.value=game.id;gameSelect.append(option);}
+  if(data.games.some(game=>game.id===previous))gameSelect.value=previous;
+  let draft=[],saving=false;
+  const dirty=()=>{section.dataset.dirty='true';status.textContent='Unsaved changes';};
+  const draw=focus=>{
+    list.replaceChildren();
+    draft.forEach((author,index)=>{
+      const row=el('li'),person=el('span',undefined,'author-person'),actions=el('span',undefined,'author-actions');
+      person.append(profileAvatar(author.name,author.id,author.avatar),el('span',author.name));
+      for(const [label,delta] of [['Move earlier',-1],['Move later',1],['Remove',0]]){
+        const button=el('button',delta<0?'↑':delta>0?'↓':'×','secondary');button.type='button';button.dataset.action=label;button.dataset.author=author.id;button.setAttribute('aria-label',label+' '+author.name);
+        button.disabled=saving||(delta!==0&&(index+delta<0||index+delta>=draft.length));
+        button.onclick=()=>{if(delta)[draft[index],draft[index+delta]]=[draft[index+delta],draft[index]];else draft.splice(index,1);dirty();draw({id:author.id,action:label});};
+        actions.append(button);
+      }
+      row.append(person,actions);list.append(row);
+    });
+    const selected=candidate.value;candidate.replaceChildren();
+    const available=data.members.filter(member=>!draft.some(author=>author.id===member.id));
+    for(const member of available){const option=el('option',member.name);option.value=member.id;candidate.append(option);}
+    if([...candidate.options].some(option=>option.value===selected))candidate.value=selected;
+    if(!available.length)candidate.append(el('option',data.members.length?'All credited':'No profiles available'));
+    candidate.disabled=saving||!available.length;add.disabled=candidate.disabled;
+    gameSelect.disabled=saving||!data.games.length;save.disabled=saving||!draft.length||section.dataset.dirty!=='true';
+    if(focus){const target=[...list.querySelectorAll('button')].find(button=>button.dataset.author===focus.id&&button.dataset.action===focus.action&&!button.disabled);(target||list.querySelector('button:not(:disabled)')||candidate).focus({preventScroll:true});}
+  };
+  const selectGame=()=>{draft=[...(data.games.find(game=>game.id===gameSelect.value)?.authors||[])];section.dataset.dirty='false';status.textContent=data.games.length?'':'No uploaded games yet.';draw();};
+  gameSelect.onchange=selectGame;
+  add.onclick=()=>{const member=data.members.find(member=>member.id===candidate.value);if(member){draft.push(member);dirty();draw();}};
+  form.onsubmit=async event=>{
+    event.preventDefault();if(saving||!draft.length)return;
+    const id=gameSelect.value;saving=true;draw();status.textContent='Saving…';
+    try{
+      const result=await api('/api/admin/apps/'+encodeURIComponent(id)+'/authors',{method:'PUT',body:JSON.stringify({authors:draft.map(author=>author.id)})});
+      data.games.find(game=>game.id===id).authors=result.authors;draft=result.authors;section.dataset.dirty='false';status.textContent='Authors saved.';
+      await refresh();
+    }catch(error){status.textContent=error.message;}
+    finally{saving=false;draw();}
+  };
+  gameLabel.append(gameSelect);addLabel.append(candidate);const addRow=el('div',undefined,'author-add');addRow.append(addLabel,add);form.append(gameLabel,list,addRow,save,status);section.append(form);selectGame();
+}
+
 async function openAdmin(){
   refreshServerUpdates();
   if(!me?.admin&&!me?.operator)return;
-  $('admin').showModal();refreshNetworkHealth();
+  $('admin').showModal();refreshNetworkHealth();loadAuthorTools().catch(showError);
   if(!me.admin||adminLoaded||adminLoading)return;
   adminLoading=true;$('admin-status').textContent='Loading admin tools…';
   try{
@@ -983,7 +1047,7 @@ $('profile-form').onsubmit=async event=>{
   try{
     const saved=await api('/api/profile',{method:'PUT',body:JSON.stringify({avatar})});
     me.avatar=saved.avatar;me.avatar_prompt_seen=true;renderAccount();
-    if(library){for(const game of library.apps)if(game.author?.id===me.player_id)game.author.avatar=me.avatar;for(const person of library.friends||[])if(person.id===me.player_id)person.avatar=me.avatar;renderGames();renderPresence();renderGameDetail();}
+    if(library){for(const game of library.apps){for(const author of gameAuthors(game))if(author.id===me.player_id)author.avatar=me.avatar;if(game.author?.id===me.player_id)game.author.avatar=me.avatar;}for(const person of library.friends||[])if(person.id===me.player_id)person.avatar=me.avatar;renderGames();renderPresence();renderGameDetail();}
     $('profile-dialog').close();notice('Profile picture saved.');
   }catch(error){$('profile-error').textContent=error.message;}
   finally{$('save-profile').disabled=false;$('save-profile').textContent='Save';$('close-profile').disabled=false;$('profile-choices').disabled=false;}
@@ -1104,12 +1168,12 @@ function renderSearchOptions(){
   const input=$('game-search'),panel=$('search-options'),query=input.value.trim().toLowerCase();
   const previous=searchChoices[searchActive]?.key,authors=new Map();
   for(const game of library.apps){
-    if(game.author?.id&&game.author.name&&!authors.has(game.author.id))authors.set(game.author.id,game.author);
+    for(const author of gameAuthors(game))if(author.id&&author.name&&!authors.has(author.id))authors.set(author.id,author);
   }
   const people=[...authors.values()].filter(p=>!query||p.name.toLowerCase().includes(query));
   searchChoices=people.slice(0,query?4:2).map(person=>({kind:'gamer',person,key:'gamer:'+person.id}));
   if(query)searchChoices.push(...library.apps.filter(g=>g.title.toLowerCase().includes(query)).slice(0,6).map(game=>({kind:'game',game,key:'game:'+game.id})));
-  const signature=JSON.stringify(searchChoices.map(choice=>choice.kind==='gamer'?[choice.key,choice.person]:[choice.key,choice.game.title,choice.game.author?.name]));
+  const signature=JSON.stringify(searchChoices.map(choice=>choice.kind==='gamer'?[choice.key,choice.person]:[choice.key,choice.game.title,authorNames(choice.game)]));
   if(!panel.hidden&&signature===searchSignature)return;searchSignature=signature;
   panel.replaceChildren();
   for(const [i,choice] of searchChoices.entries()){
@@ -1120,7 +1184,7 @@ function renderSearchOptions(){
       text.append(el('strong',choice.person.name),el('small','Gamer · View games'));
     }else{
       const mark=el('span','▸','search-game-mark');mark.setAttribute('aria-hidden','true');row.append(mark);
-      text.append(el('strong',choice.game.title),el('small','Game'+(choice.game.author?.name?' · '+choice.game.author.name:'')));
+      text.append(el('strong',choice.game.title),el('small','Game'+(authorNames(choice.game)?' · '+authorNames(choice.game):'')));
     }
     row.append(text);row.onmousedown=event=>event.preventDefault();row.onclick=()=>chooseSearchOption(searchChoices.find(current=>current.key===choice.key));panel.append(row);
   }

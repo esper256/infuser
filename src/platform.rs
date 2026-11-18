@@ -134,6 +134,9 @@ pub struct Data {
     pub setup_claims: BTreeMap<String, SetupClaim>,
     #[serde(default)]
     pub owners: BTreeMap<String, String>,
+    // Ordered display credits only; never grants publishing or ownership rights.
+    #[serde(default)]
+    pub author_credits: BTreeMap<String, Vec<String>>,
     // The renamed catalog field deliberately makes pre-genesis binaries refuse
     // this state rather than interpret profiles as login email identities.
     #[serde(rename = "profiles", alias = "members")]

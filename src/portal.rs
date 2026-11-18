@@ -31,6 +31,7 @@ use std::{
 };
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
+mod authors;
 mod avatars;
 mod capture;
 mod card_art;
@@ -608,6 +609,8 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/apps/{app}/reactions/{player}", delete(remove_game_reaction))
+        .route("/api/admin/game-authors", get(authors::inventory))
+        .route("/api/admin/apps/{app}/authors", put(authors::set).layer(DefaultBodyLimit::max(16384)))
         .route("/api/admin/members", get(members).post(invite))
         .route("/api/admin/members/handle", put(rename_member).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/apps/{app}/visibility", put(set_visibility).layer(DefaultBodyLimit::max(1024)))
