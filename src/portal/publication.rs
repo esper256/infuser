@@ -569,6 +569,7 @@ impl Platform {
             d.apps.insert(
                 app.into(),
                 App {
+                    publication: Some(secret()),
                     build: build.into(),
                     updated: now(),
                     listed: listed && !d.admin_hidden_apps.contains(app),

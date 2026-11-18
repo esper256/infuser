@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
         d.apps.insert(
             "peerjs-fixture".into(),
             App {
+                publication: None,
                 build: "test".into(),
                 listed: false,
                 updated: now(),
