@@ -280,10 +280,30 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
     assert!(!content.join(&first).join("Library").exists());
     assert!(!content.join(&first).join("ProjectSettings").exists());
     std::fs::write(export.join("assets/level one@2.js"), b"second version")?;
+    let settings_path = project.join("infuser.game.json");
+    let mut settings: Value = serde_json::from_slice(&std::fs::read(&settings_path)?)?;
+    settings["orientation"] = json!("diagonal");
+    std::fs::write(&settings_path, serde_json::to_vec(&settings)?)?;
+    assert!(!cli(root, &publish, None).await?.status.success());
+    settings["orientation"] = json!("portrait");
+    std::fs::write(&settings_path, serde_json::to_vec(&settings)?)?;
     succeeded(cli(root, &publish, None).await?)?;
     let data = db.read()?;
     let second = data.apps["existing-game"].build.clone();
     assert_ne!(first, second);
+    use infuser::manifest::Orientation;
+    assert_eq!(
+        data.builds[&format!("existing-game/{first}")]
+            .manifest
+            .orientation,
+        Orientation::Landscape
+    );
+    assert_eq!(
+        data.builds[&format!("existing-game/{second}")]
+            .manifest
+            .orientation,
+        Orientation::Portrait
+    );
     assert_eq!(data.apps.len(), 1);
     assert_eq!(data.credentials.len(), 1);
     assert_eq!(data.builds.len(), 2);

@@ -8,6 +8,8 @@ pub struct Manifest {
     pub schema_version: u32,
     pub app_id: String,
     pub title: String,
+    #[serde(default)]
+    pub orientation: Orientation,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sdk: Option<crate::sdk_contract::Requirement>,
     #[serde(default)]
@@ -94,6 +96,14 @@ pub struct Multiplayer {
 #[serde(rename_all = "snake_case")]
 pub enum PeerAdapter {
     Peerjs,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Orientation {
+    #[default]
+    Landscape,
+    Portrait,
 }
 
 impl Manifest {

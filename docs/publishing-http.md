@@ -84,6 +84,9 @@ Use the project's existing build command. Work from its **complete exported web
 directory**, never the repository root by accident. For a plain HTML game, stage
 only runtime files in a separate export directory. Preserve the game's name.
 
+When capabilities list `game_metadata.orientations`, include the game’s intended
+`portrait` or `landscape` layout in the build manifest. Omission defaults to landscape.
+
 Prepare `.local/build.json` with the actual game's manifest. Minimal single-player
 web example (replace APP and title, add real tags and feature declarations):
 
@@ -93,6 +96,7 @@ web example (replace APP and title, add real tags and feature declarations):
     "schema_version": 1,
     "app_id": "APP",
     "title": "The Game's Existing Name",
+    "orientation": "landscape",
     "play_modes": ["solo"],
     "solo_runtime": "client_only",
     "sdk": {"major": 1, "api_major": 1, "required_capabilities": ["identity.v1"]}

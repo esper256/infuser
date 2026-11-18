@@ -8,6 +8,13 @@ for `game_metadata.version: 1`; descriptions additionally require
 `game_metadata.description_max_chars`. Art requests require
 `game_metadata.art_prompt_max_chars`.
 
+The metadata response also includes the active build’s `orientation`. To change
+it, set `orientation` to `landscape` or `portrait` in `infuser.game.json` and
+publish the build. Existing games default to landscape. On phones already held the right way, Infuser requests the lock on launch.
+Otherwise, the first turn into the game’s orientation requests fullscreen and
+locks rotation where supported. If the browser requires a tap, use **Fullscreen**.
+After you exit fullscreen, turning the phone again leaves it windowed.
+
 ## Endpoints
 
 Authenticate with the connection's bearer token, scoped to its `app_id`.

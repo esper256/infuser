@@ -169,6 +169,7 @@ impl View<'_> {
             "borrowed":runtime!=id,
             "play_unavailable":if runtime!=id || data.groups.member(self.email)!=self.group {build.visit_unavailable()}else{None},
             "title":metadata::title(data,id,&build.manifest.title),
+            "orientation":build.manifest.orientation,
             "description":data.metadata.get(id).and_then(|m|m.description.as_deref()),
             "author":author,
             "slug":data.game_urls.get(id).map(|u|&u.slug),

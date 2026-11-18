@@ -190,6 +190,12 @@ pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
         data.game_urls
             .insert(app, serde_json::from_str(&declaration)?);
     }
+    let mut portraits = c.prepare("SELECT build_key FROM portrait_builds")?;
+    for key in portraits.query_map([], |row| row.get::<_, String>(0))? {
+        if let Some(build) = data.builds.get_mut(&key?) {
+            build.manifest.orientation = crate::manifest::Orientation::Portrait;
+        }
+    }
     let mut statement = c.prepare("SELECT build_key,declaration FROM sdk_manifests")?;
     for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
         let (key, declaration) = row?;
@@ -263,12 +269,18 @@ fn encode_catalog(tx: &Transaction<'_>, data: &mut Data) -> Result<String> {
     for (app, url) in &data.game_urls {
         tx.execute("INSERT INTO game_urls(app,declaration) VALUES(?1,?2) ON CONFLICT(app) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration",params![app,serde_json::to_string(url)?])?;
     }
+    // Keep the strict legacy manifest readable by rollback binaries. Only
+    // portrait builds need a record because landscape is the original layout.
+    let mut portraits = Vec::new();
     for (key, build) in &data.builds {
+        if build.manifest.orientation == crate::manifest::Orientation::Portrait {
+            portraits.push(key);
+        }
         if build.manifest.sessions.is_some() || build.manifest.server_connection.is_some() {
             let declaration = serde_json::json!({"sessions":build.manifest.sessions,"server_connection":build.manifest.server_connection});
             tx.execute("INSERT INTO dedicated_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration", params![key, declaration.to_string()])?;
         }
-        for field in ["sessions", "server_connection"] {
+        for field in ["sessions", "server_connection", "orientation"] {
             value["builds"][key]["manifest"]
                 .as_object_mut()
                 .unwrap()
@@ -303,6 +315,15 @@ fn encode_catalog(tx: &Transaction<'_>, data: &mut Data) -> Result<String> {
             .unwrap()
             .remove("cloud_saves");
     }
+    let portraits = serde_json::to_string(&portraits)?;
+    tx.execute(
+        "DELETE FROM portrait_builds WHERE build_key NOT IN (SELECT value FROM json_each(?1))",
+        [&portraits],
+    )?;
+    tx.execute(
+        "INSERT OR IGNORE INTO portrait_builds SELECT value FROM json_each(?1)",
+        [&portraits],
+    )?;
     let keys = {
         let mut stmt = tx.prepare("SELECT build_key FROM runtime_manifests")?;
         stmt.query_map([], |r| r.get::<_, String>(0))?
@@ -382,7 +403,8 @@ impl Database {
         channels::initialize(&mut c)?;
         screenshots::initialize(&c)?;
         crate::notifications::initialize(&c)?;
-        c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
+        c.execute_batch("CREATE TABLE IF NOT EXISTS portrait_builds(build_key TEXT PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS server_builds(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;

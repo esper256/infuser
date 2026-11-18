@@ -148,6 +148,9 @@ conflicts without discarding either version. For related JSON or binary files, u
 never import or overwrite the owner's progress. Infuser supplies the isolated
 identity and storage; the game must use them.
 
+For every web game, set `orientation` in `infuser.game.json` to `landscape` or
+`portrait` according to its intended phone layout. The publisher sends it with each build.
+
 Choose up to eight initial tags from the prompt or `GET /api/publisher/tags` and
 put them in `infuser.game.json`. Later publications preserve author tag edits.
 
