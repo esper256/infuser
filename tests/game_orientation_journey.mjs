@@ -43,6 +43,7 @@ try {
     });
     await page.goto('https://game.test/_infuser/play');
     await page.waitForFunction(() => !document.querySelector('#screenshot').disabled);
+    assert((await page.locator('#game').boundingBox()).y > 0, 'windowed game starts below header');
     const expected = orientation || 'landscape';
     const mismatched = start !== expected;
     assert.deepEqual(await page.evaluate(() => locks), mobile && !mismatched ? [expected] : []);
@@ -59,13 +60,46 @@ try {
     await page.waitForFunction(() => document.querySelector('#fullscreen').ariaLabel === 'Exit fullscreen');
     assert.deepEqual(await page.evaluate(() => locks), mobile ? (
       mismatched && !denyTurn ? [expected] : [expected,expected]) : []);
+    const gameBounds = () => page.locator('#game').boundingBox();
+    const viewport = await page.evaluate(() => ({x:0,y:0,width:innerWidth,height:innerHeight}));
+    assert.deepEqual(await gameBounds(), viewport);
+    assert(await page.locator('#player-header').evaluate(header => header.inert));
+    if (mobile) {
+      const touch = await page.context().newCDPSession(page);
+      async function swipeDown(startY, endY) {
+        const points = y => [{x:120,y}];
+        await touch.send('Input.dispatchTouchEvent', {type:'touchStart',touchPoints:points(startY)});
+        await touch.send('Input.dispatchTouchEvent', {type:'touchMove',touchPoints:points(endY)});
+        await touch.send('Input.dispatchTouchEvent', {type:'touchEnd',touchPoints:[]});
+      }
+      await swipeDown(80,140);
+      assert(await page.locator('#player-header').evaluate(header => header.inert), 'game gestures leave header closed');
+      await swipeDown(8,80);
+      await page.waitForSelector('#player-header[data-open]');
+      if (!orientation) {
+        await page.waitForFunction(() => document.querySelector('#player-header').inert);
+        await swipeDown(8,80);
+      }
+    } else {
+      await page.mouse.move(120,8);
+      await page.waitForSelector('#player-header[data-open]');
+      await page.mouse.move(120,180);
+      await page.waitForFunction(() => document.querySelector('#player-header').inert);
+      await page.locator('#controls-edge').focus();
+      await page.keyboard.press('Enter');
+      assert(await page.locator('#library').evaluate(link => link === document.activeElement));
+    }
+    await page.waitForSelector('#player-header[data-open]');
+    assert.deepEqual(await gameBounds(), viewport, 'opening controls does not resize game');
     await page.locator('#fullscreen').click();
     await page.waitForFunction(() => document.querySelector('#fullscreen').ariaLabel === 'Enter fullscreen');
     if (mobile) assert.equal(await page.evaluate(() => locks.at(-1)), 'released');
+    assert((await gameBounds()).y > 0);
+    assert(await page.locator('#controls-edge').isHidden());
     const count = await page.evaluate(() => attempts);
     await page.evaluate(dir => {window.turn(dir==='portrait'?'landscape':'portrait');window.turn(dir);}, expected);
     assert.equal(await page.evaluate(() => attempts), count, 'rotating after exit does not reopen fullscreen');
     await page.close();
   }
-  console.log('PASS: legacy landscape, declared portrait, desktop, both rotation directions, fullscreen-on-turn, tap fallback and exit.');
+  console.log('PASS: legacy landscape, declared portrait, desktop, both rotation directions, fullscreen-on-turn, tap fallback, edge swipes, mouse and keyboard controls, full-size iframe, auto-hide and exit.');
 } finally { await browser.close(); }

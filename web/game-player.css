@@ -3,3 +3,25 @@
 #screenshot{display:flex;align-items:center;gap:6px}#screenshot svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round}button:disabled{opacity:.5;cursor:wait}@media(max-width:600px){#screenshot span{display:none}}
 
 #rotate-hint { margin:0; padding:0 12px 6px; color:#b3bfcd; font-size:12px; }
+
+/* The overlay never participates in the fullscreen game's layout. */
+:root:fullscreen body { display:block; }
+:root:fullscreen #viewport { position:absolute; inset:0; }
+:root:fullscreen #player-header {
+  position:absolute; inset:0 0 auto; z-index:2;
+  transform:translateY(-100%); visibility:hidden;
+  transition:transform 180ms ease-out, visibility 0s linear 180ms;
+}
+:root:fullscreen #player-header[data-open] {
+  transform:translateY(0); visibility:visible; transition-delay:0s;
+}
+#controls-edge {
+  position:absolute; inset:0 0 auto; z-index:1; height:18px; width:100%;
+  padding:0; border:0; border-radius:0; background:transparent; touch-action:none;
+}
+#controls-edge:focus-visible { outline-offset:-2px; background:#111922; }
+#controls-edge:focus-visible::after { content:"Show game controls"; }
+:root:fullscreen body:has(#screenshot[aria-busy]) #player-header {
+  visibility:hidden; transform:translateY(-100%); transition:none;
+}
+@media (prefers-reduced-motion:reduce) { :root:fullscreen #player-header { transition:none; } }
