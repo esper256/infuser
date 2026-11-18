@@ -22,6 +22,8 @@ try {
     await route.fulfill(response);
   });
   page=await context.newPage();page.setDefaultTimeout(10000);page.on('console',m=>{if(m.type()==='error')console.error('Browser console:',m.text());});page.on('pageerror',error=>errors.push(error.message));
+  // Fresh fixture profiles may show the optional avatar chooser on sign-in.
+  await page.addLocatorHandler(page.locator('#profile-dialog[open]'),()=>page.locator('#close-profile').click());
   await page.goto('https://games.example.com/library');
   await page.locator('#games .game').waitFor();
   assert.equal(await page.locator('#games .game').count(),1);
@@ -78,6 +80,7 @@ try {
   await page.reload();await page.locator('#open-admin').waitFor({state:'attached'});
   assert.equal(await page.locator('#operator-groups').count(),0);
   await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
+  await page.locator('#admin summary').filter({hasText:'Invite a player'}).click();
   await page.locator('#invite-form').waitFor();
   // The modal stays nearly full-screen, with an always-reachable close button.
   for(const theme of ['nightglass','cartridge-club'])for(const width of [1280,390,320]){

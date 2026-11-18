@@ -815,14 +815,18 @@ function openReaction(game, selectedEmoji) {
 $('close-reaction').onclick=()=>$('reaction-dialog').close();
 $('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text'),screenshot:reactionScreenshot})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
+function adminRegion(title,body){
+  const region=el('details',undefined,'admin-region');
+  body.classList.add('admin-region-body');region.append(el('summary',title),body);return region;
+}
 async function loadAuthorTools(){
   if(!me.admin||me.inspecting||$('game-authors')?.dataset.dirty==='true')return;
   const data=await api('/api/admin/game-authors');
   if(!$('admin').open||$('game-authors')?.dataset.dirty==='true')return;
   let section=$('game-authors');
-  if(!section){section=el('section');section.id='game-authors';$('admin-controls').prepend(section);}
+  if(!section){section=el('section');section.id='game-authors';$('admin-controls').prepend(adminRegion('Game authors',section));}
   const previous=section.querySelector('select')?.value;
-  section.replaceChildren(el('h2','Game authors'),el('p','Credit collaborators in the order you choose. Publishing access stays the same.','quiet'));
+  section.replaceChildren(el('p','Credit collaborators in the order you choose. Publishing access stays the same.','quiet'));
   const form=el('form',undefined,'author-editor'),gameLabel=el('label','Game'),gameSelect=el('select'),list=el('ol',undefined,'author-order'),addLabel=el('label','Add author'),candidate=el('select'),add=el('button','Add','secondary'),save=el('button','Save authors'),status=el('p',undefined,'author-status');
   gameSelect.setAttribute('aria-label','Game to credit');candidate.setAttribute('aria-label','Author to add');list.setAttribute('aria-label','Authors in credit order');status.setAttribute('role','status');
   add.type='button';save.type='submit';
@@ -1230,10 +1234,15 @@ function reactionBurst(target,emoji){
 }
 async function refreshNetworkHealth(){
   if(networkHealthBusy||document.hidden||!me?.admin||!$('admin').open)return;
+  let box=$('network-health');if(!box){
+    box=el('section');box.id='network-health';
+    const region=adminRegion('Network diagnostics',box);region.addEventListener('toggle',()=>{if(region.open)refreshNetworkHealth();});
+    $('admin').querySelector('.admin-panel').append(region);
+  }
+  if(!box.parentElement.open)return;
   networkHealthBusy=true;
-  let box=$('network-health');if(!box){box=el('section');box.id='network-health';$('admin').querySelector('.admin-panel').append(box);}
   try{
-    const data=await api('/api/admin/peer-health',{signal:AbortSignal.timeout(12000)});box.replaceChildren(el('h3','Network diagnostics'));
+    const data=await api('/api/admin/peer-health',{signal:AbortSignal.timeout(12000)});box.replaceChildren();
     if(!data.sessions.length){box.append(el('p','No active peer sessions.','quiet'));return;}
     const milliseconds=value=>typeof value==='number'&&Number.isFinite(value)?Math.round(value)+' ms':'measuring';
     for(const session of data.sessions){
@@ -1246,7 +1255,7 @@ async function refreshNetworkHealth(){
       }
     }
     box.append(el('p','Browser-reported network round trips. Rendering and game simulation can add delay.','quiet'));
-  }catch{box.replaceChildren(el('h3','Network diagnostics'),el('p','Diagnostics unavailable. Games can keep running.','quiet'));}
+  }catch{box.replaceChildren(el('p','Diagnostics unavailable. Games can keep running.','quiet'));}
   finally{networkHealthBusy=false;}
 }
 setInterval(refreshNetworkHealth,5000);

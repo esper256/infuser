@@ -71,7 +71,7 @@ try {
  // Admin credits reorder without granting ownership; compact portraits keep the dock size.
  const originalCreator=await card().locator('.creator').boundingBox();
  await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
- const editor=page.locator('#game-authors');await editor.getByLabel('Game to credit').selectOption(game.id);
+ const editor=page.locator('#game-authors');await page.locator('#admin summary').filter({hasText:'Game authors'}).click();await editor.getByLabel('Game to credit').selectOption(game.id);
  await editor.getByLabel('Author to add').selectOption(friend.id);await editor.getByRole('button',{name:'Add',exact:true}).click();
  await editor.getByLabel('Move earlier '+friend.name,{exact:true}).click();
  assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);
@@ -83,6 +83,9 @@ try {
  await page.locator('#close-admin').click();
  assert.equal((await card().locator('.creator').boundingBox()).width,originalCreator.width);
  assert.equal(await card().locator('.author-stack .avatar').count(),2);
+ const badges=await card().locator('.author-stack .avatar').evaluateAll(nodes=>nodes.map(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y};}));
+ assert.equal(badges[0].y,badges[1].y,'author badges overlap horizontally');
+ assert(Math.abs(badges[1].x-badges[0].x-10)<.1,'author spacing is ten pixels');
  await open();assert.deepEqual(await dialog.locator('.detail-authors strong').allTextContents(),[friend.name,author.name]);await close();
  for(const width of [320,900]){
    await page.setViewportSize({width,height:900});

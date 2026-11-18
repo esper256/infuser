@@ -295,7 +295,14 @@ img.avatar { object-fit: cover; }
 .admin-panel { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 28px; }
 #admin-status { margin: 0; padding: 16px 28px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 #admin-status:empty { display: none; }
-.admin-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+.admin-region { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; }
+.admin-region > summary { padding: 14px 16px; color: var(--ink); font-size: 16px; font-weight: 600; border-radius: inherit; }
+.admin-region > summary:hover { background: var(--surface); }
+.admin-region[open] > summary { border-bottom: 1px solid var(--line); border-radius: 12px 12px 0 0; }
+.admin-region-body { padding: 16px; }
+form.admin-region-body { margin: 0; }
+.admin-region-body > :first-child { margin-top: 0; }
+.admin-region-body > :last-child { margin-bottom: 0; }
 .admin h2 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
 .admin h3 { font-size: 13px; font-weight: 600; margin-top: 26px; color: #c3d2cd; }
 .admin label { line-height: 1.5; }
@@ -341,7 +348,6 @@ img.avatar { object-fit: cover; }
   #admin { width: calc(100% - 24px); height: calc(100dvh - 24px); }
   #admin > .panel-heading, #admin-status { padding: 14px 18px; }
   .admin-panel { padding: 18px; }
-  .admin-grid { grid-template-columns: 1fr; }
   #members > div, #credentials > div { flex-wrap: wrap; }
   .new-tag-form { gap: 7px; }
 }
@@ -385,7 +391,7 @@ img.avatar { object-fit: cover; }
 .play-menu-items button:hover { background: #26423e; }
 .game.menu-open { z-index: 5; }
 @media (pointer:coarse) { .play-menu summary { min-height: 44px; width: 34px; } }
-#network-health { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 8px; font-size: 12px; overflow-wrap: anywhere; }
+#network-health { font-size: 12px; overflow-wrap: anywhere; }
 #network-health h4 { margin-bottom: 8px; }
 
 /* Shared component structure: themes may restyle these, never replace behavior. */
@@ -801,7 +807,7 @@ button.feed-row:hover { border-color: var(--accent); }
 
 /* Credits occupy the same creator control footprint, regardless of team size. */
 .author-stack { position: relative; width: 36px; height: 36px; }
-.creator .author-stack .avatar { position: absolute; width: calc(40px - var(--author-count) * 6px); height: calc(40px - var(--author-count) * 6px); left: calc(var(--author-index) * 7px); top: calc(var(--author-index) * 4px); z-index: calc(3 - var(--author-index)); box-shadow: 0 0 0 2px var(--page,#101a20); }
+.creator .author-stack .avatar { position: absolute; width: calc(40px - var(--author-count) * 6px); height: calc(40px - var(--author-count) * 6px); left: calc(var(--author-index) * 10px); top: 50%; transform: translateY(-50%); z-index: calc(3 - var(--author-index)); box-shadow: 0 0 0 2px var(--page,#101a20); }
 .author-overflow { position: absolute; z-index: 4; bottom: -3px; right: -4px; border-radius: 12px; padding: 1px 3px; background: var(--page,#101a20); color: var(--ink); font-size: 9px; line-height: 1.3; }
 .detail-creator { align-items: flex-start; }
 .detail-authors { display: flex; flex-wrap: wrap; gap: 16px 24px; margin: 0; padding: 0; list-style: none; min-width: 0; }

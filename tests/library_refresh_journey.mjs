@@ -24,8 +24,8 @@ try{
    return route.fulfill({json:{sessions:[]}});
   }
   if(path==='/api/admin/game-authors')return route.fulfill({json:{games:[],members:[]}});
-  if(path==='/api/admin/members')return route.fulfill({json:{members:{}}});
-  if(path==='/api/admin/credentials')return route.fulfill({json:{credentials:[]}});
+  if(path==='/api/admin/members')return route.fulfill({json:{members:Object.fromEntries(friends.map(p=>[p.id,{name:p.name,enabled:true}]))}});
+  if(path==='/api/admin/credentials')return route.fulfill({json:{credentials:friends.map(p=>({id:p.id,label:p.name,app:'game-0'}))}});
   if(path==='/api/chat')return route.fulfill({json:{messages}});
   if(path==='/api/feedback')return route.fulfill({json:{available:false}});
   if(path==='/api/client-state')return route.fulfill({json:{game_open:true,version:'test'}});
@@ -120,13 +120,26 @@ try{
  for(const route of heldLibrary)await route.abort().catch(()=>{});heldLibrary=[];
  holdLibrary=false;await page.evaluate(()=>refreshLibrary());assert.equal(libraryRequests-beforeRequests,2,'polling recovers after timeout');
  holdHealth=true;const beforeHealth=healthRequests,health=page.waitForRequest('**/api/admin/peer-health');
- await page.locator('#account-trigger').click();await page.locator('#open-admin').click();await health;
+ await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
+ await page.locator('#members > div').last().waitFor({state:'attached'});
+ assert.equal(await page.locator('#admin .admin-region').count(),6);
+ assert.equal(await page.locator('#admin .admin-region[open]').count(),0,'admin regions start folded');
+ assert.equal(await page.locator('#members').isVisible(),false);assert.equal(await page.locator('#credentials').isVisible(),false);
+ await page.evaluate(()=>refreshHealth());assert.equal(healthRequests,beforeHealth,'folded diagnostics do not poll');
+ const membersSummary=page.locator('#admin summary').filter({hasText:/^Members$/});
+ await membersSummary.focus();await page.keyboard.press('Enter');assert(await page.locator('#members').isVisible());
+ const accessSummary=page.locator('#admin summary').filter({hasText:/^Agent access$/});await accessSummary.click();assert(await page.locator('#credentials').isVisible());
+ await page.evaluate(()=>refreshLibrary());assert(await page.locator('#members').isVisible(),'refresh preserves expanded regions');
+ await membersSummary.click();await accessSummary.click();
+ await page.locator('#admin summary').filter({hasText:'Network diagnostics'}).click();await health;
  await page.evaluate(()=>Promise.all(Array.from({length:20},()=>refreshHealth())));
  assert.equal(healthRequests-beforeHealth,1,'slow diagnostics must not accumulate requests');
  for(const route of heldHealth)await route.fulfill({json:{sessions:[]}});heldHealth=[];
  await page.waitForFunction(()=>document.querySelector('#network-health')?.textContent.includes('No active peer sessions'));
  await page.evaluate(async()=>{Object.defineProperty(document,'hidden',{value:true,configurable:true});await refreshHealth();delete document.hidden;});
  assert.equal(healthRequests-beforeHealth,1,'background diagnostics are paused');holdHealth=false;
+ await page.locator('#admin summary').filter({hasText:'Network diagnostics'}).click();await page.evaluate(()=>refreshHealth());
+ assert.equal(healthRequests-beforeHealth,1,'folding diagnostics stops polling');
  await page.locator('#close-admin').click();
  await page.evaluate(()=>refreshHealth());assert.equal(healthRequests-beforeHealth,1,'closed admin dialog does not poll diagnostics');
  // The empty-library state is also stable across repeated backend snapshots.
