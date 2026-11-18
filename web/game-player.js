@@ -1,7 +1,68 @@
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
 function message(text){status.textContent=text;status.hidden=!text;}
-initScreenshotCapture({button:document.getElementById('screenshot'),viewport:document.getElementById('viewport'),message});
+const header = document.getElementById('player-header');
+const edge = document.getElementById('controls-edge');
+const playerFullscreen = () => document.fullscreenElement === document.documentElement;
+let hideTimer;
+let swipe;
+let keyboardControls = false;
+
+function hideControls() {
+  clearTimeout(hideTimer);
+  header.removeAttribute('data-open');
+  header.inert = playerFullscreen();
+  if (playerFullscreen() && header.contains(document.activeElement)) game.focus();
+}
+function showControls() {
+  if (!playerFullscreen()) return;
+  clearTimeout(hideTimer);
+  header.inert = false;
+  header.toggleAttribute('data-open', true);
+  if (!keyboardControls && !game.hidden) hideTimer = setTimeout(hideControls, 3500);
+}
+// Capture just the top edge. The game iframe owns gestures everywhere else.
+edge.addEventListener('pointerdown', event => {
+  if (!event.isPrimary || event.button !== 0) return;
+  swipe = {id:event.pointerId, x:event.clientX, y:event.clientY};
+  edge.setPointerCapture(event.pointerId);
+});
+edge.addEventListener('pointermove', event => {
+  if (swipe?.id !== event.pointerId) return;
+  const down = event.clientY - swipe.y;
+  if (down >= 24 && down > Math.abs(event.clientX - swipe.x)) {
+    swipe = null;
+    showControls();
+  }
+});
+edge.addEventListener('lostpointercapture', () => { swipe = null; });
+edge.addEventListener('pointerenter', event => {
+  if (event.pointerType === 'mouse' && !event.buttons) showControls();
+});
+edge.addEventListener('click', event => {
+  if (event.detail !== 0) return;
+  keyboardControls = true;
+  showControls();
+  document.getElementById('library').focus();
+});
+header.addEventListener('keydown', () => { keyboardControls = true; clearTimeout(hideTimer); });
+header.addEventListener('focusout', event => {
+  if (keyboardControls && !header.contains(event.relatedTarget)) {
+    keyboardControls = false;
+    if (header.hasAttribute('data-open')) showControls();
+  }
+});
+header.addEventListener('pointerdown', () => { keyboardControls = false; showControls(); });
+header.addEventListener('pointermove', showControls);
+document.addEventListener('fullscreenchange', () => {
+  keyboardControls = false;
+  edge.hidden = !playerFullscreen();
+  hideControls();
+});
+initScreenshotCapture({
+  button:document.getElementById('screenshot'), viewport:document.getElementById('viewport'),
+  message: text => { message(text); showControls(); }
+});
 const mobile = matchMedia('(pointer: coarse)');
 const rotateHint = document.getElementById('rotate-hint');
 let gameOrientation;
@@ -92,7 +153,7 @@ try{
   game.src='/'+location.search;game.hidden=false;
   if(session.visit){
     let checked=performance.now(),checkedWall=Date.now(),ended=false,checking=false;
-    const end=()=>{if(ended)return;ended=true;gameOrientation=null;releaseOrientation();game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;message('This visit has ended. Return to your Library.');};
+    const end=()=>{if(ended)return;ended=true;gameOrientation=null;releaseOrientation();game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;showControls();message('This visit has ended. Return to your Library.');};
     const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)end();};
     async function check(){
       watch();if(ended||checking)return;checking=true;

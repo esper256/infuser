@@ -15,7 +15,9 @@ its own. Tap a thumbnail in chat to open the full image. Links remain plain text
 
 ## Game screenshots
 
-Use the camera beside **Fullscreen** in a web game's title bar. In the browser's
+In fullscreen, swipe down starting just inside the game's top edge to reveal the
+title bar. With a mouse, move the pointer to the top edge. Use the camera
+beside **Fullscreen** to capture the game. In the browser's
 sharing prompt, choose that game's tab. Infuser captures just the game area,
 stops sharing immediately, and saves a compressed image to your current profile.
 It does not record audio or post the image automatically. Capture currently needs
