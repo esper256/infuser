@@ -237,7 +237,7 @@ pub async fn run(args: &[String]) -> Result<()> {
     if let Some(sdk) = settings.get("sdk") {
         manifest["sdk"] = sdk.clone();
     }
-    for field in ["sessions", "server_connection"] {
+    for field in ["sessions", "server_connection", "orientation"] {
         if let Some(value) = settings.get(field) {
             manifest[field] = value.clone();
         }
@@ -277,6 +277,18 @@ pub async fn run(args: &[String]) -> Result<()> {
             .await?,
     )
     .await?;
+    if capabilities["game_metadata"]["orientations"]
+        .as_array()
+        .is_some_and(|values| values.contains(&json!(parsed.orientation)))
+    {
+        manifest["orientation"] = json!(parsed.orientation);
+    } else {
+        ensure!(
+            parsed.orientation == crate::manifest::Orientation::Landscape,
+            "This Infuser server does not advertise portrait orientation support."
+        );
+        manifest.as_object_mut().unwrap().remove("orientation");
+    }
     if let Some(recipe) = &recipe {
         let packaging = &capabilities["server_packaging"];
         ensure!(

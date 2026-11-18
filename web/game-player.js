@@ -2,6 +2,31 @@ import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
 function message(text){status.textContent=text;status.hidden=!text;}
 initScreenshotCapture({button:document.getElementById('screenshot'),viewport:document.getElementById('viewport'),message});
+const mobile = matchMedia('(pointer: coarse)');
+const rotateHint = document.getElementById('rotate-hint');
+let gameOrientation;
+let requestedLock = false;
+function applyOrientation() {
+  if (!gameOrientation || document.hidden || !mobile.matches) return;
+  rotateHint.dataset.orientation = gameOrientation;
+  rotateHint.textContent = gameOrientation === 'portrait' ? 'Rotate your device upright' : 'Rotate your device sideways';
+  if (screen.orientation?.lock) {
+    requestedLock = true;
+    // Some browsers allow this on launch, others only after entering fullscreen.
+    screen.orientation.lock(gameOrientation).catch(() => {});
+  }
+}
+function releaseOrientation() {
+  delete rotateHint.dataset.orientation;
+  if (requestedLock) {
+    requestedLock = false;
+    try { screen.orientation?.unlock?.(); } catch { /* Browser already released it. */ }
+  }
+}
+addEventListener('pagehide', releaseOrientation);
+addEventListener('pageshow', event => { if (event.persisted) applyOrientation(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) applyOrientation(); });
+mobile.addEventListener('change', () => mobile.matches ? applyOrientation() : releaseOrientation());
 button.addEventListener('click',async()=>{
   try{
     if(document.fullscreenElement)await document.exitFullscreen();
@@ -11,6 +36,8 @@ button.addEventListener('click',async()=>{
   }catch{message('This browser blocked fullscreen. Try opening the game in Chrome.');}
 });
 document.addEventListener('fullscreenchange',()=>{
+  if (document.fullscreenElement) applyOrientation();
+  else releaseOrientation();
   button.querySelector('span').textContent=document.fullscreenElement?'Exit fullscreen':'Fullscreen';
   button.setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');
 });
@@ -18,6 +45,8 @@ try{
   const response=await fetch('/_infuser/context',{credentials:'same-origin'});
   const session=await response.json();
   if(!response.ok)throw Error(session.error||'Open this game again from your Library.');
+  gameOrientation = session.manifest.orientation === 'portrait' ? 'portrait' : 'landscape';
+  applyOrientation();
   title.textContent=session.manifest.title;document.title=session.manifest.title+' · Infuser';
   document.getElementById('library').href=session.library_url;
   document.getElementById('guest').hidden=!session.guest;
@@ -27,7 +56,7 @@ try{
   game.src='/'+location.search;game.hidden=false;
   if(session.visit){
     let checked=performance.now(),checkedWall=Date.now(),ended=false,checking=false;
-    const end=()=>{if(ended)return;ended=true;game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;message('This visit has ended. Return to your Library.');};
+    const end=()=>{if(ended)return;ended=true;gameOrientation=null;releaseOrientation();game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;message('This visit has ended. Return to your Library.');};
     const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)end();};
     async function check(){
       watch();if(ended||checking)return;checking=true;

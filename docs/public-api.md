@@ -88,7 +88,10 @@ Optional card art uses the ordinary file upload at `infuser-art/card-hero.webp`.
 `format`. See the [card art guide](card-art-guide.md) for the image constraints;
 invalid images return 422. Bundled art belongs to the immutable build and activates
 with it. For artwork, title, or description changes, use the [metadata API](game-metadata.md),
-advertised by `capabilities.game_metadata.version = 1`. A raw WebP PUT to the
+advertised by `capabilities.game_metadata.version = 1`. The metadata response
+includes the active build’s `orientation`. Declare `portrait` or `landscape`
+in the build manifest when `game_metadata.orientations` is advertised.
+Omitting it selects landscape. A raw WebP PUT to the
 app-level `card-art` endpoint applies immediately without touching builds or
 sessions. DELETE clears that override. Metadata PATCH accepts `{"title":"Name"}`
 or `{"title":null}` to restore the build title. It also accepts `description`
