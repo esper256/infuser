@@ -1037,11 +1037,17 @@ async fn react(
     );
     p.db.edit_transaction(|d, tx| {
         ensure!(d.deployed(&app).is_some(), fault(404, "unknown game"));
-        if let Some(id) = &body.screenshot {
+        let previous = d
+            .reactions
+            .get(&app)
+            .and_then(|game| game.get(&email))
+            .and_then(|r| r.screenshot.as_ref());
+        let changed = previous != body.screenshot.as_ref();
+        if changed && let Some(id) = &body.screenshot {
             platform::screenshots::owned(tx, &email, id)?;
         }
         d.reactions.entry(app).or_default().insert(
-            email,
+            email.clone(),
             Reaction {
                 emoji: body.emoji,
                 text: body.text.trim().into(),
@@ -1049,6 +1055,9 @@ async fn react(
                 screenshot: body.screenshot,
             },
         );
+        if changed {
+            platform::screenshots::prune(tx, d, &email)?;
+        }
         Ok(())
     })?;
     Ok(reply(json!({"ok":true})))
@@ -1056,11 +1065,16 @@ async fn react(
 async fn unreact(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMap) -> Answer {
     let email = p.member(&h, true).await?;
     p.visible_app(&h, &email, &app)?;
-    p.db.edit(|d| {
-        if let Some(r) = d.reactions.get_mut(&app) {
-            r.remove(&email);
+    let (group, _) = p.group_view(&h, &email)?;
+    p.db.edit_transaction(|d, tx| {
+        let runtime = d
+            .deployment_for(&app, &group)
+            .ok_or_else(|| fault(404, "Game not found."))?
+            .to_owned();
+        if let Some(game) = d.reactions.get_mut(&runtime) {
+            game.remove(&email);
         }
-        Ok(())
+        platform::screenshots::prune(tx, d, &email)
     })?;
     Ok(reply(json!({"ok":true})))
 }
@@ -1071,7 +1085,7 @@ async fn remove_game_reaction(
 ) -> Answer {
     let email = p.admin(&h, true).await?;
     p.visible_app(&h, &email, &app)?;
-    p.db.edit(|d| {
+    p.db.edit_transaction(|d, tx| {
         // Moderate the home group's deployment, including games brought by visitors.
         // Never touch the source group's reactions for a borrowed game.
         let runtime = d
@@ -1091,6 +1105,7 @@ async fn remove_game_reaction(
                 .cloned()
         {
             reactions.remove(&author);
+            platform::screenshots::prune(tx, d, &author)?;
         }
         Ok(())
     })?;

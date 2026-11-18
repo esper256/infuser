@@ -296,8 +296,8 @@ is best-effort and needs browser permission each time. Audio is never requested.
 check. WebP originals retain capture resolution (up to 8192 pixels per side,
 33,554,432 pixels total and 6 MiB); thumbnails are at most 320 pixels per side
 and 96 KiB. Image decoding is serialized and validates both files. The private
-`screenshots` SQLite table keeps ten original/thumbnail pairs per profile;
-insertion and oldest-image eviction share a transaction. These rows are included
+`screenshots` SQLite table keeps the latest ten captures per profile plus any older
+images still attached to reactions. Gallery insertion and oldest-image eviction share a transaction. These rows are included
 in the existing SQLite backup. Physical database space is reused after eviction.
 
 The website's `/api/screenshots` lists only the selected profile's collection.
@@ -305,6 +305,6 @@ Image reads return private, non-cacheable data through the pinned profile API.
 An attachment is a screenshot ID, never a public URL or a copied image. Other
 profiles must provide a live, visible chat-message or reaction context. Chat
 reads apply channel membership, visit admission boundaries, deletion and history
-retention; reactions use the visible deployment. Eviction removes the image from
-all attachments while preserving text. These are website endpoints, not a new
-requirement or contract for game SDK integrations.
+retention. Reactions use the visible deployment. Chat attachments expire when a
+capture leaves the gallery. A reaction keeps the original and thumbnail until
+its last reference is removed.

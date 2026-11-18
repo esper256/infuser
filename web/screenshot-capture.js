@@ -37,7 +37,7 @@ export function initScreenshotCapture({button,viewport,message}) {
       message('Saving screenshot…');
       const response=await fetch('/_infuser/screenshots',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:crypto.randomUUID(),image:await encoded(image),thumbnail:await encoded(thumbnail)}),signal:AbortSignal.timeout(20000)});
       const result=await response.json();if(!response.ok)throw Error(result.error||'Could not save the screenshot.');
-      message('Screenshot saved. Find it in Emoji → Screenshots in chat or reactions.');
+      message('Screenshot saved. Attach it in chat or a game reaction.');
     }catch(error){
       if(alive)message(error.name==='NotAllowedError'||error.name==='AbortError'?'Screenshot not saved.':error.message||'Could not capture this game.');
     }finally{clearTimeout(timer);stop();if(video)video.srcObject=null;busy=false;button.disabled=!alive||!!viewport.querySelector('iframe')?.hidden;button.removeAttribute('aria-busy');}

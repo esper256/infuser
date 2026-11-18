@@ -10,7 +10,7 @@ export function initClientUpdates({api, document:doc=document, window:win=window
     return doc.querySelector('dialog[open], details[open]:not(#hidden-games), [data-launching], #library-chat[data-sending]') ||
       doc.activeElement?.matches('input, textarea, select, [contenteditable="true"]') ||
       Boolean(doc.querySelector('#chat-text')?.value.trim()) ||
-      Boolean(doc.querySelector('.screenshot-draft:not([hidden])'));
+      Boolean(doc.querySelector('#library-chat .screenshot-draft:not([hidden])'));
   }
   async function check() {
     if(busy||reloading||doc.hidden)return;
