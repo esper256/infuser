@@ -263,16 +263,22 @@ async fn captures_rotate_and_attachments_follow_chat_reaction_and_visit_access()
         404,
         "eviction removes shared originals too"
     );
+    let retained = format!("/api/screenshots/{id}?app=pond");
+    ok(req(Method::GET, &retained, "two")).await?;
+    let edited = json!({"emoji":"🚀","text":"Still here","screenshot":id});
+    ok(req(Method::PUT, "/api/apps/pond/reaction", "one").json(&edited)).await?;
+    ok(req(Method::DELETE, "/api/apps/pond/reaction", "one")).await?;
     assert_eq!(
-        req(
-            Method::GET,
-            &format!("/api/screenshots/{id}?app=pond"),
-            "two"
-        )
-        .send()
-        .await?
-        .status(),
+        req(Method::GET, &retained, "two").send().await?.status(),
         404
+    );
+    assert_eq!(
+        p.db.connection.lock().unwrap().query_row(
+            "SELECT count(*) FROM screenshots",
+            [],
+            |row| row.get::<_, usize>(0)
+        )?,
+        10
     );
     let bad = json!({"id":"00000000-0000-4000-8000-000000000012","image":"not-an-image","thumbnail":encoded});
     p.db.connection

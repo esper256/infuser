@@ -22,9 +22,14 @@ It does not record audio or post the image automatically. Capture currently need
 a desktop browser with tab cropping, such as Chrome or Edge. Unsupported browsers
 show a message; you can still view and attach existing screenshots on your phone.
 
-Your latest **10 screenshots** appear in **Emoji → Screenshots** in chat and
-the reaction popup. Each new capture beyond ten removes the oldest image,
-including its attachments in past messages and reactions. Their text remains.
+In chat, **Emoji → Screenshots** shows your latest ten captures. Older chat
+attachments expire as you take new screenshots. The message text stays.
+
+To react to a game, pick an emoji. Write a note beside it or use **Add
+screenshot**. Tap the chosen emoji to change it while keeping your draft.
+Each reaction can keep one screenshot for as long as it is attached, even
+after ten newer captures. You can replace or remove it when editing the reaction.
+
 Screenshots are private until you attach them. Attached images follow the same
 group and visit access rules as their message or reaction. Guest-mode captures
 belong to the signed-in profile; switching profiles gives you a separate collection.

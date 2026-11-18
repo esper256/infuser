@@ -31,10 +31,10 @@ export async function fillScreenshotPicker(container,api,pick){
     if(!data.screenshots.length){container.append(node('p','Take a screenshot using the camera beside Fullscreen in a web game. Your latest 10 appear here.'));return;}
     const grid=node('div');grid.className='screenshot-grid';container.append(grid);
     for(const shot of data.screenshots)grid.append(screenshotTile({id:shot.id,api,pick}));
-    container.append(node('p','Latest 10 · Oldest images expire, including attachments.'));
+    container.append(node('p','Latest 10 · Oldest images expire, including chat attachments.'));
   }catch(error){if(container.dataset.request===request)container.replaceChildren(node('p',error.message));}
 }
-export function attachmentDraft(container,id,api,remove){
+export function attachmentDraft(container,id,api,remove,context={}){
   container.replaceChildren();container.hidden=!id;if(!id)return;
-  container.append(screenshotTile({id,api}));const button=node('button','×');button.type='button';button.setAttribute('aria-label','Remove screenshot attachment');button.onclick=remove;container.append(button);
+  container.append(screenshotTile({id,api,context}));const button=node('button','×');button.type='button';button.setAttribute('aria-label','Remove screenshot attachment');button.onclick=remove;container.append(button);
 }

@@ -220,7 +220,7 @@ try {
  await dialog.locator('.play-menu summary').click();await popup(()=>dialog.getByRole('button',{name:'Join OrbitFox',exact:true}).click());assert.equal(launches.at(-1).intent.kind,'join_friend');
  await dialog.locator('.play-menu summary').click();await dialog.getByRole('button',{name:'Copy game link',exact:true}).click();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),game.url);
  // Nested reaction/tag dialogs return to details, then refresh real content.
- await dialog.locator('.creator').click();await page.getByRole('radio',{name:'Great job',exact:true}).check();await page.locator('#reaction-text').fill('Fresh feedback');await page.locator('#reaction-form button[type="submit"]').click();
+ await dialog.locator('.creator').click();await page.locator('#chosen-reaction').click();await page.getByRole('radio',{name:'Great job',exact:true}).check();await page.locator('#reaction-text').fill('Fresh feedback');await page.locator('#reaction-form button[type="submit"]').click();
  await page.waitForFunction(()=>document.querySelector('#game-feedback').textContent.includes('Fresh feedback'));assert(await dialog.isVisible());
  await dialog.locator('.detail-tags').getByRole('button',{name:'Edit tags',exact:true}).click();await page.locator('#save-tags').click();await page.waitForFunction(()=>!document.querySelector('#tags-dialog').open);assert(await dialog.isVisible());await close();
  // Recently links target the referenced reaction, not a launch.
@@ -240,18 +240,13 @@ try {
    await page.setViewportSize({width,height:width===1280?900:568});await open();
    for(const [emoji,label,art] of [['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round'],...illustrated]){
     await dialog.getByRole('button',{name:'React: '+label,exact:true}).click();
-    const radio=page.getByRole('radio',{name:label,exact:true});
-    assert(await radio.isChecked());
+    const chosen=page.getByRole('button',{name:'Change emoji: '+label,exact:true});
+    assert(await chosen.isVisible());
+    assert(await page.locator('#emoji').isHidden());
     if(art){
-     const face=radio.locator('..').locator('img');
-     assert.equal(await face.getAttribute('src'),'/assets/reactions/'+art+'.webp');
-     assert(await face.evaluate(i=>i.complete&&i.naturalWidth===256));
+     assert.equal(await chosen.locator('img').getAttribute('src'),'/assets/reactions/'+art+'.webp');
      assert.equal(await page.locator('.reaction-burst-hero img').getAttribute('src'),'/assets/reactions/'+art+'.webp');
     }
-
-    assert.equal(await page.locator('#emoji input').count(),22);
-    assert(await page.locator('#emoji').evaluate(e=>e.scrollWidth<=e.clientWidth));
-    assert(await radio.locator('..').locator('span').evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=48));
     await page.locator('#reaction-text').fill('');
     await page.getByRole('button',{name:'Send reaction',exact:true}).click();
     await page.waitForFunction(()=>!document.querySelector('#reaction-dialog').open);
@@ -259,7 +254,8 @@ try {
     assert.equal(game.reactions.find(r=>r.mine).emoji,emoji);
    }
    await dialog.locator('.creator').click();
-   await page.getByRole('radio',{name:'Great soundtrack',exact:true}).check();
+   await page.locator('#chosen-reaction').click();
+   assert.equal(await page.getByRole('radio').count(),22);
    if(width===320)assert(await page.locator('#emoji').evaluate(e=>e.scrollHeight>e.clientHeight),'picker scrolls instead of shrinking emojis');
    await page.screenshot({path:new URL('expanded-reactions-'+theme+'-'+width+'.png',out).pathname});
    await page.locator('#close-reaction').click();await close();
@@ -275,14 +271,14 @@ try {
  assert(await page.locator('#feed .feed-emoji img[src="/assets/reactions/together.webp"]').count()>0);
  await page.locator('#close-recent').click();
  await open();await dialog.getByRole('button',{name:'React: A little gem',exact:true}).click();
- const gemFace=page.getByRole('radio',{name:'A little gem',exact:true}).locator('..').locator('span');
+ const gemFace=page.locator('#chosen-reaction span');
  await gemFace.locator('img').dispatchEvent('error');assert.equal(await gemFace.textContent(),'💎');
- assert(await page.getByRole('radio',{name:'A little gem',exact:true}).isChecked());
+ assert(await page.getByRole('button',{name:'Change emoji: A little gem',exact:true}).isVisible());
  await page.locator('#close-reaction').click();await close();
  // Obvious reaction controls: choose, add an optional kind note, or send emoji-only.
  await page.setViewportSize({width:390,height:844});await open();
  await dialog.getByRole('button',{name:'React: Exciting',exact:true}).click();
- assert(await page.getByRole('radio',{name:'Exciting',exact:true}).isChecked());
+ assert(await page.getByRole('button',{name:'Change emoji: Exciting',exact:true}).isVisible());
  assert(await page.locator('#reaction-comment').isVisible());assert(await page.locator('#reaction-text').evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=22));
  await page.locator('#reaction-text').fill('');await page.getByRole('button',{name:'Send reaction',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.reaction-choice[aria-label="React: Exciting"]').getAttribute('aria-pressed')==='true');
@@ -291,12 +287,17 @@ try {
  await dialog.locator('.creator').click();assert(await page.locator('#reaction-comment').isHidden());
  await page.getByRole('radio',{name:'Loved it',exact:true}).check();await page.locator('#reaction-text').fill('I liked the glowing trail!');
  assert.equal(await page.locator('.reaction-burst:popover-open').count(),1);
- await page.locator('#reaction-dialog').getByRole('tab',{name:'Screenshots',exact:true}).click();
+ await page.getByRole('button',{name:'Add screenshot',exact:true}).click();
  await page.locator('#reaction-screenshots img').waitFor();
  await page.waitForFunction(()=>document.querySelector('#reaction-screenshots img')?.naturalWidth>0);
  await page.locator('#reaction-screenshots .screenshot-tile').click();
- assert(await page.getByRole('radio',{name:'Loved it',exact:true}).isChecked());
+ assert(await page.getByRole('button',{name:'Change emoji: Loved it',exact:true}).isVisible());
  assert.equal(await page.locator('#reaction-text').inputValue(),'I liked the glowing trail!');
+ await page.locator('#chosen-reaction').click();
+ await page.getByRole('radio',{name:'Great job',exact:true}).check();
+ assert(await page.locator('#emoji').isHidden());
+ assert.equal(await page.locator('#reaction-text').inputValue(),'I liked the glowing trail!');
+ assert(await page.locator('#reaction-draft').isVisible());
  await page.screenshot({path:new URL('reaction-composer-phone.png',out).pathname});
  await page.getByRole('button',{name:'Send reaction',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#reaction-dialog').open);await close();
  assert.equal(game.reactions.find(r=>r.mine).screenshot,'shot');
@@ -317,7 +318,7 @@ try {
   await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});
   assert.equal(await page.locator('.brand-wordmark').evaluate(e=>getComputedStyle(e).animationName),'none');
   assert(await recent.evaluate(e=>e.getBoundingClientRect().width>=44&&e.getBoundingClientRect().height>=44));
-  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await recent.evaluate(e=>getComputedStyle(e,'::before').animationName),'none');assert(!await recent.evaluate(e=>e.hasAttribute('data-motion')));
+  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await recent.evaluate(e=>getComputedStyle(e,'::before').animationName),'none');await page.waitForFunction(()=>!document.querySelector('#recent-toggle').hasAttribute('data-motion'));
   await page.screenshot({path:new URL('recent-unread-'+theme+'-phone.png',out).pathname});
   await recent.click();assert.equal(await page.locator('#feed time').count(),1);assert.equal(await page.locator('#feed .feed-row').first().locator('time').count(),1);await page.screenshot({path:new URL('recent-open-'+theme+'-phone.png',out).pathname});await page.waitForFunction(()=>!document.querySelector('#recent-toggle').classList.contains('has-updates'));await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
  }

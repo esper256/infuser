@@ -735,24 +735,71 @@ function renderFeed() {
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,reactionFace(emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
 let reactionScreenshot=null;
-const reactionTabs=el('div',undefined,'attachment-tabs'),reactionEmojiTab=el('button','Emoji'),reactionShotTab=el('button','Screenshots'),reactionShots=el('div',undefined,'screenshot-picker'),reactionDraft=el('div',undefined,'screenshot-draft');
-reactionTabs.setAttribute('role','tablist');reactionTabs.setAttribute('aria-label','Reaction or screenshot');reactionShots.hidden=true;reactionDraft.hidden=true;$('emoji').before(reactionTabs);$('emoji').after(reactionShots,reactionDraft);
-reactionShots.id='reaction-screenshots';
-for(const [tab,target,label] of [[reactionEmojiTab,$('emoji'),'reaction-emoji-tab'],[reactionShotTab,reactionShots,'reaction-screenshot-tab']]){tab.type='button';tab.id=label;tab.setAttribute('role','tab');tab.setAttribute('aria-controls',target.id);target.setAttribute('aria-labelledby',label);reactionTabs.append(tab);}
-function attachReaction(id){reactionScreenshot=id;attachmentDraft(reactionDraft,id,api,()=>attachReaction(null));}
-function reactionTab(shots){$('emoji').hidden=shots;reactionShots.hidden=!shots;reactionEmojiTab.setAttribute('aria-selected',String(!shots));reactionShotTab.setAttribute('aria-selected',String(shots));reactionEmojiTab.tabIndex=shots?-1:0;reactionShotTab.tabIndex=shots?0:-1;if(shots)void fillScreenshotPicker(reactionShots,api,id=>{attachReaction(id);reactionTab(false);});}
-reactionEmojiTab.onclick=()=>reactionTab(false);reactionShotTab.onclick=()=>reactionTab(true);
-reactionTabs.onkeydown=event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?reactionEmojiTab:event.key==='End'?reactionShotTab:document.activeElement===reactionEmojiTab?reactionShotTab:reactionEmojiTab;next.click();next.focus();}};
-function openReaction(game,selectedEmoji){
-  currentReaction=game;$('reaction-title').textContent=game.title;
-  const mine=game.reactions.find(r=>r.mine),emoji=selectedEmoji||mine?.emoji;
-  reactionTab(false);attachReaction(mine?.screenshot||null);
-  $('reaction-form').reset();$('reaction-comment').hidden=!emoji;
-  if(emoji)$('reaction-form').elements.emoji.value=emoji;
-  if(mine)$('reaction-form').elements.text.value=mine.text;
-  $('remove-reaction').hidden=!mine;$('reaction-dialog').showModal();
-  $('emoji').scrollTop=0;document.querySelector('#emoji input:checked')?.closest('label').scrollIntoView({block:'nearest'});
-  if(selectedEmoji){$('reaction-text').focus();reactionBurst(document.querySelector('#emoji input:checked+span'),selectedEmoji);}
+const reactionShots = $('reaction-screenshots'), reactionAttach = $('reaction-attach');
+function attachReaction(id) {
+  reactionScreenshot = id;
+  reactionAttach.textContent = id ? 'Change screenshot' : 'Add screenshot';
+  attachmentDraft($('reaction-draft'), id, api, () => attachReaction(null), {app:currentReaction.id});
+}
+function toggleReactionPicker(open) {
+  reactionShots.hidden = !open;
+  reactionAttach.setAttribute('aria-expanded', String(open));
+  if (open) fillScreenshotPicker(reactionShots, api, id => {
+    attachReaction(id);
+    toggleReactionPicker(false);
+    reactionAttach.focus();
+  });
+}
+reactionAttach.onclick = () => toggleReactionPicker(reactionShots.hidden);
+const emojiChoices = $('emoji'), composer = $('reaction-comment'), chosenReaction = $('chosen-reaction');
+
+function showReactionEditor(emoji) {
+  emojiChoices.hidden = true;
+  composer.hidden = false;
+  chosenReaction.replaceChildren(reactionFace(emoji));
+  const label = emojis.find(choice => choice[0] === emoji)?.[1] || emoji;
+  chosenReaction.setAttribute('aria-label', 'Change emoji: ' + label);
+  $('reaction-text').focus();
+}
+
+function showEmojiChoices() {
+  composer.hidden = true;
+  emojiChoices.hidden = false;
+  const choice = emojiChoices.querySelector(':checked') || emojiChoices.querySelector('input');
+  choice.focus();
+}
+
+chosenReaction.onclick = showEmojiChoices;
+emojiChoices.addEventListener('click', event => {
+  if (!event.target.matches('input')) return;
+  showReactionEditor(event.target.value);
+  reactionBurst(chosenReaction, event.target.value);
+});
+$('reaction-dialog').addEventListener('cancel', event => {
+  if (!emojiChoices.hidden && emojiChoices.querySelector(':checked')) {
+    event.preventDefault();
+    showReactionEditor($('reaction-form').elements.emoji.value);
+  }
+});
+
+function openReaction(game, selectedEmoji) {
+  currentReaction = game;
+  $('reaction-title').textContent = game.title;
+  const mine = game.reactions.find(reaction => reaction.mine);
+  const emoji = selectedEmoji || mine?.emoji;
+  $('reaction-form').reset();
+  toggleReactionPicker(false);
+  attachReaction(mine?.screenshot || null);
+  $('reaction-text').value = mine?.text || '';
+  $('remove-reaction').hidden = !mine;
+  $('reaction-dialog').showModal();
+  if (emoji) {
+    $('reaction-form').elements.emoji.value = emoji;
+    showReactionEditor(emoji);
+    if (selectedEmoji) reactionBurst(chosenReaction, emoji);
+  } else {
+    showEmojiChoices();
+  }
 }
 $('close-reaction').onclick=()=>$('reaction-dialog').close();
 $('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text'),screenshot:reactionScreenshot})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
@@ -1102,11 +1149,6 @@ $('close-tags').onclick=()=>$('tags-dialog').close();
 $('new-tag-form').onsubmit=event=>{event.preventDefault();const id=$('new-tag').value.trim().toLowerCase().replace(/\s+/g,'-');if(!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(id)){$('new-tag').setCustomValidity('Use letters, numbers and dashes, up to 32 characters.');$('new-tag').reportValidity();return;}$('new-tag').setCustomValidity('');if(selectedTags.size<8){selectedTags.add(id);$('new-tag').value='';renderTagPicker();}};
 $('new-tag').oninput=()=>$('new-tag').setCustomValidity('');
 $('save-tags').onclick=async()=>{try{await api('/api/apps/'+editingTags.id+'/tags',{method:'PUT',body:JSON.stringify({tags:[...selectedTags]})});$('tags-dialog').close();notice('Tags updated.');await refresh();}catch(error){showError(error);}};
-$('emoji').addEventListener('change',()=>{
-  $('reaction-comment').hidden=false;
-  reactionBurst(document.querySelector('#emoji input:checked+span'),$('reaction-form').elements.emoji.value);
-  $('reaction-text').focus();
-});
 function reactionBurst(target,emoji){
   document.querySelector('.reaction-burst')?.remove();
   if(!target||reactionMotion.matches)return;
