@@ -10,8 +10,10 @@ for `game_metadata.version: 1`; descriptions additionally require
 
 The metadata response also includes the active build’s `orientation`. To change
 it, set `orientation` to `landscape` or `portrait` in `infuser.game.json` and
-publish the build. Existing games default to landscape. On phones, Infuser
-requests the lock on launch and when entering fullscreen. Browser support varies.
+publish the build. Existing games default to landscape. On phones already held the right way, Infuser requests the lock on launch.
+Otherwise, the first turn into the game’s orientation requests fullscreen and
+locks rotation where supported. If the browser requires a tap, use **Fullscreen**.
+After you exit fullscreen, turning the phone again leaves it windowed.
 
 ## Endpoints
 

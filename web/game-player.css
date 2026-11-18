@@ -2,6 +2,4 @@
 #connection{display:inline-block;width:14px;text-align:center;font-size:12px;color:#aab6c5;flex:none}#connection[data-state=connected]{color:#aff5cb}#connection[data-state=connecting]{color:#f0d3a9}
 #screenshot{display:flex;align-items:center;gap:6px}#screenshot svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round}button:disabled{opacity:.5;cursor:wait}@media(max-width:600px){#screenshot span{display:none}}
 
-#rotate-hint { display:none; margin:0; padding:0 12px 6px; color:#b3bfcd; font-size:12px; }
-@media (pointer:coarse) and (orientation:portrait) { #rotate-hint[data-orientation="landscape"] { display:block; } }
-@media (pointer:coarse) and (orientation:landscape) { #rotate-hint[data-orientation="portrait"] { display:block; } }
+#rotate-hint { margin:0; padding:0 12px 6px; color:#b3bfcd; font-size:12px; }

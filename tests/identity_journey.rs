@@ -368,6 +368,11 @@ fn legacy(root: &Path) -> Result<()> {
         .into(),
     );
     let mut value = serde_json::to_value(&data)?;
+    // This fixture predates build orientation metadata.
+    value["builds"]["pond/one"]["manifest"]
+        .as_object_mut()
+        .unwrap()
+        .remove("orientation");
     let profiles = value.as_object_mut().unwrap().remove("profiles").unwrap();
     value["members"] = profiles;
     value.as_object_mut().unwrap().remove("identities");
