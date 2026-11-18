@@ -74,6 +74,15 @@ player portraits. Recently entries open the referenced game and reaction. Keep
 feedback positive and qualitative. The shared dialog stacks on phones, retains
 scroll and focus during refresh, and uses the active theme's materials.
 
+Unread Recently activity gives the logo a soft, pulsing glow. An occasional small
+nudge leads into a stronger wiggle. Opening Recently clears the attention effects.
+Each game-update entry has one reaction button. It opens a popup with all 22
+reaction icons, without visible labels or a comment field. Selecting an icon
+saves immediately. This changes the player's game reaction while retaining
+an existing note or screenshot. A successful reaction launches multicolored
+confetti from the selected emoji. Reduced motion keeps a static unread glow and
+suppresses the wiggle and confetti; hidden tabs stop the attention animation.
+
 Online players appear as overlapping avatars beside the logo. Use all available
 header space before replacing players with a +N overflow badge; reserve room for
 Chat, Recently, and admin tools. The overflow badge aligns with other players.

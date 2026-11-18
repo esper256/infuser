@@ -14,7 +14,7 @@ const game={can_manage_visibility:true,can_moderate_reactions:true,id:'firefly-d
 const apps=[game,{...game,id:'nocomgame',title:'NoCOMgame',description:null,author:friend,card_art_url:null,tags:['3d','sandbox','action','survival','exploration'],reactions:[]},{...game,id:'event-horizon',title:'Event Horizon',author:friend,card_art_url:'/test-art/event',reactions:[]},{...game,id:'dodge',title:'Dodge the Creeps',author:null,preview:true,card_art_url:null,reactions:[]},{...game,id:'lantern',title:'Lantern Lake',author:null,preview:true,card_art_url:null,reactions:[]}];
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
-let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility,failAuthors=false;
+let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility,failAuthors=false,failReaction=false,releaseReaction;
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
@@ -40,7 +40,7 @@ try {
    if(failModeration)return route.fulfill({status:503,json:{error:'Please retry deletion.'}});
    const app=apps.find(g=>g.id===path.split('/')[4]);app.reactions=app.reactions.filter(r=>r.id!==path.split('/')[6]);data={ok:true};
   }
-  else if(path.endsWith('/reaction')){game.reactions=game.reactions.filter(r=>!r.mine);if(method==='PUT')game.reactions.push({...author,...request.postDataJSON(),updated:now+1,mine:true});data={ok:true};}
+  else if(path.endsWith('/reaction')){if(failReaction){await new Promise(resolve=>{releaseReaction=resolve;});return route.fulfill({status:503,json:{error:'Please retry reaction.'}});}game.reactions=game.reactions.filter(r=>!r.mine);if(method==='PUT')game.reactions.push({...author,...request.postDataJSON(),updated:now+1,mine:true});data={ok:true};}
   else if(path.endsWith('/tags')){game.tags=request.postDataJSON().tags;data={ok:true};}
   else if(path==='/api/my-games')data={api_url:'https://library.test',app_id:'new-game',setup_code:'TEST-ONLY',expires_at:now+10800};
   else if(path==='/api/feedback')data={available:false};
@@ -342,6 +342,59 @@ try {
  assert.equal(game.reactions.find(r=>r.mine).screenshot,'shot');
  await open();await dialog.locator('.screenshot-tile').click();await page.locator('.screenshot-viewer img').waitFor();await page.keyboard.press('Escape');assert(await dialog.isVisible());await close();
  assert.deepEqual(await page.evaluate(()=>[0,60,3600,7200,86400,-20].map(age=>testRecentAge(100000-age,100000))),['just now','a minute ago','an hour ago','2 hours ago','a day ago','just now']);
+ // Updates use one button and the complete emoji-only picker, preserving notes/images.
+ game.updated=now+2;game.reactions=game.reactions.filter(r=>!r.mine);
+ game.reactions.push({...author,emoji:'⭐',text:'Keep my note',screenshot:'shot',updated:now,mine:true});
+ await page.evaluate(()=>refreshTestLibrary());await page.locator('#recent-toggle').click();
+ const update=()=>page.locator('#feed').getByRole('button',{name:'React to Firefly Drift update',exact:true});
+ const picker=page.locator('#feed-reaction-picker');
+ assert.equal(await update().count(),1);
+ await update().click();
+ assert.equal(await picker.getByRole('button').count(),22);
+ assert.equal(await picker.locator('input,textarea,small').count(),0);
+ assert.equal(await picker.locator('img.reaction-image').count(),10,'all illustrated reactions are available');
+ assert.equal(await picker.getByRole('button',{name:'React: Fun together',exact:true}).count(),1);
+ await page.keyboard.press('Escape');assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await update().evaluate(e=>e===document.activeElement));
+ await update().click();
+ const reactionsBefore=writes.length;failReaction=true;
+ await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelectorAll('#feed-reaction-picker button[aria-disabled="true"]').length===22);
+ await page.evaluate(()=>refreshTestLibrary());
+ assert(await picker.isVisible(),'polling keeps the picker open');
+ await picker.getByRole('button',{name:'React: Great job',exact:true}).dispatchEvent('click');
+ assert.equal(writes.length,reactionsBefore+1,'a pending save cannot be submitted twice');
+ assert.equal(typeof releaseReaction,'function');releaseReaction();failReaction=false;
+ await page.getByText('Please retry reaction.',{exact:true}).waitFor();
+ await page.waitForFunction(()=>!document.querySelector('#feed-reaction-picker button[aria-disabled="true"]'));
+ assert.equal(await page.locator('.update-confetti').count(),0);
+ assert.equal(await picker.getByRole('button',{name:'React: Amazing',exact:true}).getAttribute('aria-pressed'),'true');
+ await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
+ await page.locator('.update-confetti:popover-open').waitFor();
+ assert.deepEqual(writes.at(-1).body,{emoji:'❤️',text:'Keep my note',screenshot:'shot'});
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-game="firefly-drift"]')?.textContent==='❤️');
+ assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await dialog.isHidden());
+ assert.equal(await page.locator('#notice.visible').count(),0,'a successful retry clears the earlier error');
+ assert(await page.locator('.update-confetti-piece').count()>0);
+ assert(await page.locator('.update-confetti-piece').evaluateAll(pieces=>new Set(pieces.map(piece=>piece.style.background)).size>=3));
+ await page.screenshot({path:new URL('recent-reaction-confetti.png',out).pathname});
+ await page.waitForFunction(()=>!document.querySelector('.update-confetti'));
+ await update().click();await picker.getByRole('button',{name:'React: Nice!',exact:true}).focus();await page.keyboard.press('Enter');
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-game="firefly-drift"]')?.textContent==='👍');
+ assert(await update().evaluate(e=>e===document.activeElement),'saving returns keyboard focus to the reaction button');
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await update().click();await picker.getByRole('button',{name:'React: Fun together',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-game="firefly-drift"] img')?.getAttribute('src')==='/assets/reactions/together.webp');
+ assert.equal(game.reactions.find(r=>r.mine).emoji,'🤝');assert.equal(await page.locator('.update-confetti').count(),0);
+ for(const theme of ['nightglass','cartridge-club'])for(const width of [320,390,1500]){
+  await page.setViewportSize({width,height:900});await page.evaluate(t=>InfuserThemes.select(t),theme);
+  await update().click();
+  assert(await picker.evaluate(e=>{const b=e.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.top>=0&&b.bottom<=innerHeight&&e.scrollWidth<=e.clientWidth;}),'picker stays in the viewport without horizontal overflow');
+  assert(await picker.getByRole('button').evaluateAll(buttons=>buttons.every(b=>b.getBoundingClientRect().height>=44)));
+  await page.screenshot({path:new URL('recent-picker-'+theme+'-'+width+'.png',out).pathname});
+  await page.keyboard.press('Escape');
+ }
+ await page.setViewportSize({width:390,height:844});
+ await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
  // Unread Recently animates only the icon, clears on opening,
  // and retains a static highlight with reduced motion.
  for(const theme of ['nightglass','cartridge-club']){
@@ -350,6 +403,7 @@ try {
   assert(await recent.evaluate(e=>e.hasAttribute('data-motion')&&getComputedStyle(e,'::before').animationName==='recent-halo'));
   await page.waitForFunction(()=>document.querySelector('#recent-toggle').classList.contains('wiggling'),{},{timeout:16000});
   assert.equal(await recent.locator('img.brand-icon').evaluate(e=>getComputedStyle(e).animationName),'recent-wiggle');
+  assert(await recent.evaluate(e=>getComputedStyle(e,'::before').backgroundImage.includes('radial-gradient')));
   assert.equal(await recent.locator('img.brand-icon').count(),1);
   assert.equal(await recent.textContent(),'');
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
@@ -439,6 +493,7 @@ try {
  await page.emulateMedia({forcedColors:'active'});await open();assert(await dialog.isVisible());await close();await page.emulateMedia({forcedColors:'none'});
  // The same detail UI works read-only in operator inspection.
  me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),22);await close();
+ await page.locator('#recent-toggle').click();assert.equal(await page.locator('#feed .feed-react-toggle').count(),0,'read-only inspection cannot react to updates');await page.locator('#close-recent').click();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);
  console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, pending-art transitions, author search, 28-day attenuated reaction stacks, positive reactions with optional notes and bursts, unread Recently, centered card scaling, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');

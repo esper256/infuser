@@ -711,6 +711,73 @@ function updateRecentAge(){
   setText(time,recentAge(at));if(time.dateTime!==iso){time.dateTime=iso;time.title=date.toLocaleString();}
 }
 let feedSignature;
+const pendingFeedReactions=new Set();
+const feedPicker=el('div',undefined,'feed-reaction-picker');feedPicker.id='feed-reaction-picker';
+feedPicker.setAttribute('popover','auto');feedPicker.setAttribute('role','dialog');$('recent-menu').append(feedPicker);
+function feedReactionState(game){return [game.reactions.find(reaction=>reaction.mine)?.emoji||null,!!(inspection||me?.inspecting)];}
+function feedReactionTrigger(id){return [...$('feed').querySelectorAll('.feed-react-toggle')].find(button=>button.dataset.game===id);}
+function positionFeedPicker(){
+  if(!feedPicker.matches(':popover-open'))return;
+  const trigger=feedReactionTrigger(feedPicker.dataset.game);
+  if(!trigger||!$('recent-menu').open){feedPicker.hidePopover();return;}
+  const bounds=trigger.getBoundingClientRect(),width=Math.min(356,innerWidth-32);
+  feedPicker.style.width=width+'px';feedPicker.style.left=Math.max(16,Math.min(bounds.right-width,innerWidth-width-16))+'px';
+  feedPicker.style.maxHeight=Math.max(44,innerHeight-32)+'px';
+  const height=feedPicker.getBoundingClientRect().height;
+  feedPicker.style.top=Math.max(16,Math.min(bounds.bottom+8+height<=innerHeight-16?bounds.bottom+8:bounds.top-height-8,innerHeight-height-16))+'px';
+}
+feedPicker.addEventListener('toggle',()=>{
+  const open=feedPicker.matches(':popover-open');
+  for(const trigger of $('feed').querySelectorAll('.feed-react-toggle'))trigger.setAttribute('aria-expanded',String(open&&trigger.dataset.game===feedPicker.dataset.game));
+});
+feedPicker.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();feedPicker.hidePopover();feedReactionTrigger(feedPicker.dataset.game)?.focus({preventScroll:true});}
+});
+window.addEventListener('resize',positionFeedPicker);
+$('activity').addEventListener('scroll',positionFeedPicker);
+function openFeedReactions(game){
+  if(inspection||me?.inspecting)return;
+  game=library.apps.find(app=>app.id===game.id);if(!game)return;
+  if(feedPicker.matches(':popover-open'))feedPicker.hidePopover();
+  feedPicker.dataset.game=game.id;feedPicker.setAttribute('aria-label','React to '+game.title+' update');feedPicker.replaceChildren();
+  for(const [emoji,label] of emojis){
+    const button=el('button');button.type='button';button.dataset.emoji=emoji;button.append(reactionFace(emoji,'feed-reaction-face'));
+    button.setAttribute('aria-label','React: '+label);button.setAttribute('aria-pressed',String(game.reactions.some(reaction=>reaction.mine&&reaction.emoji===emoji)));
+    button.setAttribute('aria-disabled',String(pendingFeedReactions.has(game.id)));
+    button.onclick=async()=>{
+      if(pendingFeedReactions.has(game.id))return;
+      const current=library.apps.find(app=>app.id===game.id);if(!current)return;
+      const mine=current.reactions.find(reaction=>reaction.mine);
+      pendingFeedReactions.add(game.id);for(const choice of feedPicker.children)choice.setAttribute('aria-disabled','true');
+      try{
+        // Changing the emoji here must retain an existing note or screenshot.
+        await api('/api/apps/'+game.id+'/reaction',{method:'PUT',body:JSON.stringify({emoji,text:mine?.text||'',screenshot:mine?.screenshot||null}),signal:AbortSignal.timeout(12000)});
+        clearTimeout(noticeTimer);$('notice').classList.remove('visible');$('notice').textContent='';
+        if(feedPicker.dataset.game===game.id&&feedPicker.matches(':popover-open')){
+          updateConfetti(button);feedPicker.hidePopover();feedReactionTrigger(game.id)?.focus({preventScroll:true});
+        }
+        const latest=library.apps.find(app=>app.id===game.id);
+        if(latest){latest.reactions=latest.reactions.filter(reaction=>!reaction.mine);latest.reactions.push({...mine,id:mine?.id||me.player_id,name:me.name,avatar:me.avatar,mine:true,emoji,text:mine?.text||'',screenshot:mine?.screenshot||null,updated:Date.now()/1000});}
+        renderFeed();renderGames();renderGameDetail();
+        await refresh();
+      }catch(error){showError(error);}
+      finally{
+        pendingFeedReactions.delete(game.id);
+        if(feedPicker.dataset.game===game.id)for(const choice of feedPicker.children)choice.setAttribute('aria-disabled','false');
+      }
+    };
+    feedPicker.append(button);
+  }
+  feedPicker.showPopover();positionFeedPicker();
+  (feedPicker.querySelector('[aria-pressed="true"]')||feedPicker.firstElementChild).focus({preventScroll:true});
+}
+function feedReactions(game){
+  const button=el('button',undefined,'feed-react-toggle');button.type='button';button.dataset.game=game.id;
+  const mine=game.reactions.find(reaction=>reaction.mine);
+  button.append(reactionFace(mine?.emoji||'☺️','feed-reaction-face'));
+  button.setAttribute('aria-label','React to '+game.title+' update');button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-controls',feedPicker.id);button.setAttribute('aria-expanded','false');
+  button.onclick=()=>openFeedReactions(game);return button;
+}
 function renderFeed() {
   const feed=$('feed');const entries=[];
   for(const game of library.apps){entries.push({game,at:game.updated,emoji:'↗',title:game.author?.name?game.author.name+' updated '+game.title:game.title+' updated',text:'',person:game.author});for(const r of game.reactions)entries.push({game,reaction:r,at:r.updated,emoji:r.emoji,title:r.name+' reacted to '+game.title,text:r.text,person:{id:r.id,name:r.name,avatar:r.avatar}});}
@@ -721,27 +788,29 @@ function renderFeed() {
   $('recent-toggle').classList.toggle('has-updates',unseen);syncRecentMotion();
   const label=unseen?'Recently · new events':'Recently';
   if($('recent-toggle').getAttribute('aria-label')!==label)$('recent-toggle').setAttribute('aria-label',label);
-  const signature=JSON.stringify(entries.slice(0,12).map(({game,...entry})=>[game.id,entry]));
+  const signature=JSON.stringify(entries.slice(0,12).map(({game,...entry})=>[game.id,entry,feedReactionState(game)]));
   if(signature===feedSignature){updateRecentAge();return;}feedSignature=signature;
   const previous=new Map([...feed.children].map(row=>[row.dataset.key,row])),rows=[],focused=document.activeElement;
   let replacementFocus;
   if(!entries.length)rows.push(el('p','Game updates and reactions show up here.','quiet'));
   for(const entry of entries.slice(0,12)){
     const key=JSON.stringify([entry.game.id,entry.reaction?entry.reaction.id||entry.reaction.name:null]);
-    const signature=JSON.stringify([entry.at,entry.title,entry.text,entry.emoji,entry.person]);
+    const signature=JSON.stringify([entry.at,entry.title,entry.text,entry.emoji,entry.person,feedReactionState(entry.game)]);
     const old=previous.get(key);
     if(old?.dataset.signature===signature){rows.push(old);continue;}
-    const row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');
-    row.dataset.key=key;row.dataset.signature=signature;row.dataset.at=entry.at;
+    const item=el('div',undefined,'feed-entry'),row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');
+    item.dataset.key=key;item.dataset.signature=signature;row.dataset.at=entry.at;
     row.onclick=()=>{$('recent-menu').open=false;const game=library.apps.find(game=>game.id===entry.game.id);if(game)openGameDetail(game,entry.reaction);};
     body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));
     const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
     if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));
-    mark.append(reactionFace(entry.emoji,'feed-emoji'));row.append(mark,body);rows.push(row);
-    if(old===focused)replacementFocus=row;
+    mark.append(reactionFace(entry.emoji,'feed-emoji'));row.append(mark,body);item.append(row);
+    if(!entry.reaction&&!inspection&&!me?.inspecting)item.append(feedReactions(entry.game));
+    rows.push(item);
+    if(old?.contains(focused))replacementFocus=focused.classList.contains('feed-react-toggle')?item.querySelector('.feed-react-toggle')||row:row;
   }
   const hadFocus=feed.contains(focused);
-  reconcileChildren(feed,rows);updateRecentAge();
+  reconcileChildren(feed,rows);updateRecentAge();positionFeedPicker();
   if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,reactionFace(emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
@@ -982,7 +1051,7 @@ document.addEventListener('keydown',event=>{
   const menu=document.querySelector('header details[open]');
   if(menu){closeHeaderMenus();menu.querySelector('summary').focus();}
 });
-$('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();syncRecentMotion();});
+$('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();else if(feedPicker.matches(':popover-open'))feedPicker.hidePopover();syncRecentMotion();});
 $('close-recent').onclick=()=>{$('recent-menu').open=false;$('recent-toggle').focus();};
 let profileUsageRequest,profileReminderBusy=false,profileReminderPending=false,profileReminderAttempted=false,profilePickerOpened=false;
 function profileReminderReady(){return me&&!me.inspecting&&library&&!document.hidden&&!document.querySelector('dialog[open]');}
@@ -1231,6 +1300,24 @@ function reactionBurst(target,emoji){
   const hero=reactionFace(emoji,'reaction-burst-hero');hero.style.left=x+'px';hero.style.top=y+'px';burst.append(hero);
   hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
   setTimeout(()=>burst.remove(),950);
+}
+function updateConfetti(target){
+  document.querySelector('.reaction-burst')?.remove();
+  if(!target.isConnected||reactionMotion.matches||document.hidden)return;
+  const bounds=target.getBoundingClientRect(),x=bounds.left+bounds.width/2,y=bounds.top+bounds.height/2;
+  const burst=el('div',undefined,'reaction-burst update-confetti');burst.setAttribute('popover','manual');burst.setAttribute('aria-hidden','true');document.body.append(burst);burst.showPopover();
+  const colors=['#ff668a','#ffc857','#62dfb0','#66b8ff','#b38aff','#ff914d'];
+  for(let i=0;i<64;i++){
+    const piece=el('span',undefined,'update-confetti-piece');piece.style.background=colors[i%colors.length];piece.style.left=x+'px';piece.style.top=y+'px';
+    if(i%3===0)piece.style.borderRadius='50%';burst.append(piece);
+    const dx=(Math.random()-.5)*Math.min(620,innerWidth*1.3),rise=100+Math.random()*150,fall=160+Math.random()*200,spin=(Math.random()-.5)*1000;
+    const frames=Array.from({length:9},(_,step)=>{
+      const t=step/8,dy=-4*rise*t*(1-t)+fall*t*t;
+      return {offset:t,transform:`translate(${dx*t}px,${dy}px) rotate(${spin*t}deg) scaleX(${Math.cos(t*Math.PI*4)})`,opacity:t<.7?1:(1-t)/.3};
+    });
+    piece.animate(frames,{duration:1100+Math.random()*500,delay:Math.random()*90,easing:'linear',fill:'both'});
+  }
+  setTimeout(()=>burst.remove(),1800);
 }
 async function refreshNetworkHealth(){
   if(networkHealthBusy||document.hidden||!me?.admin||!$('admin').open)return;
