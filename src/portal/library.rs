@@ -72,6 +72,7 @@ impl View<'_> {
                     "emoji":reaction.emoji,
                     "text":reaction.text,
                     "updated":reaction.updated,
+                    "screenshot":reaction.screenshot,
                 })
             })
             .collect();

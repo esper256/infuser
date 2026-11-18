@@ -51,6 +51,7 @@ mod publication;
 mod pwa;
 mod reaction_art;
 mod runtime;
+mod screenshots;
 mod sdk_v1;
 mod server_builds;
 mod server_diagnostics;
@@ -529,6 +530,7 @@ pub fn router(platform: Platform) -> Router {
         .merge(groups::routes())
         .merge(profiles::routes())
         .merge(voice::routes())
+        .merge(screenshots::routes())
         .merge(visits::routes())
         .route("/assets/visits.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/visits.js")) }))
         .merge(feedback::routes())
@@ -984,6 +986,8 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
 struct React {
     emoji: String,
     text: String,
+    #[serde(default)]
+    screenshot: Option<String>,
 }
 async fn react(
     State(p): State<Platform>,
@@ -1031,14 +1035,18 @@ async fn react(
             "Choose a reaction and keep your note to 140 characters."
         )
     );
-    p.db.edit(|d| {
+    p.db.edit_transaction(|d, tx| {
         ensure!(d.deployed(&app).is_some(), fault(404, "unknown game"));
+        if let Some(id) = &body.screenshot {
+            platform::screenshots::owned(tx, &email, id)?;
+        }
         d.reactions.entry(app).or_default().insert(
             email,
             Reaction {
                 emoji: body.emoji,
                 text: body.text.trim().into(),
                 updated: now(),
+                screenshot: body.screenshot,
             },
         );
         Ok(())
@@ -1324,7 +1332,7 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
         [
             ("Cache-Control", "no-store"),
             ("Referrer-Policy", "no-referrer"),
-            ("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
+            ("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src blob:; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
         ],
         Html(include_str!("../web/game-player.html")),
     ).into_response();

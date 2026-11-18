@@ -9,7 +9,8 @@ export function initClientUpdates({api, document:doc=document, window:win=window
     // The Hidden shelf is a browsing disclosure, not an unfinished interaction.
     return doc.querySelector('dialog[open], details[open]:not(#hidden-games), [data-launching], #library-chat[data-sending]') ||
       doc.activeElement?.matches('input, textarea, select, [contenteditable="true"]') ||
-      Boolean(doc.querySelector('#chat-text')?.value.trim());
+      Boolean(doc.querySelector('#chat-text')?.value.trim()) ||
+      Boolean(doc.querySelector('.screenshot-draft:not([hidden])'));
   }
   async function check() {
     if(busy||reloading||doc.hidden)return;

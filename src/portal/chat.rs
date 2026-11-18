@@ -14,6 +14,8 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
 pub(super) struct Message {
     client_id: String,
     text: String,
+    #[serde(default)]
+    screenshot: Option<String>,
 }
 
 pub(super) async fn send(
@@ -23,11 +25,13 @@ pub(super) async fn send(
 ) -> Answer {
     let email = p.member(&h, true).await?;
     let (group, _) = p.group_view(&h, &email)?;
-    Ok(reply(p.db.chat_send_group(
+    let channel = p.db.default_chat_channel(&group)?;
+    Ok(reply(p.db.chat_send_attachment(
         &email,
-        &group,
+        &channel,
         &body.client_id,
         &body.text,
+        body.screenshot.as_deref(),
     )?))
 }
 

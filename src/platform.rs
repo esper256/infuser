@@ -21,6 +21,7 @@ pub mod deployments;
 pub mod groups;
 pub mod identity;
 mod metadata;
+pub mod screenshots;
 pub mod visits;
 pub use metadata::{GameMetadata, MetadataUpdate};
 
@@ -108,6 +109,8 @@ pub struct Reaction {
     pub emoji: String,
     pub text: String,
     pub updated: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screenshot: Option<String>,
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Data {
@@ -377,6 +380,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS deployments(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO deployments VALUES(1,'{}');")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO visits VALUES(1,'{}');")?;
         channels::initialize(&mut c)?;
+        screenshots::initialize(&c)?;
         crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;

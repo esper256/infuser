@@ -13,6 +13,7 @@ pub(super) fn version() -> &'static str {
                 include_str!("../../web/clubhouse.css"),
                 include_str!("../../web/chat.js"),
                 include_str!("../../web/chat-emoji.js"),
+                include_str!("../../web/screenshots.js"),
                 include_str!("../../web/vendor/emoji-picker/picker.js"),
                 include_str!("../../web/vendor/emoji-picker/database.js"),
                 include_str!("../../web/vendor/emoji-picker/picker.css"),

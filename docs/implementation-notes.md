@@ -284,3 +284,27 @@ Guest rows and receipts are removed transactionally when their launch expires.
 New tables preserve checkpoint history and declarations across a rollback to an
 older daemon; that daemon can still operate its legacy APIs but cannot serve the
 new checkpoint endpoints. Restoring the newer daemon restores their availability.
+
+## Screenshots
+
+The website uses `getDisplayMedia` and Region Capture to capture the game viewport
+without asking the game to read its canvas. A successful crop is required before
+saving; choosing another tab/window cannot silently upload the desktop. Capture
+is best-effort and needs browser permission each time. Audio is never requested.
+
+`POST /_infuser/screenshots` uses the authenticated game launch and exact-origin
+check. WebP originals retain capture resolution (up to 8192 pixels per side,
+33,554,432 pixels total and 6 MiB); thumbnails are at most 320 pixels per side
+and 96 KiB. Image decoding is serialized and validates both files. The private
+`screenshots` SQLite table keeps ten original/thumbnail pairs per profile;
+insertion and oldest-image eviction share a transaction. These rows are included
+in the existing SQLite backup. Physical database space is reused after eviction.
+
+The website's `/api/screenshots` lists only the selected profile's collection.
+Image reads return private, non-cacheable data through the pinned profile API.
+An attachment is a screenshot ID, never a public URL or a copied image. Other
+profiles must provide a live, visible chat-message or reaction context. Chat
+reads apply channel membership, visit admission boundaries, deletion and history
+retention; reactions use the visible deployment. Eviction removes the image from
+all attachments while preserving text. These are website endpoints, not a new
+requirement or contract for game SDK integrations.

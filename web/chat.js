@@ -1,4 +1,5 @@
 import { initChatEmoji } from '/assets/chat-emoji.js';
+import { attachmentIcon, attachmentDraft, screenshotTile } from '/assets/screenshots.js';
 import { openHomeChat } from '/assets/groups.js';
 const graphemes=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'grapheme'}):null;
 const emojiPresentation=/\p{Emoji_Presentation}|\p{Emoji}\uFE0F|[#*0-9]\uFE0F?\u20E3/u;
@@ -37,7 +38,11 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     <div id="chat-actions" popover="manual" role="menu" aria-label="Message actions"><button id="chat-delete" type="button" role="menuitem">Delete message</button><button id="chat-cancel-action" type="button" role="menuitem">Cancel</button></div>`;
   document.body.append(root);
   const $=id=>document.getElementById('chat-'+id), log=$('log'), input=$('text');
-  const emojiPicker=initChatEmoji({root,input,button:$('emoji-toggle'),panel:$('emoji-panel')});
+  let screenshot=null;
+  $('emoji-toggle').innerHTML=attachmentIcon;$('emoji-toggle').setAttribute('aria-label','Choose emoji or screenshot');$('emoji-toggle').title='Emoji or screenshot';$('emoji-panel').setAttribute('aria-label','Choose emoji or screenshot');
+  const draft=document.createElement('div');draft.className='screenshot-draft';draft.hidden=true;$('form').before(draft);
+  function attach(id){if(sending)return;screenshot=id;attachmentDraft(draft,id,request,()=>attach(null));input.oninput();}
+  const emojiPicker=initChatEmoji({root,input,button:$('emoji-toggle'),panel:$('emoji-panel'),api:request,onScreenshot:attach});
   if(me.inspecting)$('form').hidden=true;
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
@@ -212,7 +217,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   $('toggle').onclick=()=>setOpen(!isOpen());$('close').onclick=()=>setOpen(false);
   root.addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();event.stopPropagation();setOpen(false);}});
   $('toggle').addEventListener('keydown',event=>{if(event.key==='Escape'&&isOpen()){event.preventDefault();setOpen(false);}});
-  document.addEventListener('pointerdown',event=>{if(isOpen()&&!root.contains(event.target)&&!$('toggle').contains(event.target))setOpen(false,false);});
+  document.addEventListener('pointerdown',event=>{if(isOpen()&&!root.contains(event.target)&&!$('toggle').contains(event.target)&&!event.target.closest('.screenshot-viewer'))setOpen(false,false);});
   $('new').onclick=scrollLatest;
   log.addEventListener('scroll',()=>{
     resetActions();
@@ -250,7 +255,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     const length=Array.from(input.value).length;
     setText($('limit'),length+'/280');setHidden($('limit'),length<240);
     $('limit').classList.toggle('at-limit',length>=280);
-    $('send').disabled=sending||!input.value.trim();
+    $('send').disabled=sending||(!input.value.trim()&&!screenshot);
     $('emoji-toggle').disabled=sending;
   };
   input.addEventListener('keydown',event=>{
@@ -286,7 +291,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       bubble.addEventListener('contextmenu',event=>{event.preventDefault();cancelPress();suppressReleaseClick=true;showActions(message,bubble);});
       meta.append(remove);
     }
-    bubble.append(meta,messageText(message.text));article.append(portrait,bubble);return article;
+    bubble.append(meta,messageText(message.text));if(message.screenshot)bubble.append(screenshotTile({id:message.screenshot,api:request,context:{chat:message.id},onLoad:schedulePosition}));article.append(portrait,bubble);return article;
   }
   function render(next) {
     const stick=bottom(), previousIds=new Set(messages.map(m=>m.id));
@@ -324,14 +329,14 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     finally{busy=false;timer=setTimeout(poll,isOpen()?3000:10000);}
   }
   $('form').onsubmit=async event=>{
-    event.preventDefault();if(sending||!input.value.trim())return;
+    event.preventDefault();if(sending||(!input.value.trim()&&!screenshot))return;
     const text=input.value.trim();
-    if(!retry||retry.text!==text)retry={text,client_id:crypto.randomUUID()};
+    if(!retry||retry.text!==text||retry.screenshot!==screenshot)retry={text,screenshot,client_id:crypto.randomUUID()};
     emojiPicker.close();
     sending=true;root.dataset.sending='true';input.readOnly=true;input.oninput();$('error').textContent='';$('send').setAttribute('aria-label','Sending message');$('send').setAttribute('aria-busy','true');
     try{
       await request('/api/chat',{method:'POST',body:JSON.stringify(retry)});
-      input.value='';retry=null;
+      input.value='';retry=null;screenshot=null;attachmentDraft(draft,null,request,()=>{});
       // Wait for an existing read to finish before the immediate post-send read.
       while(busy)await new Promise(resolve=>setTimeout(resolve,30));
       await poll();if(isOpen())scrollLatest();
