@@ -211,7 +211,26 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
             .as_array()
             .unwrap()
             .iter()
-            .any(|reason| reason.as_str().unwrap().contains("publishing"))
+            .any(|reason| reason
+                .as_str()
+                .unwrap()
+                .to_ascii_lowercase()
+                .contains("publishing"))
+    );
+    assert!(
+        publishing["activity"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["holds"] == true
+                    && item["kind"] == "packaging"
+                    && item["summary"].as_str().unwrap().contains("server image")
+                    && item["effect"]
+                        .as_str()
+                        .unwrap()
+                        .contains("stops that build")
+            })
     );
     p.controller.release_build("update-warning-test")?;
 
@@ -275,16 +294,22 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         .json(&authorization))
     .await?;
     assert!(p.controller.deployment.read().grant.is_none());
-    assert_eq!(
-        c.http
-            .post(format!("{}/v1/deployment/admit", c.url))
-            .bearer_auth("control")
-            .json(&json!({"release":"c".repeat(40)}))
-            .send()
-            .await?
-            .status(),
-        409
-    );
+    // The spent approval does not force another activation. An ordinary
+    // in-flight request, such as a game check-in, does not block it either.
+    let again: Value = c
+        .http
+        .post(format!("{}/v1/deployment/admit", c.url))
+        .bearer_auth("control")
+        .json(&json!({"release":"c".repeat(40)}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(again["forced"], false);
+    p.controller
+        .maintenance
+        .end(again["lease"]["id"].as_str().unwrap());
     drop(work);
     p.controller
         .deployment

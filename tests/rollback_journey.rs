@@ -154,6 +154,7 @@ async fn layout(manifest: Arc<Mutex<Release>>, initial: &str) -> Result<Layout> 
 fn release(commit: &str) -> Release {
     Release {
         commit: commit.into(),
+        host: Vec::new(),
         artifacts: BTreeMap::from([(
             "linux-amd64".into(),
             Artifact {

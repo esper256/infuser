@@ -136,6 +136,7 @@ impl Platform {
                 .ok_or_else(|| fault(404, "server build disappeared"))?;
             job.state = Phase::Packaging;
             job.attempt += 1;
+            job.started = now();
             job.error = None;
             job.log("Packaging started.");
             Ok(())

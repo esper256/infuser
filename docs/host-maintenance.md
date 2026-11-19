@@ -83,11 +83,24 @@ replayed after boot, and the script refuses starts outside 04:00–04:30.
 
 Before requesting an orderly reboot, it acquires the same host lock as full
 backup and deployment jobs, checks package-update services, and asks Infuser's
-maintenance API for idle admission. Active players, reserved game servers,
-publishing work or another maintenance lease defer the reboot. An unavailable
-controller or failed admission prevents it too. Shutdown inhibitors are honored;
-no forced reboot is used. Admission remains closed during shutdown. Failed or
-check-only attempts release the lease; an abandoned lease expires automatically.
+maintenance API for admission under the **strict host policy**. That policy
+waits for open games, shared games, reserved game servers, publishing, and
+server builds. It does not use the update's 10-minute or 2-hour caps, and
+Update anyway does not apply. The admin update panel names what a deferred
+reboot is waiting on. An unavailable controller or failed admission prevents
+the reboot too. Shutdown inhibitors are honored; no forced reboot is used.
+Admission remains closed during shutdown. Failed or check-only attempts
+release the lease; an abandoned lease expires automatically.
+
+A release can name a reboot or an Ansible run it cannot take effect without.
+Put that in `release.json` as `"host": ["reboot"]`, `"host": ["ansible"]`, or
+both. The field is omitted when the release needs neither. An updater installed
+before this field existed rejects a manifest that includes it, so install this
+updater before publishing a release that sets `host`. While that step is still
+outstanding, the reboot or Ansible run uses the **release host policy**: the
+same waits and Update anyway override as a binary update. The step is cleared
+after the machine boots (for a reboot) or after Ansible finishes. `deploy/host-plan.json`
+is what the release publisher copies into the manifest.
 
 If the window stays busy, the next attempt is the following day. Inspect
 `journalctl -u infuser-reboot.service` if a required reboot keeps being deferred;

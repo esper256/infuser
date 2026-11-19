@@ -40,6 +40,12 @@ fn health() -> String {
 pub struct Release {
     pub commit: String,
     pub artifacts: BTreeMap<String, Artifact>,
+    /// Reboot or Ansible this release cannot take effect without. Omitted when
+    /// empty so older manifests stay valid. An updater that does not know this
+    /// field rejects a manifest that includes it; install this updater before
+    /// publishing a release that sets it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub host: Vec<crate::deployment::HostStep>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -109,11 +115,12 @@ pub trait Service: Send + Sync {
         Ok(true)
     }
     async fn report(&self, _report: Report) {}
+    fn set_host_plan(&self, _steps: &[crate::deployment::HostStep]) {}
     async fn ready_for_release(&self, _release: &str) -> Result<Readiness> {
         Ok(if self.ready_to_update().await? {
             Readiness::Ready
         } else {
-            Readiness::Busy
+            Readiness::Busy("waiting before activation".into())
         })
     }
     async fn ready_to_update(&self) -> Result<bool> {
@@ -141,7 +148,7 @@ pub trait Service: Send + Sync {
 }
 pub enum Readiness {
     Ready,
-    Busy,
+    Busy(String),
     Maintenance,
 }
 
@@ -150,13 +157,19 @@ struct Systemd {
     http: reqwest::Client,
     force: bool,
     activation_lock: Mutex<Option<File>>,
+    /// None until this run has read a release manifest.
+    host_steps: Mutex<Option<Vec<crate::deployment::HostStep>>>,
 }
 #[async_trait]
 impl Service for Systemd {
+    fn set_host_plan(&self, steps: &[crate::deployment::HostStep]) {
+        *self.host_steps.lock().unwrap() = Some(steps.to_vec());
+    }
     async fn report(&self, report: Report) {
+        let host = self.host_steps.lock().unwrap().clone();
         let result = async {
             crate::maintenance::Client::from_config_file(&self.config.controller_config)?
-                .report_update(&report)
+                .report_update(&report, host.as_deref())
                 .await
         }
         .await;
@@ -182,13 +195,12 @@ impl Service for Systemd {
             return Ok(Readiness::Maintenance);
         }
         Ok(
-            if crate::maintenance::Client::from_config_file(&self.config.controller_config)?
+            match crate::maintenance::Client::from_config_file(&self.config.controller_config)?
                 .admit_update(release, self.force)
                 .await?
             {
-                Readiness::Ready
-            } else {
-                Readiness::Busy
+                crate::maintenance::UpdateGate::Open => Readiness::Ready,
+                crate::maintenance::UpdateGate::Wait(reason) => Readiness::Busy(reason),
             },
         )
     }
@@ -464,6 +476,7 @@ mod host_lock_tests {
             http: reqwest::Client::new(),
             force: false,
             activation_lock: Mutex::new(acquire_host_lock(&dir.path().join("host.lock"))?),
+            host_steps: Mutex::new(None),
         };
         service
             .report(Report {
@@ -476,7 +489,7 @@ mod host_lock_tests {
         assert_eq!(*calls.lock().unwrap(), vec!["report"]);
         assert!(matches!(
             service.ready_for_release(&"a".repeat(40)).await?,
-            Readiness::Busy
+            Readiness::Busy(_)
         ));
         for invalid in [
             "[controller]\napi_port='wrong'",
@@ -588,6 +601,7 @@ mod host_lock_tests {
             http: reqwest::Client::new(),
             force: false,
             activation_lock: std::sync::Mutex::new(None),
+            host_steps: Mutex::new(None),
         };
         service.restore_state(&release).await?;
         let connection = rusqlite::Connection::open(&db)?;
@@ -685,6 +699,7 @@ pub async fn run_force(config: Settings, force: bool) -> Result<String> {
         http: reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()?,
+        host_steps: Mutex::new(None),
     };
     let source = format!("https://github.com/{}/releases", config.repository);
     let result = update(&config, &source, platform()?, &http, &service).await;
@@ -709,6 +724,7 @@ fn operator_service(config: &Settings) -> Result<Systemd> {
         http: reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()?,
+        host_steps: Mutex::new(None),
     })
 }
 
@@ -885,6 +901,7 @@ pub async fn update(
     .await?;
     let release: Release = serde_json::from_slice(&manifest)?;
     ensure!(hex(&release.commit, 40), "invalid release commit");
+    service.set_host_plan(&release.host);
     let artifact = release
         .artifacts
         .get(platform)
@@ -1042,6 +1059,11 @@ pub async fn update(
     );
     let readiness = service.ready_for_release(&release.commit).await?;
     if !matches!(readiness, Readiness::Ready) {
+        let reason = match &readiness {
+            Readiness::Maintenance => "waiting for another job on this computer",
+            Readiness::Busy(reason) => reason.as_str(),
+            Readiness::Ready => unreachable!(),
+        };
         service
             .report(Report {
                 release: Some(release.commit.clone()),
@@ -1054,10 +1076,7 @@ pub async fn update(
         if fs::read_to_string(&deferred).ok().as_deref() != Some(release.commit.as_str()) {
             write_atomic(&deferred, release.commit.as_bytes())?;
         }
-        return Ok(format!(
-            "Staged {}; waiting for games and publishing to become idle",
-            release.commit
-        ));
+        return Ok(format!("Staged {}; {reason}", release.commit));
     }
     service
         .report(Report {

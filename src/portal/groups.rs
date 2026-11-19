@@ -85,26 +85,23 @@ pub(super) fn routes() -> Router<Platform> {
 async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.operator(&h, false).await?;
     let record = p.controller.deployment.read();
-    let mut reasons = crate::operations::update_activity(&p)?
-        .into_iter()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    if p.controller.maintenance.publishing() > 0 {
-        reasons.push("Waiting for game uploads or publishing to finish".into());
-    } else if p.controller.maintenance.working() > 1 {
-        reasons.push("Waiting for requests to finish".into());
-    }
-    if p.controller.maintenance.active()
-        || record
-            .report
-            .as_ref()
-            .is_some_and(|r| r.maintenance_blocked)
+    let mut activity = crate::update_admission::describe(&p)?;
+    if record
+        .report
+        .as_ref()
+        .is_some_and(|report| report.maintenance_blocked)
+        && !activity.iter().any(|item| item.kind == "maintenance")
     {
-        reasons.push("Waiting for another host maintenance job".into());
+        activity.insert(0, crate::update_admission::host_job());
     }
-    let publishing = p.controller.maintenance.publishing() > 0
-        || reasons.iter().any(|reason| reason.contains("publishing"));
-    reasons.sort_by_key(|reason| !reason.contains("publishing"));
+    let publishing = activity
+        .iter()
+        .any(|item| item.holds && matches!(item.kind, "publishing" | "packaging"));
+    let mut reasons: Vec<String> = activity
+        .iter()
+        .filter(|item| item.holds)
+        .map(|item| item.summary.clone())
+        .collect();
     let stale = now().saturating_sub(record.checked_at) >= 180;
     if stale {
         reasons.insert(0, "Waiting for a fresh update check".into());
@@ -113,7 +110,8 @@ async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
         json!({"configured":record.report.is_some(),"current_build":crate::BUILD_SHA,"current_built_at":crate::build_timestamp(),
         "release_built_at":record.release_built_at,"publishing":publishing,
         "available":record.available(),"available_since":record.available_since,"checked_at":record.checked_at,
-        "report":record.report,"stale":stale,"reasons":reasons,
+        "report":record.report,"stale":stale,"reasons":reasons,"activity":activity,
+        "host":crate::update_admission::host_panel(&p, &record)?,
         "authorized_until":record.grant.filter(|g|g.expires>now() && g.current_build==crate::BUILD_SHA).map(|g|g.expires)}),
     ))
 }

@@ -186,6 +186,9 @@ pub struct Job {
     pub logs: String,
     pub error: Option<String>,
     pub artifact: Option<Artifact>,
+    /// When server-image packaging started. Older rows leave this at zero.
+    #[serde(default)]
+    pub started: u64,
 }
 impl Job {
     pub fn new(recipe: Recipe) -> Self {
@@ -197,6 +200,7 @@ impl Job {
             logs: String::new(),
             error: None,
             artifact: None,
+            started: 0,
         }
     }
     pub fn active(&self) -> bool {

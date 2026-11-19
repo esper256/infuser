@@ -17,10 +17,11 @@ const server=http.createServer(async(req,res)=>{
   let text='';for await(const part of req)text+=part;
   const body=JSON.parse(text);
   if(req.method==='POST'){
-    posts++;assert.deepEqual(body,{purpose:'update',force:false});
+    posts++;assert.deepEqual(body,{purpose:'reboot'});
     if(late)await writeFile(join(work,'clock'),'0430');
     res.writeHead(status,{'content-type':'application/json'});
-    res.end(JSON.stringify(status===200?{lease:{id:'fixture-lease'}}:{error:'not admitted'}));
+    const error=status===409?'A guest has "Pond" open in the browser.':'not admitted';
+    res.end(JSON.stringify(status===200?{lease:{id:'fixture-lease'}}:{error}));
   }else{
     deletes++;assert.deepEqual(body,{id:'fixture-lease'});res.end('{}');
   }
@@ -58,7 +59,10 @@ exit 99
   await set('clock','0400');await set('apt','active');
   assert.match((await run()).output,/package maintenance/);assert.equal(posts,0);
   await set('apt','inactive');status=409;
-  assert.match((await run()).output,/players/);assert.equal(posts,1);await noReboot();
+  const deferred=await run();
+  assert.match(deferred.output,/Pond/);
+  assert.match(deferred.output,/open in the browser/);
+  assert.equal(posts,1);await noReboot();
   status=503;assert.notEqual((await run()).code,0);await noReboot();
   status=200;assert.equal((await run(['--check'])).code,0);assert.equal(deletes,1);await noReboot();
   late=true;assert.match((await run()).output,/window has ended/);assert.equal(deletes,2);await noReboot();
