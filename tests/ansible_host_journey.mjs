@@ -95,7 +95,7 @@ esac
     if(req.url==='/healthz'){res.statusCode=(await readFile(state,'utf8')).trim()==='active'?200:503;res.end('{}');return;}
     assert.equal(req.headers.authorization,'Bearer '+'a'.repeat(48));
     if(req.method==='POST'){
-      posts++;assert.deepEqual(JSON.parse(body),{purpose:'update',force:false});
+      posts++;assert.deepEqual(JSON.parse(body),{purpose:'ansible'});
       res.statusCode=busy?409:200;res.end(JSON.stringify({lease:{id:'fixture-lease',expires:Math.floor(Date.now()/1000)+60}}));
     }else{assert.equal(req.method,'DELETE');res.end('{}');}
   });
