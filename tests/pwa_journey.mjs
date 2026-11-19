@@ -45,14 +45,14 @@ try {
   await page.locator('#account-trigger').click();
   await page.getByRole('button',{name:'Install Infuser',exact:true}).click();
   assert.match(await page.locator('#notice').innerText(),/Install app|Home Screen/);
-  const button=page.getByRole('button',{name:'Chat notifications: off',exact:true});await button.click();
-  await page.getByRole('button',{name:'Chat notifications: on',exact:true}).waitFor();
+  const button=page.getByRole('button',{name:'Group Chat notifications: off',exact:true});await button.click();
+  await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).waitFor();
   await page.getByRole('button',{name:'Sound: device default'}).waitFor();
   assert.equal(await page.evaluate(()=>window.permissionRequests),1);
   // Recreate an existing subscription from before the per-device preference existed.
   await page.evaluate(()=>caches.delete('infuser-chat-alerts-v1'));
   if(process.env.INFUSER_PWA_SCREENSHOT)await page.screenshot({path:process.env.INFUSER_PWA_SCREENSHOT});
-  await page.reload();await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Chat notifications: on',exact:true}).waitFor();
+  await page.reload();await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>window.permissionRequests),0,'enabled devices do not ask again');
   await page.getByRole('button',{name:'Sound: quiet'}).waitFor();
   const worker=context.serviceWorkers()[0];assert(worker);
@@ -88,7 +88,7 @@ try {
   await push();
   assert.equal(await page.evaluate(()=>!!document.fullscreenElement),true,'arrival preserves fullscreen');
   const notice=await worker.evaluate(()=>self.testNotifications.at(-1));
-  assert.equal(notice.title,'Infuser · Chat');assert.equal(notice.silent,true);assert.equal(notice.tag,'infuser-chat');
+  assert.equal(notice.title,'Group Chat');assert.equal(notice.silent,true);assert.equal(notice.tag,'infuser-chat');
   // A synthetic click lacks OS user activation. Capture the worker's openWindow
   // destination and let a real new tab follow the notification/profile handoff.
   const destination=await worker.evaluate(async()=>{
@@ -124,20 +124,20 @@ try {
   assert.equal(await page.locator('#group-inspection').count(),0,'home alert leaves operator inspection');
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('infuser.group-inspection')),null);
   await page.locator('#chat-log').press('Escape');
-  await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Chat notifications: on',exact:true}).click();
-  await page.getByRole('button',{name:'Chat notifications: off',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Chat notifications: off',exact:true}).click();
-  await page.getByRole('button',{name:'Chat notifications: on',exact:true}).waitFor();
+  await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).click();
+  await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).click();
+  await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).waitFor();
   await page.getByRole('link',{name:'Sign out',exact:true}).click();await page.waitForURL('**/oauth2/sign_out?rd=%2F');
   assert.equal(await page.evaluate(()=>localStorage.getItem('test-push')),null);
   assert.equal(await worker.evaluate(async()=>(await self.registration.getNotifications()).length),0);
   await page.goto(origin+'/library');await page.locator('#account-trigger').click();
   await page.evaluate(()=>{Notification.requestPermission=async()=>'denied';});
-  await page.getByRole('button',{name:'Chat notifications: off',exact:true}).click();
+  await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).click();
   assert.match(await page.locator('.notification-hint').innerText(),/blocked/);
   assert.equal(await page.evaluate(()=>localStorage.getItem('test-push')),null);
   await page.evaluate(()=>Object.defineProperty(navigator,'userAgent',{value:'iPhone',configurable:true}));
-  await page.getByRole('button',{name:'Chat notifications: off',exact:true}).click();
+  await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).click();
   assert.match(await page.locator('.notification-hint').innerText(),/Home Screen first/);
   await page.locator('#account-trigger').click();
   await context.setOffline(true);await page.goto(origin+'/library');

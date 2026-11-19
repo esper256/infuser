@@ -38,7 +38,7 @@ async function chatNotification(){
       }
     }
   }catch{/* Missing settings or inaccessible storage falls back to a quiet alert. */}
-  await self.registration.showNotification('Infuser · Chat',{
+  await self.registration.showNotification('Group Chat',{
     body:'Open your group chat.',icon:'/assets/app-192.png',tag:'infuser-chat',
     ...(audible?{renotify:true}:{silent:true,renotify:false}),data:{url:'/library#chat'}
   });

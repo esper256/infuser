@@ -75,11 +75,13 @@ profile menu. On iPhone/iPad, use **Share → Add to Home Screen**, then open th
 icon. The installed website is named **Infuser**; **Infuser Play** remains the
 native game launcher.
 
-In your profile menu, turn **Chat notifications** on for each device you want.
+In your profile menu, turn **Group Chat notifications** on for each device you want.
 Permission is requested only after that tap. On iOS/iPadOS, this requires the
 Home Screen app (16.4 or later). If permission was denied, change it in the
 browser/device settings before trying again. Turn the same switch off to stop
 alerts on that device. Signing out unsubscribes that browser too.
+On Android, the browser manages the system notification channel. Use the
+Infuser profile menu to control Group Chat alerts on that device.
 
 New subscriptions use **Sound: device default**. If you already had alerts on,
 they stay quiet until you tap **Sound: quiet** in your profile menu to switch.
