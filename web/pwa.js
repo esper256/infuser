@@ -33,7 +33,7 @@ export function setupPwa({panel,me,api,notice}) {
     else notice(iphone()?'Tap Share → Add to Home Screen → Add. Then open Infuser from your Home Screen.':'Use your browser menu → Install app or Add to Home Screen.');
   };
   panel.append(install);
-  const button=document.createElement('button');button.type='button';button.textContent='Chat notifications';
+  const button=document.createElement('button');button.type='button';button.textContent='Group Chat notifications';
   const hint=document.createElement('small');hint.className='notification-hint';hint.setAttribute('role','status');
   button.hidden=!!me.inspecting;panel.append(button,hint);
   const sound=document.createElement('button');sound.type='button';sound.hidden=true;
@@ -42,7 +42,7 @@ export function setupPwa({panel,me,api,notice}) {
   const supported=()=>registration&&'PushManager' in window&&'Notification' in window;
   let subscription,busy=false,deviceSound=false;
   const state=()=>{
-    button.textContent=subscription?'Chat notifications: on':'Chat notifications: off';
+    button.textContent=subscription?'Group Chat notifications: on':'Group Chat notifications: off';
     button.setAttribute('aria-pressed',String(!!subscription));
     sound.hidden=test.hidden=!subscription||!!me.inspecting;
     sound.textContent=deviceSound?'Sound: device default':'Sound: quiet';
