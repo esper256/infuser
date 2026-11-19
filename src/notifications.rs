@@ -140,12 +140,7 @@ impl Database {
         sub.validate()?;
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
-        let data: Data = super::platform::decode_catalog(
-            &tx,
-            &tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| {
-                r.get::<_, String>(0)
-            })?,
-        )?;
+        let data = self.cached_catalog(&tx)?;
         ensure!(
             data.profile_enabled(email),
             fault(403, "Membership is disabled.")

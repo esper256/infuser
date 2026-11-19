@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 
 const RETENTION: u64 = 7 * 24 * 60 * 60;
 
-fn members(db: &Database, c: &Connection, email: &str) -> Result<std::sync::Arc<Data>> {
-    let data = db.cached_catalog(c)?;
+fn members(db: &Database, tx: &Transaction<'_>, email: &str) -> Result<std::sync::Arc<Data>> {
+    let data = db.cached_catalog(tx)?;
     ensure!(
         data.profile_enabled(email),
         fault(403, "Membership is disabled.")

@@ -121,27 +121,28 @@ impl Database {
         thumbnail: bool,
         load_bytes: bool,
     ) -> Result<Option<Vec<u8>>> {
-        let c = self.connection.lock().unwrap();
-        let data = self.cached_catalog(&c)?;
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        let data = self.cached_catalog(&tx)?;
         ensure!(
             data.profile_enabled(viewer),
             fault(403, "Profile unavailable.")
         );
-        let owner: String = c
+        let owner: String = tx
             .query_row("SELECT owner FROM screenshots WHERE id=?1", [id], |r| {
                 r.get(0)
             })
             .optional()?
             .ok_or_else(|| fault(404, "Screenshot expired."))?;
-        let gallery = in_gallery(&c, &owner, id)?;
+        let gallery = in_gallery(&tx, &owner, id)?;
         let mut allowed = gallery && owner == viewer && !inspecting;
         if !allowed
             && gallery
             && let Some(message) = message
         {
-            let row=c.query_row("SELECT channel_id,author FROM library_chat WHERE id=?1 AND screenshot=?2 AND text IS NOT NULL AND created>?3",params![message,id,now().saturating_sub(7*86400)],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
+            let row=tx.query_row("SELECT channel_id,author FROM library_chat WHERE id=?1 AND screenshot=?2 AND text IS NOT NULL AND created>?3",params![message,id,now().saturating_sub(7*86400)],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
             if let Some((channel, author)) = row {
-                let channel = channels::Channel::load(&c, &channel)?;
+                let channel = channels::Channel::load(&tx, &channel)?;
                 allowed = channel.group.as_deref() == Some(group)
                     && data.profile_enabled(&author)
                     && channel
@@ -161,7 +162,7 @@ impl Database {
         if !load_bytes {
             return Ok(None);
         }
-        Ok(Some(c.query_row(
+        Ok(Some(tx.query_row(
             if thumbnail {
                 "SELECT thumbnail FROM screenshots WHERE id=?1"
             } else {

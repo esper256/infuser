@@ -214,9 +214,10 @@ impl Database {
         visit: Option<&str>,
         time: u64,
     ) -> Result<bool> {
-        let c = self.connection.lock().unwrap();
-        let data = self.cached_catalog(&c)?;
-        let channel = Channel::load(&c, id)?;
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        let data = self.cached_catalog(&tx)?;
+        let channel = Channel::load(&tx, id)?;
         if let Some(visit) = visit {
             if data
                 .visit_access(visit, owner, time)

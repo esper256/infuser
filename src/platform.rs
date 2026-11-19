@@ -477,8 +477,9 @@ impl Database {
         Ok(db)
     }
     pub fn catalog(&self) -> Result<std::sync::Arc<Data>> {
-        let c = self.connection.lock().unwrap();
-        self.cached_catalog(&c)
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        self.cached_catalog(&tx)
     }
     pub fn read(&self) -> Result<Data> {
         let mut c = self.connection.lock().unwrap();
@@ -488,8 +489,8 @@ impl Database {
         tx.commit()?;
         Ok(data)
     }
-    pub(crate) fn cached_catalog(&self, c: &Connection) -> Result<std::sync::Arc<Data>> {
-        let revision: u64 = c.query_row(
+    pub(crate) fn cached_catalog(&self, tx: &Transaction<'_>) -> Result<std::sync::Arc<Data>> {
+        let revision: u64 = tx.query_row(
             "SELECT revision FROM catalog_revision WHERE id=1",
             [],
             |r| r.get(0),
@@ -497,10 +498,14 @@ impl Database {
         let mut cached = self.catalog.lock().unwrap();
         if cached.as_ref().is_none_or(|(v, _)| *v != revision) {
             let raw: String =
-                c.query_row("SELECT data FROM platform_catalog WHERE id=1", [], |r| {
+                tx.query_row("SELECT data FROM platform_catalog WHERE id=1", [], |r| {
                     r.get(0)
                 })?;
-            *cached = Some((revision, std::sync::Arc::new(decode_catalog(c, &raw)?)));
+            let decoded = std::sync::Arc::new(decode_catalog(tx, &raw)?);
+            if cached.as_ref().is_none_or(|(v, _)| *v < revision) {
+                *cached = Some((revision, decoded.clone()));
+            }
+            return Ok(decoded);
         }
         Ok(cached.as_ref().unwrap().1.clone())
     }
@@ -525,10 +530,11 @@ impl Database {
             [],
             |r| r.get(0),
         )?;
-        tx.commit()?;
         data.launches.clear();
         data.presence.clear();
-        *self.catalog.lock().unwrap() = Some((revision, std::sync::Arc::new(data)));
+        let mut cached = self.catalog.lock().unwrap();
+        tx.commit()?;
+        *cached = Some((revision, std::sync::Arc::new(data)));
         Ok(result)
     }
     pub fn record_build_file(&self, key: &str, path: String, size: u64) -> Result<()> {
@@ -550,8 +556,9 @@ impl Database {
             [],
             |r| r.get(0),
         )?;
+        let mut cached = self.catalog.lock().unwrap();
         tx.commit()?;
-        *self.catalog.lock().unwrap() = Some((revision, std::sync::Arc::new(data)));
+        *cached = Some((revision, std::sync::Arc::new(data)));
         Ok(())
     }
     pub fn record_server_build_file(&self, key: &str, path: String, size: u64) -> Result<()> {
@@ -573,8 +580,9 @@ impl Database {
             [],
             |r| r.get(0),
         )?;
+        let mut cached = self.catalog.lock().unwrap();
         tx.commit()?;
-        *self.catalog.lock().unwrap() = Some((revision, std::sync::Arc::new(data)));
+        *cached = Some((revision, std::sync::Arc::new(data)));
         Ok(())
     }
     pub fn native_devices(&self, email: &str) -> Result<serde_json::Value> {

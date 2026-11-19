@@ -97,6 +97,91 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
     // Old insert must not reset runtime state; expired cleanup must not erase a renewed guest.
     db.cleanup()?;
     assert!(db.read()?.launches.contains_key("test-launch"));
+
+    // A build with native resolution strips the new manifest field from platform_catalog
+    // so previous genesis binaries with deny_unknown_fields on Manifest can read and write it.
+    db.edit(|d| {
+        d.builds.insert(
+            "pond/one".into(),
+            serde_json::from_value(json!({
+                "manifest":{
+                    "schema_version":1,"app_id":"pond","title":"Pond",
+                    "resolution":"native","play_modes":["solo"],"solo_runtime":"client_only"
+                },
+                "server":null,"spa":false,"cross_origin_isolation":false,"ready":true,"created":time,"files":{}
+            }))?,
+        );
+        Ok(())
+    })?;
+    let raw_view: String =
+        other.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
+    let view_json: serde_json::Value = serde_json::from_str(&raw_view)?;
+    assert!(
+        view_json["builds"]["pond/one"]["manifest"]
+            .get("resolution")
+            .is_none(),
+        "rollback compatibility view must not expose unknown manifest fields to older binaries"
+    );
+    other.execute("UPDATE platform SET data=?1 WHERE id=1", [&raw_view])?;
+    assert_eq!(
+        db.catalog()?.builds["pond/one"].manifest.resolution,
+        infuser::manifest::Resolution::Native,
+        "rollback binary rewrite of platform view must preserve native_resolution_builds"
+    );
+
+    // An active read transaction pins a single WAL snapshot even if an operator CLI
+    // process commits across multiple tables before the transaction finishes.
+    let reader = Database::open(dir.path())?;
+    {
+        let mut conn = reader.connection.lock().unwrap();
+        let tx = conn.transaction()?;
+        let pinned_rev: u64 = tx.query_row(
+            "SELECT revision FROM catalog_revision WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
+        // External operator CLI commits changes across both platform and private_groups while tx is open.
+        let mut updated = view_json.clone();
+        updated["profiles"]["player@example.test"]["name"] = "Renamed by operator".into();
+        let mut groups: serde_json::Value =
+            serde_json::from_str(&other.query_row::<String, _, _>(
+                "SELECT data FROM private_groups WHERE id=1",
+                [],
+                |r| r.get(0),
+            )?)?;
+        groups["names"]["away"] = "Away Group".into();
+        other.execute(
+            "UPDATE platform SET data=?1 WHERE id=1",
+            [updated.to_string()],
+        )?;
+        other.execute(
+            "UPDATE private_groups SET data=?1 WHERE id=1",
+            [groups.to_string()],
+        )?;
+        // Force a cache reload inside the pinned read transaction.
+        let tx_rev: u64 = tx.query_row(
+            "SELECT revision FROM catalog_revision WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(tx_rev, pinned_rev);
+        let tx_raw: String =
+            tx.query_row("SELECT data FROM platform_catalog WHERE id=1", [], |r| {
+                r.get(0)
+            })?;
+        let tx_groups: String =
+            tx.query_row("SELECT data FROM private_groups WHERE id=1", [], |r| {
+                r.get(0)
+            })?;
+        assert!(!tx_raw.contains("Renamed by operator"));
+        assert!(!tx_groups.contains("Away Group"));
+    }
+    let after_commit = reader.catalog()?;
+    assert_eq!(
+        after_commit.members["player@example.test"].name,
+        "Renamed by operator"
+    );
+    assert_eq!(after_commit.groups.names["away"], "Away Group");
     Ok(())
 }
 

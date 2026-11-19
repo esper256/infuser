@@ -69,9 +69,15 @@ pub(super) fn initialize(c: &mut Connection) -> Result<()> {
             CREATE TRIGGER IF NOT EXISTS revision_{table}_insert AFTER INSERT ON {table} BEGIN UPDATE catalog_revision SET revision=revision+1; END;
             CREATE TRIGGER IF NOT EXISTS revision_{table}_delete AFTER DELETE ON {table} BEGIN UPDATE catalog_revision SET revision=revision+1; END;"))?;
     }
-    // Metadata has several columns, including independent art bytes.
-    for operation in ["INSERT", "UPDATE", "DELETE"] {
-        tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS revision_metadata_{operation} AFTER {operation} ON game_metadata BEGIN UPDATE catalog_revision SET revision=revision+1; END;"))?;
+    // Metadata and flag tables do not use a single declaration column.
+    for table in [
+        "game_metadata",
+        "portrait_builds",
+        "native_resolution_builds",
+    ] {
+        for operation in ["INSERT", "UPDATE", "DELETE"] {
+            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS revision_{table}_{operation} AFTER {operation} ON {table} BEGIN UPDATE catalog_revision SET revision=revision+1; END;"))?;
+        }
     }
     tx.commit()?;
     Ok(())
@@ -100,9 +106,10 @@ impl Database {
         Ok(())
     }
     pub fn find_launch(&self, token_hash: &str, host: &str, time: u64) -> Result<(String, Launch)> {
-        let c = self.connection.lock().unwrap();
-        let data = self.cached_catalog(&c)?;
-        let mut stmt = c.prepare("SELECT id,data FROM runtime_launches")?;
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        let data = self.cached_catalog(&tx)?;
+        let mut stmt = tx.prepare("SELECT id,data FROM runtime_launches")?;
         let mut found = None;
         for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
             let (id, raw) = row?;
