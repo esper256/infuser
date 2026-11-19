@@ -357,6 +357,8 @@ try {
  const update=()=>page.locator('#feed').getByRole('button',{name:'React to Firefly Drift update',exact:true});
  const picker=page.locator('#feed-reaction-picker');
  assert.equal(await update().count(),1);
+ assert(await update().locator('svg.feed-react-outline').isVisible());
+ assert.equal(await update().locator('.feed-reaction-face').count(),0);
  await update().click();
  assert.equal(await picker.getByRole('button').count(),22);
  assert.equal(await picker.locator('input,textarea,small').count(),0);
@@ -382,6 +384,7 @@ try {
  assert.deepEqual(writes.at(-1),{path:'/api/apps/firefly-drift/updates/'+game.update_id+'/reaction',body:{emoji:'❤️'}});
  await page.locator('#feed').getByRole('img',{name:'Loved it × 2',exact:true}).waitFor();
  await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-update="firefly-drift-release-a"]')?.textContent==='❤️');
+ assert.equal(await update().locator('svg.feed-react-outline').count(),0);
  assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await dialog.isHidden());
  assert.equal(await page.locator('#notice.visible').count(),0,'a successful retry clears the earlier error');
  assert(await page.locator('.update-confetti-piece').count()>0);
