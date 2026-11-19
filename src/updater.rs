@@ -123,6 +123,19 @@ pub trait Service: Send + Sync {
     async fn check_rollback(&self, _binary: &Path) -> Result<()> {
         Ok(())
     }
+    /// Consistent snapshot of the release still running, taken before its symlink moves.
+    async fn preserve_state(&self, _release: &str) -> Result<()> {
+        Ok(())
+    }
+    /// Stop the controller so restore cannot race a live WAL. `false` means nothing was stopped.
+    async fn stop(&self) -> Result<bool> {
+        Ok(false)
+    }
+    /// Restore the snapshot for `release`. A missing snapshot is success; the caller then
+    /// uses the existing binary-only rollback checks.
+    async fn restore_state(&self, _release: &str) -> Result<()> {
+        Ok(())
+    }
     async fn restart(&self) -> Result<()>;
     async fn healthy(&self, commit: &str) -> Result<bool>;
 }
@@ -217,19 +230,25 @@ impl Service for Systemd {
     async fn check_rollback(&self, binary: &Path) -> Result<()> {
         self.check(binary).await
     }
-    async fn restart(&self) -> Result<()> {
-        let status = tokio::time::timeout(
-            Duration::from_secs(45),
-            tokio::process::Command::new("systemctl")
-                .arg("restart")
-                .arg(&self.config.service)
-                .stdin(Stdio::null())
-                .kill_on_drop(true)
-                .status(),
-        )
-        .await??;
-        ensure!(status.success(), "systemd restart failed");
+    async fn preserve_state(&self, release: &str) -> Result<()> {
+        let state_dir = platform_state_dir(&self.config.controller_config)?;
+        crate::rollback::capture(&state_dir, &self.config.state_dir.join("rollback"), release)?;
         Ok(())
+    }
+    async fn stop(&self) -> Result<bool> {
+        systemctl(&self.config, "stop").await?;
+        Ok(true)
+    }
+    async fn restore_state(&self, release: &str) -> Result<()> {
+        let snapshot = self.config.state_dir.join("rollback").join(release);
+        if !snapshot.join("snapshot.json").is_file() {
+            return Ok(());
+        }
+        let state_dir = platform_state_dir(&self.config.controller_config)?;
+        crate::rollback::restore(&snapshot, &state_dir)
+    }
+    async fn restart(&self) -> Result<()> {
+        systemctl(&self.config, "restart").await
     }
     async fn healthy(&self, commit: &str) -> Result<bool> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
@@ -246,6 +265,136 @@ impl Service for Systemd {
         }
         Ok(false)
     }
+}
+
+fn platform_state_dir(path: &Path) -> Result<PathBuf> {
+    // Same tolerance as maintenance admission: new daemon keys must not block the helper.
+    #[derive(Deserialize)]
+    struct File {
+        #[serde(default)]
+        controller: Controller,
+    }
+    #[derive(Deserialize)]
+    #[serde(default)]
+    struct Controller {
+        state_dir: PathBuf,
+    }
+    impl Default for Controller {
+        fn default() -> Self {
+            Self {
+                state_dir: crate::config::Settings::default().state_dir,
+            }
+        }
+    }
+    let file: File = toml::from_str(&fs::read_to_string(path)?)?;
+    ensure!(
+        file.controller.state_dir.is_absolute(),
+        "platform state_dir must be absolute"
+    );
+    Ok(file.controller.state_dir)
+}
+
+async fn systemctl(config: &Settings, action: &str) -> Result<()> {
+    let status = tokio::time::timeout(
+        Duration::from_secs(45),
+        tokio::process::Command::new("systemctl")
+            .arg(action)
+            .arg(&config.service)
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .status(),
+    )
+    .await??;
+    ensure!(status.success(), "systemd {action} failed");
+    Ok(())
+}
+
+/// Stop the controller, restore the outgoing snapshot, and return to that release.
+async fn restore_previous(
+    service: &dyn Service,
+    previous_dir: &Path,
+    previous_commit: &str,
+    blocked: &str,
+) -> Result<()> {
+    let blocked = blocked.to_owned();
+    let stopped = service.stop().await.context(blocked.clone())?;
+    if let Err(error) = service.restore_state(previous_commit).await {
+        if stopped {
+            let _ = service.restart().await;
+        }
+        return Err(error.context(blocked));
+    }
+    if let Err(error) = service.check_rollback(&previous_dir.join("infuser")).await {
+        if stopped {
+            let _ = service.restart().await;
+        }
+        return Err(error.context(blocked));
+    }
+    Ok(())
+}
+
+fn linked_release(install: &Path, name: &str) -> Result<PathBuf> {
+    let releases = install
+        .join("releases")
+        .canonicalize()
+        .context("release directory missing")?;
+    let path = fs::read_link(install.join(name))
+        .with_context(|| format!("missing {name} release link"))?;
+    let path = if path.is_absolute() {
+        path
+    } else {
+        install.join(path)
+    }
+    .canonicalize()?;
+    ensure!(
+        path.parent() == Some(releases.as_path()),
+        "{name} must point to a release directory"
+    );
+    Ok(path)
+}
+
+fn release_by_name(install: &Path, name: &str) -> Result<PathBuf> {
+    ensure!(
+        crate::rollback::valid_release(name),
+        "invalid release directory"
+    );
+    let releases = install.join("releases").canonicalize()?;
+    let path = releases.join(name).canonicalize()?;
+    ensure!(
+        path.parent() == Some(releases.as_path()),
+        "release path escapes the release directory"
+    );
+    Ok(path)
+}
+
+fn release_label(path: &Path) -> Result<String> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("invalid release directory")?;
+    ensure!(
+        crate::rollback::valid_release(name),
+        "release directory must be a commit or bootstrap"
+    );
+    Ok(name.to_owned())
+}
+
+fn hold_update_lock(config: &Settings) -> Result<File> {
+    fs::create_dir_all(&config.state_dir)?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(config.state_dir.join("update.lock"))?;
+    lock.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::WouldBlock => {
+            anyhow::anyhow!("another update is already running")
+        }
+        std::fs::TryLockError::Error(error) => error.into(),
+    })?;
+    Ok(lock)
 }
 
 fn acquire_host_lock(path: &Path) -> Result<Option<File>> {
@@ -381,6 +530,83 @@ mod host_lock_tests {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    async fn snapshot_tolerates_new_controller_settings_and_restores_wal_state() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let state = dir.path().join("platform");
+        fs::create_dir(&state)?;
+        let db = state.join("platform.sqlite");
+        let connection = rusqlite::Connection::open(&db)?;
+        connection.execute_batch(
+            "PRAGMA journal_mode=WAL; CREATE TABLE marker(v TEXT); INSERT INTO marker VALUES('kept');",
+        )?;
+        let release = "d".repeat(40);
+        let install = dir.path().join("install");
+        fs::create_dir_all(install.join("releases").join(&release))?;
+        std::os::unix::fs::symlink(
+            install.join("releases").join(&release),
+            install.join("current"),
+        )?;
+        let controller_config = dir.path().join("controller.toml");
+        fs::write(
+            &controller_config,
+            format!(
+                "[controller]\nstate_dir={state:?}\n[controller.future_feature]\nenabled=true\n[future_section]\nversion=2\n"
+            ),
+        )?;
+        assert!(crate::config::Config::load(&controller_config).is_err());
+        let config = Settings {
+            repository: "example/infuser".into(),
+            install_dir: install.clone(),
+            state_dir: dir.path().join("updater"),
+            controller_config,
+            service: "infuser.service".into(),
+            health_url: health(),
+        };
+        struct Allow;
+        #[async_trait::async_trait]
+        impl Service for Allow {
+            async fn lock_activation(&self) -> Result<bool> {
+                Ok(true)
+            }
+            async fn check(&self, _: &std::path::Path) -> Result<()> {
+                Ok(())
+            }
+            async fn restart(&self) -> Result<()> {
+                Ok(())
+            }
+            async fn healthy(&self, _: &str) -> Result<bool> {
+                Ok(true)
+            }
+        }
+        assert!(snapshot_current(&config, &Allow).await?.contains(&release));
+        connection.execute("INSERT INTO marker VALUES('gone')", [])?;
+        drop(connection);
+        let service = Systemd {
+            config: config.clone(),
+            http: reqwest::Client::new(),
+            force: false,
+            activation_lock: std::sync::Mutex::new(None),
+        };
+        service.restore_state(&release).await?;
+        let connection = rusqlite::Connection::open(&db)?;
+        let kept: i64 =
+            connection.query_row("SELECT COUNT(*) FROM marker WHERE v='kept'", [], |row| {
+                row.get(0)
+            })?;
+        let gone: i64 =
+            connection.query_row("SELECT COUNT(*) FROM marker WHERE v='gone'", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!((kept, gone), (1, 0));
+        fs::write(
+            &config.controller_config,
+            "[controller]\nstate_dir='relative'\n",
+        )?;
+        assert!(service.preserve_state(&release).await.is_err());
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -475,6 +701,109 @@ pub async fn run_force(config: Settings, force: bool) -> Result<String> {
     result
 }
 
+fn operator_service(config: &Settings) -> Result<Systemd> {
+    Ok(Systemd {
+        activation_lock: Mutex::new(None),
+        force: false,
+        config: config.clone(),
+        http: reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()?,
+    })
+}
+
+pub async fn run_snapshot(config: Settings) -> Result<String> {
+    let service = operator_service(&config)?;
+    snapshot_current(&config, &service).await
+}
+
+pub async fn run_rollback(config: Settings) -> Result<String> {
+    let service = operator_service(&config)?;
+    rollback(&config, &service).await
+}
+
+/// Capture the running release without stopping it. Safe to run before the next update.
+pub async fn snapshot_current(config: &Settings, service: &dyn Service) -> Result<String> {
+    let _lock = hold_update_lock(config)?;
+    if !service.lock_activation().await? {
+        bail!("host maintenance lock is busy");
+    }
+    let name = release_label(&linked_release(&config.install_dir, "current")?)?;
+    let state_dir = platform_state_dir(&config.controller_config)?;
+    let snapshot = crate::rollback::capture(&state_dir, &config.state_dir.join("rollback"), &name)?;
+    Ok(format!(
+        "Snapshotted {name} ({} databases, {} files)",
+        snapshot.databases.len(),
+        snapshot.files.len()
+    ))
+}
+
+/// One-command return to the previous release and its pre-switch database snapshot.
+pub async fn rollback(config: &Settings, service: &dyn Service) -> Result<String> {
+    let _lock = hold_update_lock(config)?;
+    if !service.lock_activation().await? {
+        bail!("host maintenance lock is busy");
+    }
+    let pending_file = config.state_dir.join("pending.json");
+    let (target_name, abandon) = if pending_file.is_file() {
+        let pending: Pending = serde_json::from_slice(&fs::read(&pending_file)?)?;
+        ensure!(
+            hex(&pending.commit, 40)
+                && (pending.previous == "bootstrap" || hex(&pending.previous, 40)),
+            "invalid pending update record"
+        );
+        let releases = config.install_dir.join("releases").canonicalize()?;
+        let active = fs::read_link(config.install_dir.join("current"))?.canonicalize()?;
+        ensure!(
+            active == releases.join(&pending.commit) || active == releases.join(&pending.previous),
+            "current changed outside the interrupted update; inspect pending.json"
+        );
+        (pending.previous, pending.commit)
+    } else {
+        let current_name = release_label(&linked_release(&config.install_dir, "current")?)?;
+        let previous_name = release_label(&linked_release(&config.install_dir, "previous")?)?;
+        ensure!(
+            current_name != previous_name,
+            "current is already the previous release"
+        );
+        (previous_name, current_name)
+    };
+    let target = release_by_name(&config.install_dir, &target_name)?;
+    let snapshot_dir = config.state_dir.join("rollback").join(&target_name);
+    ensure!(
+        snapshot_dir.join("snapshot.json").is_file(),
+        "no pre-update snapshot for {target_name}; refusing to switch binaries"
+    );
+    let manifest = crate::rollback::verify(&snapshot_dir)?;
+    ensure!(
+        manifest.release == target_name,
+        "snapshot does not match the previous release"
+    );
+    let state_dir = platform_state_dir(&config.controller_config)?;
+    let stopped = service.stop().await?;
+    if let Err(error) = crate::rollback::restore(&snapshot_dir, &state_dir) {
+        if stopped {
+            let _ = service.restart().await;
+        }
+        return Err(error.context("database snapshot was not restored; release unchanged"));
+    }
+    atomic_link(&target, &config.install_dir.join("current"))?;
+    if hex(&abandon, 40) {
+        write_atomic(&config.state_dir.join("failed-release"), abandon.as_bytes())?;
+    }
+    if pending_file.exists() {
+        fs::remove_file(&pending_file)?;
+    }
+    service.restart().await?;
+    ensure!(
+        service.healthy(&build_id(&target)?).await?,
+        "restored {target_name} but its health check failed; inspect infuser.service"
+    );
+    Ok(format!(
+        "Restored {target_name}; {abandon} will not be activated again"
+    ))
+}
+
 /// `source` and `service` are injectable so the entire update/rollback journey can run locally.
 pub async fn update(
     config: &Settings,
@@ -523,7 +852,7 @@ pub async fn update(
                 pending.commit
             ));
         }
-        service.check_rollback(&old.join("infuser")).await.context("Interrupted update cannot roll back across the identity genesis boundary; current selection and pending recovery record retained")?;
+        restore_previous(service, &old, &pending.previous, "Interrupted update cannot roll back across the identity genesis boundary; current selection and pending recovery record retained").await?;
         atomic_link(&old, &current)?;
         service.restart().await?;
         ensure!(
@@ -738,6 +1067,15 @@ pub async fn update(
             maintenance_blocked: false,
         })
         .await;
+    if let Err(error) = service.preserve_state(&previous_commit).await {
+        if error.is::<crate::rollback::DiskLimit>() {
+            return Ok(
+                "Not enough free disk for a pre-update snapshot; current release left unchanged"
+                    .into(),
+            );
+        }
+        return Err(error.context("pre-update database snapshot failed; current version unchanged"));
+    }
     let _ = fs::remove_file(config.state_dir.join("deferred-release"));
     atomic_link(&previous_dir, &config.install_dir.join("previous"))?;
     write_atomic(
@@ -758,7 +1096,7 @@ pub async fn update(
     }
     .await;
     if let Err(error) = activated {
-        service.check_rollback(&previous_dir.join("infuser")).await.context("Activation failed and the previous release cannot read current state; rollback blocked, current selection and pending recovery record retained")?;
+        restore_previous(service, &previous_dir, &previous_commit, "Activation failed and the previous release cannot read current state; rollback blocked, current selection and pending recovery record retained").await?;
         atomic_link(&previous_dir, &current)?;
         service
             .restart()

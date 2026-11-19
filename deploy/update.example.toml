@@ -5,3 +5,6 @@ state_dir = "/var/lib/infuser-updater"
 controller_config = "/etc/infuser/infuser.toml"
 service = "infuser.service"
 health_url = "http://127.0.0.1:7777/healthz"
+# Before each activation the updater writes one SQLite snapshot to
+# state_dir/rollback/<outgoing-release>. No restic repository is required.
+# See docs/update-rollback.md.

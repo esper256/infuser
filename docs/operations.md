@@ -15,9 +15,11 @@ keep your edited configuration outside the source checkout.
 4. Add the game services you need: [TURN/PeerJS](relay-operations.md) and
    [managed Node servers](server-packaging-operations.md). Test a game launch
    for each hosting mode you enable.
-5. Set up [monitoring and alert delivery](monitoring-operations.md), then
-   [backups and a verified restore](backup-operations.md) when storage is ready.
-   Leave backup monitoring disabled until a backup destination is configured.
+5. Set up [monitoring and alert delivery](monitoring-operations.md). The updater
+   keeps a one-release SQLite snapshot for
+   [rolling back a bad update](update-rollback.md). The
+   [full restic backup](backup-operations.md) stays optional until a destination
+   is configured. Leave backup monitoring disabled until then.
 6. Install [host maintenance](host-maintenance.md) after the update and backup
    units you intend to use. It coordinates their jobs with required reboots.
 

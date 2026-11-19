@@ -41,7 +41,7 @@ or [HTTP publishing](publishing-http.md); no Infuser build toolchain is required
   and links to each service's instructions.
 - [Website, Google login and invitations](clubhouse-operations.md)
 - [Identity migration and recovery](identity-operations.md)
-- [Automatic updates](deployment.md) and [game-port firewall](network-admission.md)
+- [Automatic updates](deployment.md), [rolling back a bad update](update-rollback.md), and [game-port firewall](network-admission.md)
 - [Encrypted backups and recovery](backup-operations.md), [host monitoring and alerts](monitoring-operations.md)
 - [TURN and PeerJS services](relay-operations.md), [managed Node hosting](server-packaging-operations.md)
 - [Optional voice chat service](voice-chat.md)

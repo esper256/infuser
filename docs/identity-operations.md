@@ -59,10 +59,12 @@ and is not supported yet.
 
 After successful migration, roll back only to genesis or newer compatible
 releases. `state-check` is read-only and verifies the identity version before
-activation or rollback. If a failed candidate leaves state the previous binary
-cannot read, the updater keeps its recovery record and refuses the downgrade.
-Deploy a compatible repair release; do not delete identity fields to make an old
-binary start.
+activation or rollback. A failed activation restores the pre-update SQLite
+snapshot first, then starts the previous binary. If that snapshot is missing or
+cannot be restored, the updater keeps its recovery record and does not start an
+older binary against state it cannot read. See
+[Roll back a bad update](update-rollback.md). Deploy a compatible repair release
+rather than deleting identity fields to make an old binary start.
 
 Pre-genesis binaries also refuse the new catalog directly. Emergency recovery
 to a pre-genesis version requires the matching complete pre-migration snapshot,

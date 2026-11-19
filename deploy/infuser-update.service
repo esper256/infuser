@@ -14,6 +14,9 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/opt/infuser /var/lib/infuser-updater /run/lock
+# The platform state directory must be writable: a WAL snapshot updates the
+# SQLite index, and rollback replaces the database files. Add a non-default
+# state_dir here as well.
+ReadWritePaths=/opt/infuser /var/lib/infuser-updater /var/lib/infuser /run/lock
 MemoryMax=256M
 TimeoutStartSec=240

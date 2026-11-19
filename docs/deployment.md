@@ -33,8 +33,11 @@ for the backup worker. Keep these changes explicit when adopting a release.
 4. It atomically switches `current`, restarts the controller, and checks `/healthz`
    for the exact new build ID. Game containers continue running; peer rooms end
    when the controller restarts, so their players must rejoin.
-5. If activation fails, it checks the previous binary can read current state,
-   restores it and verifies its health. An incompatible rollback is blocked.
+5. If activation fails, it restores the pre-update SQLite snapshot and the
+   previous release, then checks that release's health. The snapshot is taken
+   after games are idle and before `current` changes. If the snapshot cannot be
+   restored, the new selection stays in place rather than starting an older
+   binary against migrated state. See [Roll back a bad update](update-rollback.md).
    The failed release is held until a newer build arrives or an operator clears
    the local `failed-release` file to retry it.
 
@@ -182,9 +185,10 @@ public management ports to configure.
 
 Keep `/etc/infuser` and platform data outside release directories. The updater
 retains current, previous and the latest candidate while waiting; it does not overwrite configuration,
-credentials, worlds or saves. Automatic binary rollback requires state formats
-to remain backward-compatible. A release with an irreversible data migration
-must use a separately planned maintenance path.
+credentials, worlds or saves. Automatic rollback restores the platform SQLite
+snapshot taken immediately before the switch. It does not roll back Docker
+volumes or published files. A migration that rewrites world data still needs a
+separately planned backup. See [Roll back a bad update](update-rollback.md).
 
 To pause automatic deployment, stop the timer:
 
