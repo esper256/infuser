@@ -90,6 +90,36 @@ impl Platform {
                 .any(|l| allowed(self, l, now()))
         })
     }
+    pub fn voice_names(&self) -> Vec<String> {
+        let Some(v) = &self.voice else {
+            return Vec::new();
+        };
+        let owners: Vec<String> = {
+            let state = v.state.lock().unwrap();
+            state
+                .leases
+                .values()
+                .filter(|l| allowed(self, l, now()))
+                .map(|l| l.owner.clone())
+                .collect()
+        };
+        let Ok(data) = self.db.read() else {
+            return vec!["Someone".into()];
+        };
+        let mut names: Vec<String> = owners
+            .into_iter()
+            .map(|owner| {
+                data.members
+                    .get(&owner)
+                    .map(|member| member.name.clone())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| "Someone".into())
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
     /// Also cleans rooms left by a previous controller. No token/room survives a
     /// controller restart until reconciliation has removed orphan participants.
     pub async fn reconcile_voice(&self) -> Result<()> {

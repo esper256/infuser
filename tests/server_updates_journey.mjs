@@ -14,7 +14,10 @@ try {
  await page.evaluate(async()=>{
   const {initServerUpdates,humanWait}=await import('/server-updates.js');
   window.humanWait=humanWait;
-  window.state={configured:true,current_build:'a'.repeat(40),current_built_at:Date.now()/1000-172800,release_built_at:Date.now()/1000-7200,publishing:true,available:true,available_since:Date.now()/1000-3720,checked_at:Date.now()/1000,report:{release:'b'.repeat(40),phase:'waiting'},reasons:['Waiting for games to finish','Waiting for game uploads or publishing to finish']};
+  window.state={configured:true,current_build:'a'.repeat(40),current_built_at:Date.now()/1000-172800,release_built_at:Date.now()/1000-7200,publishing:true,available:true,available_since:Date.now()/1000-3720,checked_at:Date.now()/1000,report:{release:'b'.repeat(40),phase:'waiting'},activity:[
+    {holds:true,kind:'publishing',summary:'Receiving “Rocket Game” from an agent, started 3 min ago.',effect:'Updating now loses this publish. The agent has to send the game again.'},
+    {holds:false,kind:'playing',summary:'Alex has “Pond” open in the browser.',effect:'The game keeps running. The open tab checks in regularly, and that check-in does not hold the update.'}
+  ]};
   window.posts=[];
   const api=async(path,options={})=>{
    if(window.offline)throw Error('offline');
@@ -35,7 +38,9 @@ try {
  assert.equal(await page.locator('#profile #server-update').count(),0);
  assert.equal(await page.locator('#admin #server-update').count(),1);
  await page.getByText('Update waiting 1 h 2 min',{exact:true}).waitFor();
- await page.getByText('Game publishing is in progress',{exact:true}).waitFor();
+ await page.getByText('Receiving “Rocket Game” from an agent, started 3 min ago.',{exact:true}).waitFor();
+ await page.getByText('Alex has “Pond” open in the browser.',{exact:true}).waitFor();
+ await page.getByText('The update is waiting.',{exact:true}).waitFor();
  assert.equal(await page.locator('.update-build code').allTextContents().then(v=>v.join(',')),'aaaaaaaaaaaa,bbbbbbbbbbbb');
  assert.match(await page.locator('.update-build-age').first().textContent(),/^Built 2 d 0 h ago$/);
  assert.match(await page.locator('.update-build-age').last().textContent(),/^Built 2 h 0 min ago$/);
@@ -44,7 +49,7 @@ try {
  for(const phase of ['checking','downloading','waiting','failed','activating']){
   await page.evaluate(async phase=>{state.report.phase=phase;await refresh();},phase);
   assert(await page.locator('.update-publishing').isVisible(),phase+' must not hide publishing');
-  assert(await page.getByText('Waiting for games to finish',{exact:true}).isVisible());
+  assert(await page.getByText('Alex has “Pond” open in the browser.',{exact:true}).isVisible(),phase);
  }
  await page.evaluate(async()=>{state.report.phase='waiting';await refresh();});
  // Stable data must not churn the panel during polling.
@@ -61,6 +66,9 @@ try {
  }
  await page.setViewportSize({width:390,height:844});
  await page.getByRole('button',{name:'Update anyway',exact:true}).click();
+ const confirm=page.locator('.update-confirm');
+ await confirm.getByText('loses this publish').waitFor();
+ await confirm.getByText('does not hold the update').waitFor();
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  assert.equal(await page.evaluate(()=>posts.length),0);
  await page.getByRole('button',{name:'Update anyway',exact:true}).click();
@@ -87,8 +95,9 @@ try {
  assert(await page.locator('#server-update').isVisible(),'running build remains visible when up to date');
  assert(await page.getByText('Already on latest',{exact:true}).isVisible());
  assert(await page.getByRole('button',{name:'Update anyway',exact:true}).isHidden());
- await page.evaluate(async()=>{state.current_built_at=null;state.release_built_at=null;state.available=true;state.report.phase='waiting';state.publishing=false;state.reasons=['Waiting for games to finish'];await refresh();});
+ await page.evaluate(async()=>{state.current_built_at=null;state.release_built_at=null;state.available=true;state.report.phase='waiting';state.publishing=false;state.activity=[{holds:false,kind:'playing',summary:'Alex has “Pond” open in the browser.',effect:'The game keeps running. The open tab checks in regularly, and that check-in does not hold the update.'}];await refresh();});
  assert(await page.locator('.update-publishing').isHidden());
+ assert(await page.getByText('The update will install on the next check, usually within a minute.',{exact:true}).isVisible());
  assert.equal(await page.getByText('Build time unknown',{exact:true}).count(),2);
  await page.evaluate(async()=>{state.configured=false;state.available=false;state.checked_at=0;await refresh();});
  assert(await page.getByText('Not configured',{exact:true}).isVisible());

@@ -373,7 +373,7 @@ pub async fn collect(settings: &Settings) -> Result<Report> {
     }
     if let Some(work) = &settings.updater_state_dir {
         checks.push(check("update",!work.join("failed-release").exists(),"Automatic deployment rollback status","Inspect infuser-update.service; a failed release remains held until a newer build or explicit retry."));
-        checks.push(check("update-wait",!work.join("deferred-release").exists() || fs::metadata(work.join("deferred-release")).ok().and_then(|m|m.modified().ok()).is_some_and(|t|t.elapsed().unwrap_or_default()<Duration::from_secs(24*3600)),"Update waiting for idle games","Choose an idle window; use an explicit forced update only when interruption is acceptable."));
+        checks.push(check("update-wait",!work.join("deferred-release").exists() || fs::metadata(work.join("deferred-release")).ok().and_then(|m|m.modified().ok()).is_some_and(|t|t.elapsed().unwrap_or_default()<Duration::from_secs(24*3600)),"Update still waiting to install","Open Admin tools to see what it is waiting on. Authorizing one update skips that wait."));
         let rollback = work.join("rollback");
         if rollback.join("last-failure.json").exists() || rollback.join("latest.json").exists() {
             let ok = crate::rollback::record_ok(&rollback);

@@ -212,9 +212,15 @@ dialog::backdrop { background: #030b10c9; backdrop-filter: blur(8px); }
 .update-build code { display: block; font-size: clamp(15px,2vw,22px); color: var(--ink); overflow-wrap: anywhere; }
 .update-build .update-build-age { margin: 10px 0 4px; font-size: 13px; font-weight: 600; color: var(--accent); }
 .update-build time { display: block; color: var(--quiet); font-size: 11px; line-height: 1.5; }
-.update-publishing { margin-top: 16px; padding: 16px; border: 1px solid #edac69; border-left: 4px solid #ffc078; border-radius: 10px; background: #482b16; color: #fff0df; }
-.update-publishing strong { display: block; font-size: 16px; font-weight: 800; }
-.update-publishing p { margin: 7px 0 0; font-size: 13px; line-height: 1.5; }
+.update-activity { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.update-activity:empty { display: none; }
+.update-hold, .update-note { padding: 16px; border-radius: 10px; }
+.update-hold { border: 1px solid #edac69; border-left: 4px solid #ffc078; background: #482b16; color: #fff0df; }
+.update-note { border: 1px solid var(--line); background: var(--field); }
+.update-hold strong, .update-note strong { display: block; font-weight: 800; overflow-wrap: anywhere; }
+.update-hold strong { font-size: 16px; }
+.update-note strong { font-size: 14px; }
+.update-hold p, .update-note p { margin: 7px 0 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .update-status { margin: 18px 0; font-size: 13px; line-height: 1.5; }
 .update-progress { margin: 0 0 8px; }
 .update-status ul { padding-left: 18px; margin: 8px 0; color: var(--quiet); }

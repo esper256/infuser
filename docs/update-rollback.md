@@ -35,10 +35,13 @@ larger. The running release stays in place, and host health reports
 `rollback-snapshot`. `failed-release` is one small file that is replaced, not
 appended.
 
-The copy runs while the controller is still up, after games and publishing are
-idle and the host maintenance lock is held. It does not pause games by itself.
-The activation that follows still restarts the controller, which ends peer rooms
-the same way an update does today.
+The copy runs while the controller is still up, after activation is allowed and
+the host maintenance lock is held. It does not pause games by itself. The
+activation that follows still restarts the controller. A game already open in
+the browser keeps running. A shared peer game ends and has to be started again.
+A dedicated game server keeps running, but players' connections drop and can
+rejoin. An agent's publish that is still arriving, or a server image that is
+still being built, is lost.
 
 ## Enable it
 

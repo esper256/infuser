@@ -5,8 +5,9 @@ use infuser::{
     config::Config,
     controller::{Controller, now},
     docker::Docker,
-    operations, portal,
+    operations, peers, portal,
 };
+use reqwest::StatusCode;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -144,5 +145,209 @@ async fn maintenance_waits_for_work_and_players_then_closes_admission() -> Resul
             .await?,
         "done"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn activation_names_an_open_game_and_does_not_wait_for_its_check_in() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let cfg: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}",
+        root.path().to_str().unwrap()
+    ))?;
+    let controller = Arc::new(Controller::open(
+        cfg.clone(),
+        Arc::new(Docker {
+            settings: cfg.controller.clone(),
+        }),
+    )?);
+    let p = portal::Platform::open(controller.clone())?;
+    p.db.edit(|data| {
+        data.members.insert(
+            "player@example.test".into(),
+            infuser::platform::Member {
+                name: "Alex".into(),
+                admin: false,
+                enabled: true,
+                avatar: None,
+                avatar_prompt_seen: false,
+            },
+        );
+        data.metadata.insert(
+            "pond".into(),
+            infuser::platform::GameMetadata {
+                title: Some("Pond".into()),
+                ..infuser::platform::GameMetadata::default()
+            },
+        );
+        data.launches.insert(
+            "active".into(),
+            serde_json::from_value(json!({
+                "app":"pond","build":"one","email":"player@example.test","guest":false,
+                "host":"pond.example.test","token_hash":"fixture","exchanged":true,
+                "expires":now()+3600,"grant_expires":now()+3600,"seen":now(),
+                "lease_id":null,"lease_token":null
+            }))?,
+        );
+        Ok(())
+    })?;
+    let router = operations::routes(p.clone(), "control");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let base = format!("http://{}", listener.local_addr()?);
+    let _server = Server(tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    }));
+    let http = reqwest::Client::new();
+    let release = "b".repeat(40);
+    http.post(format!("{base}/v1/deployment"))
+        .bearer_auth("control")
+        .json(&json!({"release":release,"phase":"waiting","maintenance_blocked":false}))
+        .send()
+        .await?
+        .error_for_status()?;
+    // A machine reboot still waits. The binary update does not.
+    assert_eq!(
+        http.post(format!("{base}/v1/maintenance"))
+            .bearer_auth("control")
+            .json(&json!({"purpose":"update","force":false}))
+            .send()
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let admitted = admit(&http, &base, &release).await?;
+    assert_eq!(admitted.0, StatusCode::OK, "{}", admitted.1);
+    end_lease(&http, &base, &admitted.1).await?;
+    let status: Value = http
+        .get(format!("{base}/v1/operations"))
+        .bearer_auth("control")
+        .send()
+        .await?
+        .json()
+        .await?;
+    let activity = status["update_activity"].as_array().unwrap();
+    assert!(
+        activity.iter().any(|item| {
+            item["holds"] == false
+                && item["kind"] == "playing"
+                && item["summary"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Alex has \"Pond\" open")
+                && item["effect"]
+                    .as_str()
+                    .unwrap()
+                    .contains("does not hold the update")
+        }),
+        "{status}"
+    );
+    assert!(status["update_holding"].as_array().unwrap().is_empty());
+    let inflight = controller.maintenance.enter()?;
+    let during = admit(&http, &base, &release).await?;
+    assert_eq!(
+        during.0,
+        StatusCode::OK,
+        "a live request must not stall activation: {}",
+        during.1
+    );
+    end_lease(&http, &base, &during.1).await?;
+    drop(inflight);
+
+    p.peer_rooms().join(
+        peers::Identity {
+            launch: "active".into(),
+            player: "player-1".into(),
+            name: "Alex".into(),
+            guest: false,
+        },
+        peers::Join {
+            app: "pond",
+            build: "one",
+            connection: "connection-123456",
+            max_players: 4,
+            create: true,
+            expected_epoch: None,
+            expected_player: None,
+            joinable: Some(true),
+        },
+        now(),
+    )?;
+    let shared = admit(&http, &base, &release).await?;
+    assert_eq!(shared.0, StatusCode::CONFLICT, "{}", shared.1);
+    assert!(shared.1.contains("shared game"));
+    assert!(shared.1.contains("Pond"));
+    p.controller.deployment.edit(|record| {
+        record.available_since = Some(now().saturating_sub(11 * 60));
+        Ok(())
+    })?;
+    let later = admit(&http, &base, &release).await?;
+    assert_eq!(
+        later.0,
+        StatusCode::OK,
+        "a shared game cannot hold a release for the whole session: {}",
+        later.1
+    );
+    end_lease(&http, &base, &later.1).await?;
+
+    let recipe =
+        serde_json::from_value(json!({"runtime":"node","node_major":22,"entry":"server.js"}))?;
+    p.db.edit(|data| {
+        let mut job = infuser::server_package::Job::new(recipe);
+        job.state = infuser::server_package::Phase::Queued;
+        data.server_builds.insert("pond/one".into(), job);
+        Ok(())
+    })?;
+    let queued = admit(&http, &base, &release).await?;
+    assert_eq!(
+        queued.0,
+        StatusCode::OK,
+        "a queued image survives the restart: {}",
+        queued.1
+    );
+    end_lease(&http, &base, &queued.1).await?;
+    p.db.edit(|data| {
+        let job = data.server_builds.get_mut("pond/one").unwrap();
+        job.state = infuser::server_package::Phase::Packaging;
+        job.started = now();
+        Ok(())
+    })?;
+    let packaging = admit(&http, &base, &release).await?;
+    assert_eq!(packaging.0, StatusCode::CONFLICT, "{}", packaging.1);
+    assert!(packaging.1.contains("Publishing"));
+    p.db.edit(|data| {
+        data.server_builds.get_mut("pond/one").unwrap().started =
+            now().saturating_sub(2 * 60 * 60 + 5);
+        Ok(())
+    })?;
+    let expired = admit(&http, &base, &release).await?;
+    assert_eq!(
+        expired.0,
+        StatusCode::OK,
+        "a build running for two hours no longer blocks: {}",
+        expired.1
+    );
+    end_lease(&http, &base, &expired.1).await?;
+    Ok(())
+}
+
+async fn admit(http: &reqwest::Client, base: &str, release: &str) -> Result<(StatusCode, String)> {
+    let response = http
+        .post(format!("{base}/v1/deployment/admit"))
+        .bearer_auth("control")
+        .json(&json!({"release":release}))
+        .send()
+        .await?;
+    let status = response.status();
+    Ok((status, response.text().await?))
+}
+
+async fn end_lease(http: &reqwest::Client, base: &str, body: &str) -> Result<()> {
+    let value: Value = serde_json::from_str(body)?;
+    http.delete(format!("{base}/v1/maintenance"))
+        .bearer_auth("control")
+        .json(&json!({"id":value["lease"]["id"]}))
+        .send()
+        .await?
+        .error_for_status()?;
     Ok(())
 }

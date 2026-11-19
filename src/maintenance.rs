@@ -20,15 +20,34 @@ struct StateData {
     lease: Option<Lease>,
     working: usize,
     publishing: usize,
+    next_id: u64,
+    inflight: Vec<Inflight>,
+}
+struct Inflight {
+    id: u64,
+    path: String,
+    started: u64,
+    publishing: bool,
+}
+#[derive(Clone)]
+pub struct LiveRequest {
+    pub path: String,
+    pub started: u64,
+    pub publishing: bool,
 }
 #[derive(Default)]
 pub struct Gate(Mutex<StateData>);
-pub struct Work(Arc<Gate>, bool);
+pub struct Work {
+    gate: Arc<Gate>,
+    id: u64,
+    publishing: bool,
+}
 impl Drop for Work {
     fn drop(&mut self) {
-        let mut state = self.0.0.lock().unwrap();
+        let mut state = self.gate.0.lock().unwrap();
+        state.inflight.retain(|request| request.id != self.id);
         state.working -= 1;
-        if self.1 {
+        if self.publishing {
             state.publishing -= 1;
         }
     }
@@ -39,6 +58,19 @@ impl Gate {
     }
     pub fn publishing(&self) -> usize {
         self.0.lock().unwrap().publishing
+    }
+    pub fn requests(&self) -> Vec<LiveRequest> {
+        self.0
+            .lock()
+            .unwrap()
+            .inflight
+            .iter()
+            .map(|request| LiveRequest {
+                path: request.path.clone(),
+                started: request.started,
+                publishing: request.publishing,
+            })
+            .collect()
     }
     /// Explicit operator authorization may interrupt players and publishing,
     /// but never steals an existing backup/update lease.
@@ -57,9 +89,9 @@ impl Gate {
         Some(lease)
     }
     pub fn enter(self: &Arc<Self>) -> Result<Work> {
-        self.enter_kind(false)
+        self.enter_kind(false, "")
     }
-    fn enter_kind(self: &Arc<Self>, publishing: bool) -> Result<Work> {
+    pub(crate) fn enter_kind(self: &Arc<Self>, publishing: bool, path: &str) -> Result<Work> {
         let mut state = self.0.lock().unwrap();
         ensure!(
             state
@@ -71,11 +103,48 @@ impl Gate {
                 "Infuser is briefly undergoing maintenance. Retry shortly."
             )
         );
+        state.next_id += 1;
+        let id = state.next_id;
+        let mut stored = path.to_owned();
+        if stored.len() > 180 {
+            stored.truncate(180);
+            while !stored.is_char_boundary(stored.len()) {
+                stored.pop();
+            }
+        }
+        state.inflight.push(Inflight {
+            id,
+            path: stored,
+            started: crate::controller::now(),
+            publishing,
+        });
         state.working += 1;
         if publishing {
             state.publishing += 1;
         }
-        Ok(Work(self.clone(), publishing))
+        Ok(Work {
+            gate: self.clone(),
+            id,
+            publishing,
+        })
+    }
+    /// Binary activation. Unlike [`Self::begin`], an ordinary open request does
+    /// not block: heartbeats and page loads are not the publish being received.
+    pub fn begin_update(&self, interrupt_publishing: bool) -> Result<Option<Lease>> {
+        let mut state = self.0.lock().unwrap();
+        let now = crate::controller::now();
+        if state.lease.as_ref().is_some_and(|l| l.expires > now)
+            || (!interrupt_publishing && state.publishing != 0)
+        {
+            return Ok(None);
+        }
+        let lease = Lease {
+            id: crate::store::secret(),
+            purpose: "update".into(),
+            expires: now + 60,
+        };
+        state.lease = Some(lease.clone());
+        Ok(Some(lease))
     }
     pub fn begin(
         &self,
@@ -129,9 +198,10 @@ pub async fn admission(
     ) {
         return next.run(request).await;
     }
-    let publishing = request.uri().path().starts_with("/api/publisher/")
-        && request.method() != axum::http::Method::GET;
-    let work = match gate.enter_kind(publishing) {
+    let path = request.uri().path().to_owned();
+    let publishing =
+        path.starts_with("/api/publisher/") && request.method() != axum::http::Method::GET;
+    let work = match gate.enter_kind(publishing, &path) {
         Ok(work) => Arc::new(work),
         Err(_) => return (axum::http::StatusCode::SERVICE_UNAVAILABLE,
             [("retry-after", "5"), ("cache-control", "no-store")],
@@ -152,6 +222,10 @@ pub async fn admission(
     Response::from_parts(parts, Body::from_stream(stream))
 }
 
+pub enum UpdateGate {
+    Open,
+    Wait(String),
+}
 pub struct Client {
     http: reqwest::Client,
     url: String,
@@ -180,7 +254,7 @@ impl Client {
         }
         Ok(())
     }
-    pub async fn admit_update(&self, release: &str, force: bool) -> Result<bool> {
+    pub async fn admit_update(&self, release: &str, force: bool) -> Result<UpdateGate> {
         let response = self
             .http
             .post(self.url.replace("/v1/maintenance", "/v1/deployment/admit"))
@@ -190,13 +264,23 @@ impl Client {
             .await?;
         // Allow adoption by the older daemon; it has no web override to consume.
         if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Ok(self.acquire("update", force).await?.is_some());
+            return Ok(if self.acquire("update", force).await?.is_some() {
+                UpdateGate::Open
+            } else {
+                UpdateGate::Wait("waiting before activation".into())
+            });
         }
         if response.status() == reqwest::StatusCode::CONFLICT {
-            return Ok(false);
+            let body = response.text().await.unwrap_or_default();
+            let reason = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|value| value["error"].as_str().map(str::to_owned))
+                .filter(|reason| !reason.is_empty())
+                .unwrap_or_else(|| "waiting before activation".into());
+            return Ok(UpdateGate::Wait(reason));
         }
         response.error_for_status()?;
-        Ok(true)
+        Ok(UpdateGate::Open)
     }
     pub fn new(config: &crate::config::Config) -> Result<Self> {
         Self::connect(config.controller.api_port, &config.controller.token_file)

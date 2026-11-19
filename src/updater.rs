@@ -113,7 +113,7 @@ pub trait Service: Send + Sync {
         Ok(if self.ready_to_update().await? {
             Readiness::Ready
         } else {
-            Readiness::Busy
+            Readiness::Busy("waiting before activation".into())
         })
     }
     async fn ready_to_update(&self) -> Result<bool> {
@@ -141,7 +141,7 @@ pub trait Service: Send + Sync {
 }
 pub enum Readiness {
     Ready,
-    Busy,
+    Busy(String),
     Maintenance,
 }
 
@@ -182,13 +182,12 @@ impl Service for Systemd {
             return Ok(Readiness::Maintenance);
         }
         Ok(
-            if crate::maintenance::Client::from_config_file(&self.config.controller_config)?
+            match crate::maintenance::Client::from_config_file(&self.config.controller_config)?
                 .admit_update(release, self.force)
                 .await?
             {
-                Readiness::Ready
-            } else {
-                Readiness::Busy
+                crate::maintenance::UpdateGate::Open => Readiness::Ready,
+                crate::maintenance::UpdateGate::Wait(reason) => Readiness::Busy(reason),
             },
         )
     }
@@ -476,7 +475,7 @@ mod host_lock_tests {
         assert_eq!(*calls.lock().unwrap(), vec!["report"]);
         assert!(matches!(
             service.ready_for_release(&"a".repeat(40)).await?,
-            Readiness::Busy
+            Readiness::Busy(_)
         ));
         for invalid in [
             "[controller]\napi_port='wrong'",
@@ -1042,6 +1041,11 @@ pub async fn update(
     );
     let readiness = service.ready_for_release(&release.commit).await?;
     if !matches!(readiness, Readiness::Ready) {
+        let reason = match &readiness {
+            Readiness::Maintenance => "waiting for another job on this computer",
+            Readiness::Busy(reason) => reason.as_str(),
+            Readiness::Ready => unreachable!(),
+        };
         service
             .report(Report {
                 release: Some(release.commit.clone()),
@@ -1054,10 +1058,7 @@ pub async fn update(
         if fs::read_to_string(&deferred).ok().as_deref() != Some(release.commit.as_str()) {
             write_atomic(&deferred, release.commit.as_bytes())?;
         }
-        return Ok(format!(
-            "Staged {}; waiting for games and publishing to become idle",
-            release.commit
-        ));
+        return Ok(format!("Staged {}; {reason}", release.commit));
     }
     service
         .report(Report {

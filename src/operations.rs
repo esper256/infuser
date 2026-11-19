@@ -38,29 +38,6 @@ pub fn routes(platform: Platform, token: &str) -> Router {
             token: Sha256::digest(token.as_bytes()).into(),
         })
 }
-pub fn update_activity(p: &Platform) -> anyhow::Result<Vec<&'static str>> {
-    let state = p.controller.snapshot();
-    let data = p.db.read()?;
-    let mut reasons = Vec::new();
-    if p.voice_active() {
-        reasons.push("Waiting for voice chat to finish");
-    }
-    if state.build_reservation.is_some() || data.server_builds.values().any(|j| j.active()) {
-        reasons.push("Waiting for game publishing or server builds to finish");
-    }
-    if state.games.values().any(|g| g.reserved())
-        || data
-            .launches
-            .values()
-            .any(|l| l.expires > now() && l.seen.saturating_add(90) > now())
-        || !p.peer_rooms().diagnostics(now())["sessions"]
-            .as_array()
-            .is_some_and(Vec::is_empty)
-    {
-        reasons.push("Waiting for games to finish");
-    }
-    Ok(reasons)
-}
 async fn deployment_report(
     State(app): State<App>,
     headers: HeaderMap,
@@ -90,6 +67,17 @@ async fn deployment_admit(
         return error(StatusCode::UNAUTHORIZED, "control token required");
     }
     let p = &app.platform;
+    let decision = match crate::update_admission::admission(p) {
+        Ok(decision) => decision,
+        Err(error_value) => {
+            tracing::warn!(error=%error_value, "deployment admission failed");
+            return error(
+                StatusCode::CONFLICT,
+                "deployment admission unavailable; check again",
+            );
+        }
+    };
+    let waiting = decision.waiting.clone();
     let mut acquired = None;
     let result = p.controller.deployment.edit(|record| {
         anyhow::ensure!(
@@ -107,10 +95,12 @@ async fn deployment_admit(
         let force = body.force || permitted;
         let lease = if force {
             p.controller.maintenance.override_update()
+        } else if !decision.ready {
+            None
         } else {
             p.controller
                 .maintenance
-                .begin("update", || Ok(update_activity(p)?.is_empty()))?
+                .begin_update(decision.interrupt_publishing)?
         };
         if let Some(lease) = &lease {
             acquired = Some(lease.id.clone());
@@ -126,10 +116,15 @@ async fn deployment_admit(
             tracing::info!(release=%body.release, forced, "deployment admitted");
             Json(json!({"lease":lease,"forced":forced})).into_response()
         }
-        Ok((None, _)) => error(
-            StatusCode::CONFLICT,
-            "waiting for games, publishing or maintenance",
-        ),
+        Ok((None, _)) => {
+            let waiting = if waiting.is_empty() {
+                "Something started using the server. The update will try again."
+            } else {
+                waiting.as_str()
+            };
+            tracing::info!(reason = waiting, "deployment waiting");
+            error(StatusCode::CONFLICT, waiting)
+        }
         Err(error_value) => {
             if let Some(id) = acquired {
                 p.controller.maintenance.end(&id);
@@ -170,6 +165,9 @@ async fn begin(State(app): State<App>, headers: HeaderMap, Json(body): Json<Begi
         );
     }
     let p = &app.platform;
+    // Reboot and configuration apply use this endpoint. A machine reboot does
+    // stop play, so an open game still defers it. Binary activation uses
+    // /v1/deployment/admit instead.
     let result = p.controller.maintenance.begin(&body.purpose, || {
         let state = p.controller.snapshot();
         let data = p.db.read()?;
@@ -222,7 +220,14 @@ async fn status(State(app): State<App>, headers: HeaderMap) -> Response {
     }
     let state = app.platform.controller.snapshot();
     let database_ok = app.platform.db.read().is_ok();
+    let activity = crate::update_admission::describe(&app.platform).unwrap_or_else(|_| Vec::new());
+    let update_holding: Vec<_> = activity
+        .iter()
+        .filter(|item| item.holds)
+        .map(|item| item.summary.clone())
+        .collect();
     Json(json!({"version":1,"build":crate::BUILD_SHA,"maintenance":app.platform.controller.maintenance.active(),
         "database_ok":database_ok,"lifecycle_age_seconds":now().saturating_sub(app.platform.controller.last_tick.load(std::sync::atomic::Ordering::Relaxed)),
-        "reserved_games":state.games.values().filter(|g|g.reserved()).count(),"packaging":state.build_reservation.is_some()})).into_response()
+        "reserved_games":state.games.values().filter(|g|g.reserved()).count(),"packaging":state.build_reservation.is_some(),
+        "update_holding":update_holding,"update_activity":activity})).into_response()
 }

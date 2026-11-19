@@ -205,7 +205,7 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
     let unrelated = install.join("releases/manual-notes");
     fs::create_dir(&unrelated)?;
     let deferred = updater::update(&config, &source, "linux-amd64", &http, &service).await?;
-    assert!(deferred.contains("waiting for games"));
+    assert!(deferred.contains("waiting before activation"));
     assert_eq!(*service.restarts.lock().unwrap(), 0);
     assert!(config.state_dir.join("deferred-release").exists());
     assert!(!obsolete.exists());

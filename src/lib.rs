@@ -20,6 +20,7 @@ pub mod sdk_contract;
 pub mod server_package;
 pub mod store;
 pub mod tags;
+pub mod update_admission;
 pub mod updater;
 pub mod voice;
 
