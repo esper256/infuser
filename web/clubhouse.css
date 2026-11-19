@@ -137,6 +137,7 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game.players-open { z-index: 5; }
 #hidden-game-list .hidden-game:has(.game-live) { padding-top: 52px; }
 @keyframes game-live-orbit { to { transform: rotate(360deg); } }
+:root[data-window-blurred] *, :root[data-window-blurred] *::before, :root[data-window-blurred] *::after { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) { .game-live > summary .game-player::before { animation: none; } }
 @media (forced-colors: active) { .game-live > summary .game-player::before { border-color: Highlight; } }
 .game-tags { flex-wrap: nowrap; gap: 3.75px; min-height: 0; margin: 0; padding: 3px; justify-content: flex-start; overflow: visible; }

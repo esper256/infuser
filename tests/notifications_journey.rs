@@ -118,6 +118,15 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
         let r = req(Method::GET, path, "").send().await?;
         assert_eq!(r.status(), 200);
         assert_eq!(r.headers()["cache-control"], "no-cache");
+        let etag = r.headers()["etag"].clone();
+        assert_eq!(
+            req(Method::GET, path, "")
+                .header("if-none-match", &etag)
+                .send()
+                .await?
+                .status(),
+            304
+        );
         assert_eq!(
             http.get(format!("{url}{path}"))
                 .header("host", "a.games.example.com")

@@ -142,6 +142,7 @@ pub struct Platform {
     connection_epoch: String,
     dedicated: Arc<Mutex<crate::dedicated::Directory>>,
     voice: Option<Arc<crate::voice::Service>>,
+    native_manifests: Arc<Mutex<BTreeMap<(String, u64), infuser_native_protocol::Manifest>>>,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -159,12 +160,13 @@ impl Platform {
             std::fs::remove_dir_all(staging)?;
         }
         let db = Arc::new(Database::open(&controller.config.controller.state_dir)?);
+        let initial = db.catalog()?;
         anyhow::ensure!(
-            db.read()?.visits.is_empty() || controller.config.controller.visits,
+            initial.visits.is_empty() || controller.config.controller.visits,
             "keep controller.visits enabled after creating visits"
         );
         anyhow::ensure!(
-            db.read()?.groups.names.len() <= 1 || controller.config.controller.private_groups,
+            initial.groups.names.len() <= 1 || controller.config.controller.private_groups,
             "enable controller.private_groups before serving multiple groups"
         );
         let relay = controller
@@ -225,6 +227,7 @@ impl Platform {
             app_mutations: Default::default(),
             peers: Arc::new(crate::peers::Rooms::recovering(resume_after)),
             relay,
+            native_manifests: Default::default(),
         };
         platform.reconcile_publications()?;
         Ok(platform)
@@ -269,7 +272,7 @@ impl Platform {
             .ok_or_else(|| fault(401, "Sign in to choose your Infuser profile."))?
             .to_owned();
         ensure!(
-            self.db.read()?.profile_enabled(&email),
+            self.db.catalog()?.profile_enabled(&email),
             fault(403, "Ask your admin for an Infuser invitation.")
         );
         self.group_view(h, &email)?;
@@ -281,9 +284,10 @@ impl Platform {
             !h.contains_key(groups::VISIT),
             fault(403, "Return home for administration.")
         );
+        let data = self.db.catalog()?;
         ensure!(
-            self.db.read()?.members[&email].admin
-                || (!write && h.contains_key(groups::INSPECT) && self.db.read()?.operator(&email)),
+            data.members[&email].admin
+                || (!write && h.contains_key(groups::INSPECT) && data.operator(&email)),
             fault(403, "An admin account is required.")
         );
         Ok(email)
@@ -292,7 +296,7 @@ impl Platform {
         self.main_host(h)?;
         let token = bearer(h).ok_or_else(|| fault(401, "publisher bearer token required"))?;
         let digest = hash(token);
-        let data = self.db.read()?;
+        let data = self.db.catalog()?;
         let credential = data
             .credentials
             .values()
@@ -350,23 +354,7 @@ impl Platform {
         let token =
             game_token(h).ok_or_else(|| fault(401, "Launch this game from the clubhouse."))?;
         let digest = hash(token);
-        let data = self.db.read()?;
-        let (id, l) = data
-            .launches
-            .iter()
-            .find(|(_, l)| {
-                l.token_hash == digest && l.host == host(h) && l.exchanged && l.expires > now()
-            })
-            .ok_or_else(|| fault(401, "Game session expired. Launch it again."))?;
-        ensure!(
-            data.profile_enabled(&l.email),
-            fault(403, "Membership is disabled.")
-        );
-        ensure!(
-            data.launch_allowed(l, now()),
-            fault(403, "Game authorization ended.")
-        );
-        Ok((id.clone(), l.clone()))
+        self.db.find_launch(&digest, host(h), now())
     }
     fn refresh(&self, id: &str) -> Result<Value> {
         let _guard = self.publishing.lock().unwrap();
@@ -534,10 +522,10 @@ pub fn router(platform: Platform) -> Router {
         .merge(voice::routes())
         .merge(screenshots::routes())
         .merge(visits::routes())
-        .route("/assets/visits.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/visits.js")) }))
+        .route("/assets/visits.js",get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/visits.js")) }))
         .merge(feedback::routes())
         .merge(pwa::routes())
-        .route("/assets/groups.js",get(|| async { ([("content-type","text/javascript"),("cache-control","no-cache")],include_str!("../web/groups.js")) }))
+        .route("/assets/groups.js",get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/groups.js")) }))
         .nest("/_infuser/api/v1", sdk_v1::routes())
         .route("/_infuser/sdk/v1.js", get(sdk_v1::core))
         .route("/_infuser/sdk/v1/peers.js", get(sdk_v1::peers))
@@ -551,25 +539,19 @@ pub fn router(platform: Platform) -> Router {
         .route("/library", get(page))
         .route(
             "/assets/clubhouse.js",
-            get(|| async {
-                (
-                    [(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")],
-                    include_str!("../web/clubhouse.js"),
-                )
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(&h, "text/javascript", include_bytes!("../web/clubhouse.js"))
             }),
         )
         .route(
             "/assets/clubhouse.css",
-            get(|| async {
-                (
-                    [(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")],
-                    include_str!("../web/clubhouse.css"),
-                )
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(&h, "text/css", include_bytes!("../web/clubhouse.css"))
             }),
         )
-        .route("/assets/themes.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes.js")) }))
-        .route("/assets/themes/nightglass.css", get(|| async { ([(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes/nightglass.css")) }))
-        .route("/assets/themes/cartridge-club.css", get(|| async { ([(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/themes/cartridge-club.css")) }))
+        .route("/assets/themes.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/themes.js")) }))
+        .route("/assets/themes/nightglass.css", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/css", include_bytes!("../web/themes/nightglass.css")) }))
+        .route("/assets/themes/cartridge-club.css", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/css", include_bytes!("../web/themes/cartridge-club.css")) }))
         .route("/assets/card-generating.webp", get(|| async {
             ([(header::CONTENT_TYPE, "image/webp"), (header::CACHE_CONTROL, "public, max-age=3600")],
              include_bytes!("../assets/card-fallback/generating.webp").as_slice())
@@ -595,16 +577,16 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/activity-input.js",get(sdk_v1::activity_input))
         .route("/api/library", get(library::list))
         .route("/api/client-state", get(client::state))
-        .route("/assets/client-updates.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/client-updates.js")) }))
-        .route("/assets/server-updates.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/server-updates.js")) }))
+        .route("/assets/client-updates.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/client-updates.js")) }))
+        .route("/assets/server-updates.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/server-updates.js")) }))
         .route("/api/chat", get(chat::list).post(chat::send).layer(DefaultBodyLimit::max(4096)))
         .route("/api/chat/{id}", delete(chat::remove))
-        .route("/assets/chat-emoji.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/chat-emoji.js")) }))
-        .route("/assets/vendor/emoji-picker/picker.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/vendor/emoji-picker/picker.js")) }))
-        .route("/assets/vendor/emoji-picker/database.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/vendor/emoji-picker/database.js")) }))
-        .route("/assets/vendor/emoji-picker/picker.css", get(|| async { ([(header::CONTENT_TYPE, "text/css"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/vendor/emoji-picker/picker.css")) }))
-        .route("/assets/vendor/emoji-picker/data.json", get(|| async { ([(header::CONTENT_TYPE, "application/json"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/vendor/emoji-picker/data.json")) }))
-        .route("/assets/chat.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"),(header::CACHE_CONTROL,"no-cache")], include_str!("../web/chat.js")) }))
+        .route("/assets/chat-emoji.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/chat-emoji.js")) }))
+        .route("/assets/vendor/emoji-picker/picker.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/vendor/emoji-picker/picker.js")) }))
+        .route("/assets/vendor/emoji-picker/database.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/vendor/emoji-picker/database.js")) }))
+        .route("/assets/vendor/emoji-picker/picker.css", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/css", include_bytes!("../web/vendor/emoji-picker/picker.css")) }))
+        .route("/assets/vendor/emoji-picker/data.json", get(|h: HeaderMap| async move { conditional::static_asset(&h, "application/json", include_bytes!("../web/vendor/emoji-picker/data.json")) }))
+        .route("/assets/chat.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/chat.js")) }))
         .route("/api/games/{slug}", get(urls::resolve))
         .route("/api/apps/{app}/slug", put(urls::owner_rename))
         .route("/api/apps/{app}/tags",put(set_tags))
@@ -734,7 +716,7 @@ async fn session_auth(
             None
         } else {
             let key =
-                p.db.read()?
+                p.db.catalog()?
                     .select_profile(&account, selected_profile?.as_deref())?;
             Some(
                 key.parse::<axum::http::HeaderValue>()
@@ -798,7 +780,7 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
     let (group, inspecting) = p.group_view(&h, &email)?;
     let admitted = if inspecting { false } else { p.admit(&h).await };
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let member = &data.members[&email];
     let profile_count = data
         .account_profiles(&data.identities.profiles[&email].account_id)?
@@ -826,7 +808,7 @@ async fn launch(
     let email = p.member(&h, true).await?;
     let (group, _) = p.group_view(&h, &email)?;
     p.admit(&h).await;
-    if !p.db.read()?.visits.is_empty() {
+    if !p.db.catalog()?.visits.is_empty() {
         p.reconcile_publications()?;
     }
     let _publishing = p.publishing.lock().unwrap();
@@ -952,10 +934,7 @@ async fn launch(
             .and_then(|l| l["lease_token"].as_str())
             .map(str::to_owned),
     };
-    p.db.edit(|d| {
-        d.launches.insert(id.clone(), l);
-        Ok(())
-    })?;
+    p.db.insert_launch(&id, &l)?;
     Ok(reply(
         json!({"launch_id":id,"url":format!("https://{gamehost}/_infuser/launch#infuser={token}"),"state":lease.as_ref().map(|l|&l["state"]).unwrap_or(&json!("ready"))}),
     ))
@@ -981,14 +960,7 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
     );
     // Startup may take longer than the initial grant window. Only the authenticated
     // launcher can extend the unused, single-use exchange token.
-    p.db.edit(|d| {
-        if let Some(l) = d.launches.get_mut(&id)
-            && !l.exchanged
-        {
-            l.grant_expires = now() + 120;
-        }
-        Ok(())
-    })?;
+    p.db.extend_launch_grant(&id, now() + 120)?;
     Ok(reply(p.refresh(&id)?))
 }
 #[derive(Deserialize)]
@@ -1036,7 +1008,7 @@ async fn react(
     p.visible_app(&h, &email, &app)?;
     let (group, _) = p.group_view(&h, &email)?;
     let app =
-        p.db.read()?
+        p.db.catalog()?
             .deployment_for(&app, &group)
             .ok_or_else(|| fault(404, "Game not found."))?
             .to_owned();
@@ -1126,7 +1098,7 @@ async fn remove_game_reaction(
 async fn members(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.admin(&h, false).await?;
     let (group, _) = p.group_view(&h, &email)?;
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     Ok(reply(
         json!({"members":data.members.iter().filter(|(email,_)|data.groups.member(email)==group).map(|(key,m)| {
             let mut value=serde_json::to_value(m).expect("member serialization");value["contact_email"]=data.contact_email(key).into();(key,value)
@@ -1231,7 +1203,7 @@ async fn invite(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Invite
 }
 async fn credentials(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.admin(&h, false).await?;
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let (_, inspecting) = p.group_view(&h, &email)?;
     ensure!(
         !inspecting,
@@ -1290,31 +1262,7 @@ struct Exchange {
 async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exchange>) -> Answer {
     p.origin(&h, host(&h))?;
     let digest = hash(&body.token);
-    p.db.edit(|d| {
-        let policy = d.clone();
-        let l = d
-            .launches
-            .values_mut()
-            .find(|l| {
-                l.token_hash == digest
-                    && l.host == host(&h)
-                    && !l.exchanged
-                    && l.grant_expires > now()
-            })
-            .ok_or_else(|| fault(401, "launch link expired or already used"))?;
-        ensure!(
-            policy.profile_enabled(&l.email),
-            fault(403, "membership disabled")
-        );
-        ensure!(
-            policy.launch_allowed(l, now()),
-            fault(403, "Game membership changed.")
-        );
-        l.exchanged = true;
-        l.seen = now();
-        l.expires = now() + 300;
-        Ok(())
-    })?;
+    p.db.exchange_launch(&digest, host(&h), now())?;
     let cookie = format!(
         "__Host-infuser_game={}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400",
         body.token
@@ -1327,12 +1275,12 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
 }
 async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (id, l) = p.game(&h)?;
-    let d = p.db.read()?;
+    let d = p.db.catalog()?;
     let b = &d.builds[&build_key(&l.app, &l.build)];
     let player = if l.guest {
         format!("guest-{id}")
     } else {
-        p.db.read()?.player_id(&l.email)
+        d.player_id(&l.email)
     };
     Ok(reply(
         json!({"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
@@ -1341,19 +1289,12 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
 async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.origin(&h, host(&h))?;
     let (id, _) = p.game(&h)?;
-    let intent = p.db.edit(|d| {
-        let launch = d
-            .launches
-            .get_mut(&id)
-            .filter(|l| l.expires > now())
-            .ok_or_else(|| fault(410, "game session expired"))?;
-        Ok(launch.intent.take())
-    })?;
+    let intent = p.db.take_launch_intent(&id, now())?;
     Ok(reply(json!({"intent":intent})))
 }
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (id, launch) = p.game(&h)?;
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
     let page = presence::open_page(&p.db, &id, &launch.host)?;
     let html = include_str!("../web/game-player.html").replace("PLAYER_PAGE_ID", &page);
@@ -1446,7 +1387,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
         player: if launch.guest {
             format!("guest-{id}")
         } else {
-            p.db.read()?.player_id(&launch.email)
+            data.player_id(&launch.email)
         },
         name: if launch.guest {
             "Guest".into()
@@ -1556,7 +1497,7 @@ async fn peer_health(
 async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.admin(&h, false).await?;
     let (group, _) = p.group_view(&h, &email)?;
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let mut report = p.peers.diagnostics(now());
     if let Some(sessions) = report["sessions"].as_array_mut() {
         sessions.retain(|s| {
@@ -1613,13 +1554,7 @@ async fn leave(State(p): State<Platform>, h: HeaderMap) -> Answer {
             .controller
             .lease(l.runtime_id(), lease, token, "delete", now());
     }
-    p.db.edit(|d| {
-        if let Some(l) = d.launches.get_mut(&id) {
-            l.expires = now();
-            l.seen = 0;
-        }
-        Ok(())
-    })?;
+    p.db.expire_launch(&id, now())?;
     Ok(reply(json!({"ok":true})))
 }
 async fn save_get(State(p): State<Platform>, Path(slot): Path<String>, h: HeaderMap) -> Answer {
@@ -1628,7 +1563,7 @@ async fn save_get(State(p): State<Platform>, Path(slot): Path<String>, h: Header
     let owner = if l.guest {
         format!("guest-{id}")
     } else {
-        p.db.read()?.player_id(&l.email)
+        p.db.catalog()?.player_id(&l.email)
     };
     let (version, data) = p.db.save_read(&owner, l.runtime_id(), &slot)?;
     Ok(reply(json!({"version":version,"data":data})))
@@ -1651,7 +1586,7 @@ async fn save_put(
     let owner = if l.guest {
         format!("guest-{id}")
     } else {
-        p.db.read()?.player_id(&l.email)
+        p.db.catalog()?.player_id(&l.email)
     };
     let version =
         p.db.save_write(&owner, l.runtime_id(), &slot, body.version, &body.data)?;
@@ -1696,7 +1631,7 @@ async fn verify_ticket(
         now(),
     )?;
     Ok(reply(
-        json!({"app_id":app,"player_id":if l.guest{format!("guest-{id}")}else{p.db.read()?.player_id(&l.email)},"name":if l.guest{"Guest"}else{&data.members[&l.email].name},"guest":l.guest,"expires_at":l.expires}),
+        json!({"app_id":app,"player_id":if l.guest{format!("guest-{id}")}else{data.player_id(&l.email)},"name":if l.guest{"Guest"}else{&data.members[&l.email].name},"guest":l.guest,"expires_at":l.expires}),
     ))
 }
 async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
@@ -1727,7 +1662,7 @@ async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
         return Err(session.err().unwrap().into());
     }
     let (_, l) = session.unwrap();
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let b = &data.builds[&build_key(&l.app, &l.build)];
     let path = request.uri().path().trim_start_matches('/');
     let mut selected = if path.is_empty() {
@@ -1907,8 +1842,9 @@ async fn new_game(State(p): State<Platform>, h: HeaderMap, Json(body): Json<NewG
         Ok(())
     })?;
     let code = format!("infuser_setup_{token}");
+    let d = p.db.catalog()?;
     Ok(reply(
-        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog_in_group(&p.db.read()?,false,p.db.read()?.groups.member(&email))}),
+        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog_in_group(&d,false,d.groups.member(&email))}),
     ))
 }
 #[derive(Deserialize)]
@@ -1988,8 +1924,9 @@ async fn renew_setup(State(p): State<Platform>, Path(app): Path<String>, h: Head
         Ok(())
     })?;
     let code = format!("infuser_setup_{token}");
+    let d = p.db.catalog()?;
     Ok(reply(
-        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog_in_group(&p.db.read()?,false,p.db.read()?.groups.member(&email))}),
+        json!({"app_id":app,"api_url":format!("https://{}",p.domain()),"setup_code":code,"expires_at":expires,"supported_engines":crate::publisher::supported_engines(),"tag_catalog":crate::tags::catalog_in_group(&d,false,d.groups.member(&email))}),
     ))
 }
 #[derive(Deserialize)]
@@ -2019,7 +1956,7 @@ async fn set_tags(
 }
 async fn publisher_tags(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
-    let d = p.db.read()?;
+    let d = p.db.catalog()?;
     Ok(reply(
         json!({"tags":crate::tags::catalog_in_group(&d,false,d.groups.app(&app))}),
     ))
@@ -2047,7 +1984,7 @@ impl Platform {
         group: &str,
     ) -> Result<(String, Launch, crate::cloud::Group)> {
         let (id, launch) = self.game(h)?;
-        let data = self.db.read()?;
+        let data = self.db.catalog()?;
         let declaration = data
             .builds
             .get(&build_key(&launch.app, &launch.build))

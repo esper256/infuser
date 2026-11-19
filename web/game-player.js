@@ -1,6 +1,69 @@
 import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
+const viewport=document.getElementById('viewport'),resolutionButton=document.getElementById('resolution');
+const MAX_RENDER_PIXELS=1920*1080;
+let hdCap=true,currentAppId=null;
+window.infuserHdCap=()=>hdCap;
+function syncResolutionButton(){
+  if(!resolutionButton)return;
+  resolutionButton.setAttribute('aria-pressed',String(hdCap));
+  const label=hdCap?'1080p HD cap on — switch to native resolution':'Native resolution — switch to 1080p HD cap';
+  resolutionButton.setAttribute('aria-label',label);
+  resolutionButton.title=label;
+}
+function tuneGraphics(win){
+  if(!win||win.infuserGraphicsTuned)return;
+  try{
+    win.infuserGraphicsTuned=true;
+    const dpr=Object.getOwnPropertyDescriptor(win,'devicePixelRatio')||Object.getOwnPropertyDescriptor(Object.getPrototypeOf(win),'devicePixelRatio');
+    const getDpr=dpr?.get?()=>dpr.get.call(win):()=>window.devicePixelRatio||1;
+    Object.defineProperty(win,'devicePixelRatio',{
+      configurable:true,
+      get(){
+        const raw=getDpr()||1;
+        if(!hdCap)return raw;
+        const area=Math.max(1,(win.innerWidth||1920)*(win.innerHeight||1080));
+        return Math.min(raw,Math.max(0.5,Math.sqrt(MAX_RENDER_PIXELS/area)));
+      }
+    });
+    const getContext=win.HTMLCanvasElement?.prototype.getContext;
+    if(getContext&&!getContext.infuserWrapped){
+      const wrapped=function(type,attributes){
+        if((type==='webgl'||type==='webgl2')&&(!attributes||attributes.powerPreference===undefined)){
+          attributes={...attributes,powerPreference:'high-performance'};
+        }
+        return getContext.call(this,type,attributes);
+      };
+      wrapped.infuserWrapped=true;
+      win.HTMLCanvasElement.prototype.getContext=wrapped;
+    }
+  }catch{/* Same-origin only; ignore transient navigation states. */}
+}
+let lastScaled=false;
+function fitViewport(){
+  const rect=viewport.getBoundingClientRect(),vw=rect.width,vh=rect.height;
+  if(hdCap&&vw>0&&vh>0&&vw*vh>MAX_RENDER_PIXELS){
+    const scale=Math.sqrt(MAX_RENDER_PIXELS/(vw*vh));
+    const w=Math.max(1,Math.round(vw*scale)),h=Math.max(1,Math.round(vh*scale));
+    game.style.width=`${w}px`;game.style.height=`${h}px`;
+    game.style.transformOrigin='0 0';game.style.transform=`scale(${vw/w},${vh/h})`;
+    lastScaled=true;
+  }else if(lastScaled){
+    game.style.width='';game.style.height='';game.style.transformOrigin='';game.style.transform='';
+    lastScaled=false;
+  }
+}
+resolutionButton?.addEventListener('click',()=>{
+  hdCap=!hdCap;
+  if(currentAppId){try{localStorage.setItem('infuser.hd.'+currentAppId,hdCap?'1':'0');}catch{}}
+  syncResolutionButton();
+  fitViewport();
+  try{game.contentWindow?.dispatchEvent(new Event('resize'));}catch{}
+  if(!game.hidden)game.contentWindow?.focus();
+});
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(fitViewport).observe(viewport);
+addEventListener('resize',fitViewport);
 function message(text){status.textContent=text;status.hidden=!text;}
 const header = document.getElementById('player-header');
 const edge = document.getElementById('controls-edge');
@@ -153,6 +216,11 @@ try{
   const response=await fetch('/_infuser/context',{credentials:'same-origin'});
   const session=await response.json();
   if(!response.ok)throw Error(session.error||'Open this game again from your Library.');
+  currentAppId=session.app_id||null;
+  let savedHd=null;
+  if(currentAppId){try{savedHd=localStorage.getItem('infuser.hd.'+currentAppId);}catch{}}
+  hdCap=savedHd==='1'?true:savedHd==='0'?false:session.manifest.resolution!=='native';
+  syncResolutionButton();
   gameOrientation = session.manifest.orientation === 'portrait' ? 'portrait' : 'landscape';
   syncOrientation();
   title.textContent=session.manifest.title;document.title=session.manifest.title+' · Infuser';
@@ -182,8 +250,10 @@ try{
     window.addEventListener('gamepadconnected',()=>{if(!padTimer)padTimer=setInterval(checkPads,1000);});
     if(connectedPads().length)padTimer=setInterval(checkPads,1000);
   }
-  game.addEventListener('load',()=>{document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
-  game.src='/'+location.search;game.hidden=false;
+  const initialDoc=game.contentDocument;
+  const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc)tuneGraphics(game.contentWindow);},5);
+  game.addEventListener('load',()=>{clearInterval(hookTimer);tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
+  game.hidden=false;fitViewport();game.src='/'+location.search;
   if(session.visit){
     let checked=performance.now(),checkedWall=Date.now(),ended=false,checking=false;
     const end=()=>{if(ended)return;ended=true;gameOrientation=null;releaseOrientation();game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;showControls();message('This visit has ended. Return to your Library.');};

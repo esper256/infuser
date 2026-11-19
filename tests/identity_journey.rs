@@ -66,7 +66,7 @@ async fn profile_chooser_keeps_groups_tabs_and_existing_game_tickets_separate() 
     ))
     .await?;
     let cfg: Config = toml::from_str(&format!(
-        "[controller]\nstate_dir={:?}\nauth_url={:?}\nprivate_groups=true",
+        "[controller]\nstate_dir={:?}\nauth_url={:?}\nprivate_groups=true\nvisits=true",
         root.path(),
         format!("{auth_url}/auth")
     ))?;
@@ -78,6 +78,7 @@ async fn profile_chooser_keeps_groups_tabs_and_existing_game_tickets_separate() 
         }),
     )?))?;
     let db = p.db.clone();
+    db.edit(|d| d.set_operator("other@example.test", true))?;
     let (url, _server) = serve(portal::router(p)).await?;
     let http = reqwest::Client::new();
     let request = |who: &str, method: reqwest::Method, path: &str, profile: Option<&str>| {
@@ -300,6 +301,213 @@ async fn profile_chooser_keeps_groups_tabs_and_existing_game_tickets_separate() 
     assert_eq!(
         Database::open(root.path())?.read()?.identities.profiles[&away_key].id,
         away
+    );
+    // Test a disabled account with two enabled profiles across actions, live
+    // presence, visit invitations, notifications, and historical authorship.
+    db.edit(|d| {
+        d.members.get_mut(&away_key).unwrap().enabled = true;
+        d.members.get_mut(EMAIL).unwrap().avatar = Some("circuit-fox".into());
+        Ok(())
+    })?;
+    let visit: Value = request("other", POST, "/api/operator/visits", None)
+        .json(&json!({
+            "name":"Saturday",
+            "host_group":"home",
+            "participants":[away],
+            "games":["away-game"],
+            "expires_at":now() + 3600
+        }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let visit_id = visit["id"].as_str().unwrap();
+    request("one", GET, "/api/library", Some(&away))
+        .header("x-infuser-visit", visit_id)
+        .send()
+        .await?
+        .error_for_status()?;
+    request("one", POST, "/api/chat", Some(&away))
+        .header("x-infuser-visit", visit_id)
+        .json(&json!({"client_id":"saturday-visit-chat-01","text":"Saturday visit chat"}))
+        .send()
+        .await?
+        .error_for_status()?;
+    db.push_subscribe(
+        &away_key,
+        &infuser::notifications::Subscription {
+            endpoint: "https://fcm.googleapis.com/fcm/send/disabled-account-two-profiles".into(),
+        },
+    )?;
+    let before_disable: Value = request("other", GET, "/api/library", None)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        before_disable["visit"]["visitors"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        before_disable["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["id"] == home)
+    );
+    assert!(
+        before_disable["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["id"] == away)
+    );
+    db.edit(|d| {
+        let account = d.identities.profiles[EMAIL].account_id.clone();
+        d.identities.accounts.get_mut(&account).unwrap().enabled = false;
+        Ok(())
+    })?;
+    assert_eq!(
+        request("one", GET, "/api/profiles", None)
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    for profile_id in [home, away.as_str()] {
+        assert_eq!(
+            request("one", GET, "/api/me", Some(profile_id))
+                .send()
+                .await?
+                .status(),
+            403
+        );
+        assert_eq!(
+            request("one", POST, "/api/chat", Some(profile_id))
+                .json(&json!({"client_id":"blocked-after-disable-01","text":"Blocked"}))
+                .send()
+                .await?
+                .status(),
+            403
+        );
+        assert_eq!(
+            request("one", PUT, "/api/profile", Some(profile_id))
+                .json(&json!({"avatar":"pulse-pad"}))
+                .send()
+                .await?
+                .status(),
+            403
+        );
+    }
+    assert_eq!(
+        http.get(format!("{url}/_infuser/context"))
+            .header("host", game_host)
+            .bearer_auth(token)
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert!(
+        db.push_subscribe(
+            &away_key,
+            &infuser::notifications::Subscription {
+                endpoint: "https://fcm.googleapis.com/fcm/send/rejected-after-disable".into(),
+            },
+        )
+        .is_err()
+    );
+    let other_library: Value = request("other", GET, "/api/library", None)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let pond_card = other_library["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|app| app["id"] == "pond")
+        .unwrap();
+    assert_eq!(pond_card["players"].as_array().unwrap().len(), 0);
+    assert_eq!(pond_card["reactions"].as_array().unwrap().len(), 1);
+    assert!(
+        !other_library["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["id"] == home || f["id"] == away)
+    );
+    assert_eq!(
+        other_library["visit"]["visitors"].as_array().unwrap().len(),
+        0
+    );
+    request("other", POST, "/api/chat", None)
+        .json(&json!({"client_id":"host-after-disable-0001","text":"Host follow-up"}))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert!(
+        db.push_targets()?.is_empty(),
+        "disabled account's recipient subscription is filtered out through channel access"
+    );
+    let other_chat: Value = request("other", GET, "/api/chat", None)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let texts: Vec<_> = other_chat["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["text"].as_str())
+        .collect();
+    assert_eq!(
+        texts,
+        vec!["Only pond", "Saturday visit chat", "Host follow-up"],
+        "disabling an account must not rewrite the host's Saturday chat timeline"
+    );
+    let operator_visits: Value = request("other", GET, "/api/operator/visits", None)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(
+        !operator_visits["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == home || m["id"] == away)
+    );
+    request(
+        "other",
+        reqwest::Method::DELETE,
+        &format!("/api/operator/visits/{visit_id}"),
+        None,
+    )
+    .send()
+    .await?
+    .error_for_status()?;
+    assert_eq!(
+        request("other", POST, "/api/operator/visits", None)
+            .json(&json!({
+                "name":"Sunday",
+                "host_group":"home",
+                "participants":[away],
+                "games":["away-game"],
+                "expires_at":now() + 3600
+            }))
+            .send()
+            .await?
+            .status(),
+        404
     );
     Ok(())
 }

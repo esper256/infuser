@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 
 const RETENTION: u64 = 7 * 24 * 60 * 60;
 
-fn members(db: &Database, c: &Connection, email: &str) -> Result<Data> {
-    let data = db.cached_catalog(c)?;
+fn members(db: &Database, tx: &Transaction<'_>, email: &str) -> Result<std::sync::Arc<Data>> {
+    let data = db.cached_catalog(tx)?;
     ensure!(
         data.profile_enabled(email),
         fault(403, "Membership is disabled.")
@@ -16,7 +16,7 @@ fn members(db: &Database, c: &Connection, email: &str) -> Result<Data> {
 
 impl Database {
     pub fn chat_list(&self, email: &str) -> Result<Value> {
-        let group = self.read()?.groups.member(email).to_owned();
+        let group = self.catalog()?.groups.member(email).to_owned();
         self.chat_list_group(email, &group, false)
     }
     pub fn chat_list_group(&self, email: &str, group: &str, inspecting: bool) -> Result<Value> {
@@ -65,7 +65,7 @@ impl Database {
     }
 
     pub fn chat_send(&self, email: &str, client_id: &str, text: &str) -> Result<Value> {
-        let group = self.read()?.groups.member(email).to_owned();
+        let group = self.catalog()?.groups.member(email).to_owned();
         self.chat_send_group(email, &group, client_id, text)
     }
     pub fn chat_send_group(
@@ -169,7 +169,7 @@ impl Database {
     }
 
     pub fn chat_remove(&self, email: &str, id: u64) -> Result<()> {
-        let group = self.read()?.groups.member(email).to_owned();
+        let group = self.catalog()?.groups.member(email).to_owned();
         self.chat_remove_group(email, &group, id)
     }
     pub fn chat_remove_group(&self, email: &str, group: &str, id: u64) -> Result<()> {

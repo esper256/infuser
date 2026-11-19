@@ -25,13 +25,11 @@ pub(super) fn routes() -> Router<Platform> {
         )
         .route(
             "/assets/screenshots.js",
-            get(|| async {
-                (
-                    [
-                        ("content-type", "text/javascript"),
-                        ("cache-control", "no-cache"),
-                    ],
-                    include_str!("../../web/screenshots.js"),
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(
+                    &h,
+                    "text/javascript",
+                    include_bytes!("../../web/screenshots.js"),
                 )
             }),
         )
@@ -64,7 +62,7 @@ fn decode(encoded: &str, limit: usize, pixels: u64, side: u32) -> Result<(Vec<u8
             && !decoder.is_animated(),
         fault(422, "Unsupported screenshot dimensions.")
     );
-    decoder.set_memory_limit(160 * 1024 * 1024);
+    decoder.set_memory_limit(48 * 1024 * 1024);
     let channels = if decoder.has_alpha() { 4 } else { 3 };
     decoder
         .read_image(&mut vec![0; w as usize * h as usize * channels])
@@ -96,7 +94,7 @@ async fn capture(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Uploa
     let upload = tokio::task::spawn_blocking(move || -> Result<_> {
         // Keep decoding bounded even if the requesting browser disconnects.
         let _permit = _permit;
-        let (image, width, height) = decode(&body.image, 6 * 1024 * 1024, 33_554_432, 8192)?;
+        let (image, width, height) = decode(&body.image, 6 * 1024 * 1024, 8_294_400, 4096)?;
         let (thumbnail, _, _) = decode(&body.thumbnail, 96 * 1024, 320 * 320, 320)?;
         Ok(platform::screenshots::ScreenshotUpload {
             id: stored_id,
@@ -140,7 +138,7 @@ async fn image(
     let runtime = if let Some(app) = query.app {
         p.visible_app(&h, &email, &app)?;
         Some(
-            p.db.read()?
+            p.db.catalog()?
                 .deployment_for(&app, &group)
                 .ok_or_else(|| fault(404, "Game not found."))?
                 .to_owned(),
@@ -148,6 +146,11 @@ async fn image(
     } else {
         None
     };
+    let etag = format!(
+        "\"{id}-{}\"",
+        if query.thumbnail { "thumb" } else { "full" }
+    );
+    let not_modified = conditional::matches(&h, &etag);
     let bytes = p.db.screenshot_image(
         &email,
         &id,
@@ -156,11 +159,14 @@ async fn image(
         query.chat,
         runtime.as_deref(),
         query.thumbnail,
+        !not_modified,
     )?;
-    let mut response =
-        reply(json!({"image":format!("data:image/webp;base64,{}",STANDARD.encode(bytes))}));
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, "private, no-store".parse().unwrap());
+    let mut response = match bytes {
+        None => StatusCode::NOT_MODIFIED.into_response(),
+        Some(bytes) => {
+            reply(json!({"image":format!("data:image/webp;base64,{}",STANDARD.encode(bytes))}))
+        }
+    };
+    conditional::headers(&mut response, &etag);
     Ok(response)
 }

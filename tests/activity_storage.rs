@@ -21,6 +21,50 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
     )?;
     db.see_member("player@example.test", time + 1)?;
     db.renew_launch("test-launch", time + 1)?;
+    db.insert_launch(
+        "lifecycle-launch",
+        &serde_json::from_value(json!({
+            "app":"pond","build":"one","email":"player@example.test","guest":false,
+            "host":"pond.games.example.com","token_hash":"lifecycle-token",
+            "exchanged":false,"expires":time+60,"grant_expires":time+30,"seen":time,
+            "intent":{"kind":"join_friend","session_id":"room-1","player_id":"friend-1"},
+            "lease_id":null,"lease_token":null
+        }))?,
+    )?;
+    db.extend_launch_grant("lifecycle-launch", time + 120)?;
+    db.exchange_launch("lifecycle-token", "pond.games.example.com", time + 1)?;
+    assert_eq!(
+        db.find_launch("lifecycle-token", "pond.games.example.com", time + 1)?
+            .0,
+        "lifecycle-launch"
+    );
+    assert!(
+        db.take_launch_intent("lifecycle-launch", time + 1)?
+            .is_some()
+    );
+    assert!(
+        db.take_launch_intent("lifecycle-launch", time + 1)?
+            .is_none()
+    );
+    db.expire_launch("lifecycle-launch", time + 1)?;
+    db.native_edit(|_, n| {
+        n.devices.insert(
+            "dev-1".into(),
+            infuser::native::Device {
+                email: "player@example.test".into(),
+                created: time,
+            },
+        );
+        Ok(())
+    })?;
+    assert_eq!(
+        db.native_devices("player@example.test")?["devices"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(std::sync::Arc::ptr_eq(&db.catalog()?, &db.catalog()?));
     let after: (String, u64) = db.connection.lock().unwrap().query_row(
         "SELECT data,revision FROM platform_catalog,catalog_revision",
         [],
@@ -53,6 +97,91 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
     // Old insert must not reset runtime state; expired cleanup must not erase a renewed guest.
     db.cleanup()?;
     assert!(db.read()?.launches.contains_key("test-launch"));
+
+    // A build with native resolution strips the new manifest field from platform_catalog
+    // so previous genesis binaries with deny_unknown_fields on Manifest can read and write it.
+    db.edit(|d| {
+        d.builds.insert(
+            "pond/one".into(),
+            serde_json::from_value(json!({
+                "manifest":{
+                    "schema_version":1,"app_id":"pond","title":"Pond",
+                    "resolution":"native","play_modes":["solo"],"solo_runtime":"client_only"
+                },
+                "server":null,"spa":false,"cross_origin_isolation":false,"ready":true,"created":time,"files":{}
+            }))?,
+        );
+        Ok(())
+    })?;
+    let raw_view: String =
+        other.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
+    let view_json: serde_json::Value = serde_json::from_str(&raw_view)?;
+    assert!(
+        view_json["builds"]["pond/one"]["manifest"]
+            .get("resolution")
+            .is_none(),
+        "rollback compatibility view must not expose unknown manifest fields to older binaries"
+    );
+    other.execute("UPDATE platform SET data=?1 WHERE id=1", [&raw_view])?;
+    assert_eq!(
+        db.catalog()?.builds["pond/one"].manifest.resolution,
+        infuser::manifest::Resolution::Native,
+        "rollback binary rewrite of platform view must preserve native_resolution_builds"
+    );
+
+    // An active read transaction pins a single WAL snapshot even if an operator CLI
+    // process commits across multiple tables before the transaction finishes.
+    let reader = Database::open(dir.path())?;
+    {
+        let mut conn = reader.connection.lock().unwrap();
+        let tx = conn.transaction()?;
+        let pinned_rev: u64 = tx.query_row(
+            "SELECT revision FROM catalog_revision WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
+        // External operator CLI commits changes across both platform and private_groups while tx is open.
+        let mut updated = view_json.clone();
+        updated["profiles"]["player@example.test"]["name"] = "Renamed by operator".into();
+        let mut groups: serde_json::Value =
+            serde_json::from_str(&other.query_row::<String, _, _>(
+                "SELECT data FROM private_groups WHERE id=1",
+                [],
+                |r| r.get(0),
+            )?)?;
+        groups["names"]["away"] = "Away Group".into();
+        other.execute(
+            "UPDATE platform SET data=?1 WHERE id=1",
+            [updated.to_string()],
+        )?;
+        other.execute(
+            "UPDATE private_groups SET data=?1 WHERE id=1",
+            [groups.to_string()],
+        )?;
+        // Force a cache reload inside the pinned read transaction.
+        let tx_rev: u64 = tx.query_row(
+            "SELECT revision FROM catalog_revision WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(tx_rev, pinned_rev);
+        let tx_raw: String =
+            tx.query_row("SELECT data FROM platform_catalog WHERE id=1", [], |r| {
+                r.get(0)
+            })?;
+        let tx_groups: String =
+            tx.query_row("SELECT data FROM private_groups WHERE id=1", [], |r| {
+                r.get(0)
+            })?;
+        assert!(!tx_raw.contains("Renamed by operator"));
+        assert!(!tx_groups.contains("Away Group"));
+    }
+    let after_commit = reader.catalog()?;
+    assert_eq!(
+        after_commit.members["player@example.test"].name,
+        "Renamed by operator"
+    );
+    assert_eq!(after_commit.groups.names["away"], "Away Group");
     Ok(())
 }
 

@@ -167,6 +167,11 @@ identity and storage; the game must use them.
 
 For every web game, set `orientation` in `infuser.game.json` to `landscape` or
 `portrait` according to its intended phone layout. The publisher sends it with each build.
+Older and default builds (`"resolution": "hd"`) are automatically protected by
+Infuser's 1080p HD player cap on 4K/HiDPI screens (with an **HD** toggle in the
+player bar). When a new game already caps its own 3D render buffer or is a lightweight
+2D game that should run at uncapped native display resolution by default, set
+`"resolution": "native"` in `infuser.game.json`.
 
 Choose up to eight initial tags from the prompt or `GET /api/publisher/tags` and
 put them in `infuser.game.json`. Later publications preserve author tag edits.

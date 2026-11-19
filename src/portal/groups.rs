@@ -5,11 +5,11 @@ pub(super) const VISIT: &str = "x-infuser-visit";
 
 impl Platform {
     pub(super) fn group_view(&self, h: &HeaderMap, email: &str) -> Result<(String, bool)> {
-        let d = self.db.read()?;
+        let d = self.db.catalog()?;
         view(&d, h, email)
     }
     pub(super) fn visible_app(&self, h: &HeaderMap, email: &str, app: &str) -> Result<()> {
-        let d = self.db.read()?;
+        let d = self.db.catalog()?;
         let (group, inspecting) = view(&d, h, email)?;
         ensure!(
             visible(&d, email, app, &group, inspecting, now()),
@@ -20,7 +20,7 @@ impl Platform {
     pub(super) async fn operator(&self, h: &HeaderMap, write: bool) -> Result<String> {
         let email = self.member(h, write).await?;
         ensure!(
-            self.db.read()?.operator(&email),
+            self.db.catalog()?.operator(&email),
             fault(403, "Operator access required.")
         );
         Ok(email)
@@ -152,7 +152,7 @@ async fn health(State(p): State<Platform>, h: HeaderMap) -> Answer {
 }
 async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.operator(&h, false).await?;
-    let d = p.db.read()?;
+    let d = p.db.catalog()?;
     Ok(reply(
         json!({"groups":d.groups.names.iter().map(|(id,name)| json!({"id":id,"name":name,"home":d.groups.member(&email)==id})).collect::<Vec<_>>()}),
     ))

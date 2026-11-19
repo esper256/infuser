@@ -161,7 +161,7 @@ async fn stage(p: &Platform, body: Body, limit: u64) -> Result<Staged> {
 pub(super) async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"sessions":crate::dedicated::capabilities(),"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"orientations":["landscape","portrait"],"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"sessions":crate::dedicated::capabilities(),"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"orientations":["landscape","portrait"],"resolutions":["hd","native"],"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -363,7 +363,7 @@ pub(super) async fn upload(
         let target = dir.join(&path);
         std::fs::create_dir_all(target.parent().unwrap())?;
         let _guard = p.publishing.lock().unwrap();
-        let data = p.db.read()?;
+        let data = p.db.catalog()?;
         let key = build_key(&app, &build);
         let b = data
             .builds
@@ -403,10 +403,7 @@ pub(super) async fn upload(
         );
         std::fs::rename(staged.file.path(), &target)?;
         std::fs::File::open(target.parent().unwrap())?.sync_all()?;
-        p.db.edit(|d| {
-            Arc::make_mut(&mut d.builds.get_mut(&key).unwrap().files).insert(path.clone(), size);
-            Ok(())
-        })?;
+        p.db.record_build_file(&key, path.clone(), size)?;
         Ok(reply(json!({"path":path,"bytes":size})))
     })
     .await
@@ -431,7 +428,7 @@ pub(super) async fn publish(
     p.validate_promotion(&app, &build)?;
     let _guard = p.publishing.lock().unwrap();
     let state = p.promote(&app, &build, body.as_ref().is_none_or(|b| b.listed))?;
-    let slug = p.db.read()?.game_urls[&app].slug.clone();
+    let slug = p.db.catalog()?.game_urls[&app].slug.clone();
     let mut response = reply(
         json!({"app_id":app,"build_id":build,"branch":"default","state":state,"slug":slug,"url":format!("https://{}/games/{slug}",p.domain())}),
     );
@@ -446,7 +443,7 @@ impl Platform {
     // expensive validation runs, but players can still renew and forward frames.
     fn validate_promotion(&self, app: &str, build: &str) -> Result<()> {
         let key = build_key(app, build);
-        let data = self.db.read()?;
+        let data = self.db.catalog()?;
         let b = data
             .builds
             .get(&key)
@@ -737,6 +734,11 @@ pub(super) async fn remove_build(
                 d.builds.remove(&build_key(&app, &build));
                 Ok(())
             })?;
+            let key = build_key(&app, &build);
+            p.native_manifests
+                .lock()
+                .unwrap()
+                .retain(|(k, _), _| k != &key);
         }
         let path = p.root().join(&app).join(&build);
         if path.exists() {

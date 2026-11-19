@@ -69,9 +69,15 @@ pub(super) fn initialize(c: &mut Connection) -> Result<()> {
             CREATE TRIGGER IF NOT EXISTS revision_{table}_insert AFTER INSERT ON {table} BEGIN UPDATE catalog_revision SET revision=revision+1; END;
             CREATE TRIGGER IF NOT EXISTS revision_{table}_delete AFTER DELETE ON {table} BEGIN UPDATE catalog_revision SET revision=revision+1; END;"))?;
     }
-    // Metadata has several columns, including independent art bytes.
-    for operation in ["INSERT", "UPDATE", "DELETE"] {
-        tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS revision_metadata_{operation} AFTER {operation} ON game_metadata BEGIN UPDATE catalog_revision SET revision=revision+1; END;"))?;
+    // Metadata and flag tables do not use a single declaration column.
+    for table in [
+        "game_metadata",
+        "portrait_builds",
+        "native_resolution_builds",
+    ] {
+        for operation in ["INSERT", "UPDATE", "DELETE"] {
+            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS revision_{table}_{operation} AFTER {operation} ON {table} BEGIN UPDATE catalog_revision SET revision=revision+1; END;"))?;
+        }
     }
     tx.commit()?;
     Ok(())
@@ -97,6 +103,152 @@ impl Database {
             ON CONFLICT(email) DO UPDATE SET seen=excluded.seen WHERE seen<excluded.seen",
             params![email, time],
         )?;
+        Ok(())
+    }
+    pub fn find_launch(&self, token_hash: &str, host: &str, time: u64) -> Result<(String, Launch)> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        let data = self.cached_catalog(&tx)?;
+        let mut stmt = tx.prepare("SELECT id,data FROM runtime_launches")?;
+        let mut found = None;
+        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (id, raw) = row?;
+            let l: Launch = serde_json::from_str(&raw)?;
+            if l.token_hash == token_hash && l.host == host && l.exchanged && l.expires > time {
+                found = Some((id, l));
+                break;
+            }
+        }
+        let (id, l) = found
+            .ok_or_else(|| crate::portal::fault(401, "Game session expired. Launch it again."))?;
+        ensure!(
+            data.profile_enabled(&l.email),
+            crate::portal::fault(403, "Membership is disabled.")
+        );
+        ensure!(
+            data.launch_allowed(&l, time),
+            crate::portal::fault(403, "Game authorization ended.")
+        );
+        Ok((id, l))
+    }
+    pub fn insert_launch(&self, id: &str, launch: &Launch) -> Result<()> {
+        self.connection.lock().unwrap().execute(
+            "INSERT INTO runtime_launches(id,data) VALUES(?1,?2)
+             ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE data!=excluded.data",
+            params![id, serde_json::to_string(launch)?],
+        )?;
+        Ok(())
+    }
+    pub fn extend_launch_grant(&self, id: &str, grant_expires: u64) -> Result<()> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(raw) = tx
+            .query_row("SELECT data FROM runtime_launches WHERE id=?1", [id], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?
+        {
+            let mut launch: Launch = serde_json::from_str(&raw)?;
+            if !launch.exchanged {
+                launch.grant_expires = grant_expires;
+                tx.execute(
+                    "UPDATE runtime_launches SET data=?2 WHERE id=?1",
+                    params![id, serde_json::to_string(&launch)?],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn exchange_launch(&self, token_hash: &str, host: &str, time: u64) -> Result<()> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let policy = self.cached_catalog(&tx)?;
+        let mut found = None;
+        {
+            let mut stmt = tx.prepare("SELECT id,data FROM runtime_launches")?;
+            for row in
+                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            {
+                let (id, raw) = row?;
+                let l: Launch = serde_json::from_str(&raw)?;
+                if l.token_hash == token_hash
+                    && l.host == host
+                    && !l.exchanged
+                    && l.grant_expires > time
+                {
+                    found = Some((id, l));
+                    break;
+                }
+            }
+        }
+        let (id, mut l) = found
+            .ok_or_else(|| crate::portal::fault(401, "launch link expired or already used"))?;
+        ensure!(
+            policy.profile_enabled(&l.email),
+            crate::portal::fault(403, "membership disabled")
+        );
+        ensure!(
+            policy.launch_allowed(&l, time),
+            crate::portal::fault(403, "Game membership changed.")
+        );
+        l.exchanged = true;
+        l.seen = time;
+        l.expires = time + 300;
+        tx.execute(
+            "UPDATE runtime_launches SET data=?2 WHERE id=?1",
+            params![id, serde_json::to_string(&l)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn take_launch_intent(
+        &self,
+        id: &str,
+        time: u64,
+    ) -> Result<Option<crate::launch_intent::Intent>> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let raw: Option<String> = tx
+            .query_row("SELECT data FROM runtime_launches WHERE id=?1", [id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        let mut launch: Launch = serde_json::from_str(
+            &raw.ok_or_else(|| crate::portal::fault(410, "game session expired"))?,
+        )?;
+        ensure!(
+            launch.expires > time,
+            crate::portal::fault(410, "game session expired")
+        );
+        let intent = launch.intent.take();
+        if intent.is_some() {
+            tx.execute(
+                "UPDATE runtime_launches SET data=?2 WHERE id=?1",
+                params![id, serde_json::to_string(&launch)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(intent)
+    }
+    pub fn expire_launch(&self, id: &str, time: u64) -> Result<()> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(raw) = tx
+            .query_row("SELECT data FROM runtime_launches WHERE id=?1", [id], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?
+        {
+            let mut launch: Launch = serde_json::from_str(&raw)?;
+            launch.expires = time;
+            launch.seen = 0;
+            tx.execute(
+                "UPDATE runtime_launches SET data=?2 WHERE id=?1",
+                params![id, serde_json::to_string(&launch)?],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
     pub fn renew_launch(&self, id: &str, time: u64) -> Result<()> {

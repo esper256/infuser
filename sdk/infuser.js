@@ -1,5 +1,34 @@
 // Pre-1.0 Infuser browser SDK; see docs/sdk-contract.md before extending this contract.
 // Import it, or include it as a module script for automatic heartbeats.
+if (typeof window !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' && !window.infuserGraphicsTuned) {
+  window.infuserGraphicsTuned = true;
+  const dpr = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio') || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'devicePixelRatio');
+  const getDpr = dpr?.get ? () => dpr.get.call(window) : () => window.devicePixelRatio || 1;
+  try {
+    Object.defineProperty(window, 'devicePixelRatio', {
+      configurable: true,
+      get() {
+        const raw = getDpr() || 1;
+        let capped = true;
+        try { if (typeof window.parent?.infuserHdCap === 'function') capped = window.parent.infuserHdCap(); } catch {}
+        if (!capped) return raw;
+        const area = Math.max(1, (window.innerWidth || 1920) * (window.innerHeight || 1080));
+        return Math.min(raw, Math.max(0.5, Math.sqrt((1920 * 1080) / area)));
+      }
+    });
+  } catch {}
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  if (getContext && !getContext.infuserWrapped) {
+    const wrapped = function(type, attributes) {
+      if ((type === 'webgl' || type === 'webgl2') && (!attributes || attributes.powerPreference === undefined)) {
+        attributes = { ...attributes, powerPreference: 'high-performance' };
+      }
+      return getContext.call(this, type, attributes);
+    };
+    wrapped.infuserWrapped = true;
+    HTMLCanvasElement.prototype.getContext = wrapped;
+  }
+}
 export class InfuserError extends Error {
   constructor(message, status) { super(message); this.status = status; }
 }

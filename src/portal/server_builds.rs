@@ -212,7 +212,7 @@ pub(super) async fn status(
     h: HeaderMap,
 ) -> Answer {
     p.publisher(&h, Some(&app), "publish")?;
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let job = data
         .server_builds
         .get(&build_key(&app, &build))
@@ -245,7 +245,7 @@ pub(super) async fn upload(
         std::fs::create_dir_all(target.parent().unwrap())?;
         let _guard = p.publishing.lock().unwrap();
         let key = build_key(&app, &build);
-        let data = p.db.read()?;
+        let data = p.db.catalog()?;
         let job = data
             .server_builds
             .get(&key)
@@ -280,14 +280,7 @@ pub(super) async fn upload(
         );
         std::fs::rename(staged.file.path(), &target)?;
         std::fs::File::open(target.parent().unwrap())?.sync_all()?;
-        p.db.edit(|d| {
-            d.server_builds
-                .get_mut(&key)
-                .unwrap()
-                .files
-                .insert(path.clone(), size);
-            Ok(())
-        })?;
+        p.db.record_server_build_file(&key, path.clone(), size)?;
         Ok(reply(json!({"path":path,"bytes":size})))
     })
     .await
@@ -303,7 +296,7 @@ pub(super) async fn start(
     tokio::task::spawn_blocking(move || -> Answer {
         let _mutation = mutation;
         let key = build_key(&app, &build);
-        let data = p.db.read()?;
+        let data = p.db.catalog()?;
         let job = data
             .server_builds
             .get(&key)
@@ -348,8 +341,10 @@ pub(super) async fn start(
                 Ok(())
             })?;
         }
-        let mut response = reply(json!(p.db.read()?.server_builds[&key]));
-        if p.db.read()?.server_builds[&key].state != Phase::Ready {
+        let updated = p.db.catalog()?;
+        let job = &updated.server_builds[&key];
+        let mut response = reply(json!(job));
+        if job.state != Phase::Ready {
             *response.status_mut() = StatusCode::ACCEPTED;
         }
         Ok(response)

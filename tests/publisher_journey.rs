@@ -286,12 +286,13 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
     std::fs::write(&settings_path, serde_json::to_vec(&settings)?)?;
     assert!(!cli(root, &publish, None).await?.status.success());
     settings["orientation"] = json!("portrait");
+    settings["resolution"] = json!("native");
     std::fs::write(&settings_path, serde_json::to_vec(&settings)?)?;
     succeeded(cli(root, &publish, None).await?)?;
     let data = db.read()?;
     let second = data.apps["existing-game"].build.clone();
     assert_ne!(first, second);
-    use infuser::manifest::Orientation;
+    use infuser::manifest::{Orientation, Resolution};
     assert_eq!(
         data.builds[&format!("existing-game/{first}")]
             .manifest
@@ -299,10 +300,22 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
         Orientation::Landscape
     );
     assert_eq!(
+        data.builds[&format!("existing-game/{first}")]
+            .manifest
+            .resolution,
+        Resolution::Hd
+    );
+    assert_eq!(
         data.builds[&format!("existing-game/{second}")]
             .manifest
             .orientation,
         Orientation::Portrait
+    );
+    assert_eq!(
+        data.builds[&format!("existing-game/{second}")]
+            .manifest
+            .resolution,
+        Resolution::Native
     );
     assert_eq!(data.apps.len(), 1);
     assert_eq!(data.credentials.len(), 1);

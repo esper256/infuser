@@ -10,6 +10,8 @@ pub struct Manifest {
     pub title: String,
     #[serde(default)]
     pub orientation: Orientation,
+    #[serde(default, skip_serializing_if = "Resolution::is_default")]
+    pub resolution: Resolution,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sdk: Option<crate::sdk_contract::Requirement>,
     #[serde(default)]
@@ -104,6 +106,19 @@ pub enum Orientation {
     #[default]
     Landscape,
     Portrait,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Resolution {
+    #[default]
+    Hd,
+    Native,
+}
+impl Resolution {
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::Hd)
+    }
 }
 
 impl Manifest {

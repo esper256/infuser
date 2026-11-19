@@ -106,7 +106,10 @@ For every multiplayer design:
 ## Build with integration points in place
 
 Keep platform calls separate from game rules. Initialize identity, load progress,
-then enter the title screen or consume a Join Friend request. If standalone play
+then enter the title screen or consume a Join Friend request. Never call save,
+checkpoint, or presence APIs inside per-frame render or physics loops, and cap 3D
+WebGL drawing buffers to a 1080p (`1920 × 1080`) pixel budget so full-window 4K
+and Retina displays maintain 60 fps. If standalone play
 is wanted, preserve a separate local path. An expired or failed Infuser session
 must not silently become standalone play or public matchmaking.
 

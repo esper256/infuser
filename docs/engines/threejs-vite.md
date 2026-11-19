@@ -71,6 +71,40 @@ For standalone play, use [optional platform detection](../peerjs.md#keep-one-pro
 to select the existing local save/networking path when Infuser is absent. A failed
 hosted cloud write must never silently switch to local saves.
 
+## Keep 3D rendering fast on 4K and HiDPI displays
+
+Infuser opens web games in a full-viewport player (`100dvh`). On 4K and Retina
+displays, an uncapped `renderer.setPixelRatio(window.devicePixelRatio)` with
+`renderer.setSize(window.innerWidth, window.innerHeight)` allocates an
+`8.3`-megapixel (`3840 × 2160`) WebGL framebuffer, cutting fragment-bound 3D
+performance to ~15 fps.
+
+1. Request the discrete GPU with `new THREE.WebGLRenderer({ powerPreference: 'high-performance', ... })`.
+2. Cap the effective pixel ratio against a 1080p (`1920 × 1080` = `2,073,600` pixel)
+   budget whenever sizing the renderer, while keeping CSS at `100%`:
+
+```js
+const maxPixels = 1920 * 1080;
+function resizeRenderer(renderer, camera) {
+  const width = Math.max(1, window.innerWidth);
+  const height = Math.max(1, window.innerHeight);
+  const ratio = Math.min(window.devicePixelRatio || 1, Math.sqrt(maxPixels / (width * height)));
+  renderer.setPixelRatio(ratio);
+  renderer.setSize(width, height, true);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+}
+```
+
+3. Style the `<canvas>` with `display: block` and `html, body { margin: 0; overflow: hidden }`
+   so inline baseline gaps cannot trigger a per-frame `ResizeObserver` / `setSize()` feedback loop.
+4. Never call `infuser.saves.save`, `infuser.cloud.commit`, or `infuser.presence.get`
+   inside `requestAnimationFrame` or unthrottled tick handlers.
+5. Once your game manages its own 3D pixel budget (or is a lightweight 2D game that
+   benefits from crisp 4K HTML/canvas rendering), set `"resolution": "native"` in
+   `infuser.game.json` so the player opens at native display resolution by default
+   (players can still toggle the **HD** cap in the player header bar at any time).
+
 ## Verify the experience
 
 First follow [publication verification and handoff](../agents.md#publish-and-verify)

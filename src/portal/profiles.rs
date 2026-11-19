@@ -42,25 +42,21 @@ pub(super) fn routes() -> Router<Platform> {
         .route("/profiles", get(page))
         .route(
             "/assets/profiles.js",
-            get(|| async {
-                (
-                    [
-                        ("content-type", "text/javascript"),
-                        ("cache-control", "no-cache"),
-                    ],
-                    include_str!("../../web/profiles.js"),
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(
+                    &h,
+                    "text/javascript",
+                    include_bytes!("../../web/profiles.js"),
                 )
             }),
         )
         .route(
             "/assets/profile-chooser.js",
-            get(|| async {
-                (
-                    [
-                        ("content-type", "text/javascript"),
-                        ("cache-control", "no-cache"),
-                    ],
-                    include_str!("../../web/profile-chooser.js"),
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(
+                    &h,
+                    "text/javascript",
+                    include_bytes!("../../web/profile-chooser.js"),
                 )
             }),
         )
@@ -75,7 +71,7 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .get(ACCOUNT)
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| fault(401, "Please sign in."))?;
-    let d = p.db.read()?;
+    let d = p.db.catalog()?;
     let profiles = d.account_profiles(account)?;
     ensure!(
         !profiles.is_empty(),

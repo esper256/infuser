@@ -369,7 +369,7 @@ impl Database {
             email.contains('@') && email.len() < 254 && !email.chars().any(char::is_whitespace),
             crate::portal::fault(401, "The provider did not supply a valid email.")
         );
-        let data = self.read()?;
+        let data = self.catalog()?;
         if let Some(login) = data.identities.login(GOOGLE, subject)
             && login.email == email
         {
@@ -379,7 +379,7 @@ impl Database {
     }
     pub fn google_profile(&self, subject: &str, email: &str) -> Result<String> {
         let account = self.google_account(subject, email)?;
-        self.read()?.single_profile(&account)
+        self.catalog()?.single_profile(&account)
     }
 }
 

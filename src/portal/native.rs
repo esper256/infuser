@@ -47,7 +47,23 @@ pub(super) fn bundle(p: &Platform, app: &str, build: &str, b: &Build) -> Result<
     if !b.files.contains_key(MANIFEST) {
         return Ok(None);
     }
-    crate::native::read(&p.root().join(app).join(build))
+    let key = (build_key(app, build), b.created);
+    if b.ready
+        && let Some(cached) = p.native_manifests.lock().unwrap().get(&key).cloned()
+    {
+        return Ok(Some(cached));
+    }
+    let loaded = crate::native::read(&p.root().join(app).join(build))?;
+    if b.ready
+        && let Some(manifest) = &loaded
+    {
+        let mut cache = p.native_manifests.lock().unwrap();
+        if cache.len() >= 256 {
+            cache.clear();
+        }
+        cache.insert(key, manifest.clone());
+    }
+    Ok(loaded)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -128,7 +144,7 @@ async fn token(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Token>)
 }
 async fn devices(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
-    Ok(reply(p.db.native_edit(|_, n| Ok(json!({"devices":n.devices.iter().filter(|(_,x)|x.email==email).map(|(id,x)|json!({"id":id,"created":x.created})).collect::<Vec<_>>()})))?))
+    Ok(reply(p.db.native_devices(&email)?))
 }
 async fn self_revoke(State(p): State<Platform>, h: HeaderMap) -> Answer {
     external(&p, &h)?;
@@ -167,7 +183,7 @@ async fn play(
     let email = p.member(&h, true).await?;
     let (group, _) = p.group_view(&h, &email)?;
     p.visible_app(&h, &email, &app)?;
-    if !p.db.read()?.visits.is_empty() {
+    if !p.db.catalog()?.visits.is_empty() {
         p.reconcile_publications()?;
     }
     p.admit(&h).await;

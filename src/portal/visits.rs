@@ -19,17 +19,17 @@ fn view(d: &platform::Data, id: &str, v: &Visit) -> Value {
 }
 async fn mine(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
-    let d = p.db.read()?;
+    let d = p.db.catalog()?;
     Ok(reply(
         json!({"visits":d.visits.iter().filter(|(id,_)|d.visit_access(id,&email,now()).is_some()).map(|(id,v)|view(&d,id,v)).collect::<Vec<_>>()}),
     ))
 }
 async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.operator(&h, false).await?;
-    let d = p.db.read()?;
+    let d = p.db.catalog()?;
     Ok(reply(
         json!({"enabled":p.config().controller.visits,"groups":d.groups.names,
-        "members":d.members.iter().filter(|(_,m)|m.enabled).map(|(e,m)|json!({"id":d.player_id(e),"name":m.name,"group":d.groups.member(e)})).collect::<Vec<_>>(),
+        "members":d.members.iter().filter(|(e,_)|d.profile_enabled(e)).map(|(e,m)|json!({"id":d.player_id(e),"name":m.name,"group":d.groups.member(e)})).collect::<Vec<_>>(),
         "games":d.apps.iter().filter(|(_,a)|a.listed).map(|(id,a)|json!({"id":id,"group":d.groups.app(id),"title":metadata::title(&d,id,&d.builds[&build_key(id,&a.build)].manifest.title)})).collect::<Vec<_>>(),
         "visits":d.visits.iter().map(|(id,v)|view(&d,id,v)).collect::<Vec<_>>()}),
     ))
@@ -82,7 +82,7 @@ async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create
             let (email, _) = d
                 .members
                 .iter()
-                .find(|(e, m)| m.enabled && d.player_id(e) == *player)
+                .find(|(e, _)| d.profile_enabled(e) && d.player_id(e) == *player)
                 .ok_or_else(|| fault(404, "Visitor not found."))?;
             ensure!(
                 d.groups.member(email) != body.host_group,
