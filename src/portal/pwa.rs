@@ -9,6 +9,10 @@ pub(super) fn routes() -> Router<Platform> {
             .delete(unsubscribe)
             .layer(DefaultBodyLimit::max(4096)),
     );
+    router = router.route(
+        "/api/notifications/test",
+        post(test_notification).layer(DefaultBodyLimit::max(4096)),
+    );
     for path in [
         "/manifest.webmanifest",
         "/sw.js",
@@ -77,6 +81,34 @@ async fn unsubscribe(
 ) -> Answer {
     let email = p.member(&h, true).await?;
     p.db.push_unsubscribe(&email, &body.endpoint)?;
+    Ok(reply(json!({"ok":true})))
+}
+async fn test_notification(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(sub): Json<Subscription>,
+) -> Answer {
+    let profile = p.member(&h, true).await?;
+    sub.validate()?;
+    p.db.reserve_push_test(&profile, &sub.endpoint)?;
+    let request = p.push.request(&sub, &format!("https://{}", p.domain()))?;
+    let response = p
+        .http
+        .execute(request)
+        .await
+        .map_err(|_| fault(502, "The push service could not be reached. Try again."))?;
+    if matches!(response.status().as_u16(), 404 | 410) {
+        p.db.push_unsubscribe(&profile, &sub.endpoint)?;
+        return Err(fault(
+            410,
+            "This subscription expired. Turn notifications off and on again.",
+        )
+        .into());
+    }
+    ensure!(
+        response.status().is_success(),
+        fault(502, "The push service did not accept the test. Try again.")
+    );
     Ok(reply(json!({"ok":true})))
 }
 impl Platform {
