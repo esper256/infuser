@@ -87,6 +87,8 @@ namespace Infuser.Unity
             if (value.session != null && string.IsNullOrEmpty(value.session.id)) value.session = null;
             return value;
         }
+        public Task<PeerRoom> CreatePeerRoomAsync(bool relayOnly = false, bool joinable = true)
+            => CallAsync<PeerRoom>("peer.create", JsonUtility.ToJson(new JoinFields { relayOnly = relayOnly, joinable = joinable }));
         public Task<PeerRoom> JoinPeersAsync(PeerOptions options)
         {
             if (options == null) throw new ArgumentNullException(nameof(options));

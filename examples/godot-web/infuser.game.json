@@ -4,7 +4,7 @@
   "sdk": {
     "major": 1,
     "api_major": 1,
-    "required_capabilities": ["identity.v1", "cloud_checkpoints.v1", "peers.webrtc.v1"]
+    "required_capabilities": ["identity.v1", "cloud_checkpoints.v1", "peers.webrtc.v1", "peers.rooms.v1"]
   },
   "play_modes": ["solo", "multiplayer"],
   "solo_runtime": "client_only",

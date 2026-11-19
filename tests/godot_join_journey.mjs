@@ -19,10 +19,19 @@ async function call(c,path,method='GET'){
 }
 try{
   const host=await open(mint(),true);await host.frame.waitForFunction(()=>window.lanternLake.multiplayer);
-  const {session}=await call(host,'/presence/v1');assert.equal(session.joinable,true);
+  const epoch=await host.frame.evaluate(()=>window.lanternLake.session);
+  const session=(await call(host,'/presence/v1')).peer_sessions.find(room=>room.id===epoch);
+  assert.equal(session.joinable,true);
+  const secondHost=await open(mint(),true);
+  await secondHost.frame.waitForFunction(()=>window.lanternLake.multiplayer);
+  const secondId=await secondHost.frame.evaluate(()=>window.lanternLake.session);
+  assert.notEqual(secondId,epoch);
+  const second=(await call(secondHost,'/presence/v1')).peer_sessions.find(room=>room.id===secondId);
+  const secondFriend=await open(mint(secondId,second.host_player_id));
   const joined=await open(mint(session.id,session.host_player_id));
-  for(const c of [host,joined])await c.frame.waitForFunction(()=>window.lanternLake.received>=10,{}, {timeout:35000});
+  for(const c of [host,joined,secondHost,secondFriend])await c.frame.waitForFunction(()=>window.lanternLake.received>=10,{}, {timeout:35000});
   assert.equal(await joined.frame.evaluate(()=>window.lanternLake.session),session.id);
+  assert.equal(await secondFriend.frame.evaluate(()=>window.lanternLake.session),secondId);
   assert.equal((await call(joined,'/launch-intent/v1/consume','POST')).intent,null);
   const stale=mint(session.id,session.host_player_id);
   await joined.page.reload();await joined.page.frameLocator('#game').locator('canvas').waitFor();
@@ -32,8 +41,10 @@ try{
   await call(host,'/heartbeat','DELETE');await host.context.close();clients.splice(clients.indexOf(host),1);
   const late=await open(stale);
   await late.frame.waitForFunction(()=>!window.lanternLake.multiplayer&&window.lanternLake.status!=='Finding the shared lake…');
-  assert.equal((await call(late,'/presence/v1')).session,null,'stale target creates no replacement room');
-  console.log('Godot Join Friend: targeted relay join, one-time consumption, refresh stays at title screen and stale target creates no room passed.');
+  assert(!(await call(late,'/presence/v1')).peer_sessions.some(room=>room.id===epoch),'stale target stays ended');
+  const before=await secondFriend.frame.evaluate(()=>window.lanternLake.received);
+  await secondFriend.frame.waitForFunction(before=>window.lanternLake.received>before,before,{timeout:15000});
+  console.log('Godot Join Friend: two hosts, two targeted relay joins, one-time consumption and independent host departure passed.');
 }finally{
   for(const c of clients){try{await call(c,'/heartbeat','DELETE');}catch{}await c.context.close();}
   await browser.close();

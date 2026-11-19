@@ -46,7 +46,7 @@ try {
     page.on('response',response=>{const r=response.request();if(/\/peers\/[a-f0-9]+(?:\?|$)/.test(r.url())){if(r.method()==='GET'){requests.polls++;requests.last_poll_status=response.status();}if(r.method()==='DELETE')requests.leaves++;}});
     page.on('pageerror',e=>errors.push(e.message));
     page.on('console',m=>{if(m.type()==='error' && /SCRIPT ERROR|Parse Error|Failed to load script/.test(m.text()))errors.push(m.text());});
-    const url=new URL(raw);url.searchParams.set('autoplay','1');url.searchParams.set('multiplayer','1');
+    const url=new URL(raw);url.searchParams.set('autoplay','1');url.searchParams.set('multiplayer','1');url.searchParams.set('matchmaking','1');
     if(forced)url.searchParams.set('relay','1');
     await page.goto(url.href);
     await page.frameLocator('#game').locator('canvas').waitFor();

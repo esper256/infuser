@@ -44,11 +44,13 @@ pub struct Join<'a> {
     pub build: &'a str,
     pub connection: &'a str,
     pub max_players: u32,
+    pub create: bool,
     pub expected_epoch: Option<&'a str>,
     pub expected_player: Option<&'a str>,
     pub joinable: Option<bool>,
 }
 struct Peer {
+    connection: String,
     identity: Identity,
     expires: u64,
     signals: VecDeque<Value>,
@@ -56,6 +58,8 @@ struct Peer {
     health_seen: u64,
 }
 struct Room {
+    app: String,
+    automatic: bool,
     epoch: String,
     build: String,
     host: String,
@@ -86,8 +90,9 @@ fn member<'a>(
     launch: &str,
 ) -> Result<&'a mut Room> {
     let room = rooms
-        .get_mut(app)
-        .ok_or_else(|| fault(410, "shared session ended; join again"))?;
+        .values_mut()
+        .find(|r| r.app == app && r.peers.contains_key(peer))
+        .ok_or_else(|| fault(410, "peer session ended; join again"))?;
     ensure!(
         room.peers
             .get(peer)
@@ -125,17 +130,21 @@ impl Rooms {
     /// Remove disabled/expired launches without trusting a game's self-report.
     pub fn retain_launches(&self, app: &str, live: &BTreeSet<String>, time: u64) {
         let mut rooms = self.rooms.lock().unwrap();
-        if let Some(room) = rooms.get_mut(app) {
+        for room in rooms.values_mut().filter(|r| r.app == app) {
             room.peers.retain(|_, p| live.contains(&p.identity.launch));
         }
         reap(&mut rooms, time);
     }
-    pub fn discovery(&self, app: &str, build: &str, time: u64) -> Value {
+    pub fn discover_all(&self, app: &str, build: &str, time: u64) -> Vec<Value> {
         let mut rooms = self.rooms.lock().unwrap();
         reap(&mut rooms, time);
-        let Some(room) = rooms.get(app) else {
-            return Value::Null;
-        };
+        rooms
+            .values()
+            .filter(|room| room.app == app)
+            .map(|room| Self::describe(room, build))
+            .collect()
+    }
+    fn describe(room: &Room, build: &str) -> Value {
         let reason = if room.build != build {
             Some("different_build")
         } else if room.peers.len() >= room.max_players as usize {
@@ -147,7 +156,7 @@ impl Rooms {
                 None => Some("not_advertised"),
             }
         };
-        json!({"id":room.epoch,"build_id":room.build,"host_player_id":room.peers[&room.host].identity.player,
+        json!({"id":room.epoch,"matchmaking":room.automatic,"build_id":room.build,"host_player_id":room.peers[&room.host].identity.player,
             "player_count":room.peers.len(),"max_players":room.max_players,"joinable":reason.is_none(),"reason":reason,
             "players":room.peers.values().map(|p|json!({"player_id":p.identity.player,"name":p.identity.name,"guest":p.identity.guest})).collect::<Vec<_>>()})
     }
@@ -180,7 +189,7 @@ impl Rooms {
     pub fn active(&self, app: &str, time: u64) -> bool {
         let mut rooms = self.rooms.lock().unwrap();
         reap(&mut rooms, time);
-        rooms.contains_key(app)
+        rooms.values().any(|r| r.app == app)
     }
     pub fn join(&self, who: Identity, request: Join<'_>, time: u64) -> Result<Value> {
         ensure!(
@@ -197,43 +206,78 @@ impl Rooms {
         );
         let mut rooms = self.rooms.lock().unwrap();
         reap(&mut rooms, time);
-        let peer = hash(&format!("{}/{}", who.launch, request.connection))[..32].to_owned();
-        if let Some(epoch) = request.expected_epoch {
-            ensure!(
-                rooms.get(request.app).is_some_and(|r| r.epoch == epoch),
-                fault(410, "that shared session ended; return to the title screen")
-            );
-        }
-        if let Some(player) = request.expected_player {
-            ensure!(
-                request.expected_epoch.is_some(),
-                fault(400, "a friend target requires a session ID")
-            );
-            ensure!(
-                rooms
-                    .get(request.app)
-                    .is_some_and(|r| r.peers.values().any(|p| p.identity.player == player)),
-                fault(
-                    410,
-                    "that friend left the session; return to the title screen"
-                )
-            );
-        }
-        let existing = rooms
-            .get(request.app)
-            .is_some_and(|r| r.peers.contains_key(&peer));
+        ensure!(
+            !request.create
+                || (request.expected_epoch.is_none() && request.expected_player.is_none()),
+            fault(400, "creating a room cannot target another session")
+        );
+        ensure!(
+            request.expected_player.is_none() || request.expected_epoch.is_some(),
+            fault(400, "a friend target requires a session ID")
+        );
+
+        // Reusing a live connection ID is a retry. Keep peer identities stable within
+        // one epoch, so a delayed leave can never close a different room.
+        let previous = rooms
+            .values()
+            .filter(|room| room.app == request.app)
+            .find_map(|room| {
+                room.peers
+                    .iter()
+                    .find(|(_, p)| {
+                        p.identity.launch == who.launch && p.connection == request.connection
+                    })
+                    .map(|(id, _)| (room, id))
+            });
+        let existing = previous.is_some();
         ensure!(
             existing || rooms.values().map(|r| r.peers.len()).sum::<usize>() < 128,
             fault(503, "peer connection budget is full")
         );
-        let room = rooms.entry(request.app.into()).or_insert_with(|| Room {
-            epoch: secret()[..32].into(),
+        let selected = if let Some(target) = request.expected_epoch {
+            let room = rooms
+                .get(target)
+                .filter(|r| r.app == request.app)
+                .ok_or_else(|| fault(410, "that room ended; return to the title screen"))?;
+            ensure!(
+                previous.as_ref().is_none_or(|(r, _)| r.epoch == target),
+                fault(409, "connection already belongs to another room")
+            );
+            if let Some(player) = request.expected_player {
+                ensure!(
+                    room.peers.values().any(|p| p.identity.player == player),
+                    fault(
+                        410,
+                        "that friend left the session; return to the title screen"
+                    )
+                );
+            }
+            Some(room)
+        } else if let Some((room, peer)) = previous {
+            ensure!(
+                !request.create || (!room.automatic && &room.host == peer),
+                fault(409, "connection already belongs to another room")
+            );
+            Some(room)
+        } else if request.create {
+            None
+        } else {
+            rooms.values().find(|r| r.app == request.app && r.automatic)
+        };
+        let epoch = selected
+            .map(|r| r.epoch.clone())
+            .unwrap_or_else(|| secret()[..32].to_owned());
+        let peer = hash(&format!("{epoch}/{}/{}", who.launch, request.connection))[..32].to_owned();
+        let room = rooms.entry(epoch.clone()).or_insert_with(|| Room {
+            app: request.app.into(),
+            automatic: !request.create,
+            epoch,
             build: request.build.into(),
             host: peer.clone(),
             peers: BTreeMap::new(),
             sequence: 0,
             max_players: request.max_players.min(8),
-            accepting_players: request.joinable,
+            accepting_players: request.joinable.or(request.create.then_some(true)),
         });
         ensure!(
             room.build == request.build,
@@ -256,6 +300,7 @@ impl Rooms {
         room.peers
             .entry(peer.clone())
             .or_insert(Peer {
+                connection: request.connection.to_owned(),
                 identity: who,
                 expires: time + 30,
                 signals: VecDeque::new(),
@@ -342,14 +387,15 @@ impl Rooms {
         reap(&mut rooms, time);
         let room = member(&mut rooms, app, peer, launch)?;
         if room.host == peer {
-            rooms.remove(app);
+            let epoch = room.epoch.clone();
+            rooms.remove(&epoch);
         } else {
             room.peers.remove(peer);
         }
         Ok(())
     }
     pub fn end(&self, app: &str) {
-        self.rooms.lock().unwrap().remove(app);
+        self.rooms.lock().unwrap().retain(|_, r| r.app != app);
     }
     pub fn health(
         &self,
@@ -379,15 +425,16 @@ impl Rooms {
     pub fn diagnostics(&self, time: u64) -> Value {
         let mut rooms = self.rooms.lock().unwrap();
         reap(&mut rooms, time);
-        json!({"sessions":rooms.iter().map(|(app,r)|json!({"app_id":app,"build_id":r.build,"peers":r.peers.iter().map(|(id,p)|json!({"id":id,"name":p.identity.name,"host":*id==r.host,"reported_at":p.health_seen,"health":p.health})).collect::<Vec<_>>()})).collect::<Vec<_>>()})
+        json!({"sessions":rooms.values().map(|r|json!({"app_id":r.app,"session_id":r.epoch,"build_id":r.build,"peers":r.peers.iter().map(|(id,p)|json!({"id":id,"name":p.identity.name,"host":*id==r.host,"reported_at":p.health_seen,"health":p.health})).collect::<Vec<_>>()})).collect::<Vec<_>>()})
     }
     pub fn leave_launch(&self, app: &str, launch: &str) {
         let mut rooms = self.rooms.lock().unwrap();
-        if let Some(room) = rooms.get_mut(app) {
-            room.peers.retain(|_, p| p.identity.launch != launch);
-            if !room.peers.contains_key(&room.host) {
-                rooms.remove(app);
+        rooms.retain(|_, room| {
+            if room.app != app {
+                return true;
             }
-        }
+            room.peers.retain(|_, p| p.identity.launch != launch);
+            room.peers.contains_key(&room.host)
+        });
     }
 }

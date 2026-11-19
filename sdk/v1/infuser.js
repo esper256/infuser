@@ -30,8 +30,14 @@ export const saves = {
 };
 export async function leave() { stopped = true; clearInterval(timer); await request('heartbeat', { method: 'DELETE' }); }
 // Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
-export const peers = { join: async options => (await import('/_infuser/sdk/v1/peers.js')).join(options) };
-export const peerjs = { join: async options => (await import('/_infuser/sdk/v1/peerjs.js')).join(options) };
+export const peers = {
+  create: async options => (await import('/_infuser/sdk/v1/peers.js')).create(options),
+  join: async options => (await import('/_infuser/sdk/v1/peers.js')).join(options)
+};
+export const peerjs = {
+  create: async options => (await import('/_infuser/sdk/v1/peerjs.js')).create(options),
+  join: async options => (await import('/_infuser/sdk/v1/peerjs.js')).join(options)
+};
 const checkpoint = method => async (...args) => checkpoints[method](...args);
 export const cloud = {
   load:checkpoint('load'),read:checkpoint('read'),history:checkpoint('history'),commit:checkpoint('commit'),resolve:checkpoint('resolve'),

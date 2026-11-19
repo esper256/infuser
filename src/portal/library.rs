@@ -57,7 +57,7 @@ impl View<'_> {
             &presence::live_launches(data, runtime, self.time),
             self.time,
         );
-        let room = p.peers.discovery(runtime, &app.build, self.time);
+        let rooms = p.peers.discover_all(runtime, &app.build, self.time);
         let desktop = native::bundle(p, id, &app.build, build).ok().flatten();
         let supports_join = build
             .manifest
@@ -72,7 +72,7 @@ impl View<'_> {
         let mut join_targets = vec![];
         let mut membership = BTreeMap::new();
         let viewer = data.player_id(self.email);
-        for session in std::iter::once(&room).chain(&dedicated) {
+        for session in rooms.iter().chain(&dedicated) {
             let Some(members) = session["players"].as_array() else {
                 continue;
             };

@@ -23,6 +23,7 @@ fn join<'a>(app: &'a str, build: &'a str) -> Join<'a> {
         build,
         connection: "connection-123456",
         max_players: 2,
+        create: false,
         expected_epoch: None,
         expected_player: None,
         joinable: None,
@@ -48,7 +49,7 @@ fn host_expiry_fences_old_session_and_signals() -> Result<()> {
     let bid = b["self_id"].as_str().unwrap();
     assert_eq!(a["epoch"], b["epoch"]);
     assert_eq!(
-        rooms.discovery("pond", "one", 100)["joinable"],
+        rooms.discover_all("pond", "one", 100)[0]["joinable"],
         false,
         "legacy rooms may accept ordinary joins without advertising Join friend"
     );
@@ -104,11 +105,55 @@ fn host_expiry_fences_old_session_and_signals() -> Result<()> {
     let mut stale = join("pond", "two");
     stale.expected_epoch = a["epoch"].as_str();
     assert!(rooms.join(identity("c"), stale, 131).is_err());
-    assert_eq!(rooms.discovery("pond", "two", 131)["player_count"], 1);
+    assert_eq!(rooms.discover_all("pond", "two", 131)[0]["player_count"], 1);
     rooms.retain_launches("pond", &Default::default(), 131);
-    assert!(rooms.discovery("pond", "two", 131).is_null());
+    assert!(rooms.discover_all("pond", "two", 131).is_empty());
     Ok(())
 }
+#[test]
+fn explicit_rooms_are_isolated_from_automatic_matchmaking_and_late_leaves() -> Result<()> {
+    let rooms = Rooms::default();
+    let host = || Join {
+        create: true,
+        ..join("pond", "one")
+    };
+    let first = rooms.join(identity("a"), host(), 100)?;
+    let automatic = rooms.join(identity("b"), join("pond", "one"), 100)?;
+    let matched = rooms.join(identity("c"), join("pond", "one"), 100)?;
+    assert_ne!(first["epoch"], automatic["epoch"]);
+    assert_eq!(automatic["epoch"], matched["epoch"]);
+    assert_eq!(rooms.discover_all("pond", "one", 100).len(), 2);
+    let old_id = first["self_id"].as_str().unwrap();
+    rooms.leave("pond", old_id, "a", 101)?;
+    let replacement = rooms.join(identity("a"), host(), 101)?;
+    assert_ne!(replacement["self_id"], first["self_id"]);
+    assert!(rooms.leave("pond", old_id, "a", 102).is_err());
+    assert!(rooms.join(identity("b"), host(), 102).is_err());
+    assert!(
+        rooms
+            .join(
+                identity("d"),
+                Join {
+                    expected_epoch: first["epoch"].as_str(),
+                    ..host()
+                },
+                102
+            )
+            .is_err()
+    );
+    rooms.poll(
+        "pond",
+        replacement["self_id"].as_str().unwrap(),
+        "a",
+        0,
+        110,
+    )?;
+    let remaining = rooms.discover_all("pond", "one", 131);
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0]["id"], replacement["epoch"]);
+    Ok(())
+}
+
 #[tokio::test]
 async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
     let dir = tempfile::tempdir()?;
@@ -518,8 +563,8 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
     assert!(
         platform
             .peer_rooms()
-            .discovery(&deployment, "two", now())
-            .is_null()
+            .discover_all(&deployment, "two", now())
+            .is_empty()
     );
     call(
         "a",

@@ -11,7 +11,7 @@ player application. The game SDK is [pre-1.0](sdk-contract.md).
 | App | A game's stable identity, ownership, and saves |
 | Build | An immutable set of validated client artifacts and optional server settings |
 | Active build | The build used for new launches; an update can wait for multiplayer to end |
-| Session | A game's one shared multiplayer room or server |
+| Session | One gameplay room within a game |
 | Presence | Separate online, game-open, and multiplayer states |
 | Cloud save | Player/app-scoped JSON slots or declared checkpoint groups |
 
@@ -52,14 +52,14 @@ process. Persistent volumes survive shutdown; the game must checkpoint before
 its shutdown deadline. Persistent world does not promise an always-running
 simulation. See [on-demand leases](runtime-sessions.md).
 
-Peer-hosted games have one shared room. A dedicated server can declare a shared
+Peer-hosted games can run multiple independent rooms, each with its own host. A dedicated server can declare a shared
 session or multiple explicit runs inside its single container; see
 [dedicated sessions](dedicated-sessions.md). A failed/full/closed Join friend never
 creates another world. Ordinary Play opens the title screen; [Join friend](launch-intents.md)
 is an optional explicit action using the game's reported joinability.
 Games own their mode selection, waiting screens, and any spectating.
 
-Updates upload immediately, then wait for the current server or peer room to stop
+Updates upload immediately, then wait for the current server or all live peer rooms to stop
 before activation. Existing browser launches retain their selected artifacts.
 Old clients must reopen before entering a newer build's multiplayer session.
 Preview is a visibility setting, not a parallel branch or a second server.

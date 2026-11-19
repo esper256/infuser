@@ -13,7 +13,8 @@ session. Use Infuser WebRTC (including the PeerJS adapter) or managed dedicated
 WebSocket sessions. Native Infuser Play currently supports ordinary launches.
 
 1. Declare `launch_intents: ["join_friend"]` alongside your multiplayer transport.
-2. On ordinary Play, show your usual title screen. When the host can accept
+2. On ordinary launch, show the title screen. For co-op, Play creates a fresh room
+   unless the player checks Play Solo. When the host can accept
    players, call `room.setJoinable(true)` for a peer room, or publish a joinable
    multiplayer run through the [dedicated session adapter](dedicated-sessions.md).
    Close admission when the game rules require it.
