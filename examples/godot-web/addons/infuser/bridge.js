@@ -17,9 +17,10 @@
         else if (operation === 'read') value = await api.cloud.read(args.group, args.revision);
         else if (operation === 'resolve') value = await api.cloud.resolve(args.group, args.checkpoint);
         else if (operation === 'launch_intent') value = await api.launchIntent.consume();
+        else if (operation === 'set_activity') value = await api.presence.setActivity(args.activity);
         else if (operation === 'presence') value = await api.presence.get();
         else if (operation === 'peers') {
-          if (!/^\/(?:[a-f0-9]+(?:\/(?:signals|ice))?)?(?:\?after=\d+)?$/.test(args.path)) throw Error('Invalid signaling path');
+          if (!/^\/(?:[a-f0-9]+(?:\/(?:signals|ice|joinability))?)?(?:\?after=\d+)?$/.test(args.path)) throw Error('Invalid signaling path');
           const response = await fetch('/_infuser/api/v1/peers' + args.path.replace(/^\/$/, ''), {
             method: args.method, credentials: 'same-origin', signal: AbortSignal.timeout(5000),
             ...(args.body == null ? {} : {headers: {'Content-Type':'application/json'}, body: JSON.stringify(args.body)})

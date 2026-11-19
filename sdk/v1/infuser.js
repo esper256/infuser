@@ -53,7 +53,8 @@ export const runtime = {
 };
 export const presence = {
   // A snapshot only: no backend acquisition, peer lease, or presence spoofing.
-  get: () => request('presence/v1', {signal:AbortSignal.timeout(5000)})
+  get: () => request('presence/v1', {signal:AbortSignal.timeout(5000)}),
+  setActivity: activity => request('presence/v1/activity', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activity}),signal:AbortSignal.timeout(5000)})
 };
 export const launchIntent = {
   // Consume in the game after loading its state, never in the embedding player.

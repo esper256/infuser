@@ -265,8 +265,11 @@ pub(super) fn live_sessions(
                 players.insert(a.identity.player_id.clone(),json!({"player_id":a.identity.player_id,"name":a.identity.name,"guest":a.identity.guest}));
             }
         }
+        let reason = if data.pending_promotions.contains_key(app) {Some("server_draining")}
+            else if session.connections.len() >= session.max_players as usize {Some("full")}
+            else if !session.joinable {Some("closed")} else {None};
         json!({"id":session.id,"label":session.label,"activity":session.activity,
-            "joinable":session.joinable && !data.pending_promotions.contains_key(app) && session.connections.len() < session.max_players as usize,
+            "joinable":reason.is_none(),"reason":reason,
             "max_players":session.max_players,"players":players.into_values().collect::<Vec<_>>()})
     }).collect()
 }

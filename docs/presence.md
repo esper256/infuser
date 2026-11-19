@@ -70,7 +70,7 @@ Peer membership uses its existing 30-second coordinator lease. Disabled members
 and expired/unexchanged launches do not appear. A snapshot prunes invalid peer
 launches; if that removes the host, the session ends. It contains no emails,
 tickets, credentials, signaling payloads, telemetry, or other games' metadata.
-All invited members are the current social circle; no separate friend list exists.
+The Library lists players within the current private group or visit.
 
 `session` is null when no live room exists. `can_start` is true only when a room
 can be created for this published build and topology; reading it reserves nothing.
@@ -97,7 +97,7 @@ if (room.role === 'host') await room.setJoinable(true);
 if (room.role === 'host') await room.setJoinable(false);
 ```
 
-The only report is a boolean: whether this session accepts new participants.
+For peer admission the host reports a boolean: whether this session accepts new participants.
 Names, identities, occupancy and capacity come from authenticated launches and
 the manifest. Only the verified host connection can update admission, with its
 matching session ID (`epoch` in the peer API). Members cannot update it; IDs from
@@ -150,3 +150,11 @@ Presence reads do not renew browser or peer leases, start servers, reserve seats
 or alter fullscreen. The normal SDK heartbeat remains required. Cache only briefly,
 handle fetch failures, and show a small player list or Join action in the game's own
 title screen. Numeric network diagnostics remain in admin tools.
+
+The Library shows **Online** for two minutes after input, **Idle** until ten
+minutes, then **Away** while the player remains connected. Keyboard, pointer,
+wheel and gamepad input in the hosted web player count. Library polls and game
+heartbeats establish reachability only. A disconnected player drops from the
+online strip when their 90-second presence expires. The optional
+[game mode report](launch-intents.md#implement-join-friend-from-the-library)
+describes what the player is doing separately from these indicators.

@@ -17,6 +17,10 @@ pub(super) fn routes() -> Router<Platform> {
         .route("/context", get(context))
         .route("/heartbeat", post(heartbeat).delete(leave))
         .route("/saves/{slot}", get(save_get).put(save_put))
+        .route(
+            "/presence/v1/activity",
+            put(presence::set_activity).layer(DefaultBodyLimit::max(256)),
+        )
         .route("/presence/v1", get(presence::snapshot))
         .route("/launch-intent/v1/consume", post(consume_intent))
         .route("/runtime/v1", get(runtime::status).post(runtime::acquire))
@@ -66,4 +70,8 @@ pub(super) async fn cloud() -> impl IntoResponse {
 }
 pub(super) async fn sessions() -> impl IntoResponse {
     javascript(include_str!("../../sdk/v1/sessions.js"))
+}
+
+pub(super) async fn activity_input() -> impl IntoResponse {
+    javascript(include_str!("../../web/activity-input.js"))
 }

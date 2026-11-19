@@ -45,6 +45,7 @@ export function createBridge(send, loadSdk = connect) {
     if (op === 'ready') return api ? {hosted:true, ...await api.ready} : {hosted:false};
     if (!api) throw failure('not_hosted', 'Use the game’s standalone save or networking path.');
     switch (op) {
+      case 'presence.activity': return api.presence.setActivity(a.activity);
       case 'presence': return api.presence.get();
       case 'launch_intent': return api.launchIntent.consume();
       case 'cloud.load': return api.cloud.load(a.group);

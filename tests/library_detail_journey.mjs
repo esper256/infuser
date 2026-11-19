@@ -21,6 +21,7 @@ try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
  await context.route('https://library.test/**',async route=>{
   const request=route.request(),path=new URL(request.url()).pathname,method=request.method();let data;
+  if(path==='/api/presence/input')return route.fulfill({json:{ok:true}});
   if(method!=='GET')writes.push({path,body:request.postDataJSON()});
   if(path==='/api/me')return route.fulfill({status:unauthorized?401:200,json:unauthorized?{error:'Sign in'}:me});
   if(path==='/api/library'){reads++;data={apps,friends:[author,friend],tags:tags.map(id=>({id,label:id==='3d'?'3D':id[0].toUpperCase()+id.slice(1),count:apps.filter(g=>g.tags.includes(id)).length}))};}
@@ -116,6 +117,9 @@ try {
  // Active player badges are separate from reactions and do not recreate covers.
  game.players=[{...author},{...author},{...friend},{...friend,guest:true,player_id:'guest-one'},{...friend,guest:true,player_id:'guest-two'},{id:'three',name:'Nova',avatar:'circuit-fox'},{id:'four',name:'Sky',avatar:'moss-knight'}];
  await page.evaluate(()=>refreshTestLibrary());
+ await open();const roster=dialog.getByRole('region',{name:'Playing now'});
+ assert.equal(await roster.locator('li').count(),5);assert(await roster.getByRole('button',{name:'Join OrbitFox',exact:true}).isVisible());
+ await close();
  const live=()=>card().locator('.game-live');
  assert.equal(await live().locator('summary .game-player').count(),3);
  assert.equal(await live().locator('.game-player-more').textContent(),'+2');
@@ -365,6 +369,17 @@ try {
  assert.equal(await picker.locator('img.reaction-image').count(),10,'all illustrated reactions are available');
  assert.equal(await picker.getByRole('button',{name:'React: Fun together',exact:true}).count(),1);
  await page.keyboard.press('Escape');assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await update().evaluate(e=>e===document.activeElement));
+ const panel=page.locator('#activity');
+ await panel.evaluate(e=>e.style.maxHeight='160px');
+ await update().click();
+ // Constrain the emoji grid as on a short screen, exercising a real overflow scroll.
+ await picker.evaluate(e=>{e.style.maxHeight='120px';e.scrollTop=40;});
+ await page.waitForFunction(()=>document.querySelector('#feed-reaction-picker').scrollTop>0);
+ assert(await picker.isVisible());
+ await panel.evaluate(e=>e.scrollTop=e.scrollTop===0?40:0);
+ await picker.waitFor({state:'hidden'});assert(await panel.isVisible());
+ await page.waitForFunction(()=>document.querySelector('#feed .feed-react-toggle[data-update="firefly-drift-release-a"]').getAttribute('aria-expanded')==='false');
+ await panel.evaluate(e=>e.style.removeProperty('max-height'));
  await update().click();
  const reactionsBefore=writes.length;failReaction=true;
  await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();

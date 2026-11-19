@@ -6,6 +6,44 @@ Audience: game authors and their agents.
 game's title screen. Join friend is an explicit request to join a specific person
 in a specific existing session. It never means creating a replacement world.
 
+## Implement Join Friend from the Library
+
+A published **web game** can launch directly into a friend's current multiplayer
+session. Use Infuser WebRTC (including the PeerJS adapter) or managed dedicated
+WebSocket sessions. Native Infuser Play currently supports ordinary launches.
+
+1. Declare `launch_intents: ["join_friend"]` alongside your multiplayer transport.
+2. On ordinary Play, show your usual title screen. When the host can accept
+   players, call `room.setJoinable(true)` for a peer room, or publish a joinable
+   multiplayer run through the [dedicated session adapter](dedicated-sessions.md).
+   Close admission when the game rules require it.
+3. On startup, load the player's saves and consume the launch intent once.
+   Pass both IDs to your existing transport as shown below. For PeerJS use
+   `peerjs.join({Peer, sessionId: intent.session_id, playerId: intent.player_id})`
+   with the game's usual connection handlers. For engine bindings, follow the
+   [Godot Web](engines/godot-web.md) or [Unity Web](engines/unity-web.md) recipe.
+4. If the friend leaves or the run fills up, explain that and return to the
+   title screen. With two test profiles, verify normal Play, joining the same
+   session, and the friend leaving between selection and admission.
+
+**Show the player's mode.** For a game with both local single player and
+multiplayer, tell Infuser when the title screen or local play begins:
+
+```js
+const context = await Infuser.ready;
+if (context.capabilities.presence?.game_activity?.includes('single_player')) {
+  await Infuser.presence.setActivity('single_player');
+}
+```
+
+Use `title_screen` when returning to the menu. `multiplayer` is also available.
+Send on mode changes, allow play to continue if a report fails, and leave the
+peer room or disconnect the dedicated socket when leaving multiplayer.
+Godot Web exposes `Infuser.call_api("set_activity", {"activity":"single_player"})`;
+Unity Web exposes `SetActivityAsync("single_player")`. The report describes
+this launch only. Join buttons require actual membership and an accepting room.
+Single-player-only games need no integration for their single-player label.
+
 ## Entry points
 
 The Library offers Join Friend in the game-card dropdown and beside online-player

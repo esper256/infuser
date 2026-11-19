@@ -1,3 +1,4 @@
+import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
 function message(text){status.textContent=text;status.hidden=!text;}
@@ -149,6 +150,28 @@ try{
   document.getElementById('guest').hidden=!session.guest;
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
+  if(!session.guest){
+    const report=()=>fetch('/_infuser/input',{method:'POST',credentials:'same-origin'});
+    const padActive=watchInput(document,report);
+    game.addEventListener('load',()=>{
+      const doc=game.contentDocument;
+      if(doc)watchInput(doc,report);
+    });
+    // Gamepad input does not produce DOM key or pointer events.
+    let padTimer;
+    function connectedPads(){
+      try{return Array.from(navigator.getGamepads?.()||[]).filter(Boolean);}
+      catch{return [];} // Some embedding policies disable gamepad access.
+    }
+    function checkPads(){
+      if(document.hidden||!document.hasFocus())return;
+      const pads=connectedPads();
+      if(!pads.length){clearInterval(padTimer);padTimer=null;}
+      if(pads.some(p=>p.buttons.some(b=>b.pressed)||p.axes.some(a=>Math.abs(a)>.25)))padActive();
+    }
+    window.addEventListener('gamepadconnected',()=>{if(!padTimer)padTimer=setInterval(checkPads,1000);});
+    if(connectedPads().length)padTimer=setInterval(checkPads,1000);
+  }
   game.addEventListener('load',()=>{document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.src='/'+location.search;game.hidden=false;
   if(session.visit){
