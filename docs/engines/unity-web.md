@@ -101,9 +101,11 @@ The adapter does not prompt for Google login or handle publisher credentials.
 Add `cloud_checkpoints.v1` to `required_capabilities` and declare your files:
 
 ```json
-"cloud_saves": {
-  "groups": [{"id": "progress", "label": "Progress",
-    "files": [{"path": "progress.json", "format": "json"}]}]
+{
+  "cloud_saves": {
+    "groups": [{"id": "progress", "label": "Progress",
+      "files": [{"path": "progress.json", "format": "json"}]}]
+  }
 }
 ```
 
@@ -161,10 +163,13 @@ client.PeerStateChanged += state => { /* Update the lobby from state.peers. */ }
 client.PeerEnded += ended => { /* Return to the title screen. */ };
 // Consume once after loading progress; ordinary Play has no intent.
 var launch = await client.ConsumeLaunchIntentAsync();
-// On Join Friend, or after the player presses Play with Play Solo unchecked:
-var room = launch.intent?.kind == "join_friend"
-    ? await client.JoinPeersAsync(new PeerOptions { intent = launch.intent })
-    : await client.CreatePeerRoomAsync();
+if (launch.intent?.kind == "join_friend") {
+    var room = await client.JoinPeersAsync(new PeerOptions { intent = launch.intent });
+    // Enter this room with the chosen friend.
+} else {
+    // Show the title screen. In the Play button handler, start local play if
+    // Play Solo is checked. Otherwise use: await client.CreatePeerRoomAsync();
+}
 // SendPeerAsync(hostId, input), BroadcastAsync(snapshot), LeaveMultiplayerAsync().
 ```
 
@@ -185,7 +190,8 @@ Use `relayOnly: true` for a relay test, normal ICE selection for everyday play.
 
 For **authoritative multiplayer**, use [Node source packaging](node-server.md)
 with a managed WebSocket server. Follow the [dedicated-session contract](../dedicated-sessions.md)
-for the manifest, verified identity, rooms, and admission. The Unity client can
+for the manifest, verified identity, rooms, and admission. Use the `multiple`
+session policy for independent co-op runs. The Unity client can
 keep its own text or binary gameplay protocol:
 
 ```csharp
@@ -195,9 +201,11 @@ client.SocketMessageReceived += message => {
 };
 client.SocketEnded += ended => { /* Offer Resume or Leave. */ };
 client.NetworkFailed += error => { /* Show a short retry/return action. */ };
-var connection = await client.ConnectSessionAsync(new SessionOptions {
-    intent = launch.intent, activity = "multiplayer"
-});
+// On Join Friend, or when the player presses Play for a new co-op run:
+var options = launch.intent?.kind == "join_friend"
+    ? new SessionOptions { intent = launch.intent }
+    : new SessionOptions { action = "create", activity = "multiplayer" };
+var connection = await client.ConnectSessionAsync(options);
 // SendTextAsync(text) / SendBytesAsync(bytes) return .sent; do not queue forever.
 ```
 

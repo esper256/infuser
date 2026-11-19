@@ -21,11 +21,11 @@ Read the [versioning contract](../sdk-versioning.md); this major is still previe
 Existing integrations may retain their legacy SDK until deliberately migrated.
 
 Inspect `package.json`. Use the project's existing package manager to install
-its locked dependencies. For a normal Vite project:
+its locked dependencies. For a Vite project with its play modes declared in `infuser.game.json`:
 
 ```sh
 npm ci
-infuser publish /private/moon.credentials.json . --solo --title "Moon Racers"
+infuser publish /private/moon.credentials.json .
 ```
 
 Infuser detects Vite, runs `npm run build`, uploads only `dist`, inserts the SDK
@@ -35,7 +35,7 @@ origin's `/`, so existing root-relative paths work.
 
 For a different output directory, use `--web-dir build`. This means **already
 built**: run the project's build first. A plain HTML/JS game can publish its
-export folder directly with `--solo`. Do not publish a source tree containing
+export folder directly. Use `--solo` only for an exclusively single-player game. Do not publish a source tree containing
 private files. The CLI rejects symlinks and credential files; its export directory
 should still contain only public game assets.
 
@@ -63,9 +63,9 @@ changed the save. Reload and resolve the game's data deliberately, rather than
 retrying with a guessed version. Include your own save schema version in `data`.
 Handle network/session errors visibly; do not say “saved” until the write succeeds.
 
-For peer-hosted co-op, Play calls `peers.create()` to host a fresh joinable room.
+For co-op using the built-in WebRTC adapter, Play calls `infuser.peers.create()` to host a fresh joinable room.
 Offer Play Solo as an unchecked checkbox if the game supports it. Join Friend uses
-`peers.join({sessionId, playerId})` with the selected target. See [peer hosting](../peer-hosting.md).
+`infuser.peers.join({sessionId, playerId})` with the selected target. See [peer hosting](../peer-hosting.md).
 
 For standalone play, use [optional platform detection](../peerjs.md#keep-one-project-working-in-both-places)
 to select the existing local save/networking path when Infuser is absent. A failed
