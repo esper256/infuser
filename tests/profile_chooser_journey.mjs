@@ -6,7 +6,10 @@ const [base,home,away]=process.argv.slice(2),errors=[];
 const browser=await chromium.launch({headless:true,...(process.env.INFUSER_CHROMIUM?{executablePath:process.env.INFUSER_CHROMIUM}:{})});
 async function context(who){
   const c=await browser.newContext();await c.addCookies([{name:'member',value:who,url:'https://games.example.com'}]);
-  c.on('page',p=>{p.setDefaultTimeout(10000);p.on('pageerror',e=>errors.push(e.message));});
+  c.on('page',p=>{
+    p.setDefaultTimeout(10000);p.on('pageerror',e=>errors.push(e.message));
+    void p.addLocatorHandler(p.locator('#profile-dialog[open]'),()=>p.locator('#close-profile').click());
+  });
   await c.route('https://games.example.com/**',async route=>{
     const request=route.request(),url=new URL(request.url()),headers={...await request.allHeaders(),host:'games.example.com'};
     delete headers['content-length'];delete headers['accept-encoding'];
@@ -53,7 +56,7 @@ try{
   // Notification clicks resolve the subscription owner, not whichever tab was last used.
   await second.evaluate(id=>localStorage.setItem('infuser-push-owner',id),home);
   const notification=await multi.newPage();await notification.goto('https://games.example.com/profiles?notification=chat&next='+encodeURIComponent('/library?chat#chat'));
-  await notification.waitForURL('**/library?chat#chat');await notification.locator('#account-trigger').waitFor();
+  await notification.locator('#chat-panel').waitFor();await notification.waitForURL('**/library');
   assert.equal(await notification.evaluate(()=>sessionStorage.getItem('infuser.profile')),home);
   await notification.getByText('Still my original group',{exact:true}).waitFor();
   const pair=await second.evaluate(async()=>{const r=await fetch('/api/native/v1/device/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge:'a'.repeat(64)})});return r.json();});

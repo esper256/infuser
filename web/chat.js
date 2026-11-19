@@ -345,9 +345,17 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   };
   document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(timer);else poll();});
   window.addEventListener('online',poll);
-  const openFromLink=()=>{if(location.hash==='#chat')setOpen(true,false);};
-  window.addEventListener('hashchange',openFromLink);
+  function consumeChatLink(open){
+    if(location.hash!=='#chat')return;
+    const url=new URL(location.href);
+    url.hash='';
+    url.searchParams.delete('chat');
+    history.replaceState(history.state,'',url);
+    if(open)setOpen(true,false);
+  }
+  window.addEventListener('hashchange',()=>consumeChatLink(true));
   navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='infuser-open-chat'){if(me.inspecting)openHomeChat();else setOpen(true,false);}});
-  openFromLink();
+  // Older notification links can still be in the address bar at refresh time.
+  consumeChatLink(performance.getEntriesByType('navigation')[0]?.type!=='reload');
   poll();
 }

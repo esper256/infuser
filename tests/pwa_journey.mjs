@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
-import {chromium} from '../services/peerjs/node_modules/playwright/index.mjs';
+const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'../services/peerjs/node_modules/playwright/index.mjs');
 const [base,certPath,keyPath]=process.argv.slice(2);
 const server=https.createServer({key:fs.readFileSync(keyPath),cert:fs.readFileSync(certPath)},(req,res)=>{
   const headers={...req.headers,host:'games.example.com'};
@@ -14,7 +14,7 @@ const server=https.createServer({key:fs.readFileSync(keyPath),cert:fs.readFileSy
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const origin=`https://localhost:${server.address().port}`;
-const browser=await chromium.launch({channel:'chromium',headless:true,args:['--ignore-certificate-errors']});
+const browser=await chromium.launch({channel:'chromium',executablePath:process.env.INFUSER_CHROMIUM,headless:true,args:['--ignore-certificate-errors']});
 const errors=[];
 try {
   const context=await browser.newContext({ignoreHTTPSErrors:true,permissions:['notifications'],viewport:{width:390,height:844}});
@@ -30,7 +30,11 @@ try {
       localStorage.setItem('test-push','https://fcm.googleapis.com/fcm/send/browser-fixture');return fake();
     };
   });
-  let page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+  context.on('page',p=>{
+    p.on('pageerror',e=>errors.push(e.message));
+    void p.addLocatorHandler(p.locator('#profile-dialog[open]'),()=>p.locator('#close-profile').click());
+  });
+  let page=await context.newPage();
   await page.goto(origin+'/library');await page.locator('#account-trigger').waitFor();
   await page.evaluate(()=>navigator.serviceWorker.ready);
   assert.equal(await page.evaluate(()=>window.permissionRequests),0,'no permission popup on load');
@@ -65,25 +69,32 @@ try {
   assert.equal(await page.evaluate(()=>!!document.fullscreenElement),true,'arrival preserves fullscreen');
   const notice=await worker.evaluate(()=>self.testNotifications.at(-1));
   assert.equal(notice.title,'Infuser · Chat');assert.equal(notice.silent,true);assert.equal(notice.tag,'infuser-chat');
-  // A synthetic OS click has no browser activation token. Record focus while
-  // retaining the real window client and real postMessage that opens chat.
-  await worker.evaluate(()=>{WindowClient.prototype.focus=async function(){self.testFocused=this.id;return this;};});
-  await worker.evaluate(async()=>{let done;const event=new Event('notificationclick');event.notification={close(){}};event.waitUntil=p=>{done=p;};self.dispatchEvent(event);await done;});
-  await page.locator('#chat-panel').waitFor({state:'visible'});
-  assert(await worker.evaluate(()=>!!self.testFocused));
+  // A synthetic click lacks OS user activation. Capture the worker's openWindow
+  // destination and let a real new tab follow the notification/profile handoff.
+  const destination=await worker.evaluate(async()=>{
+    let url,done;self.clients.openWindow=async value=>{url=value;return null;};
+    const event=new Event('notificationclick');event.notification={close(){}};event.waitUntil=p=>{done=p;};
+    self.dispatchEvent(event);await done;return url;
+  });
   await page.evaluate(()=>document.exitFullscreen());
-  await page.locator('#chat-log').press('Escape');
-  // Closing the Library does not remove the worker or its ability to show an alert.
   await page.close();
   await push();
   assert.equal(await worker.evaluate(()=>self.testNotifications.length),2);
-  page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(origin+'/library#chat');
-  await page.locator('#chat-panel').waitFor({state:'visible'});await page.locator('#chat-log').press('Escape');
+  page=await context.newPage();await page.goto(new URL(destination,origin).href);
+  await page.locator('#chat-panel').waitFor();assert.equal(page.url(),origin+'/library');
+  await page.reload();await page.locator('#chat-toggle').waitFor();assert(await page.locator('#chat-panel').isHidden());
+  // A link within the open app still works and preserves unrelated query parameters.
+  await page.goto(origin+'/library?tab=games');await page.locator('#chat-toggle').waitFor();
+  await page.evaluate(()=>{location.hash='chat';});await page.locator('#chat-panel').waitFor();
+  assert.equal(page.url(),origin+'/library?tab=games');
+  // An installed PWA can have an unconsumed notification URL from an earlier version.
+  await page.evaluate(()=>history.replaceState(null,'','/library?tab=games&chat#chat'));
+  await page.reload();await page.locator('#chat-toggle').waitFor();assert(await page.locator('#chat-panel').isHidden());
+  assert.equal(page.url(),origin+'/library?tab=games');
   await page.evaluate(()=>sessionStorage.setItem('infuser.group-inspection',JSON.stringify({group:'away',expires:Date.now()+600000})));
   await page.goto(origin+'/library');await page.locator('#group-inspection').waitFor();
   await page.evaluate(()=>navigator.serviceWorker.dispatchEvent(new MessageEvent('message',{data:{type:'infuser-open-chat'}})));
-  await page.waitForURL('**/library?chat#chat');
-  await page.locator('#chat-panel').waitFor({state:'visible'});
+  await page.locator('#chat-panel').waitFor({state:'visible'});await page.waitForURL('**/library');
   assert.equal(await page.locator('#group-inspection').count(),0,'home alert leaves operator inspection');
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('infuser.group-inspection')),null);
   await page.locator('#chat-log').press('Escape');

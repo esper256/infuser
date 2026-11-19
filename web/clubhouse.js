@@ -779,7 +779,10 @@ function openFeedReactions(game){
 }
 function feedReactions(game){
   const button=el('button',undefined,'feed-react-toggle');button.type='button';button.dataset.update=game.update_id;
-  button.append(reactionFace(game.update_reactions?.mine||'☺️','feed-reaction-face'));
+  const mine=game.update_reactions?.mine;
+  if(mine)button.append(reactionFace(mine,'feed-reaction-face'));
+  else button.innerHTML='<svg class="feed-react-outline" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 14c2-6 7-11 13-11 0 6-5 11-11 13zM9.5 10.5l-4-.5L3 13l5 1m5.5.5.5 4-3 2.5-1-5M6.5 16.5C4 17 3 19 3 21c2 0 4-1 4.5-3.5"/><circle cx="16" cy="8" r="1.6"/></svg>';
+  button.title=mine?'Change your reaction':'React to this update';
   button.setAttribute('aria-label','React to '+game.title+' update');button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-controls',feedPicker.id);
   button.setAttribute('aria-expanded',String(feedPicker.matches(':popover-open')&&feedPicker.dataset.update===game.update_id));
   button.onclick=()=>openFeedReactions(game);return button;
