@@ -148,8 +148,13 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game-tags:focus-within .edit-tags { opacity: 1; pointer-events: auto; }
 @media (hover:hover) { .game-tags:hover .edit-tags { opacity: 1; pointer-events: auto; } }
 .game-meta .quiet { font-size: 10px; padding: 4px 8px; margin: 0; color: #e0eee7; background: #061b25cf; border-radius: 20px; }
-.game-dock { position: relative; align-self: flex-end; margin-top: auto; width: max-content; max-width: 100%; padding: 8px; display: grid; justify-items: end; align-items: center; gap: 6px; border: 1px solid #b9f5ee35; border-top-color: #d8fff45c; border-radius: 16px; background: var(--card-dock); backdrop-filter: blur(16px) saturate(.8); box-shadow: 0 8px 30px #00101855,inset 0 1px #fff1; }
-.game-heading { display: flex; justify-content: flex-end; align-items: center; gap: 7px; min-width: 0; }
+.game-dock { --card-control-height: 50px; position: relative; margin-top: auto; display: flex; justify-content: flex-end; align-items: flex-end; gap: 12px; min-width: 0; }
+.game-heading { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.game:not(.hidden-game) .game-heading { min-height: var(--card-control-height); padding: 0 6px 0 10px; border: 1px solid #b9f5ee35; border-top-color: #d8fff45c; border-radius: 16px; background: var(--card-dock); backdrop-filter: blur(16px) saturate(.8); box-shadow: 0 8px 30px #00101855,inset 0 1px #fff1; }
+.game-dock > .actions { margin-left: 0; }
+.game:not(.hidden-game) .game-heading h2 { padding-block: 2px; }
+.game:not(.hidden-game) .actions > button,.game:not(.hidden-game) .play-menu > summary { min-height: var(--card-control-height); }
+.game:not(.hidden-game) .game-heading .reaction-hint { max-width: min(225px,calc(100cqw - 115px)); overflow-wrap: anywhere; }
 .game h2 { min-width: 0; margin: 0; text-align: right; font-size: clamp(19px,4.8cqw,24px); font-weight: 650; line-height: 1.05; letter-spacing: -.045em; }
 .game-heading h2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .play-menu-items .menu-game-title { margin: 0 0 8px; color: var(--ink); font-size: 14px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
@@ -167,7 +172,6 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .game[data-launching] { border-color: #b5ead6; box-shadow: 0 0 25px #b5ead616; }
 .game[data-launching] .game-mark { animation: launch-glow 1.4s ease-in-out infinite alternate; }
 @keyframes launch-glow { to { filter: brightness(1.15); } }
-@container (max-width:390px) { .game-dock { display: grid; grid-template-columns: minmax(0,max-content); justify-items: end; } }
 .actions > button { flex: none; min-width: 0; min-height: 42px; padding: 9px 14px; border-radius: 10px 0 0 10px; font-size: 14px; }
 .actions select { flex: 0 0 30px; width: 30px; min-height: 42px; padding: 0; appearance: none; color: transparent; border: 1px solid transparent; border-left-color: #17332d33; border-radius: 0 10px 10px 0; background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%2312241b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/13px no-repeat; }
 .actions select:hover { background-color: var(--accent-hover); }
@@ -644,7 +648,7 @@ body[data-inspecting] .profile-menu > summary::after { background: var(--quiet);
 #hidden-game-list .hidden-game { min-height: 132px; aspect-ratio: auto; padding: 12px 12px 12px calc(30% + 12px); gap: 0; background: var(--panel); }
 .hidden-game .game-art { width: 30%; border-radius: 20px 0 0 20px; }
 .hidden-game:before { background: none; }
-.hidden-game .game-dock { margin: 0; width: 100%; grid-template-columns: minmax(0,1fr) auto; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; gap: 8px; }
+.hidden-game .game-dock { display: grid; align-items: center; margin: 0; width: 100%; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
 .hidden-game .game-heading { grid-column: 1 / -1; grid-row: 1; width: 100%; justify-content: space-between; }
 .hidden-game .game-heading h2 { text-align: left; font-size: 19px; }
 .hidden-game .game-visibility { grid-column: 1; grid-row: 2; justify-self: start; color: var(--quiet); background: none; padding: 0; }
@@ -738,7 +742,7 @@ button.feed-row:hover { border-color: var(--accent); }
   .detail-tags .tag-chip { min-height: 44px; }
 }
 @media (forced-colors:active) {
-  .game-dock,.detail-info,.feedback-bubble,.feedback-bubble::before { background: Canvas; color: CanvasText; }
+  .game:not(.hidden-game) .game-heading,.detail-info,.feedback-bubble,.feedback-bubble::before { background: Canvas; color: CanvasText; }
   .profile-menu > summary::after,.presence-person::after { background: Highlight; }
 }
 
@@ -752,7 +756,8 @@ button.feed-row:hover { border-color: var(--accent); }
 /* Reactions sit 4px inside the left edge, with 20% below the card.
    The 44px hit area extends upward so the visible overhang stays small. */
 .game-bottom { position: static; margin-top: auto; width: 100%; min-width: 0; }
-.game-bottom .game-dock { margin-top: 0; margin-left: auto; min-width: 0; }
+/* Clear the reaction stack’s 44px hit area at the lower left. */
+.game-bottom:has(.game-buzz) { padding-bottom: 26px; }
 .game-buzz { --buzz-size: 28px; position: absolute; z-index: 2; left: 4px; bottom: calc(var(--buzz-size) * -.2 - 1px); display: flex; align-items: flex-end; flex: none; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink); }
 .game-buzz:hover { background: transparent; }
 .game-buzz span { display: grid; place-items: center; position: relative; width: var(--buzz-size); height: var(--buzz-size); font-size: 23px; line-height: 1; background: transparent; filter: drop-shadow(4px 2px .5px rgb(0 0 0 / 60%)); }

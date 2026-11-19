@@ -107,6 +107,26 @@ try {
    }
  }
  await page.setViewportSize({width:1500,height:1000});await page.evaluate(()=>{document.documentElement.dataset.theme='nightglass';});
+ // A short name sits flush with Play. A wrapped name grows upward from the same edge.
+ const savedTitle=game.title;
+ await page.setViewportSize({width:320,height:844});
+ for(const theme of ['nightglass','cartridge-club']){
+   await page.evaluate(t=>InfuserThemes.select(t),theme);
+   for(const [title,wraps] of [['Go',false],['Firefly Drift and the Mystery of Lantern Lake',true]]){
+     game.title=title;await page.evaluate(()=>refreshTestLibrary());
+     const edges=await card().evaluate(c=>['.game-heading','.actions > button','.play-menu > summary'].map(s=>{
+       const {top,bottom}=c.querySelector(s).getBoundingClientRect();return {top,bottom};
+     }));
+     const [plate,...controls]=edges;
+     for(const control of controls){
+       assert(Math.abs(plate.bottom-control.bottom)<1,`${theme}: title and Play share a bottom edge`);
+       assert(wraps?plate.top<control.top-1:Math.abs(plate.top-control.top)<1,`${theme}: ${title} height`);
+     }
+     await card().screenshot({path:new URL(`card-alignment-${theme}-${wraps?'two':'one'}.png`,out).pathname});
+   }
+ }
+ game.title=savedTitle;await page.evaluate(()=>refreshTestLibrary());
+ await page.setViewportSize({width:1500,height:1000});await page.evaluate(()=>InfuserThemes.select('nightglass'));
  // Search finds a secondary author, then return to the original fixture for existing journeys.
  await page.locator('#game-search').fill(author.name);await page.keyboard.press('Escape');assert(await card().isVisible());await page.locator('#game-search').fill('');
  await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
@@ -234,6 +254,14 @@ try {
    assert.equal(await page.locator('#friends [data-player-id="one"]').count(),1);
    await page.locator('#hidden-games').evaluate(e=>e.open=true);
    await page.evaluate(()=>document.activeElement.blur());
+   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{
+    const plate=card.querySelector('.game-heading'),row=plate.parentElement;
+    const h=plate.getBoundingClientRect(),p=card.querySelector('.actions').getBoundingClientRect();
+    const withinPlate=child=>{const r=child.getBoundingClientRect();return r.left>=h.left-1&&r.right<=h.right+1;};
+    return h.right+8<=p.left&&Math.abs(h.bottom-p.bottom)<1&&
+      h.left>=card.getBoundingClientRect().left&&[plate.querySelector('.game-open'),plate.querySelector('.creator')].every(withinPlate)&&
+      parseFloat(getComputedStyle(plate).borderTopWidth)>0&&getComputedStyle(row).backgroundColor==='rgba(0, 0, 0, 0)';
+   })),`${theme} ${width}: title and author share a bordered plate beside Play`);
    assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=p.left+1&&b.top>=h.bottom;})),'reaction stacks must not overlap controls');
    assert(await page.locator('#games .game').evaluateAll(cards=>cards.every(card=>{
     const buzz=card.querySelector('.game-buzz');if(!buzz)return true;
