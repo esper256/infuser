@@ -5,10 +5,19 @@ const viewport=document.getElementById('viewport'),resolutionButton=document.get
 const MAX_RENDER_PIXELS=1920*1080;
 let hdCap=true,currentAppId=null;
 window.infuserHdCap=()=>hdCap;
+function resolutionChoiceMatters(){
+  const rect=viewport.getBoundingClientRect(),area=rect.width*rect.height;
+  if(!(area>0))return true;
+  const factor=Math.max(1,window.devicePixelRatio||1);
+  return area*factor*factor>MAX_RENDER_PIXELS;
+}
 function syncResolutionButton(){
   if(!resolutionButton)return;
-  resolutionButton.setAttribute('aria-pressed',String(hdCap));
-  const label=hdCap?'1080p HD cap on — switch to native resolution':'Native resolution — switch to 1080p HD cap';
+  resolutionButton.hidden=!resolutionChoiceMatters();
+  resolutionButton.textContent=hdCap?'HD':'MAX';
+  resolutionButton.dataset.mode=hdCap?'hd':'max';
+  resolutionButton.removeAttribute('aria-pressed');
+  const label=hdCap?'Rendering HD (1080p) — switch to MAX':'Rendering MAX (native) — switch to HD';
   resolutionButton.setAttribute('aria-label',label);
   resolutionButton.title=label;
 }
@@ -55,6 +64,7 @@ function fitViewport(){
   }
 }
 resolutionButton?.addEventListener('click',()=>{
+  if(!resolutionChoiceMatters())return;
   hdCap=!hdCap;
   if(currentAppId){try{localStorage.setItem('infuser.hd.'+currentAppId,hdCap?'1':'0');}catch{}}
   syncResolutionButton();
@@ -62,8 +72,9 @@ resolutionButton?.addEventListener('click',()=>{
   try{game.contentWindow?.dispatchEvent(new Event('resize'));}catch{}
   if(!game.hidden)game.contentWindow?.focus();
 });
-if(typeof ResizeObserver!=='undefined')new ResizeObserver(fitViewport).observe(viewport);
-addEventListener('resize',fitViewport);
+function onViewportResize(){syncResolutionButton();fitViewport();}
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(onViewportResize).observe(viewport);
+addEventListener('resize',onViewportResize);
 function message(text){status.textContent=text;status.hidden=!text;}
 const header = document.getElementById('player-header');
 const edge = document.getElementById('controls-edge');

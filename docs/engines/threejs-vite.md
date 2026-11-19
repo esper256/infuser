@@ -103,7 +103,8 @@ function resizeRenderer(renderer, camera) {
 5. Once your game manages its own 3D pixel budget (or is a lightweight 2D game that
    benefits from crisp 4K HTML/canvas rendering), set `"resolution": "native"` in
    `infuser.game.json` so the player opens at native display resolution by default
-   (players can still toggle the **HD** cap in the player header bar at any time).
+   (the player bar shows **MAX**; players can switch it to **HD** when the display
+   is above the 1080p budget).
 
 ## Verify the experience
 
