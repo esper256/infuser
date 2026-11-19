@@ -24,6 +24,7 @@ the declaration; do not relabel the game as single-player to publish it.
   "title": "The Existing Game Name",
   "play_modes": ["solo", "multiplayer"],
   "solo_runtime": "client_only",
+  "launch_intents": ["join_friend"],
   "sdk": {"major": 1, "api_major": 1, "required_capabilities": ["identity.v1", "peers.peerjs.v1", "peers.rooms.v1"]},
   "multiplayer": {
     "mode": "peer_hosted", "transport": "webrtc", "adapter": "peerjs",

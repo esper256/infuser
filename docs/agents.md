@@ -119,6 +119,14 @@ player. An existing room or a full party should never disable Play. For a local
 solo run, skip room creation and report `single_player`. Copy the transport calls
 from the matching multiplayer recipe.
 
+**Updating a peer game that already uses Infuser?** Check for `peers.rooms.v1`
+in the target server’s `sdk.capabilities` and add it to the game’s required
+capabilities. If the server lacks it, you can prepare the game now and publish
+after the server updates. Replace untargeted matchmaking on
+the Host or Play button with the adapter’s create call. If the title screen lists rooms, read
+`peer_sessions`. Use `can_create` for Host availability. Keep both the room
+and player IDs on Join Friend. Republish under the existing app ID.
+
 To let a player launch directly into a friend's current game from the Library,
 follow [Implement Join Friend](launch-intents.md#implement-join-friend-from-the-library).
 It covers host admission, the launch handoff, and how a mixed-mode game tells
@@ -224,7 +232,7 @@ Successful publication is enough to hand the game back to its player; lack of a
 Google login is **not a publishing blocker**. Do not stop after uploading files:
 complete publication and check its result. Only admins can play `--preview`
 publications; do not hide a user's game from them by using it. Queued updates wait
-for the active session to end; do not describe them as live yet.
+for active rooms or the running backend to finish; do not describe them as live yet.
 
 Run the game's available local checks. Use the prebuilt publisher or HTTP API;
 do not install a compiler, Docker, WSL, or a browser-test framework just to publish

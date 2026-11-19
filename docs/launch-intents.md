@@ -24,8 +24,11 @@ WebSocket sessions. Native Infuser Play currently supports ordinary launches.
    with the game's usual connection handlers. For engine bindings, follow the
    [Godot Web](engines/godot-web.md) or [Unity Web](engines/unity-web.md) recipe.
 4. If the friend leaves or the run fills up, explain that and return to the
-   title screen. With two test profiles, verify normal Play, joining the same
-   session, and the friend leaving between selection and admission.
+   title screen. With authorized test sessions, have two players host the same
+   game and a different friend join each host from the Library. Check both pairs
+   can play, then close one host and confirm the other pair can keep playing.
+   Also try joining a friend who left after selection. If play access is
+   unavailable, [verify publication and hand off](agents.md#publish-and-verify).
 
 **Show the player's mode.** For a game with both local single player and
 multiplayer, tell Infuser when the title screen or local play begins:

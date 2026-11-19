@@ -13,7 +13,8 @@ their DataConnection message handling with this JSON helper. Both share the same
 session, presence, Join friend, and mandatory relay rules. Declare the adapter
 explicitly; their signaling protocols and message framing are not interchangeable.
 
-Declare both supported play modes in `infuser.game.json`:
+For co-op with local solo play and Library Join Friend, declare these fields in
+`infuser.game.json` and handle the [launch intent](launch-intents.md) at startup:
 
 ```json
 {
@@ -24,6 +25,7 @@ Declare both supported play modes in `infuser.game.json`:
   },
   "play_modes": ["solo", "multiplayer"],
   "solo_runtime": "client_only",
+  "launch_intents": ["join_friend"],
   "multiplayer": {
     "mode": "peer_hosted",
     "transport": "webrtc",
@@ -78,8 +80,9 @@ To join a room from `snapshot.peer_sessions`, pass the selected room’s `id` as
 to `peers.join()`. This must fail if that session ended or stopped accepting
 players; it never appoints a replacement host. A new session uses `joinable` only
 on creation. A member or a repeated join cannot change the host's admission policy.
-Existing integrations omitting `joinable` retain ordinary join behavior, but their
-rooms are not advertised as joinable until the host explicitly sets it.
+`peers.create()` opens its room by default. Older integrations using untargeted
+`peers.join()` keep automatic matchmaking. If they omit `joinable`, the host
+must explicitly open admission before the room appears as joinable.
 
 Messages are JSON, limited to 64 KiB, over an ordered reliable DataChannel.
 `send` returns false when disconnected or congested: games should keep their
@@ -93,7 +96,7 @@ is valid. The host rebuilds failed peer links inside that same session; games
 should send their latest authoritative snapshot when a member reconnects. Once
 the lease expires, `close()` is called, or the host departs, the room is terminal:
 late negotiation results and obsolete channel events cannot revive it. `onEnd`
-fires once. Rejoining requires an explicit new `peers.join()` call. A channel
+fires once. Return to the title screen so the player can host again or choose a live room. A channel
 closing during `send()` returns false rather than throwing into the game loop.
 
 The controller handles authenticated HTTP signaling only; game traffic flows

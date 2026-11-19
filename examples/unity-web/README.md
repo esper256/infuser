@@ -31,7 +31,9 @@ empty and cannot overwrite the owner's stars. Two normal tabs can deliberately
 create a conflict; the chooser offers both copies. If an acknowledgement is lost,
 Retry sends the same checkpoint. Pending writes do not survive closing the page.
 
-Join multiplayer connects to the shared beacon. The host counts taps and sends
+This fixture exercises legacy automatic matchmaking. For a new co-op game's
+Play button, use `CreatePeerRoomAsync()` as shown in the [Unity Web recipe](../../docs/engines/unity-web.md#multiplayer-and-join-friend).
+In this fixture, Join multiplayer connects to the shared beacon. The host counts taps and sends
 the shared pulse; personal stars remain personal. Force relay is a test switch.
 Join Friend enters the exact existing session; an expired target returns an
 error. The example is deliberately simple: it is not a general-purpose netcode

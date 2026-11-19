@@ -1230,7 +1230,7 @@ ${newGameConnection.setup_code}
 
 First look for this game's existing connection to this server. Reuse it and its original app ID, ignoring this code if already connected. Otherwise exchange the code before lengthy editing, using the guide's CLI or HTTP recipe. Save the permanent connection privately under .local/; exclude credentials from Git, exports, and logs. Reuse it for every update.
 
-Declare the actual Single player/Multiplayer modes. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Explain unsupported features rather than silently removing them.
+Declare the actual play modes. For co-op with independent runs, follow the guide’s Play and Join Friend instructions even if this game already uses Infuser matchmaking. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Explain unsupported features rather than silently removing them.
 
 Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Set orientation in infuser.game.json to landscape or portrait for the game’s intended mobile layout. Save a short factual game description through the metadata API. For every game type and engine: if high-quality image generation is not your strength, prefer a detailed art_prompt in game metadata for an Infuser art agent to fulfill later. Describe the real game's subjects, composition, style, palette, and mood. Otherwise upload high-quality art meeting the art spec. Do not spend time staging screenshots: use one only if it makes exceptional cover art with no UI, HUD, or browser chrome. An art prompt is a complete handoff; keep publishing.
 

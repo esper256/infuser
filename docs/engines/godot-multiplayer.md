@@ -26,13 +26,16 @@ play modes the game actually supports. The installation must advertise
 
 Use `direct_connect: "optional"` and `await peers.create()` on the title screen's Play
 button. Copy the current addon when updating an existing game. Leave Play Solo
-unchecked by default. When checked, skip peer setup and start local play.
+unchecked by default. When checked, skip peer setup and start local play. If
+upgrading an older game, replace `await peers.join()` in its host handler.
+Use `can_create` for host availability, even when `peer_sessions` contains
+other rooms. Keep the targeted `join` call in the Join Friend handler.
 WebRTC checks local-network and direct internet paths as well as TURN relay paths;
 relay fallback is required even when direct connections work. UPnP is not needed.
 Use `peers.create(true)` on the host and `peers.join(true, intent)` on the joining player to test relay.
 
-Each host creates a separate room. A friend joins the selected host. Host departure or an
-expired connection lease ends the room. The addon retries brief interruptions,
+Each host creates a separate room. A friend joins the selected host. Host departure or expiry of the host’s
+lease ends only that room. A departing member frees a seat. The addon retries brief interruptions,
 refreshes TURN credentials, and reconnects within the same live room. After a room
 ends, offer an explicit return to the title screen or a new join; do not resume an
 old simulation automatically.
