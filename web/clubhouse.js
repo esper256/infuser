@@ -1,3 +1,4 @@
+import { watchInput } from '/assets/activity-input.js';
 import { initFeedback } from '/assets/feedback.js';
 import { screenshotTile, fillScreenshotPicker, attachmentDraft } from '/assets/screenshots.js';
 import { selectedVisit, visitHeaders, initVisits, updateVisit, returnHome } from '/assets/visits.js';
@@ -161,16 +162,26 @@ function gameBuzz(game){
   for(const reaction of [...distinct,...rest].slice(0,count)){const face=reactionFace(reaction.emoji);face.style.zIndex=String(count-stack.childElementCount);face.setAttribute('aria-hidden','true');stack.append(face);}
   stack.onclick=()=>openGameDetail(game,recent[0]);return stack;
 }
-function renderGamePlayers(card,game){
+const sessionPlayer=player=>player.player_id||(!player.guest?player.id:null);
+const playerName=player=>player.guest?player.name+(player.count>1?'’s guests ('+player.count+')':'’s guest'):player.name;
+function activityLabel(player){
+  if(player.join_reason==='different_build')return 'Playing an earlier version';
+  if(player.activity==='single_player')return 'Single player';
+  if(player.activity==='title_screen')return 'At the title screen';
+  return ({full:'Multiplayer · Session full',closed:'Multiplayer · Session closed',server_draining:'Multiplayer · Update pending',
+    not_advertised:'Multiplayer · Join unavailable',not_supported:'Multiplayer · Join unavailable'})[player.join_reason]
+    || (player.activity==='multiplayer'?'Multiplayer':'Game open');
+}
+function gamePlayers(game){
   const people=new Map();
-  const sessionPlayer=player=>player.player_id||(!player.guest?player.id:null);
   for(const player of game.players||[]){
     const key=JSON.stringify([player.id||player.name,!!player.guest]),existing=people.get(key);
-    if(existing){if(player.guest)existing.count++;if(sessionPlayer(player))existing.playerIds.add(sessionPlayer(player));continue;}
-    people.set(key,{...player,count:1,key,playerIds:new Set(sessionPlayer(player)?[sessionPlayer(player)]:[])});
+    if(existing){existing.labels.add(activityLabel(player));if(player.guest)existing.count++;if(sessionPlayer(player))existing.playerIds.add(sessionPlayer(player));continue;}
+    people.set(key,{...player,count:1,key,labels:new Set([activityLabel(player)]),playerIds:new Set(sessionPlayer(player)?[sessionPlayer(player)]:[])});
   }
-  const players=[...people.values()].map(player=>({...player,playerIds:[...player.playerIds].sort()})).sort((a,b)=>a.key.localeCompare(b.key)),state=cardStates.get(card);
-  const targets=player=>{
+  return [...people.values()].map(player=>({...player,labels:[...player.labels].sort(),playerIds:[...player.playerIds].sort()})).sort((a,b)=>a.key.localeCompare(b.key));
+}
+function playerTargets(game,player){
     if(me.inspecting||game.play_unavailable||game.native_only)return [];
     const seen=new Set();
     return (game.join_targets||[]).filter(target=>{
@@ -178,40 +189,50 @@ function renderGamePlayers(card,game){
       if(seen.has(key)||!player.playerIds.includes(target.player_id)||!!target.guest!==!!player.guest||!(game.players||[]).some(p=>sessionPlayer(p)===target.player_id))return false;
       seen.add(key);return true;
     });
-  };
+}
+function playerStatus(game,player){
+  return playerTargets(game,player).length?'Multiplayer · Join available':player.labels.join(' / ');
+}
+function playerPortrait(game,player){
+    const badge=el('span',undefined,'game-player'+(player.guest?' game-player-guest':''));badge.title=playerName(player)+' · '+playerStatus(game,player);
+    badge.append(profileAvatar(player.name,player.id||player.name,player.avatar));
+    if(player.guest){const guest=el('span','G','game-player-guest-mark');guest.setAttribute('aria-hidden','true');badge.append(guest);}
+    return badge;
+}
+function playerRows(game,players,card,closeMenu){
+  const list=el('ul',undefined,'playing-roster');
+  for(const player of players){
+    const row=el('li'),info=el('div',undefined,'game-player-info'),joinable=playerTargets(game,player);
+    info.append(el('span',playerName(player),'game-player-name'));
+    info.append(el('small',playerStatus(game,player),'quiet'));
+    joinable.forEach((target,index)=>{
+      const join=el('button','Join '+(player.guest?player.name+'’s guest':player.name)+(joinable.length>1?' · session '+(index+1):''),'game-player-join');join.type='button';
+      join.dataset.joinTarget=JSON.stringify([target.session_id,target.player_id]);
+      join.onclick=()=>{
+        const latest=library.apps.find(app=>app.id===game.id);
+        const current=latest&&playerTargets(latest,player).find(t=>t.session_id===target.session_id&&t.player_id===target.player_id);
+        closeMenu?.();
+        if(!current){notice('That session is no longer available to join.');return;}
+        start(latest,join,card,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
+      };
+      info.append(join);
+    });
+    row.append(playerPortrait(game,player),info);list.append(row);
+  }
+  return list;
+}
+function renderGamePlayers(card,game){
+  const players=gamePlayers(game),state=cardStates.get(card);
   const signature=JSON.stringify([players,game.join_targets,me.inspecting,game.play_unavailable,game.native_only]),previous=card.querySelector('.game-live');
   if(state.playerSignature===signature&&(!players.length||previous))return;
   state.playerSignature=signature;
   const focused=previous?.contains(document.activeElement),focusedTarget=document.activeElement.dataset.joinTarget;
   if(!players.length){previous?.remove();card.classList.remove('players-open');card.style.removeProperty('--game-live-space');if(focused)card.querySelector('.game-open')?.focus({preventScroll:true});return;}
-  const name=player=>player.guest?player.name+(player.count>1?'’s guests ('+player.count+')':'’s guest'):player.name;
-  const portrait=player=>{
-    const badge=el('span',undefined,'game-player'+(player.guest?' game-player-guest':''));badge.title=name(player);
-    badge.append(profileAvatar(player.name,player.id||player.name,player.avatar));
-    if(player.guest){const guest=el('span','G','game-player-guest-mark');guest.setAttribute('aria-hidden','true');badge.append(guest);}
-    return badge;
-  };
   const menu=el('details',undefined,'game-live'),trigger=el('summary');
-  trigger.setAttribute('aria-label','Playing now: '+players.map(name).join(', '));trigger.title='Who’s playing';
-  for(const player of players.slice(0,3)){const badge=portrait(player);badge.setAttribute('aria-hidden','true');trigger.append(badge);}
+  trigger.setAttribute('aria-label','Playing now: '+players.map(playerName).join(', '));trigger.title=players.map(p=>playerName(p)+' · '+playerStatus(game,p)).join('\n');
+  for(const player of players.slice(0,3)){const badge=playerPortrait(game,player);badge.setAttribute('aria-hidden','true');trigger.append(badge);}
   if(players.length>3){const more=el('span','+'+(players.length-3),'game-player-more');more.setAttribute('aria-hidden','true');trigger.append(more);}
-  const panel=el('div',undefined,'game-live-menu'),list=el('ul');panel.append(el('p','Playing now'),list);
-  for(const player of players){
-    const row=el('li'),info=el('div',undefined,'game-player-info'),joinable=targets(player);
-    info.append(el('span',name(player),'game-player-name'));
-    joinable.forEach((target,index)=>{
-      const join=el('button','Join '+(player.guest?player.name+'’s guest':player.name)+(joinable.length>1?' · session '+(index+1):''),'game-player-join');join.type='button';
-      join.dataset.joinTarget=JSON.stringify([target.session_id,target.player_id]);
-      join.onclick=()=>{
-        const current=targets(player).find(t=>t.session_id===target.session_id&&t.player_id===target.player_id);
-        menu.open=false;
-        if(!current){notice('That session is no longer available to join.');return;}
-        start(game,join,card,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
-      };
-      info.append(join);
-    });
-    row.append(portrait(player),info);list.append(row);
-  }
+  const panel=el('div',undefined,'game-live-menu');panel.append(el('p','Playing now'),playerRows(game,players,card,()=>{menu.open=false;}));
   menu.append(trigger,panel);menu.open=previous?.open||false;
   card.classList.toggle('players-open',menu.open);
   menu.ontoggle=()=>card.classList.toggle('players-open',menu.open);
@@ -394,6 +415,11 @@ function renderGameDetail(){
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags','text-button');edit.type='button';edit.onclick=()=>openTags(game);tags.append(edit);}if(tags.childElementCount)info.append(tags);
   if(game.description)info.append(el('p',game.description,'game-description'));
   info.append(gameActions(game,info));
+  const players=gamePlayers(game);
+  if(players.length){
+    const playing=el('section',undefined,'detail-playing');playing.setAttribute('aria-label','Playing now');
+    playing.append(el('h3','Playing now'),playerRows(game,players,info));info.append(playing);
+  }
   if(Number.isFinite(game.updated)&&game.updated>0){const time=el('time','Updated '+new Date(game.updated*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}),'game-updated');time.dateTime=new Date(game.updated*1000).toISOString();info.append(time);}
   const feedback=el('section',undefined,'game-feedback');feedback.id='game-feedback';feedback.tabIndex=-1;feedback.setAttribute('aria-labelledby','game-feedback-title');
   const heading=el('h3','Feedback');heading.id='game-feedback-title';feedback.append(heading);
@@ -548,8 +574,23 @@ function visiblePresenceCount(people){
 }
 const presenceResize=new ResizeObserver(()=>{if(library)renderPresence();});
 
+function presenceLabel(status){return ({idle:'Idle',away:'Away'})[status]||'Online';}
 function renderPresence() {
-  let people=(library.friends||[]).filter(person=>person.id!==me.player_id);const list=$('friends');
+  const list=$('friends'),playing=new Map();
+  for(const game of library.apps||[])for(const player of gamePlayers(game)){
+    const entries=playing.get(player.id)||[];
+    entries.push(playerName(player)+(player.guest&&player.count>1?' are':' is')+' currently playing '+game.title+' · '+playerStatus(game,player));
+    playing.set(player.id,entries);
+  }
+  const self=list.querySelector('.presence-self'),ownStatus=library.friends?.find(p=>p.id===me.player_id)?.status;
+  if(self&&!me.inspecting){
+    self.dataset.status=ownStatus||'active';
+    const label=me.name+' · '+presenceLabel(ownStatus)+' · Profile menu';
+    $('account-trigger').setAttribute('aria-label',label);$('account-trigger').title=label;
+    const ownGames=$('account-playing');
+    setText(ownGames,(playing.get(me.player_id)||[]).join('\n'));ownGames.hidden=!ownGames.textContent;
+  }
+  let people=(library.friends||[]).filter(person=>person.id!==me.player_id).map(person=>({...person,playing:playing.get(person.id)||[]}));
   // Leave menus and keyboard focus intact when a poll has no presence changes.
   const visibleCount=visiblePresenceCount(people);
   if(chatPresence)people=chatPresenceLayout(people,visibleCount,list);
@@ -569,13 +610,14 @@ function renderPresence() {
     const item=el('li',undefined,'presence-person'+(overflow?' presence-more':''));
     const menu=el('details',undefined,'header-menu friend-menu');menu.dataset.key=key;
     const trigger=el('summary'),panel=el('div',undefined,'account-menu friend-actions');
-    trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · online');
+    trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · '+presenceLabel(persons[0].status));
     if(overflow)trigger.textContent='+'+persons.length;
-    else {item.dataset.playerId=key;trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
+    else {item.dataset.playerId=key;item.dataset.status=persons[0].status||'active';trigger.title=[persons[0].name+' · '+presenceLabel(persons[0].status),...persons[0].playing].join('\n');trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
     for(const person of persons){
       panel.append(el('p',person.name,'friend-name'));
       const targets=me.inspecting?[]:(person.join_targets||[]);
-      if(!targets.length)panel.append(el('p','Online','quiet friend-status'));
+      panel.append(el('p',presenceLabel(person.status),'quiet friend-status'));
+      for(const description of person.playing)panel.append(el('p',description,'friend-status'));
       for(const target of targets){
         const button=el('button','Join '+target.title);button.type='button';button.dataset.friendAction=target.session_id+':'+person.id;
         button.onclick=()=>{
@@ -734,7 +776,7 @@ feedPicker.addEventListener('keydown',event=>{
   if(event.key==='Escape'){event.preventDefault();event.stopPropagation();feedPicker.hidePopover();feedReactionTrigger(feedPicker.dataset.update)?.focus({preventScroll:true});}
 });
 window.addEventListener('resize',positionFeedPicker);
-$('activity').addEventListener('scroll',positionFeedPicker);
+$('activity').addEventListener('scroll',()=>{if(feedPicker.matches(':popover-open'))feedPicker.hidePopover();});
 function syncFeedChoices(game){
   for(const choice of feedPicker.children){
     choice.setAttribute('aria-pressed',String(choice.dataset.emoji===game.update_reactions?.mine));
@@ -1059,6 +1101,7 @@ function setupAccount(){
     admin.onclick=()=>{menu.open=false;openAdmin();};panel.append(admin);
   }
   refreshServerUpdates=initServerUpdates({panel:$('admin').querySelector('.admin-panel'),api,me});
+  const ownGames=el('p',undefined,'friend-status');ownGames.id='account-playing';ownGames.hidden=true;panel.prepend(ownGames);
   panel.append(out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
@@ -1153,6 +1196,10 @@ try {
   me=await api('/api/me');pinProfile(me.player_id);$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar,onSpeakerContext:arrangeChatParticipants});
+  if(!me.inspecting){
+    const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
+    if(document.hasFocus()&&!document.hidden)active();
+  }
   initVoice({me,api,notice});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));

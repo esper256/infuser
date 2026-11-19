@@ -79,6 +79,7 @@ namespace Infuser.Unity
             if (launch.intent != null && string.IsNullOrEmpty(launch.intent.kind)) launch.intent = null;
             return launch;
         }
+        public Task<string> SetActivityAsync(string activity) => CallJsonAsync("presence.activity", JsonUtility.ToJson(new ActivityField { activity = activity }));
         public Task<string> PresenceAsync() => CallJsonAsync("presence");
         public async Task<PresenceSnapshot> GetPresenceAsync()
         {

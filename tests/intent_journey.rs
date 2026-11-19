@@ -163,6 +163,79 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
         .await?["intent"]
             .is_null()
     );
+    let library_view = || value(member(&http, &url, "friend", Method::GET, "/api/library"));
+    let game_mode = |mode: &str| {
+        host.call(
+            &http,
+            &url,
+            Method::PUT,
+            "/_infuser/api/v1/presence/v1/activity",
+        )
+        .json(&json!({"activity":mode}))
+    };
+    for mode in ["title_screen", "single_player"] {
+        value(game_mode(mode)).await?;
+        let view = library_view().await?;
+        let card = view["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == "pond")
+            .unwrap();
+        assert_eq!(card["players"][0]["activity"], mode);
+        assert_eq!(card["join_targets"], json!([]));
+    }
+    assert_eq!(game_mode("made_up").send().await?.status(), 422);
+    value(member(
+        &http,
+        &url,
+        "host",
+        Method::POST,
+        "/api/presence/input",
+    ))
+    .await?;
+    for (age, expected) in [(0, "active"), (150, "idle"), (650, "away")] {
+        db.connection
+            .lock()
+            .unwrap()
+            .execute("UPDATE profile_input SET seen=?1", [now() - age])?;
+        // Both the Library poll and the SDK heartbeat renew reachability only.
+        value(member(&http, &url, "host", Method::GET, "/api/library")).await?;
+        value(host.call(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
+        let view = library_view().await?;
+        let river = view["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "River")
+            .unwrap();
+        assert_eq!(river["status"], expected);
+    }
+    let guest = launch(&http, &url, "host", true, None).await?;
+    value(guest.call(&http, &url, Method::POST, "/_infuser/input")).await?;
+    let view = library_view().await?;
+    assert_eq!(
+        view["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "River")
+            .unwrap()["status"],
+        "away",
+        "Guest play must not reset the profile's idle clock"
+    );
+    value(guest.call(&http, &url, Method::DELETE, "/_infuser/heartbeat")).await?;
+    value(host.call(&http, &url, Method::POST, "/_infuser/input")).await?;
+    let view = library_view().await?;
+    assert_eq!(
+        view["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "River")
+            .unwrap()["status"],
+        "active"
+    );
     let room = value(
         host.call(&http, &url, Method::POST, "/_infuser/peers")
             .json(&json!({"connection_id":"host-connection-0001","joinable":true})),

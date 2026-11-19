@@ -9,6 +9,7 @@ struct View<'a> {
     inspecting: bool,
     moderates_reactions: bool,
     time: u64,
+    activity: presence::LibraryActivity,
 }
 impl View<'_> {
     fn includes(&self, id: &str) -> bool {
@@ -28,28 +29,6 @@ impl View<'_> {
         let runtime = data.deployment_for(id, self.group).unwrap_or(id);
         let app = data.deployed(runtime).unwrap_or(app);
         let build = &data.builds[&build_key(id, &app.build)];
-        let players: Vec<_> = data
-            .launches
-            .iter()
-            .filter(|(_, launch)| {
-                launch.runtime_id() == runtime
-                    && launch.seen + 90 > self.time
-                    && data.launch_allowed(launch, self.time)
-                    && data
-                        .members
-                        .get(&launch.email)
-                        .is_some_and(|member| member.enabled)
-            })
-            .map(|(launch_id, launch)| {
-                json!({
-                    "id":data.player_id(&launch.email),
-                    "player_id":if launch.guest {format!("guest-{launch_id}")} else {data.player_id(&launch.email)},
-                    "name":data.members[&launch.email].name,
-                    "avatar":data.members[&launch.email].avatar,
-                    "guest":launch.guest,
-                })
-            })
-            .collect();
         let reactions: Vec<_> = data
             .reactions
             .get(runtime)
@@ -79,52 +58,99 @@ impl View<'_> {
             self.time,
         );
         let room = p.peers.discovery(runtime, &app.build, self.time);
-        let mut join_targets: Vec<_> = if !self.inspecting
-            && build
-                .manifest
-                .launch_intents
-                .contains(&crate::launch_intent::Kind::JoinFriend)
-            && room["joinable"] == true
-        {
-            room["players"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|player| player["player_id"] != data.player_id(self.email))
-                .map(|player| {
-                    json!({
-                        "session_id":room["id"],
-                        "player_id":player["player_id"],
-                        "name":player["name"],
-                        "guest":player["guest"],
-                    })
-                })
-                .collect()
+        let desktop = native::bundle(p, id, &app.build, build).ok().flatten();
+        let supports_join = build
+            .manifest
+            .launch_intents
+            .contains(&crate::launch_intent::Kind::JoinFriend)
+            && desktop.as_ref().is_none_or(|m| !m.native_only);
+        let dedicated = if build.manifest.dedicated_sessions() {
+            dedicated::live_sessions(p, data, runtime, &app.build, self.time)
         } else {
             vec![]
         };
-        if !self.inspecting
-            && build.manifest.dedicated_sessions()
-            && build
-                .manifest
-                .launch_intents
-                .contains(&crate::launch_intent::Kind::JoinFriend)
-        {
-            for session in dedicated::live_sessions(p, data, runtime, &app.build, self.time) {
-                if session["joinable"] != true || session["activity"] != "multiplayer" {
-                    continue;
+        let mut join_targets = vec![];
+        let mut membership = BTreeMap::new();
+        let viewer = data.player_id(self.email);
+        for session in std::iter::once(&room).chain(&dedicated) {
+            let Some(members) = session["players"].as_array() else {
+                continue;
+            };
+            let solo = session["activity"] == "solo";
+            let open = !solo && session["joinable"] == true && supports_join;
+            let mode = if solo { "single_player" } else { "multiplayer" };
+            let reason = if solo || open {
+                None
+            } else if !supports_join {
+                Some("not_supported")
+            } else {
+                Some(session["reason"].as_str().unwrap_or("closed"))
+            };
+            for member in members {
+                let player = member["player_id"].as_str().unwrap();
+                // One profile may occupy several runs. Prefer one a friend can join.
+                let entry = membership.entry(player).or_insert((mode, reason));
+                if open || (entry.0 == "single_player" && !solo) {
+                    *entry = (mode, reason);
                 }
-                for player in session["players"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter(|player| player["player_id"] != data.player_id(self.email))
-                {
-                    join_targets.push(json!({"session_id":session["id"],"player_id":player["player_id"],"name":player["name"],"guest":player["guest"]}));
+                if open && !self.inspecting && player != viewer {
+                    join_targets.push(json!({"session_id":session["id"],"player_id":player,"name":member["name"],"guest":member["guest"]}));
                 }
             }
         }
-        let desktop = native::bundle(p, id, &app.build, build).ok().flatten();
+        let players: Vec<_> = data
+            .launches
+            .iter()
+            .filter(|(_, launch)| {
+                launch.runtime_id() == runtime
+                    && launch.exchanged
+                    && launch.expires > self.time
+                    && launch.seen + 90 > self.time
+                    && data.launch_allowed(launch, self.time)
+                    && data
+                        .members
+                        .get(&launch.email)
+                        .is_some_and(|member| member.enabled)
+            })
+            .map(|(launch_id, launch)| {
+                let player = if launch.guest {
+                    format!("guest-{launch_id}")
+                } else {
+                    data.player_id(&launch.email)
+                };
+                let played_build = data.builds.get(&build_key(id, &launch.build));
+                let reported = self
+                    .activity
+                    .modes
+                    .get(launch_id)
+                    .map(String::as_str)
+                    .unwrap_or_else(|| {
+                        if played_build.is_some_and(|b| {
+                            b.manifest.play_modes == [crate::manifest::PlayMode::Solo]
+                        }) {
+                            "single_player"
+                        } else {
+                            "game_open"
+                        }
+                    });
+                let (activity, reason) = if launch.build != app.build {
+                    (reported, Some("different_build"))
+                } else {
+                    membership
+                        .get(player.as_str())
+                        .copied()
+                        .unwrap_or((reported, None))
+                };
+                json!({
+                    "activity":activity,"join_reason":reason,
+                    "id":data.player_id(&launch.email),
+                    "player_id":player,
+                    "name":data.members[&launch.email].name,
+                    "avatar":data.members[&launch.email].avatar,
+                    "guest":launch.guest,
+                })
+            })
+            .collect();
         let authors = authors::credits(data, id);
         let card_art_url = card_art::url(id, &app.build, build, data.metadata.get(id))
             .map(|url| {
@@ -215,7 +241,7 @@ impl View<'_> {
                     })
                     .collect();
                 let member = &self.data.members[email];
-                json!({"id":id,"name":member.name,"avatar":member.avatar,"join_targets":targets})
+                json!({"id":id,"name":member.name,"avatar":member.avatar,"status":presence::input_status(self.activity.inputs.get(email).copied(),self.time),"join_targets":targets})
             })
             .collect()
     }
@@ -241,6 +267,7 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
             && !h.contains_key(groups::VISIT)
             && data.members[&email].admin,
         time,
+        activity: presence::LibraryActivity::read(&p.db)?,
     };
     let mut apps: Vec<_> = data
         .apps

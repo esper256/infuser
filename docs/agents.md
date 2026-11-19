@@ -115,6 +115,11 @@ For single player, set `solo_runtime` to `client_only` or `shared_server`.
 Multiplayer also declares its topology, transport, capacity, and join policy.
 Copy the complete example from the matching multiplayer recipe.
 
+To let a player launch directly into a friend's current game from the Library,
+follow [Implement Join Friend](launch-intents.md#implement-join-friend-from-the-library).
+It covers host admission, the launch handoff, and how a mixed-mode game tells
+the Library that a player chose single player.
+
 - **Peer-hosted:** one player hosts the shared room. WebRTC requires Infuser TURN
   fallback, even when LAN or direct internet connections work. Use the
   [browser peer SDK](peer-hosting.md), Godot adapter, or PeerJS adapter as appropriate.

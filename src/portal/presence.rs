@@ -3,7 +3,103 @@ use super::*;
 use std::collections::BTreeSet;
 
 pub(super) fn capabilities() -> Value {
-    json!({"version":1,"experimental":true,"joinability":["peer_hosted_webrtc","dedicated_websocket"]})
+    json!({"version":1,"experimental":true,"game_activity":["title_screen","single_player","multiplayer"],"joinability":["peer_hosted_webrtc","dedicated_websocket"]})
+}
+
+pub(super) async fn library_input(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let profile = p.member(&h, true).await?;
+    record_input(&p.db, &profile)?;
+    Ok(reply(json!({"ok":true})))
+}
+
+pub(super) async fn game_input(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (_, launch) = p.game(&h)?;
+    if !launch.guest {
+        record_input(&p.db, &launch.email)?;
+    }
+    Ok(reply(json!({"ok":true})))
+}
+
+fn record_input(db: &Database, profile: &str) -> Result<()> {
+    db.connection.lock().unwrap().execute(
+        "INSERT INTO profile_input VALUES(?1,?2) ON CONFLICT(profile) DO UPDATE SET seen=excluded.seen WHERE seen<excluded.seen",
+        rusqlite::params![profile,now()])?;
+    Ok(())
+}
+
+pub(super) fn input_status(last: Option<u64>, time: u64) -> &'static str {
+    match last.map(|t| time.saturating_sub(t)) {
+        Some(0..120) => "active",
+        Some(120..600) => "idle",
+        _ => "away",
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GameActivity {
+    activity: String,
+}
+
+pub(super) async fn set_activity(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(report): Json<GameActivity>,
+) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (id, launch) = p.game(&h)?;
+    let data = p.db.read()?;
+    let manifest = &data
+        .builds
+        .get(&build_key(&launch.app, &launch.build))
+        .ok_or_else(|| fault(410, "Game build expired."))?
+        .manifest;
+    use crate::manifest::PlayMode;
+    let allowed = match report.activity.as_str() {
+        "title_screen" => true,
+        "single_player" => manifest.play_modes.contains(&PlayMode::Solo),
+        "multiplayer" => manifest.play_modes.contains(&PlayMode::Multiplayer),
+        _ => false,
+    };
+    ensure!(
+        allowed,
+        fault(422, "Choose an activity supported by this game.")
+    );
+    let updated =
+        p.db.connection
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO launch_modes SELECT id,?2 FROM runtime_launches WHERE id=?1
+         ON CONFLICT(launch) DO UPDATE SET mode=excluded.mode",
+                rusqlite::params![id, report.activity],
+            )
+            .map_err(anyhow::Error::from)?;
+    ensure!(updated > 0, fault(410, "Game session expired."));
+    Ok(reply(json!({"ok":true})))
+}
+
+// Read these small social tables only for Library snapshots, never for routine game heartbeats.
+#[derive(Default)]
+pub(super) struct LibraryActivity {
+    pub inputs: BTreeMap<String, u64>,
+    pub modes: BTreeMap<String, String>,
+}
+impl LibraryActivity {
+    pub fn read(db: &Database) -> Result<Self> {
+        let c = db.connection.lock().unwrap();
+        let mut inputs = c.prepare_cached("SELECT profile,seen FROM profile_input")?;
+        let mut modes = c.prepare_cached("SELECT launch,mode FROM launch_modes")?;
+        Ok(Self {
+            inputs: inputs
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?,
+            modes: modes
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?,
+        })
+    }
 }
 
 pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTreeSet<String> {
