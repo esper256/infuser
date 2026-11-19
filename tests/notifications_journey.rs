@@ -153,6 +153,25 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
             200
         );
     }
+    // A test is scoped to the authenticated subscription, independent of any chat message.
+    assert_eq!(
+        req(Method::POST, "/api/notifications/test", "one")
+            .json(&sub("two"))
+            .send()
+            .await?
+            .status(),
+        404
+    );
+    p.db.reserve_push_test("one@example.com", &sub("one").endpoint)?;
+    assert_eq!(
+        req(Method::POST, "/api/notifications/test", "one")
+            .json(&sub("one"))
+            .send()
+            .await?
+            .status(),
+        429
+    );
+    assert!(p.db.push_targets()?.is_empty());
     assert_eq!(
         req(Method::PUT, "/api/notifications", "one")
             .json(&sub("two"))
