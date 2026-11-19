@@ -293,8 +293,8 @@ saving; choosing another tab/window cannot silently upload the desktop. Capture
 is best-effort and needs browser permission each time. Audio is never requested.
 
 `POST /_infuser/screenshots` uses the authenticated game launch and exact-origin
-check. WebP originals retain capture resolution (up to 8192 pixels per side,
-33,554,432 pixels total and 6 MiB); thumbnails are at most 320 pixels per side
+check. WebP originals retain capture resolution up to 4K (4096 pixels per side,
+8,294,400 pixels total and 6 MiB); thumbnails are at most 320 pixels per side
 and 96 KiB. Image decoding is serialized and validates both files. The private
 `screenshots` SQLite table keeps the latest ten captures per profile plus any older
 images still attached to reactions. Gallery insertion and oldest-image eviction share a transaction. These rows are included

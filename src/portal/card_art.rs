@@ -25,7 +25,6 @@ pub(super) async fn image(
     Path((app, build)): Path<(String, String)>,
     mut h: HeaderMap,
     Query(query): Query<ImageQuery>,
-    mut request: Request,
 ) -> Answer {
     if let Some(visit) = query.visit {
         h.insert(
@@ -42,7 +41,7 @@ pub(super) async fn image(
     let email = p.member(&h, false).await?;
     p.visible_app(&h, &email, &app)?;
     {
-        let data = p.db.read()?;
+        let data = p.db.catalog()?;
         let (group, _) = p.group_view(&h, &email)?;
         let runtime = data
             .deployment_for(&app, &group)
@@ -80,8 +79,6 @@ pub(super) async fn image(
             fault(404, "game has no card art")
         );
     }
-    request.headers_mut().remove("cookie");
-    request.headers_mut().remove("authorization");
     let path = p.root().join(app).join(build).join(crate::card_art::PATH);
     // Build IDs can be reused after deletion; validate bytes rather than the ID.
     use sha2::{Digest, Sha256};
@@ -96,12 +93,7 @@ pub(super) async fn image(
         conditional::headers(&mut response, &etag);
         return Ok(response);
     }
-    let response = ServeFile::new(path)
-        .oneshot(request)
-        .await
-        .unwrap()
-        .map(Body::new);
-    let mut response = image_response(response);
+    let mut response = image_response(Response::new(Body::from(bytes)));
     conditional::headers(&mut response, &etag);
     Ok(response)
 }

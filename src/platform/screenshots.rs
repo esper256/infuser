@@ -119,7 +119,8 @@ impl Database {
         message: Option<u64>,
         runtime: Option<&str>,
         thumbnail: bool,
-    ) -> Result<Vec<u8>> {
+        load_bytes: bool,
+    ) -> Result<Option<Vec<u8>>> {
         let c = self.connection.lock().unwrap();
         let data = self.cached_catalog(&c)?;
         ensure!(
@@ -157,7 +158,10 @@ impl Database {
             });
         }
         ensure!(allowed, fault(404, "Screenshot unavailable."));
-        Ok(c.query_row(
+        if !load_bytes {
+            return Ok(None);
+        }
+        Ok(Some(c.query_row(
             if thumbnail {
                 "SELECT thumbnail FROM screenshots WHERE id=?1"
             } else {
@@ -165,6 +169,6 @@ impl Database {
             },
             [id],
             |r| r.get(0),
-        )?)
+        )?))
     }
 }

@@ -75,7 +75,7 @@ impl Channel {
         if !data.profile_enabled(email) {
             return None;
         }
-        let member = data.members.get(email).filter(|m| m.enabled)?;
+        let member = &data.members[email];
         if self.expires.is_some_and(|end| end <= time) {
             return None;
         }

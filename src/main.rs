@@ -186,12 +186,8 @@ async fn main() -> Result<()> {
             .to_lowercase();
         let name = infuser::platform::Database::open(&config.controller.state_dir)?.edit(|d| {
             let email = d.member_key(&email)?;
-            let member = d
-                .members
-                .get(&email)
-                .filter(|m| m.enabled)
-                .context("enabled member required")?;
-            let name = member.name.clone();
+            ensure!(d.profile_enabled(&email), "enabled member required");
+            let name = d.members[&email].name.clone();
             d.set_operator(&email, !args.iter().any(|a| a == "--revoke"))?;
             Ok(name)
         })?;

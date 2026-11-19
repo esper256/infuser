@@ -146,7 +146,7 @@ impl Database {
             })?,
         )?;
         ensure!(
-            data.members.get(email).is_some_and(|m| m.enabled),
+            data.profile_enabled(email),
             fault(403, "Membership is disabled.")
         );
         let owner: Option<String> = tx

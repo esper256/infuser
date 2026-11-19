@@ -21,6 +21,50 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
     )?;
     db.see_member("player@example.test", time + 1)?;
     db.renew_launch("test-launch", time + 1)?;
+    db.insert_launch(
+        "lifecycle-launch",
+        &serde_json::from_value(json!({
+            "app":"pond","build":"one","email":"player@example.test","guest":false,
+            "host":"pond.games.example.com","token_hash":"lifecycle-token",
+            "exchanged":false,"expires":time+60,"grant_expires":time+30,"seen":time,
+            "intent":{"kind":"join_friend","session_id":"room-1","player_id":"friend-1"},
+            "lease_id":null,"lease_token":null
+        }))?,
+    )?;
+    db.extend_launch_grant("lifecycle-launch", time + 120)?;
+    db.exchange_launch("lifecycle-token", "pond.games.example.com", time + 1)?;
+    assert_eq!(
+        db.find_launch("lifecycle-token", "pond.games.example.com", time + 1)?
+            .0,
+        "lifecycle-launch"
+    );
+    assert!(
+        db.take_launch_intent("lifecycle-launch", time + 1)?
+            .is_some()
+    );
+    assert!(
+        db.take_launch_intent("lifecycle-launch", time + 1)?
+            .is_none()
+    );
+    db.expire_launch("lifecycle-launch", time + 1)?;
+    db.native_edit(|_, n| {
+        n.devices.insert(
+            "dev-1".into(),
+            infuser::native::Device {
+                email: "player@example.test".into(),
+                created: time,
+            },
+        );
+        Ok(())
+    })?;
+    assert_eq!(
+        db.native_devices("player@example.test")?["devices"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(std::sync::Arc::ptr_eq(&db.catalog()?, &db.catalog()?));
     let after: (String, u64) = db.connection.lock().unwrap().query_row(
         "SELECT data,revision FROM platform_catalog,catalog_revision",
         [],

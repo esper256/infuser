@@ -96,6 +96,36 @@ try {
     if (mobile) assert.equal(await page.evaluate(() => locks.at(-1)), 'released');
     assert((await gameBounds()).y > 0);
     assert(await page.locator('#controls-edge').isHidden());
+    if (!mobile) {
+      await page.setViewportSize({width:3840,height:2160});
+      const scaled = await page.evaluate(() => {
+        const frame = document.getElementById('game');
+        const box = frame.getBoundingClientRect();
+        const vp = document.getElementById('viewport').getBoundingClientRect();
+        const win = frame.contentWindow;
+        return {
+          pressed: document.getElementById('resolution').getAttribute('aria-pressed'),
+          visualMatchesViewport: Math.abs(box.width - vp.width) < 1 && Math.abs(box.height - vp.height) < 1,
+          innerPixels: win.innerWidth * win.innerHeight,
+          dpr: win.devicePixelRatio,
+        };
+      });
+      assert.equal(scaled.pressed, 'true');
+      assert(scaled.visualMatchesViewport, '4K player visually fills the 4K viewport');
+      assert(scaled.innerPixels <= 1920 * 1080 + 1920, '4K player caps inner layout viewport to 1080p budget');
+      assert.equal(scaled.dpr, 1);
+      await page.locator('#resolution').click();
+      const native = await page.evaluate(() => {
+        const win = document.getElementById('game').contentWindow;
+        return {
+          pressed: document.getElementById('resolution').getAttribute('aria-pressed'),
+          innerWidth: win.innerWidth,
+        };
+      });
+      assert.equal(native.pressed, 'false');
+      assert.equal(native.innerWidth, 3840);
+      await page.locator('#resolution').click();
+    }
     const count = await page.evaluate(() => attempts);
     await page.evaluate(dir => {window.turn(dir==='portrait'?'landscape':'portrait');window.turn(dir);}, expected);
     assert.equal(await page.evaluate(() => attempts), count, 'rotating after exit does not reopen fullscreen');

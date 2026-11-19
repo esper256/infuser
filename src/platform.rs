@@ -196,6 +196,12 @@ pub(crate) fn decode_catalog(c: &Connection, raw: &str) -> Result<Data> {
             build.manifest.orientation = crate::manifest::Orientation::Portrait;
         }
     }
+    let mut native_res = c.prepare("SELECT build_key FROM native_resolution_builds")?;
+    for key in native_res.query_map([], |row| row.get::<_, String>(0))? {
+        if let Some(build) = data.builds.get_mut(&key?) {
+            build.manifest.resolution = crate::manifest::Resolution::Native;
+        }
+    }
     let mut statement = c.prepare("SELECT build_key,declaration FROM sdk_manifests")?;
     for row in statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
         let (key, declaration) = row?;
@@ -272,15 +278,19 @@ fn encode_catalog(tx: &Transaction<'_>, data: &mut Data) -> Result<String> {
     // Keep the strict legacy manifest readable by rollback binaries. Only
     // portrait builds need a record because landscape is the original layout.
     let mut portraits = Vec::new();
+    let mut native_resolutions = Vec::new();
     for (key, build) in &data.builds {
         if build.manifest.orientation == crate::manifest::Orientation::Portrait {
             portraits.push(key);
+        }
+        if build.manifest.resolution == crate::manifest::Resolution::Native {
+            native_resolutions.push(key);
         }
         if build.manifest.sessions.is_some() || build.manifest.server_connection.is_some() {
             let declaration = serde_json::json!({"sessions":build.manifest.sessions,"server_connection":build.manifest.server_connection});
             tx.execute("INSERT INTO dedicated_manifests(build_key,declaration) VALUES(?1,?2) ON CONFLICT(build_key) DO UPDATE SET declaration=excluded.declaration WHERE declaration!=excluded.declaration", params![key, declaration.to_string()])?;
         }
-        for field in ["sessions", "server_connection", "orientation"] {
+        for field in ["sessions", "server_connection", "orientation", "resolution"] {
             value["builds"][key]["manifest"]
                 .as_object_mut()
                 .unwrap()
@@ -323,6 +333,15 @@ fn encode_catalog(tx: &Transaction<'_>, data: &mut Data) -> Result<String> {
     tx.execute(
         "INSERT OR IGNORE INTO portrait_builds SELECT value FROM json_each(?1)",
         [&portraits],
+    )?;
+    let native_resolutions = serde_json::to_string(&native_resolutions)?;
+    tx.execute(
+        "DELETE FROM native_resolution_builds WHERE build_key NOT IN (SELECT value FROM json_each(?1))",
+        [&native_resolutions],
+    )?;
+    tx.execute(
+        "INSERT OR IGNORE INTO native_resolution_builds SELECT value FROM json_each(?1)",
+        [&native_resolutions],
     )?;
     let keys = {
         let mut stmt = tx.prepare("SELECT build_key FROM runtime_manifests")?;
@@ -378,7 +397,7 @@ fn encode_catalog(tx: &Transaction<'_>, data: &mut Data) -> Result<String> {
 }
 pub struct Database {
     pub connection: Mutex<Connection>,
-    catalog: Mutex<Option<(u64, Data)>>,
+    catalog: Mutex<Option<(u64, std::sync::Arc<Data>)>>,
 }
 impl Database {
     pub fn open(root: &Path) -> Result<Self> {
@@ -404,6 +423,7 @@ impl Database {
         screenshots::initialize(&c)?;
         crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS portrait_builds(build_key TEXT PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS native_resolution_builds(build_key TEXT PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS sdk_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS game_urls(app TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS server_builds(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
@@ -440,15 +460,19 @@ impl Database {
         })?;
         Ok(db)
     }
+    pub fn catalog(&self) -> Result<std::sync::Arc<Data>> {
+        let c = self.connection.lock().unwrap();
+        self.cached_catalog(&c)
+    }
     pub fn read(&self) -> Result<Data> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
-        let mut data = self.cached_catalog(&tx)?;
+        let mut data = (*self.cached_catalog(&tx)?).clone();
         activity::load(&tx, &mut data)?;
         tx.commit()?;
         Ok(data)
     }
-    pub(crate) fn cached_catalog(&self, c: &Connection) -> Result<Data> {
+    pub(crate) fn cached_catalog(&self, c: &Connection) -> Result<std::sync::Arc<Data>> {
         let revision: u64 = c.query_row(
             "SELECT revision FROM catalog_revision WHERE id=1",
             [],
@@ -460,7 +484,7 @@ impl Database {
                 c.query_row("SELECT data FROM platform_catalog WHERE id=1", [], |r| {
                     r.get(0)
                 })?;
-            *cached = Some((revision, decode_catalog(c, &raw)?));
+            *cached = Some((revision, std::sync::Arc::new(decode_catalog(c, &raw)?)));
         }
         Ok(cached.as_ref().unwrap().1.clone())
     }
@@ -473,15 +497,82 @@ impl Database {
     ) -> Result<T> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
-        let mut data = decode_catalog(&tx, &raw)?;
+        let mut data = (*self.cached_catalog(&tx)?).clone();
+        activity::load(&tx, &mut data)?;
         let result = f(&mut data, &tx)?;
         tx.execute(
             "UPDATE platform SET data=?1 WHERE id=1",
             [encode_catalog(&tx, &mut data)?],
         )?;
+        let revision: u64 = tx.query_row(
+            "SELECT revision FROM catalog_revision WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
         tx.commit()?;
+        data.launches.clear();
+        data.presence.clear();
+        *self.catalog.lock().unwrap() = Some((revision, std::sync::Arc::new(data)));
         Ok(result)
+    }
+    pub fn record_build_file(&self, key: &str, path: String, size: u64) -> Result<()> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut data = (*self.cached_catalog(&tx)?).clone();
+        let build = data
+            .builds
+            .get_mut(key)
+            .ok_or_else(|| crate::portal::fault(404, "create the build first"))?;
+        std::sync::Arc::make_mut(&mut build.files).insert(path, size);
+        let files = serde_json::to_string(&*build.files)?;
+        tx.execute(
+            "UPDATE platform_catalog SET data=json_set(data,?1,json(?2)) WHERE id=1",
+            params![format!("$.builds.\"{key}\".files"), files],
+        )?;
+        let revision: u64 = tx.query_row(
+            "SELECT revision FROM catalog_revision WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.commit()?;
+        *self.catalog.lock().unwrap() = Some((revision, std::sync::Arc::new(data)));
+        Ok(())
+    }
+    pub fn record_server_build_file(&self, key: &str, path: String, size: u64) -> Result<()> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut data = (*self.cached_catalog(&tx)?).clone();
+        let job = data
+            .server_builds
+            .get_mut(key)
+            .ok_or_else(|| crate::portal::fault(404, "create a build with server_recipe first"))?;
+        job.files.insert(path, size);
+        let declaration = serde_json::to_string(job)?;
+        tx.execute(
+            "UPDATE server_builds SET declaration=?2 WHERE build_key=?1",
+            params![key, declaration],
+        )?;
+        let revision: u64 = tx.query_row(
+            "SELECT revision FROM catalog_revision WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.commit()?;
+        *self.catalog.lock().unwrap() = Some((revision, std::sync::Arc::new(data)));
+        Ok(())
+    }
+    pub fn native_devices(&self, email: &str) -> Result<serde_json::Value> {
+        let c = self.connection.lock().unwrap();
+        let raw: String = c.query_row("SELECT data FROM native_v1 WHERE id=1", [], |r| r.get(0))?;
+        let native: crate::native::Data = serde_json::from_str(&raw)?;
+        Ok(serde_json::json!({
+            "devices": native
+                .devices
+                .iter()
+                .filter(|(_, x)| x.email == email)
+                .map(|(id, x)| serde_json::json!({"id": id, "created": x.created}))
+                .collect::<Vec<_>>()
+        }))
     }
     pub fn native_edit<T>(
         &self,
@@ -489,22 +580,30 @@ impl Database {
     ) -> Result<T> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let raw: String = tx.query_row("SELECT data FROM platform WHERE id=1", [], |r| r.get(0))?;
-        let mut data = decode_catalog(&tx, &raw)?;
+        let mut data = (*self.cached_catalog(&tx)?).clone();
+        activity::load(&tx, &mut data)?;
+        let before_launches = data.launches.clone();
         let raw: String =
             tx.query_row("SELECT data FROM native_v1 WHERE id=1", [], |r| r.get(0))?;
         let mut native: crate::native::Data = serde_json::from_str(&raw)?;
         native.pairs.retain(|_, p| p.expires > now());
         native.requests.retain(|_, p| p.expires > now());
         let result = f(&mut data, &mut native)?;
-        tx.execute(
-            "UPDATE platform SET data=?1 WHERE id=1",
-            [encode_catalog(&tx, &mut data)?],
-        )?;
-        tx.execute(
-            "UPDATE native_v1 SET data=?1 WHERE id=1",
-            [serde_json::to_string(&native)?],
-        )?;
+        for (id, launch) in &data.launches {
+            if before_launches.get(id).is_none_or(|old| {
+                serde_json::to_value(old).ok() != serde_json::to_value(launch).ok()
+            }) {
+                tx.execute(
+                    "INSERT INTO runtime_launches(id,data) VALUES(?1,?2)
+                     ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE data!=excluded.data",
+                    params![id, serde_json::to_string(launch)?],
+                )?;
+            }
+        }
+        let encoded = serde_json::to_string(&native)?;
+        if encoded != raw {
+            tx.execute("UPDATE native_v1 SET data=?1 WHERE id=1", [encoded])?;
+        }
         tx.commit()?;
         Ok(result)
     }
@@ -663,7 +762,7 @@ pub fn preview(
     let email = email.to_lowercase();
     Database::open(&config.controller.state_dir)?.edit(|d| {
         let email = d.member_key(&email)?;
-        ensure!(d.members.get(&email).is_some_and(|m|m.enabled&&m.admin),"preview requires an existing enabled admin");
+        ensure!(d.profile_enabled(&email)&&d.members[&email].admin,"preview requires an existing enabled admin");
         d.require_app_group(&email, app)?;
         let selected=d.apps.get(app).context("unknown app")?;
         ensure!(!selected.listed,"operator preview only accepts hidden test games");

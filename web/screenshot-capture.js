@@ -12,7 +12,7 @@ export function initScreenshotCapture({button,viewport,message}) {
     let video,timer;
     try{
       // Invoke permission directly from the click; nothing is captured before approval.
-      stream=await navigator.mediaDevices.getDisplayMedia({video:{displaySurface:'browser',width:{ideal:8192},height:{ideal:8192}},audio:false,preferCurrentTab:true,selfBrowserSurface:'include',surfaceSwitching:'exclude',monitorTypeSurfaces:'exclude'});
+      stream=await navigator.mediaDevices.getDisplayMedia({video:{displaySurface:'browser',width:{ideal:4096},height:{ideal:4096}},audio:false,preferCurrentTab:true,selfBrowserSurface:'include',surfaceSwitching:'exclude',monitorTypeSurfaces:'exclude'});
       if(!alive)return;
       const track=stream.getVideoTracks()[0];
       if(!track?.cropTo)throw Error('This browser cannot capture just the game. Nothing was saved.');
@@ -23,10 +23,12 @@ export function initScreenshotCapture({button,viewport,message}) {
       await Promise.race([(async()=>{await video.play();await new Promise(resolve=>video.requestVideoFrameCallback(resolve));})(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('The browser did not provide a screenshot. Try again.')),6000);})]);
       clearTimeout(timer);
       if(!alive)return;
-      const width=video.videoWidth,height=video.videoHeight;
-      if(!width||!height||width>8192||height>8192||width*height>33554432)throw Error('That capture is too large. Try a smaller game window.');
+      const rawWidth=video.videoWidth,rawHeight=video.videoHeight;
+      if(!rawWidth||!rawHeight||rawWidth>8192||rawHeight>8192||rawWidth*rawHeight>33554432)throw Error('That capture is too large. Try a smaller game window.');
+      const ratio=Math.min(1,4096/rawWidth,4096/rawHeight,Math.sqrt(8294400/(rawWidth*rawHeight)));
+      const width=Math.max(1,Math.floor(rawWidth*ratio)),height=Math.max(1,Math.floor(rawHeight*ratio));
       const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
-      canvas.getContext('2d',{alpha:false}).drawImage(video,0,0);stop();video.srcObject=null;
+      canvas.getContext('2d',{alpha:false}).drawImage(video,0,0,width,height);stop();video.srcObject=null;
       let image;
       for(const quality of [.8,.65,.5,.35]){image=await blob(canvas,quality);if(image.size<=6*1024*1024)break;}
       if(image.size>6*1024*1024)throw Error('That screenshot is too large to save.');

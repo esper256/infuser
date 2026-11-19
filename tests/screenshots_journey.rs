@@ -145,14 +145,28 @@ async fn captures_rotate_and_attachments_follow_chat_reaction_and_visit_access()
     let sent = ok(req(Method::POST, "/api/chat", "one").json(&message)).await?;
     let message_id = sent["id"].as_u64().unwrap();
     let image_path = format!("/api/screenshots/{id}?chat={message_id}&thumbnail=true");
+    let first_read = req(Method::GET, &image_path, "two").send().await?;
+    assert_eq!(first_read.status(), 200);
+    assert_eq!(first_read.headers()["cache-control"], "private, no-cache");
+    let etag = first_read.headers()["etag"].clone();
+    let first_body: Value = first_read.json().await?;
     assert!(
-        ok(req(Method::GET, &image_path, "two")).await?["image"]
+        first_body["image"]
             .as_str()
             .unwrap()
             .starts_with("data:image/webp;base64,")
     );
     assert_eq!(
+        req(Method::GET, &image_path, "two")
+            .header("if-none-match", &etag)
+            .send()
+            .await?
+            .status(),
+        304
+    );
+    assert_eq!(
         req(Method::GET, &image_path, "visitor")
+            .header("if-none-match", &etag)
             .send()
             .await?
             .status(),
@@ -305,6 +319,19 @@ async fn captures_rotate_and_attachments_follow_chat_reaction_and_visit_access()
         capture(&large_bad).send().await?.status(),
         422,
         "capture route accepts bodies beyond the default 2 MiB, then validates the image"
+    );
+    let mut wide = Vec::new();
+    image_webp::WebPEncoder::new(&mut wide).encode(
+        &vec![0; 4097 * 3],
+        4097,
+        1,
+        image_webp::ColorType::Rgb8,
+    )?;
+    let oversized = json!({"id":"00000000-0000-4000-8000-000000000013","image":STANDARD.encode(wide),"thumbnail":encoded});
+    assert_eq!(
+        capture(&oversized).send().await?.status(),
+        422,
+        "screenshots above 4K bounds are rejected before full-frame allocation"
     );
     assert_eq!(
         capture(&upload)

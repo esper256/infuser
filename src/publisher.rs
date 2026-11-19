@@ -237,7 +237,7 @@ pub async fn run(args: &[String]) -> Result<()> {
     if let Some(sdk) = settings.get("sdk") {
         manifest["sdk"] = sdk.clone();
     }
-    for field in ["sessions", "server_connection", "orientation"] {
+    for field in ["sessions", "server_connection", "orientation", "resolution"] {
         if let Some(value) = settings.get(field) {
             manifest[field] = value.clone();
         }
@@ -288,6 +288,18 @@ pub async fn run(args: &[String]) -> Result<()> {
             "This Infuser server does not advertise portrait orientation support."
         );
         manifest.as_object_mut().unwrap().remove("orientation");
+    }
+    if parsed.resolution != crate::manifest::Resolution::Hd {
+        if capabilities["game_metadata"]["resolutions"]
+            .as_array()
+            .is_some_and(|values| values.contains(&json!(parsed.resolution)))
+        {
+            manifest["resolution"] = json!(parsed.resolution);
+        } else {
+            manifest.as_object_mut().unwrap().remove("resolution");
+        }
+    } else {
+        manifest.as_object_mut().unwrap().remove("resolution");
     }
     if let Some(recipe) = &recipe {
         let packaging = &capabilities["server_packaging"];
@@ -386,6 +398,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         Some(crate::native::pack(&native_dirs, native_only)?)
     };
     let native_web = tempfile::tempdir()?;
+    let mut godot_export = None;
     let export = if native_only {
         std::fs::write(
             native_web.path().join("index.html"),
@@ -431,8 +444,11 @@ pub async fn run(args: &[String]) -> Result<()> {
         let preset = web
             .filter(|n| !n.is_empty())
             .context("No Web export preset found")?;
-        let export = std::env::temp_dir().join(format!("infuser-export-{}", secret()));
-        std::fs::create_dir_all(&export)?;
+        let dir = tempfile::Builder::new()
+            .prefix("infuser-export-")
+            .tempdir()?;
+        let export = dir.path().to_path_buf();
+        godot_export = Some(dir);
         let binary = option(args, "--godot").unwrap_or_else(|| "godot".into());
         let status=tokio::process::Command::new(binary).args(["--headless","--path"]).arg(&project).args(["--export-release",&preset]).arg(export.join("index.html")).stdin(Stdio::null()).status().await.context("Install Godot with matching export templates, or use --web-dir with an existing export")?;
         ensure!(status.success(), "Godot Web export failed");
@@ -592,7 +608,9 @@ pub async fn run(args: &[String]) -> Result<()> {
             );
             if !html.contains(sdk_path) {
                 let script = format!("<script type=\"module\" src=\"{sdk_path}\"></script>");
-                if html.contains("</head>") {
+                if html.contains("<head>") {
+                    html = html.replacen("<head>", &format!("<head>{script}"), 1);
+                } else if html.contains("</head>") {
                     html = html.replacen("</head>", &format!("{script}</head>"), 1);
                 } else {
                     html = format!("{script}{html}");
@@ -685,14 +703,7 @@ pub async fn run(args: &[String]) -> Result<()> {
             .await?,
     )
     .await?;
-    if engine == "godot"
-        && export.starts_with(std::env::temp_dir())
-        && export
-            .file_name()
-            .is_some_and(|n| n.to_string_lossy().starts_with("infuser-export-"))
-    {
-        let _ = std::fs::remove_dir_all(export);
-    }
+    drop(godot_export);
     if promotion["state"] == "queued" {
         println!(
             "Uploaded {title} ({build}). Update queued; it will activate automatically after the shared session ends and its server sleeps."

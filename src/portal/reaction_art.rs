@@ -1,8 +1,8 @@
 //! Local illustrated game reactions; persisted values remain Unicode emoji IDs.
 use super::*;
 
-pub(super) async fn image(Path(file): Path<String>) -> Answer {
-    let bytes: &[u8] = match file.as_str() {
+pub(super) async fn image(Path(file): Path<String>, h: HeaderMap) -> Answer {
+    let bytes: &'static [u8] = match file.as_str() {
         "atmosphere.webp" => include_bytes!("../../assets/reactions/atmosphere.webp"),
         "cozy.webp" => include_bytes!("../../assets/reactions/cozy.webp"),
         "gem.webp" => include_bytes!("../../assets/reactions/gem.webp"),
@@ -15,12 +15,5 @@ pub(super) async fn image(Path(file): Path<String>) -> Answer {
         "together.webp" => include_bytes!("../../assets/reactions/together.webp"),
         _ => return Err(fault(404, "Unknown reaction artwork.").into()),
     };
-    Ok((
-        [
-            (header::CONTENT_TYPE, "image/webp"),
-            (header::CACHE_CONTROL, "no-cache"),
-        ],
-        bytes,
-    )
-        .into_response())
+    Ok(conditional::static_asset(&h, "image/webp", bytes))
 }

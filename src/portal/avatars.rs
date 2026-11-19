@@ -152,7 +152,7 @@ pub(super) struct Profile {
 pub(super) async fn usage(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
     let (group, _) = p.group_view(&h, &email)?;
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let users: Vec<_> = data
         .members
         .iter()
@@ -176,11 +176,11 @@ pub(super) async fn update(
     );
     let avatar = (!body.avatar.is_empty()).then_some(body.avatar);
     p.db.edit(|d| {
-        let member = d
-            .members
-            .get_mut(&email)
-            .filter(|m| m.enabled)
-            .ok_or_else(|| fault(403, "Your invitation is no longer active."))?;
+        ensure!(
+            d.profile_enabled(&email),
+            fault(403, "Your invitation is no longer active.")
+        );
+        let member = d.members.get_mut(&email).unwrap();
         member.avatar = avatar.clone();
         member.avatar_prompt_seen = true;
         Ok(())
@@ -193,11 +193,11 @@ pub(super) async fn update(
 pub(super) async fn picture_prompt(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, true).await?;
     let show = p.db.edit(|d| {
-        let member = d
-            .members
-            .get_mut(&email)
-            .filter(|m| m.enabled)
-            .ok_or_else(|| fault(403, "Your invitation is no longer active."))?;
+        ensure!(
+            d.profile_enabled(&email),
+            fault(403, "Your invitation is no longer active.")
+        );
+        let member = d.members.get_mut(&email).unwrap();
         let show = member.avatar.is_none() && !member.avatar_prompt_seen;
         member.avatar_prompt_seen = true;
         Ok(show)

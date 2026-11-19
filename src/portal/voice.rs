@@ -17,13 +17,11 @@ pub(super) fn routes() -> Router<Platform> {
         .route("/voice/rtc/validate", get(validate))
         .route(
             "/assets/voice.js",
-            get(|| async {
-                (
-                    [
-                        ("content-type", "text/javascript"),
-                        ("cache-control", "no-cache"),
-                    ],
-                    include_str!("../../web/voice.js"),
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(
+                    &h,
+                    "text/javascript",
+                    include_bytes!("../../web/voice.js"),
                 )
             }),
         )
@@ -195,7 +193,7 @@ async fn status(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let Some(v) = &p.voice else {
         return Ok(reply(json!({"configured":false,"participants":[]})));
     };
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let healthy = v.healthy(now());
     let state = v.state.lock().unwrap();
     let people:Vec<_>=state.leases.values().filter(|l|l.channel==channel && l.connected && healthy && allowed(&p,l,now()))

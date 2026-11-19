@@ -10,7 +10,7 @@ pub(super) async fn resolve(
 ) -> Answer {
     let email = p.member(&h, false).await?;
     let (group, inspecting) = p.group_view(&h, &email)?;
-    let d = p.db.read()?;
+    let d = p.db.catalog()?;
     let app = crate::game_urls::resolve_in_group(&d, &slug, &group)
         .ok_or_else(|| fault(404, "Game unavailable."))?;
     let selected = d
@@ -47,7 +47,7 @@ pub(super) async fn owner_rename(
     Json(body): Json<Rename>,
 ) -> Answer {
     let email = p.member(&h, true).await?;
-    let d = p.db.read()?;
+    let d = p.db.catalog()?;
     d.require_app_group(&email, &app)?;
     ensure!(
         d.members[&email].admin || d.owners.get(&app) == Some(&email),

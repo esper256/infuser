@@ -23,7 +23,7 @@ pub(super) fn routes() -> Router<Platform> {
 }
 async fn asset(State(p): State<Platform>, request: Request) -> Answer {
     p.main_host(request.headers())?;
-    let (kind, body): (&str, &[u8]) = match request.uri().path() {
+    let (kind, body): (&'static str, &'static [u8]) = match request.uri().path() {
         "/manifest.webmanifest" => (
             "application/manifest+json",
             include_bytes!("../../web/manifest.webmanifest"),
@@ -44,18 +44,14 @@ async fn asset(State(p): State<Platform>, request: Request) -> Answer {
         ),
         _ => return Err(fault(404, "Not found.").into()),
     };
-    Ok((
-        [
-            (header::CONTENT_TYPE, kind),
-            (header::CACHE_CONTROL, "no-cache"),
-            (
-                header::CONTENT_SECURITY_POLICY,
-                "default-src 'self'; connect-src 'self'; script-src 'self'",
-            ),
-        ],
-        body,
-    )
-        .into_response())
+    let mut response = conditional::static_asset(request.headers(), kind, body);
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        "default-src 'self'; connect-src 'self'; script-src 'self'"
+            .parse()
+            .unwrap(),
+    );
+    Ok(response)
 }
 async fn settings(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.member(&h, false).await?;

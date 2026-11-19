@@ -38,10 +38,7 @@ impl View<'_> {
                 launch.runtime_id() == runtime
                     && launch.seen + 90 > self.time
                     && data.launch_allowed(launch, self.time)
-                    && data
-                        .members
-                        .get(&launch.email)
-                        .is_some_and(|member| member.enabled)
+                    && data.profile_enabled(&launch.email)
             })
             .map(|(launch_id, launch)| {
                 json!({
@@ -200,11 +197,7 @@ impl View<'_> {
             .filter(|(email, seen)| {
                 **seen + 90 > self.time
                     && self.data.group_participant(email, self.group, self.time)
-                    && self
-                        .data
-                        .members
-                        .get(*email)
-                        .is_some_and(|member| member.enabled)
+                    && self.data.profile_enabled(email)
             })
             .map(|(email, _)| {
                 let id = self.data.player_id(email);
@@ -258,7 +251,7 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         json!({
             "apps":apps,
             "friends":friends,
-            "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.members.get(*e).is_some_and(|m|m.enabled)).map(|(e,_)|json!({"id":data.player_id(e),"name":data.members[e].name})).collect::<Vec<_>>()})),
+            "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.profile_enabled(e)).map(|(e,_)|json!({"id":data.player_id(e),"name":data.members[e].name})).collect::<Vec<_>>()})),
             "tags":crate::tags::catalog_for_apps(&data,apps.iter().filter_map(|a|a["id"].as_str())),
         }),
         &h,

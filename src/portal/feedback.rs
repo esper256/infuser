@@ -22,13 +22,11 @@ pub(super) fn routes() -> Router<Platform> {
         )
         .route(
             "/assets/feedback.js",
-            get(|| async {
-                (
-                    [
-                        ("content-type", "text/javascript"),
-                        ("cache-control", "no-cache"),
-                    ],
-                    include_str!("../../web/feedback.js"),
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(
+                    &h,
+                    "text/javascript",
+                    include_bytes!("../../web/feedback.js"),
                 )
             }),
         )
@@ -50,7 +48,7 @@ fn token(p: &Platform) -> Result<String> {
 }
 async fn status(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
-    let admin = !h.contains_key(groups::INSPECT) && p.db.read()?.members[&email].admin;
+    let admin = !h.contains_key(groups::INSPECT) && p.db.catalog()?.members[&email].admin;
     Ok(reply(json!({"admin":admin})))
 }
 #[derive(Clone, Deserialize, Serialize)]
@@ -301,11 +299,11 @@ async fn admin_group(p: &Platform, h: &HeaderMap, write: bool) -> Result<String>
         )
     );
     let email = p.admin(h, write).await?;
-    Ok(p.db.read()?.groups.member(&email).into())
+    Ok(p.db.catalog()?.groups.member(&email).into())
 }
 async fn enqueue(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Intake>) -> Answer {
     let email = p.member(&h, true).await?;
-    let group = p.db.read()?.groups.member(&email).to_string();
+    let group = p.db.catalog()?.groups.member(&email).to_string();
     let id = change(&p, |q| q.enqueue(body, &email, &group, now()))?;
     Ok(reply(json!({"queued":true,"id":id})))
 }
@@ -313,7 +311,7 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let group = admin_group(&p, &h, false).await?;
     let _lock = p.feedback_lock.lock().unwrap();
     let queue = load_queue(&p)?;
-    let data = p.db.read()?;
+    let data = p.db.catalog()?;
     let submitters: std::collections::BTreeMap<_, _> = data
         .members
         .iter()

@@ -36,3 +36,27 @@ pub(super) fn json(value: Value, request: &HeaderMap) -> Response {
     headers(&mut response, &etag);
     response
 }
+pub(super) fn static_asset(
+    request: &HeaderMap,
+    content_type: &'static str,
+    body: &'static [u8],
+) -> Response {
+    use sha2::{Digest, Sha256};
+    let digest: String = Sha256::digest(body)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let etag = format!("\"{digest}\"");
+    let mut response = if matches(request, &etag) {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        ([(header::CONTENT_TYPE, content_type)], body).into_response()
+    };
+    response
+        .headers_mut()
+        .insert(header::ETAG, etag.parse().unwrap());
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
+    response
+}

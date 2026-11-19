@@ -13,7 +13,7 @@ pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTre
             l.runtime_id() == app
                 && l.exchanged
                 && l.expires > time
-                && data.members.get(&l.email).is_some_and(|m| m.enabled)
+                && data.profile_enabled(&l.email)
                 && data.launch_allowed(l, time)
         })
         .map(|(id, _)| id.clone())
@@ -44,7 +44,8 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
         {
             continue;
         }
-        if let Some(member) = data.members.get(email).filter(|m| m.enabled) {
+        if data.profile_enabled(email) {
+            let member = &data.members[email];
             let player = data.player_id(email);
             players.insert(
                 player.clone(),

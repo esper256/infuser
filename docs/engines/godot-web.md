@@ -49,6 +49,13 @@ autoload before game autoloads, and include
 is packaged in the PCK and imports `/_infuser/sdk/v1.js` on the game's origin.
 It retains callbacks and returns explicit results. Connect it at the game's
 existing load/checkpoint boundary; keep simulation and multiplayer in GDScript.
+Never call `Infuser.call_api(...)` inside `_process` or `_physics_process`.
+
+For 3D games, keep WebGL2 (`gl_compatibility`) render resolution bounded on 4K
+and HiDPI displays: set `window/stretch/mode="viewport"` (or pair
+`window/stretch/mode="canvas_items"` with `display/window/dpi/allow_hidpi=false`
+and a bounded `rendering/scaling_3d/scale`) at a `1920 × 1080` or `1280 × 720`
+base viewport so full-window browsers do not shade 8.3 million 3D pixels per frame.
 
 Use `call_api("load", {"group": ...})` and `call_api("commit", {"group": ...,
 "checkpoint": ...})`; see the example for these preview shapes. Checkpoints
