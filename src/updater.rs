@@ -1067,10 +1067,15 @@ pub async fn update(
             maintenance_blocked: false,
         })
         .await;
-    service
-        .preserve_state(&previous_commit)
-        .await
-        .context("pre-update database snapshot failed; current version unchanged")?;
+    if let Err(error) = service.preserve_state(&previous_commit).await {
+        if error.is::<crate::rollback::DiskLimit>() {
+            return Ok(
+                "Not enough free disk for a pre-update snapshot; current release left unchanged"
+                    .into(),
+            );
+        }
+        return Err(error.context("pre-update database snapshot failed; current version unchanged"));
+    }
     let _ = fs::remove_file(config.state_dir.join("deferred-release"));
     atomic_link(&previous_dir, &config.install_dir.join("previous"))?;
     write_atomic(

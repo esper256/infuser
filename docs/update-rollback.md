@@ -23,10 +23,17 @@ configuration, and it stays disabled until you configure a repository.
 
 Each database is integrity-checked, then copied again and checked a second time
 before the snapshot is kept. One outgoing release is retained, under
-`/var/lib/infuser-updater/rollback/<release>/`. The next successful pre-update
-snapshot replaces it. Docker volumes, published builds, and the rest of the
-state directory are not in this snapshot. A migration that rewrites world data
-still needs its own backup.
+`/var/lib/infuser-updater/rollback/<release>/`. The previous copy is removed
+only after the new one is in place and verified. A partial or interrupted
+snapshot, including one left by a reboot, is deleted on the next attempt.
+Docker volumes, published builds, and the rest of the state directory are not
+in this snapshot. A migration that rewrites world data still needs its own backup.
+
+The updater refuses the snapshot when two copies of the databases would leave
+less than 1 GiB free, or less than 5 percent of that filesystem, whichever is
+larger. The running release stays in place, and host health reports
+`rollback-snapshot`. `failed-release` is one small file that is replaced, not
+appended.
 
 The copy runs while the controller is still up, after games and publishing are
 idle and the host maintenance lock is held. It does not pause games by itself.

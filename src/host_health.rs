@@ -385,7 +385,7 @@ pub async fn collect(settings: &Settings) -> Result<Report> {
                 } else {
                     "Pre-update database snapshot failed or is incomplete"
                 },
-                "Inspect infuser-update.service. Restore only a snapshot that rollback-verify accepts.",
+                "Free disk space if the filesystem is tight, then inspect infuser-update.service. The running release was left in place.",
             ));
         }
     }

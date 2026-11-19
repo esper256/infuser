@@ -24,6 +24,7 @@ struct Host {
     bad: String,
     events: Mutex<Vec<String>>,
     fail_snapshot: bool,
+    disk_full: bool,
 }
 
 #[async_trait]
@@ -37,6 +38,9 @@ impl Service for Host {
             current.file_name().and_then(|name| name.to_str()) == Some(release),
             "snapshot must be taken before current moves"
         );
+        if self.disk_full {
+            return Err(rollback::DiskLimit.into());
+        }
         if self.fail_snapshot {
             bail!("snapshot failed");
         }
@@ -186,6 +190,7 @@ async fn failed_activation_restores_the_snapshot_taken_before_the_switch() -> Re
         bad: bad.clone(),
         events: Mutex::new(Vec::new()),
         fail_snapshot: false,
+        disk_full: false,
     };
     let http = reqwest::Client::new();
     let first =
@@ -242,6 +247,7 @@ async fn snapshot_failure_leaves_the_running_release_in_place() -> Result<()> {
         bad: String::new(),
         events: Mutex::new(Vec::new()),
         fail_snapshot: true,
+        disk_full: false,
     };
     let error = updater::update(
         &layout.config,
@@ -260,6 +266,40 @@ async fn snapshot_failure_leaves_the_running_release_in_place() -> Result<()> {
         initial.as_str()
     );
     assert!(host.events.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn tight_disk_skips_activation_without_moving_current() -> Result<()> {
+    let initial = "a".repeat(40);
+    let good = "b".repeat(40);
+    let manifest = Arc::new(Mutex::new(release(&good)));
+    let layout = layout(manifest, &initial).await?;
+    let host = Host {
+        install: layout.install.clone(),
+        platform: layout.platform.clone(),
+        snapshots: layout.updater.join("rollback"),
+        bad: String::new(),
+        events: Mutex::new(Vec::new()),
+        fail_snapshot: false,
+        disk_full: true,
+    };
+    let message = updater::update(
+        &layout.config,
+        &layout.source,
+        "linux-amd64",
+        &reqwest::Client::new(),
+        &host,
+    )
+    .await?;
+    assert!(message.contains("Not enough free disk"));
+    assert_eq!(
+        fs::read_link(layout.install.join("current"))?
+            .file_name()
+            .unwrap(),
+        initial.as_str()
+    );
+    assert!(!layout.install.join("previous").exists());
     Ok(())
 }
 
@@ -300,6 +340,7 @@ async fn operator_rollback_restores_the_previous_release_and_database() -> Resul
         bad: String::new(),
         events: Mutex::new(Vec::new()),
         fail_snapshot: false,
+        disk_full: false,
     };
     updater::update(
         &layout.config,

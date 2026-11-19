@@ -18,8 +18,7 @@ use std::{
 
 const DATABASES: &[&str] = &["platform.sqlite", "publish-captures/requests.sqlite"];
 const PLAIN_FILES: &[&str] = &["state.json"];
-/// Room for the snapshot plus its restore rehearsal, with a little disk left over.
-const HEADROOM: u64 = 64 * 1024 * 1024;
+const GIB: u64 = 1024 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,23 +87,23 @@ fn capture_inner(state_dir: &Path, rollback_root: &Path, release: &str) -> Resul
         !root.starts_with(&state) && !state.starts_with(&root),
         "rollback directory must stay outside platform state"
     );
-    let partial = root.join(format!(".partial-{release}"));
-    if partial.exists() {
-        fs::remove_dir_all(&partial)?;
+    // Crash leftovers are removed before the free-space check so a retry can see them gone.
+    reap_incomplete(&root)?;
+    discard_restore_temps(&state)?;
+    let mut payload = 0u64;
+    for relative in DATABASES.iter().chain(PLAIN_FILES) {
+        payload = payload.saturating_add(source_bytes(&state.join(relative))?);
     }
+    let disk = rustix::fs::statvfs(&root)?;
+    let available = disk.f_bavail.saturating_mul(disk.f_frsize);
+    let capacity = disk.f_blocks.saturating_mul(disk.f_frsize);
+    if !enough_space(available, capacity, payload) {
+        return Err(DiskLimit.into());
+    }
+    let partial = root.join(format!(".partial-{release}"));
     fs::create_dir_all(&partial)?;
     fs::set_permissions(&partial, fs::Permissions::from_mode(0o700))?;
     let snapshot = match (|| -> Result<Snapshot> {
-        let mut payload = 0u64;
-        for relative in DATABASES.iter().chain(PLAIN_FILES) {
-            payload = payload.saturating_add(source_bytes(&state.join(relative))?);
-        }
-        let disk = rustix::fs::statvfs(&root)?;
-        let available = disk.f_bavail.saturating_mul(disk.f_frsize);
-        ensure!(
-            enough_space(available, payload),
-            "not enough disk space for a snapshot and its restore check"
-        );
         let mut databases = Vec::new();
         for relative in DATABASES {
             let source = state.join(relative);
@@ -161,20 +160,22 @@ fn capture_inner(state_dir: &Path, rollback_root: &Path, release: &str) -> Resul
     };
     let final_dir = root.join(release);
     let aside = root.join(format!(".aside-{release}"));
-    if aside.exists() {
-        fs::remove_dir_all(&aside)?;
-    }
+    // Keep the previous verified snapshot until the new directory is in place.
     if final_dir.exists() {
+        if aside.exists() {
+            remove_tree(&aside)?;
+        }
         fs::rename(&final_dir, &aside)?;
     }
     if let Err(error) = fs::rename(&partial, &final_dir) {
-        if aside.exists() {
+        if !final_dir.exists() && aside.exists() {
             let _ = fs::rename(&aside, &final_dir);
         }
+        let _ = remove_tree(&partial);
         return Err(error.into());
     }
     if aside.exists() {
-        fs::remove_dir_all(&aside)?;
+        remove_tree(&aside)?;
     }
     prune(&root, release)?;
     write_json(&root.join("latest.json"), &snapshot)?;
@@ -239,10 +240,13 @@ pub fn restore(snapshot_dir: &Path, state_dir: &Path) -> Result<()> {
         for file in snapshot.databases.iter().chain(&snapshot.files) {
             payload = payload.saturating_add(file.bytes);
         }
+        discard_restore_temps(&state)?;
         let disk = rustix::fs::statvfs(&state)?;
+        let available = disk.f_bavail.saturating_mul(disk.f_frsize);
+        let capacity = disk.f_blocks.saturating_mul(disk.f_frsize);
         ensure!(
-            disk.f_bavail.saturating_mul(disk.f_frsize) >= payload.saturating_add(HEADROOM),
-            "not enough disk space to restore the snapshot beside the live files"
+            enough_space(available, capacity, payload),
+            "not enough free disk to restore the snapshot beside the live files"
         );
         for file in snapshot.databases.iter().chain(&snapshot.files) {
             let dest = state.join(&file.path);
@@ -376,19 +380,117 @@ fn prune(root: &Path, keep: &str) -> Result<()> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name == keep {
+        if name == keep || name.starts_with('.') {
             continue;
         }
-        let kind = entry.file_type()?;
-        if kind.is_dir()
-            && (valid_release(&name)
-                || name.starts_with(".partial-")
-                || name.starts_with(".aside-"))
-        {
-            fs::remove_dir_all(entry.path())?;
+        if entry.file_type()?.is_dir() && valid_release(&name) {
+            remove_tree(&entry.path())?;
         }
     }
     Ok(())
+}
+
+/// Drop crash leftovers. A half-published snapshot is put back; it is not deleted
+/// until a newer verified copy has replaced it.
+fn reap_incomplete(root: &Path) -> Result<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+    let names = fs::read_dir(root)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    for name in names {
+        let text = name.to_string_lossy();
+        if text == "latest.json" || text == "last-failure.json" {
+            continue;
+        }
+        let path = root.join(&name);
+        let meta = match path.symlink_metadata() {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if let Some(release) = text.strip_prefix(".aside-") {
+            let published = root.join(release);
+            if meta.is_dir()
+                && !meta.file_type().is_symlink()
+                && valid_release(release)
+                && !published.exists()
+            {
+                fs::rename(&path, published)?;
+            } else {
+                remove_tree(&path)?;
+            }
+            continue;
+        }
+        if text.starts_with(".partial-") || meta.file_type().is_symlink() || meta.is_file() {
+            remove_tree(&path)?;
+        }
+    }
+    Ok(())
+}
+
+fn discard_restore_temps(state: &Path) -> Result<()> {
+    for relative in DATABASES.iter().chain(PLAIN_FILES) {
+        let dest = state.join(relative);
+        let Some(name) = dest.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(parent) = dest.parent() else {
+            continue;
+        };
+        let temp = parent.join(format!(".{name}.rollback"));
+        if temp.symlink_metadata().is_ok() {
+            remove_tree(&temp)?;
+        }
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = sidecar(&temp, suffix);
+            if sidecar.symlink_metadata().is_ok() {
+                remove_tree(&sidecar)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn remove_tree(path: &Path) -> Result<()> {
+    let meta = match path.symlink_metadata() {
+        Ok(meta) => meta,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if meta.file_type().is_symlink() || meta.is_file() {
+        fs::remove_file(path)?;
+    } else if meta.is_dir() {
+        fs::remove_dir_all(path)?;
+    }
+    Ok(())
+}
+
+/// Raised when a snapshot or its restore rehearsal would leave the filesystem too full.
+#[derive(Debug)]
+pub struct DiskLimit;
+
+impl std::fmt::Display for DiskLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "not enough free disk for a pre-update snapshot; current release left unchanged",
+        )
+    }
+}
+
+impl std::error::Error for DiskLimit {}
+
+/// Bytes that must remain after a two-copy snapshot: at least 1 GiB, or 5% of the filesystem.
+fn minimum_free(capacity: u64) -> u64 {
+    GIB.max(capacity.saturating_mul(5) / 100)
+}
+
+fn enough_space(available: u64, capacity: u64, payload: u64) -> bool {
+    available
+        >= payload
+            .saturating_mul(2)
+            .saturating_add(minimum_free(capacity))
 }
 
 fn note_failure(root: &Path, release: &str) {
@@ -400,10 +502,6 @@ fn note_failure(root: &Path, release: &str) {
             "release": release,
         }),
     );
-}
-
-fn enough_space(available: u64, payload: u64) -> bool {
-    available >= payload.saturating_mul(2).saturating_add(HEADROOM)
 }
 
 fn allowed_database(path: &str) -> bool {
@@ -657,9 +755,72 @@ mod tests {
     }
 
     #[test]
-    fn disk_headroom_covers_snapshot_and_rehearsal() {
-        assert!(!enough_space(HEADROOM, 1));
-        assert!(enough_space(HEADROOM + 2, 1));
+    fn free_space_floor_is_one_gib_or_five_percent() {
+        let vm = 47 * GIB;
+        let floor = minimum_free(vm);
+        assert_eq!(floor, vm * 5 / 100);
+        assert!(floor > GIB);
+        let payload = 3 * GIB;
+        assert!(!enough_space(floor + payload * 2 - 1, vm, payload));
+        assert!(enough_space(floor + payload * 2, vm, payload));
+        // On a small filesystem the 1 GiB floor is the larger requirement.
+        let small = 8 * GIB;
+        assert_eq!(minimum_free(small), GIB);
+        assert!(!enough_space(GIB + 4, small, 3));
+        assert!(enough_space(GIB + 6, small, 3));
+    }
+
+    #[test]
+    fn interrupted_snapshot_is_removed_without_dropping_the_verified_copy() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let state = dir.path().join("state");
+        fs::create_dir(&state)?;
+        let db = state.join("platform.sqlite");
+        Connection::open(&db)?
+            .execute_batch("CREATE TABLE marker(v TEXT); INSERT INTO marker VALUES('good');")?;
+        let root = dir.path().join("rollback");
+        let release = "a".repeat(40);
+        let other = "b".repeat(40);
+        capture(&state, &root, &release)?;
+        // Crash after the verified copy was moved aside and a partial write was left behind.
+        fs::rename(root.join(&release), root.join(format!(".aside-{release}")))?;
+        let partial = root.join(format!(".partial-{other}"));
+        fs::create_dir(&partial)?;
+        fs::write(partial.join("junk"), vec![7u8; 4096])?;
+        fs::write(root.join(".tmp-crash"), b"temp")?;
+        fs::write(state.join(".platform.sqlite.rollback"), b"restore-temp")?;
+        fs::create_dir(root.join(&other))?;
+        fs::write(root.join(&other).join("blob"), b"previous-generation")?;
+        fs::write(&db, b"not a database")?;
+        let error = capture(&state, &root, &release).unwrap_err();
+        assert!(!error.is::<DiskLimit>());
+        assert!(!partial.exists());
+        assert!(!root.join(".tmp-crash").exists());
+        assert!(!root.join(format!(".aside-{release}")).exists());
+        assert!(!state.join(".platform.sqlite.rollback").exists());
+        assert_eq!(
+            row(&root.join(&release).join("platform.sqlite"), "good")?,
+            1,
+            "the verified snapshot is restored from the interrupted publish"
+        );
+        assert!(
+            root.join(&other).join("blob").is_file(),
+            "an older generation stays until the replacement verifies"
+        );
+        fs::remove_file(&db)?;
+        Connection::open(&db)?
+            .execute_batch("CREATE TABLE marker(v TEXT); INSERT INTO marker VALUES('next');")?;
+        capture(&state, &root, &other)?;
+        let mut generations = fs::read_dir(&root)?
+            .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        generations.retain(|name| valid_release(name));
+        generations.sort();
+        assert_eq!(generations, vec![other.clone()]);
+        assert!(!root.join(&release).exists());
+        assert!(!root.join(format!(".aside-{other}")).exists());
+        assert!(!root.join(format!(".partial-{other}")).exists());
+        Ok(())
     }
 
     #[test]
