@@ -175,6 +175,7 @@ failure cannot masquerade as a successful ping. Do not silence this rule.
 - Installed daemon limits, restart activity, failed deployment and long deferral.
 - Available disk, application storage categories, host memory and CPU.
 - Last restore-verified backup and failures, when backups are enabled.
+- A failed pre-update database snapshot, once the updater has attempted one.
 - Website response, HTTPS certificate expiry, failed scrapes and stale collector.
 
 Persistent failures alert after a short grace period. Missing collector data is
@@ -213,6 +214,10 @@ the health unit when upgrading from an older unit that used the stable binary.
 - **Long backup staging:** inspect the backup unit, staging space and maintenance
   status. Its stop hook should resume Infuser after a failure. Avoid force-starting
   games while a backup is still copying their state.
+- **Pre-update snapshot:** inspect `infuser-update.service` and
+  `/var/lib/infuser-updater/rollback`. Updates stay on the current release until
+  a new snapshot verifies. Restore with the updater's rollback command only
+  after `rollback-verify` succeeds.
 - **Healthchecks missed heartbeat:** check cloud VM/network status, SSH access,
   the collector, Prometheus and Grafana. Inspect the heartbeat contact point's
   last delivery attempt. An outbound/provider failure can also cause this alert.

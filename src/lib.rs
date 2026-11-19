@@ -41,3 +41,4 @@ pub mod portal;
 pub mod private_file;
 pub mod publish_capture;
 pub mod publisher;
+pub mod rollback;

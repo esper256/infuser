@@ -2,6 +2,11 @@
 
 Audience: server operators.
 
+A bad controller release has a separate, smaller escape hatch: before each
+update, Infuser snapshots platform SQLite and can restore it with the previous
+binary. That path does not use this repository. See
+[Roll back a bad update](update-rollback.md).
+
 Infuser uses restic for encrypted backup storage and rclone for Google Drive
 transport. Use a **dedicated repository**. Keep the repository address, encryption
 password and limited Drive credentials in a separate recovery location as well

@@ -66,9 +66,10 @@ without changing the other. The manual Docker/Caddy workflow uses this same buil
 authentication and forwarding journey. The scoped host-maintenance workflow
 gives early feedback on image and reboot-script PRs.
 
-Fast checks: `cargo test --locked --test operations_journey --test host_health_journey --test update_journey`.
+Fast checks: `cargo test --locked --test operations_journey --test host_health_journey --test update_journey --test rollback_journey`.
 These cover maintenance admission, active-player deferral, bounded recovery,
-planned backup downtime, the recovery hook, staged-release cleanup and rollback.
+planned backup downtime, the recovery hook, staged-release cleanup, binary
+rollback, and the pre-update SQLite snapshot restored with the previous release.
 `groups_journey` verifies operator-only health access; set
 `INFUSER_GROUP_BROWSER_NODE=/path/to/node` to include its browser flow.
 

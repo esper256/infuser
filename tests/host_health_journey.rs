@@ -53,11 +53,18 @@ async fn stalled_controller_recovery_is_bounded_and_backup_pause_is_respected() 
         ),
     )?;
     let metrics = root.path().join("metrics");
+    let updater = root.path().join("updater");
+    let rollback = updater.join("rollback");
+    fs::create_dir_all(&rollback)?;
+    fs::write(
+        rollback.join("last-failure.json"),
+        b"{\"at\":1,\"release\":\"ab\"}",
+    )?;
     let operations = root.path().join("operations.toml");
     fs::write(
         &operations,
         format!(
-            "controller_config={config:?}\nbackup_work_dir={work:?}\nmetrics_dir={metrics:?}\nservices=[\"infuser.service\"]\nrecover_unresponsive_daemon=true"
+            "controller_config={config:?}\nbackup_work_dir={work:?}\nmetrics_dir={metrics:?}\nupdater_state_dir={updater:?}\nservices=[\"infuser.service\"]\nrecover_unresponsive_daemon=true"
         ),
     )?;
     let invoke = || {
@@ -80,7 +87,19 @@ async fn stalled_controller_recovery_is_bounded_and_backup_pause_is_respected() 
     run().await?;
     let text = fs::read_to_string(metrics.join("infuser.prom"))?;
     assert!(text.contains("infuser_check_success{check=\"controller\"} 1"));
+    assert!(text.contains("infuser_check_success{check=\"rollback-snapshot\"} 0"));
     assert!(!text.contains("fixture-secret"));
+    let release = "ab".repeat(20);
+    let record = format!(
+        r#"{{"version":1,"release":"{release}","created":1,"verified":true,"databases":[],"files":[]}}"#
+    );
+    fs::create_dir_all(rollback.join(&release))?;
+    fs::write(rollback.join(&release).join("snapshot.json"), &record)?;
+    fs::write(rollback.join("latest.json"), &record)?;
+    fs::remove_file(rollback.join("last-failure.json"))?;
+    run().await?;
+    let text = fs::read_to_string(metrics.join("infuser.prom"))?;
+    assert!(text.contains("infuser_check_success{check=\"rollback-snapshot\"} 1"));
     ready.store(false, Ordering::Relaxed);
     run().await?;
     run().await?;

@@ -241,6 +241,30 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if args.first().is_some_and(|s| s == "snapshot") {
+        let path = args.get(1).context("update configuration path required")?;
+        println!(
+            "{}",
+            infuser::updater::run_snapshot(infuser::updater::Settings::load(Path::new(path))?)
+                .await?
+        );
+        return Ok(());
+    }
+    if args.first().is_some_and(|s| s == "rollback") {
+        let path = args.get(1).context("update configuration path required")?;
+        println!(
+            "{}",
+            infuser::updater::run_rollback(infuser::updater::Settings::load(Path::new(path))?)
+                .await?
+        );
+        return Ok(());
+    }
+    if args.first().is_some_and(|s| s == "rollback-verify") {
+        let path = args.get(1).context("snapshot directory required")?;
+        let snapshot = infuser::rollback::verify(Path::new(path))?;
+        println!("Snapshot {} verified.", snapshot.release);
+        return Ok(());
+    }
     if args.first().is_some_and(|s| s == "token") {
         println!("{}", secret());
         return Ok(());
@@ -257,7 +281,7 @@ async fn main() -> Result<()> {
     .contains(&command)
     {
         bail!(
-            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
+            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
         );
     }
     let path = args.get(1).context("configuration path required")?;
