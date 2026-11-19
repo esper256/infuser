@@ -62,6 +62,11 @@ save namespace to use. Keep its version value; a `409` means another device
 changed the save. Reload and resolve the game's data deliberately, rather than
 retrying with a guessed version. Include your own save schema version in `data`.
 Handle network/session errors visibly; do not say “saved” until the write succeeds.
+
+For peer-hosted co-op, Play calls `peers.create()` to host a fresh joinable room.
+Offer Play Solo as an unchecked checkbox if the game supports it. Join Friend uses
+`peers.join({sessionId, playerId})` with the selected target. See [peer hosting](../peer-hosting.md).
+
 For standalone play, use [optional platform detection](../peerjs.md#keep-one-project-working-in-both-places)
 to select the existing local save/networking path when Infuser is absent. A failed
 hosted cloud write must never silently switch to local saves.

@@ -1384,6 +1384,8 @@ async fn heartbeat(State(p): State<Platform>, h: HeaderMap) -> Answer {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PeerJoin {
+    #[serde(default)]
+    create: bool,
     connection_id: String,
     #[serde(default = "yes")]
     relay_only: bool,
@@ -1457,6 +1459,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
             build: &launch.build,
             connection: &body.connection_id,
             max_players: multiplayer.max_players,
+            create: body.create,
             expected_epoch: body.expected_epoch.as_deref(),
             expected_player: body.expected_player.as_deref(),
             joinable: body.joinable,

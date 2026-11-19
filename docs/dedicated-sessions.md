@@ -32,7 +32,8 @@ Merge these fields into the [Node recipe](engines/node-server.md):
 ```
 
 Preserve the other required SDK capabilities. `shared` allows one multiplayer
-session per game; `multiple` also allows an explicit “Start a separate run” choice.
+session per game. Choose `multiple` for co-op games where each host starts a
+fresh room. Use `shared` for a game designed around a single shared world.
 Both allow independent server-backed single-player runs. Declare `solo_runtime:
 "shared_server"` if single player is supported by this path. The existing
 `multiplayer.max_players` must match `max_players_per_session` (2–256 for multiplayer;
@@ -59,7 +60,7 @@ choose the hosted integration only when Infuser injected its SDK script. An
 invalid hosted launch is an error, not a reason to switch to public matchmaking.
 
 ```js
-const socket = await Infuser.sessions.connect({activity: 'multiplayer'});
+const socket = await Infuser.sessions.connect({action: 'create', activity: 'multiplayer'});
 socket.onmessage = event => handleGameMessage(event.data);
 socket.onclose = () => showReconnectOrTitleScreen();
 const sessionId = socket.infuser.session.id;
@@ -74,14 +75,14 @@ title screen. Failed startup has a bounded lease even if the caller disappears.
 
 | Player choice | `sessions.connect()` options |
 | --- | --- |
-| Multiplayer | `{activity:'multiplayer'}` — joins an existing joinable run; creates a run only if no multiplayer run exists |
+| Automatic matchmaking | `{activity:'multiplayer'}` — joins an existing joinable run; creates a run only if no multiplayer run exists |
 | Single player | `{activity:'solo'}` |
-| Separate multiplayer run | `{action:'create',activity:'multiplayer'}` — requires `multiple` while another run exists |
+| Play (co-op default, Play Solo unchecked) | `{action:'create',activity:'multiplayer'}` — requires `multiple` while another run exists |
 | Join a displayed run | `{action:'join',target:{session_id,player_id}}` — player ID is optional |
 | Resume this launch's disconnected run | `{action:'resume',target:{session_id}}` |
 | Launcher Join Friend | `{intent:(await Infuser.launchIntent.consume()).intent}` — only when an intent was returned |
 
-If multiplayer runs exist but none can accept this player, ordinary Multiplayer
+If multiplayer runs exist but none can accept this player, automatic matchmaking
 fails visibly. It does not create another run. A separate run requires the
 explicit `create` action and the game's policy must allow it.
 

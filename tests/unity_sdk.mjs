@@ -59,6 +59,16 @@ test('single-file cloud bridge uses the existing retry/conflict contract, includ
   } finally { h.bridge.dispose(); globalThis.fetch = original; }
 });
 
+test('Unity Host uses explicit room creation', async () => {
+  let options;
+  const h=harness({peers:{create:async o=>{options=o;return {role:'host',epoch:'room',close(){}};}}});
+  try {
+    assert.equal((await h.call('peer.create',{joinable:true})).value.role,'host');
+    assert.equal(options.joinable,true);
+    assert.equal(options.sessionId,undefined);
+  } finally {h.bridge.dispose();}
+});
+
 test('Join Friend keeps its exact target, forwards peer events, and sends without implicit join', async () => {
   let options, closed=0, sent, joinable;
   const room = {id:'self',hostId:'host',role:'member',epoch:'epoch',active:true,

@@ -36,7 +36,13 @@ func _current(id: String, link: Dictionary) -> bool:
 func _request(path: String, method: String = "GET", body: Variant = null) -> Dictionary:
 	return await Infuser.call_api("peers", {"path": path, "method": method, "body": body})
 
+func create(relay_only: bool = false, joinable: bool = true) -> Dictionary:
+	return await _enter(relay_only, {}, joinable, true)
+
 func join(relay_only: bool = false, intent: Dictionary = {}, joinable: bool = true) -> Dictionary:
+	return await _enter(relay_only, intent, joinable, false)
+
+func _enter(relay_only: bool, intent: Dictionary, joinable: bool, create_room: bool) -> Dictionary:
 	if _live or _joining:
 		return {"ok": false, "error": "Already joining or playing."}
 	_joining = true
@@ -44,6 +50,8 @@ func join(relay_only: bool = false, intent: Dictionary = {}, joinable: bool = tr
 	var run := _run
 	var sent: int = Infuser.now_msec()
 	var body := {"connection_id": Infuser.uuid(), "relay_only": relay_only, "joinable": joinable}
+	if create_room:
+		body["create"] = true
 	if not intent.is_empty():
 		if intent.get("kind") != "join_friend" or not intent.has("session_id") or not intent.has("player_id"):
 			_joining = false

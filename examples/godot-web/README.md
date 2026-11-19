@@ -25,10 +25,10 @@ The publisher also detects the project and runs the Web preset if you omit
 `.godot/` contents are ignored. Keep credentials outside the project. Do not use
 `--solo`: this manifest supports both modes.
 
-Arrow keys drift; **C** collects a lantern, **S** saves, **M** joins multiplayer,
-and **L** leaves. Buttons do the same. Normal Play opens without creating a room.
+Arrow keys drift; **C** collects a lantern, **S** saves, **M** presses Play,
+and **L** leaves. The Library opens the game without creating a room. The game's Play button hosts a fresh room unless Play Solo is checked. Friends join through the Library.
 `?autoplay=1&multiplayer=1&relay=1` exercises forced TURN with deterministic
-movement. Omit `relay=1` to allow direct paths.
+movement. Add `matchmaking=1` on both test clients to exercise legacy automatic matchmaking. Omit `relay=1` to allow direct paths.
 
 The copyable `addons/infuser` folder is a **preview**, not a stable SDK.
 Its cloud-save adapter also supports [native Godot](../../docs/engines/godot-native.md);

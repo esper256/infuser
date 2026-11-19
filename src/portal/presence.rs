@@ -172,8 +172,11 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
         );
     }
     p.peers.retain_launches(launch.runtime_id(), &live, time);
-    let session = p.peers.discovery(launch.runtime_id(), &launch.build, time);
-    if let Some(members) = session["players"].as_array() {
+    let rooms = p
+        .peers
+        .discover_all(launch.runtime_id(), &launch.build, time);
+    for session in &rooms {
+        let members = session["players"].as_array().unwrap();
         for member in members {
             let player = member["player_id"].as_str().unwrap();
             players.insert(
@@ -217,10 +220,20 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     } else {
         None
     };
+    // Older games can auto-match only with the matchmaking room.
+    let matchmaking = rooms.iter().find(|room| room["matchmaking"] == true);
+    let can_create = unavailable.is_none()
+        && (!dedicated
+            || sessions.is_empty()
+            || build
+                .manifest
+                .sessions
+                .as_ref()
+                .is_some_and(|s| s.policy == crate::dedicated::Policy::Multiple));
     Ok(reply(
         json!({"app_id":launch.app,"build_id":launch.build,"self_id":own_id,
-        "players":players.into_values().collect::<Vec<_>>(),"session":session,"sessions":sessions,
-        "can_start":unavailable.is_none() && if dedicated {build.manifest.sessions.as_ref().is_some_and(|s| s.policy == crate::dedicated::Policy::Multiple) || sessions.is_empty()} else {session.is_null()},"unavailable_reason":unavailable}),
+        "players":players.into_values().collect::<Vec<_>>(),"session":matchmaking,"peer_sessions":rooms,"sessions":sessions,
+        "can_create":can_create,"can_start":can_create && (dedicated || matchmaking.is_none()),"unavailable_reason":unavailable}),
     ))
 }
 

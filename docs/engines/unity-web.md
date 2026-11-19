@@ -153,7 +153,7 @@ can change the browser origin: hydrate from cloud rather than trusting local dat
 For a **new small co-op, arena, board, or party game**, the simplest integration
 is the browser SDK's WebRTC JSON transport through C#. No game server is needed.
 Use the [peer manifest](../peer-hosting.md), including both modes if applicable,
-`peers.webrtc.v1`, mandatory relay fallback, and `launch_intents: ["join_friend"]`.
+`peers.webrtc.v1`, `peers.rooms.v1`, mandatory relay fallback, and `launch_intents: ["join_friend"]`.
 
 ```csharp
 client.PeerMessageReceived += message => { /* Validate and parse message.json. */ };
@@ -161,11 +161,10 @@ client.PeerStateChanged += state => { /* Update the lobby from state.peers. */ }
 client.PeerEnded += ended => { /* Return to the title screen. */ };
 // Consume once after loading progress; ordinary Play has no intent.
 var launch = await client.ConsumeLaunchIntentAsync();
-// On a multiplayer selection, or when launch.intent?.kind == "join_friend":
-var room = await client.JoinPeersAsync(new PeerOptions {
-    intent = launch.intent, relayOnly = false, joinable = false
-});
-if (room.role == "host") await client.SetJoinableAsync(true);
+// On Join Friend, or after the player presses Play with Play Solo unchecked:
+var room = launch.intent?.kind == "join_friend"
+    ? await client.JoinPeersAsync(new PeerOptions { intent = launch.intent })
+    : await client.CreatePeerRoomAsync();
 // SendPeerAsync(hostId, input), BroadcastAsync(snapshot), LeaveMultiplayerAsync().
 ```
 

@@ -25,6 +25,7 @@ var score: Label
 var collect_button: Button
 var save_button: Button
 var join_button: Button
+var play_solo: CheckBox
 var leave_button: Button
 
 func _ready() -> void:
@@ -60,7 +61,10 @@ func _ready() -> void:
 	column.add_child(row)
 	collect_button = _button(row, "Collect lantern", _collect)
 	save_button = _button(row, "Save", _save)
-	join_button = _button(row, "Play together", _join)
+	play_solo = CheckBox.new()
+	play_solo.text = "Play Solo"
+	row.add_child(play_solo)
+	join_button = _button(row, "Play", _play)
 	leave_button = _button(row, "Leave multiplayer", func(): peers.close())
 	var hint := Label.new()
 	hint.text = "Arrows: drift · C: collect · S: save · M: multiplayer · L: leave"
@@ -102,7 +106,7 @@ func _ready() -> void:
 	if not intent.is_empty():
 		_join(intent)
 	elif options.get("multiplayer", "") == "1":
-		_join()
+		_join({}, options.get("matchmaking", "") == "1")
 
 func _valid_save(files: Dictionary) -> bool:
 	var progress: Variant = files.get("progress.json", {"schema": 1, "lanterns": 0})
@@ -180,15 +184,28 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_C: _collect()
 			KEY_S: _save()
-			KEY_M: _join()
+			KEY_M: _play()
 			KEY_L: peers.close()
 
-func _join(intent: Dictionary = {}) -> void:
+func _play() -> void:
+	if not loaded or multiplayer_mode or choosing or not conflict_candidate.is_empty():
+		return
+	if play_solo.button_pressed:
+		status.text = "Exploring the lake on your own."
+		Infuser.call_api("set_activity", {"activity": "single_player"})
+		return
+	_join()
+
+func _join(intent: Dictionary = {}, matchmaking: bool = false) -> void:
 	if not loaded or multiplayer_mode or choosing or not conflict_candidate.is_empty():
 		return
 	join_button.disabled = true
 	status.text = "Finding the shared lake…"
-	var result: Dictionary = await peers.join(force_relay, intent)
+	var result: Dictionary
+	if not intent.is_empty() or matchmaking:
+		result = await peers.join(force_relay, intent)
+	else:
+		result = await peers.create(force_relay)
 	if result.ok:
 		multiplayer_mode = true
 		leave_button.disabled = false

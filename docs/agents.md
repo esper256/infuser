@@ -113,14 +113,18 @@ Declare the game's actual modes in `infuser.game.json`. `play_modes` accepts
 `["solo"]`, `["multiplayer"]`, or both; `solo` is the API spelling of Single player.
 For single player, set `solo_runtime` to `client_only` or `shared_server`.
 Multiplayer also declares its topology, transport, capacity, and join policy.
-Copy the complete example from the matching multiplayer recipe.
+For co-op, make the title screen's **Play** button host a fresh joinable room.
+Put **Play Solo** beside it as an unchecked checkbox if the game supports single
+player. An existing room or a full party should never disable Play. For a local
+solo run, skip room creation and report `single_player`. Copy the transport calls
+from the matching multiplayer recipe.
 
 To let a player launch directly into a friend's current game from the Library,
 follow [Implement Join Friend](launch-intents.md#implement-join-friend-from-the-library).
 It covers host admission, the launch handoff, and how a mixed-mode game tells
 the Library that a player chose single player.
 
-- **Peer-hosted:** one player hosts the shared room. WebRTC requires Infuser TURN
+- **Peer-hosted:** one player hosts each room. WebRTC requires Infuser TURN
   fallback, even when LAN or direct internet connections work. Use the
   [browser peer SDK](peer-hosting.md), Godot adapter, or PeerJS adapter as appropriate.
   Test with relay forced; LAN-only and direct-only networking are unsupported.

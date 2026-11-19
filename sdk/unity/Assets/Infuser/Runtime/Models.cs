@@ -17,10 +17,10 @@ namespace Infuser.Unity
     [Serializable] public sealed class PresenceSnapshot
     {
         public string app_id, build_id, self_id, unavailable_reason;
-        public bool can_start;
+        public bool can_start, can_create;
         public PresencePlayer[] players;
         public GameSession session;
-        public GameSession[] sessions;
+        public GameSession[] sessions, peer_sessions;
     }
     [Serializable] public sealed class PeerPlayer { public string id, player_id, name; public bool guest; }
     [Serializable] public sealed class PeerState
