@@ -1,3 +1,4 @@
+import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
 const viewport=document.getElementById('viewport'),resolutionButton=document.getElementById('resolution');
@@ -181,7 +182,17 @@ function syncOrientation(turned = false) {
 const onTurn = () => syncOrientation(true);
 if (screen.orientation?.addEventListener) screen.orientation.addEventListener('change', onTurn);
 else window.addEventListener('orientationchange', onTurn);
-addEventListener('pagehide', releaseOrientation);
+addEventListener('pagehide', event => {
+  releaseOrientation();
+  const page = document.documentElement.dataset.playerPage;
+  if (!event.persisted && page) {
+    // Keep the same-origin POST alive as the tab closes. The player response
+    // suppresses referrers by default; the endpoint verifies the request Origin.
+    fetch('/_infuser/player-pages/'+page+'/close', {
+      method:'POST', keepalive:true, credentials:'same-origin', referrerPolicy:'same-origin'
+    }).catch(()=>{}); // The heartbeat timeout covers missed departures.
+  }
+});
 addEventListener('pageshow', event => { if (event.persisted) syncOrientation(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncOrientation(); });
 mobile.addEventListener('change', () => mobile.matches ? syncOrientation() : releaseOrientation());
@@ -217,6 +228,28 @@ try{
   document.getElementById('guest').hidden=!session.guest;
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
+  if(!session.guest){
+    const report=()=>fetch('/_infuser/input',{method:'POST',credentials:'same-origin'});
+    const padActive=watchInput(document,report);
+    game.addEventListener('load',()=>{
+      const doc=game.contentDocument;
+      if(doc)watchInput(doc,report);
+    });
+    // Gamepad input does not produce DOM key or pointer events.
+    let padTimer;
+    function connectedPads(){
+      try{return Array.from(navigator.getGamepads?.()||[]).filter(Boolean);}
+      catch{return [];} // Some embedding policies disable gamepad access.
+    }
+    function checkPads(){
+      if(document.hidden||!document.hasFocus())return;
+      const pads=connectedPads();
+      if(!pads.length){clearInterval(padTimer);padTimer=null;}
+      if(pads.some(p=>p.buttons.some(b=>b.pressed)||p.axes.some(a=>Math.abs(a)>.25)))padActive();
+    }
+    window.addEventListener('gamepadconnected',()=>{if(!padTimer)padTimer=setInterval(checkPads,1000);});
+    if(connectedPads().length)padTimer=setInterval(checkPads,1000);
+  }
   const initialDoc=game.contentDocument;
   const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc)tuneGraphics(game.contentWindow);},5);
   game.addEventListener('load',()=>{clearInterval(hookTimer);tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});

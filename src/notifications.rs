@@ -104,6 +104,7 @@ pub fn initialize(c: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS push_subscriptions (
         endpoint TEXT PRIMARY KEY, email TEXT NOT NULL, private_group TEXT NOT NULL,
         subscription TEXT NOT NULL, updated INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS push_test_limits (profile TEXT PRIMARY KEY, last_test INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS push_outbox (
         endpoint TEXT PRIMARY KEY, message_id INTEGER NOT NULL, created INTEGER NOT NULL,
         due INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);",
@@ -176,6 +177,31 @@ impl Database {
         tx.execute("INSERT INTO push_subscriptions(endpoint,email,private_group,subscription,updated) VALUES(?1,?2,?3,?4,?5)
             ON CONFLICT(endpoint) DO UPDATE SET private_group=excluded.private_group,subscription=excluded.subscription,updated=excluded.updated",
             params![sub.endpoint,email,data.groups.member(email),serde_json::to_string(sub)?,now()])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn reserve_push_test(&self, profile: &str, endpoint: &str) -> Result<()> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let registered: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM push_subscriptions WHERE email=?1 AND endpoint=?2)",
+            params![profile, endpoint],
+            |row| row.get(0),
+        )?;
+        ensure!(
+            registered,
+            fault(404, "Turn on notifications for this device first.")
+        );
+        let changed = tx.execute(
+            "INSERT INTO push_test_limits(profile,last_test) VALUES(?1,?2)
+             ON CONFLICT(profile) DO UPDATE SET last_test=excluded.last_test
+             WHERE last_test<=excluded.last_test-30",
+            params![profile, now()],
+        )?;
+        ensure!(
+            changed == 1,
+            fault(429, "Wait 30 seconds before sending another test.")
+        );
         tx.commit()?;
         Ok(())
     }

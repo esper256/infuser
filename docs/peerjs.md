@@ -10,12 +10,12 @@ to [Explicit play modes](agents.md#explicit-play-modes) and finish the main chec
 **Preview: tested with PeerJS 1.5.5 and PeerServer 1.0.2.** Keep the game's PeerJS
 dependency, simulation, and message formats. Infuser supplies private connection
 setup and admission; PeerJS still creates the real WebRTC DataConnections.
-JSON and binary serialization are supported. Audio/video calls, mesh topologies,
-multiple rooms per game, and seamless host migration are outside this adapter.
+JSON and binary serialization are supported. Each room has an independent host. Audio/video calls, mesh topologies,
+and seamless host migration are outside this adapter.
 
 PeerJS is a library, not a separate multiplayer mode. Declare `peer_hosted` and
 `webrtc`, and set `adapter:"peerjs"` to select this adapter. Query publisher
-capabilities for `sdk.capabilities` containing `peers.peerjs.v1` before editing or
+capabilities for `sdk.capabilities` containing `peers.peerjs.v1` and `peers.rooms.v1` before editing or
 publishing an integration. A host without the private PeerServer service rejects
 the declaration; do not relabel the game as single-player to publish it.
 
@@ -24,7 +24,8 @@ the declaration; do not relabel the game as single-player to publish it.
   "title": "The Existing Game Name",
   "play_modes": ["solo", "multiplayer"],
   "solo_runtime": "client_only",
-  "sdk": {"major": 1, "api_major": 1, "required_capabilities": ["identity.v1", "peers.peerjs.v1"]},
+  "launch_intents": ["join_friend"],
+  "sdk": {"major": 1, "api_major": 1, "required_capabilities": ["identity.v1", "peers.peerjs.v1", "peers.rooms.v1"]},
   "multiplayer": {
     "mode": "peer_hosted", "transport": "webrtc", "adapter": "peerjs",
     "max_players": 4, "join_policy": "anytime",
@@ -34,9 +35,8 @@ the declaration; do not relabel the game as single-player to publish it.
 ```
 
 Keep both play modes only if the game actually supports both. Each session has one
-host with up to seven other players; the first participant hosts and everyone else
-joins that session. A game with an existing host selection or room-code UI must
-use Infuser's chosen host in its hosted path. Preserve its existing standalone
+host with up to seven other players. Play calls `peerjs.create` to host a fresh
+room. Use the selected session ID for an in-game Join or both IDs for Join Friend. Preserve its existing standalone
 flow in the other path. This is connection setup work, not a promise of zero
 changes to an arbitrary `net.js`.
 
@@ -66,7 +66,7 @@ const infuser = await connectInfuser();
 
 async function enterMultiplayer() {
   if (!infuser) return startExistingStandaloneMultiplayer();
-  const room = await infuser.peerjs.join({
+  const room = await infuser.peerjs.create({
     Peer,
     joinable: false,
     connectionOptions: {serialization: 'binary', reliable: true},

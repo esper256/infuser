@@ -1,3 +1,4 @@
+import { watchInput } from '/assets/activity-input.js';
 import { initFeedback } from '/assets/feedback.js';
 import { screenshotTile, fillScreenshotPicker, attachmentDraft } from '/assets/screenshots.js';
 import { selectedVisit, visitHeaders, initVisits, updateVisit, returnHome } from '/assets/visits.js';
@@ -13,7 +14,7 @@ const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
 let noticeTimer,adminLoaded=false,adminLoading=false,networkHealthBusy=false;
 let refreshServerUpdates=()=>{};
-let me, library, currentReaction, refreshing = false, activeTag = "", editingTags, selectedTags = new Set();
+let me, library, currentReaction, refreshing = false, refreshQueued = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
 let entryGame, detailGameId, detailReturnFocus, detailSignature, removingReaction=null;
@@ -127,8 +128,9 @@ async function api(path, options = {}) {
   return result;
 }
 function showError(error) { notice(error.message); }
-async function refresh() {
-  if (refreshing) return; refreshing = true;
+async function refresh(afterWrite = false) {
+  if (refreshing) { if (afterWrite === true) refreshQueued = true; return; }
+  refreshing = true;
   try {
     library = await api('/api/library',{signal:AbortSignal.timeout(12000)});
     updateVisit(library.visit);
@@ -138,7 +140,7 @@ async function refresh() {
     renderPresence();
     renderFilters(); renderGames(); renderFeed(); renderGameDetail();
     if(!$('search-options').hidden)renderSearchOptions();
-  } catch (error) { showError(error); } finally { refreshing = false; }
+  } catch (error) { showError(error); } finally { refreshing = false; if (refreshQueued) { refreshQueued = false; await refresh(); } }
 }
 function gameArtSource(game){return game.card_art_url||(game.card_art_pending?'/assets/card-generating.webp':null);}
 function describeArt(art,game){
@@ -160,16 +162,26 @@ function gameBuzz(game){
   for(const reaction of [...distinct,...rest].slice(0,count)){const face=reactionFace(reaction.emoji);face.style.zIndex=String(count-stack.childElementCount);face.setAttribute('aria-hidden','true');stack.append(face);}
   stack.onclick=()=>openGameDetail(game,recent[0]);return stack;
 }
-function renderGamePlayers(card,game){
+const sessionPlayer=player=>player.player_id||(!player.guest?player.id:null);
+const playerName=player=>player.guest?player.name+(player.count>1?'’s guests ('+player.count+')':'’s guest'):player.name;
+function activityLabel(player){
+  if(player.join_reason==='different_build')return 'Playing an earlier version';
+  if(player.activity==='single_player')return 'Single player';
+  if(player.activity==='title_screen')return 'At the title screen';
+  return ({full:'Multiplayer · Session full',closed:'Multiplayer · Session closed',server_draining:'Multiplayer · Update pending',
+    not_advertised:'Multiplayer · Join unavailable',not_supported:'Multiplayer · Join unavailable'})[player.join_reason]
+    || (player.activity==='multiplayer'?'Multiplayer':'Game open');
+}
+function gamePlayers(game){
   const people=new Map();
-  const sessionPlayer=player=>player.player_id||(!player.guest?player.id:null);
   for(const player of game.players||[]){
     const key=JSON.stringify([player.id||player.name,!!player.guest]),existing=people.get(key);
-    if(existing){if(player.guest)existing.count++;if(sessionPlayer(player))existing.playerIds.add(sessionPlayer(player));continue;}
-    people.set(key,{...player,count:1,key,playerIds:new Set(sessionPlayer(player)?[sessionPlayer(player)]:[])});
+    if(existing){existing.labels.add(activityLabel(player));if(player.guest)existing.count++;if(sessionPlayer(player))existing.playerIds.add(sessionPlayer(player));continue;}
+    people.set(key,{...player,count:1,key,labels:new Set([activityLabel(player)]),playerIds:new Set(sessionPlayer(player)?[sessionPlayer(player)]:[])});
   }
-  const players=[...people.values()].map(player=>({...player,playerIds:[...player.playerIds].sort()})).sort((a,b)=>a.key.localeCompare(b.key)),state=cardStates.get(card);
-  const targets=player=>{
+  return [...people.values()].map(player=>({...player,labels:[...player.labels].sort(),playerIds:[...player.playerIds].sort()})).sort((a,b)=>a.key.localeCompare(b.key));
+}
+function playerTargets(game,player){
     if(me.inspecting||game.play_unavailable||game.native_only)return [];
     const seen=new Set();
     return (game.join_targets||[]).filter(target=>{
@@ -177,40 +189,50 @@ function renderGamePlayers(card,game){
       if(seen.has(key)||!player.playerIds.includes(target.player_id)||!!target.guest!==!!player.guest||!(game.players||[]).some(p=>sessionPlayer(p)===target.player_id))return false;
       seen.add(key);return true;
     });
-  };
+}
+function playerStatus(game,player){
+  return playerTargets(game,player).length?'Multiplayer · Join available':player.labels.join(' / ');
+}
+function playerPortrait(game,player){
+    const badge=el('span',undefined,'game-player'+(player.guest?' game-player-guest':''));badge.title=playerName(player)+' · '+playerStatus(game,player);
+    badge.append(profileAvatar(player.name,player.id||player.name,player.avatar));
+    if(player.guest){const guest=el('span','G','game-player-guest-mark');guest.setAttribute('aria-hidden','true');badge.append(guest);}
+    return badge;
+}
+function playerRows(game,players,card,closeMenu){
+  const list=el('ul',undefined,'playing-roster');
+  for(const player of players){
+    const row=el('li'),info=el('div',undefined,'game-player-info'),joinable=playerTargets(game,player);
+    info.append(el('span',playerName(player),'game-player-name'));
+    info.append(el('small',playerStatus(game,player),'quiet'));
+    joinable.forEach((target,index)=>{
+      const join=el('button','Join '+(player.guest?player.name+'’s guest':player.name)+(joinable.length>1?' · session '+(index+1):''),'game-player-join');join.type='button';
+      join.dataset.joinTarget=JSON.stringify([target.session_id,target.player_id]);
+      join.onclick=()=>{
+        const latest=library.apps.find(app=>app.id===game.id);
+        const current=latest&&playerTargets(latest,player).find(t=>t.session_id===target.session_id&&t.player_id===target.player_id);
+        closeMenu?.();
+        if(!current){notice('That session is no longer available to join.');return;}
+        start(latest,join,card,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
+      };
+      info.append(join);
+    });
+    row.append(playerPortrait(game,player),info);list.append(row);
+  }
+  return list;
+}
+function renderGamePlayers(card,game){
+  const players=gamePlayers(game),state=cardStates.get(card);
   const signature=JSON.stringify([players,game.join_targets,me.inspecting,game.play_unavailable,game.native_only]),previous=card.querySelector('.game-live');
   if(state.playerSignature===signature&&(!players.length||previous))return;
   state.playerSignature=signature;
   const focused=previous?.contains(document.activeElement),focusedTarget=document.activeElement.dataset.joinTarget;
   if(!players.length){previous?.remove();card.classList.remove('players-open');card.style.removeProperty('--game-live-space');if(focused)card.querySelector('.game-open')?.focus({preventScroll:true});return;}
-  const name=player=>player.guest?player.name+(player.count>1?'’s guests ('+player.count+')':'’s guest'):player.name;
-  const portrait=player=>{
-    const badge=el('span',undefined,'game-player'+(player.guest?' game-player-guest':''));badge.title=name(player);
-    badge.append(profileAvatar(player.name,player.id||player.name,player.avatar));
-    if(player.guest){const guest=el('span','G','game-player-guest-mark');guest.setAttribute('aria-hidden','true');badge.append(guest);}
-    return badge;
-  };
   const menu=el('details',undefined,'game-live'),trigger=el('summary');
-  trigger.setAttribute('aria-label','Playing now: '+players.map(name).join(', '));trigger.title='Who’s playing';
-  for(const player of players.slice(0,3)){const badge=portrait(player);badge.setAttribute('aria-hidden','true');trigger.append(badge);}
+  trigger.setAttribute('aria-label','Playing now: '+players.map(playerName).join(', '));trigger.title=players.map(p=>playerName(p)+' · '+playerStatus(game,p)).join('\n');
+  for(const player of players.slice(0,3)){const badge=playerPortrait(game,player);badge.setAttribute('aria-hidden','true');trigger.append(badge);}
   if(players.length>3){const more=el('span','+'+(players.length-3),'game-player-more');more.setAttribute('aria-hidden','true');trigger.append(more);}
-  const panel=el('div',undefined,'game-live-menu'),list=el('ul');panel.append(el('p','Playing now'),list);
-  for(const player of players){
-    const row=el('li'),info=el('div',undefined,'game-player-info'),joinable=targets(player);
-    info.append(el('span',name(player),'game-player-name'));
-    joinable.forEach((target,index)=>{
-      const join=el('button','Join '+(player.guest?player.name+'’s guest':player.name)+(joinable.length>1?' · session '+(index+1):''),'game-player-join');join.type='button';
-      join.dataset.joinTarget=JSON.stringify([target.session_id,target.player_id]);
-      join.onclick=()=>{
-        const current=targets(player).find(t=>t.session_id===target.session_id&&t.player_id===target.player_id);
-        menu.open=false;
-        if(!current){notice('That session is no longer available to join.');return;}
-        start(game,join,card,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
-      };
-      info.append(join);
-    });
-    row.append(portrait(player),info);list.append(row);
-  }
+  const panel=el('div',undefined,'game-live-menu');panel.append(el('p','Playing now'),playerRows(game,players,card,()=>{menu.open=false;}));
   menu.append(trigger,panel);menu.open=previous?.open||false;
   card.classList.toggle('players-open',menu.open);
   menu.ontoggle=()=>card.classList.toggle('players-open',menu.open);
@@ -232,7 +254,7 @@ function renderGames() {
   }
   if(!library.apps.length)nextCards.push(emptyState('No games yet','Add a game to get started.'));
   const query=$('game-search').value.trim().toLowerCase();
-  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?g.author?.id===selectedAuthor:!query||(g.title+' '+(g.author?.name||'')+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?gameAuthors(g).some(author=>author.id===selectedAuthor):!query||(g.title+' '+authorNames(g)+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   // Stable sort keeps equal timestamps in catalog order across refreshes.
   matching.sort((a,b)=>(b.updated||0)-(a.updated||0));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
@@ -335,11 +357,20 @@ function gameAdminActions(game){
   };
   items.append(visibility,error);menu.append(trigger,items);return menu;
 }
-function creatorButton(game){
-    const label=game.author?.name?'React to '+game.author.name+'’s game':'React to '+game.title;
+function gameAuthors(game){return game.authors??(game.author?[game.author]:[]);}
+function authorNames(game){return gameAuthors(game).map(author=>author.name).join(', ');}
+
+function creatorButton(game,authors=gameAuthors(game)){
+    const names=authorNames(game),label=names?'React to '+names+'’s game':'React to '+game.title;
     const react=el('button',undefined,'creator react-button');react.type='button';react.setAttribute('aria-label',label);react.setAttribute('aria-haspopup','dialog');
-    const avatar=profileAvatar(game.author?.name,game.author?.id||game.id,game.author?.avatar),hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
-    react.disabled=!!me.inspecting;react.append(avatar,hint);react.onclick=()=>openReaction(game);return react;
+    const hint=el('span',label,'reaction-hint');hint.setAttribute('aria-hidden','true');
+    if(authors.length>1){
+      const stack=el('span',undefined,'author-stack');stack.setAttribute('aria-hidden','true');stack.style.setProperty('--author-count',Math.min(authors.length,3));
+      for(const [index,author] of authors.slice(0,3).entries()){const avatar=profileAvatar(author.name,author.id,author.avatar);avatar.style.setProperty('--author-index',index);stack.append(avatar);}
+      if(authors.length>3)stack.append(el('span','+'+(authors.length-3),'author-overflow'));
+      react.append(stack);
+    }else react.append(profileAvatar(authors[0]?.name,authors[0]?.id||game.id,authors[0]?.avatar));
+    react.disabled=!!me.inspecting;react.append(hint);react.onclick=()=>openReaction(game);return react;
 }
 function reactionKey(reaction){return JSON.stringify([reaction.id||reaction.name,reaction.updated,reaction.emoji]);}
 function openGameDetail(game,reaction){
@@ -375,13 +406,20 @@ function renderGameDetail(){
   if(game.can_manage_visibility&&me.admin&&!me.inspecting)headingRow.append(gameAdminActions(game));
   info.append(headingRow);
   if(game.preview)info.append(el('p','Hidden','game-visibility'));
-  const creator=el('div',undefined,'detail-creator'),react=creatorButton(game);
-  creator.append(react);if(game.author?.name){const by=el('p','by ');by.append(el('strong',game.author.name));creator.append(by);}info.append(creator);
+  const creator=el('div',undefined,'detail-creator');
+  const credits=el('ol',undefined,'detail-authors');credits.setAttribute('aria-label','Game authors');
+  for(const author of gameAuthors(game)){const credit=el('li');credit.append(creatorButton(game,[author]),el('strong',author.name));credits.append(credit);}
+  if(credits.childElementCount)creator.append(credits);else creator.append(creatorButton(game));info.append(creator);
   const tags=el('div',undefined,'detail-tags');tags.setAttribute('aria-label','Game categories');
   for(const tag of game.tags||[]){const button=el('button',tagLabel(tag),'tag-chip');button.type='button';button.onclick=()=>{detailReturnFocus=$('game-search');dialog.close();activeTag=tag;renderFilters();renderGames();$('game-search').focus();};tags.append(button);}
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags','text-button');edit.type='button';edit.onclick=()=>openTags(game);tags.append(edit);}if(tags.childElementCount)info.append(tags);
   if(game.description)info.append(el('p',game.description,'game-description'));
   info.append(gameActions(game,info));
+  const players=gamePlayers(game);
+  if(players.length){
+    const playing=el('section',undefined,'detail-playing');playing.setAttribute('aria-label','Playing now');
+    playing.append(el('h3','Playing now'),playerRows(game,players,info));info.append(playing);
+  }
   if(Number.isFinite(game.updated)&&game.updated>0){const time=el('time','Updated '+new Date(game.updated*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}),'game-updated');time.dateTime=new Date(game.updated*1000).toISOString();info.append(time);}
   const feedback=el('section',undefined,'game-feedback');feedback.id='game-feedback';feedback.tabIndex=-1;feedback.setAttribute('aria-labelledby','game-feedback-title');
   const heading=el('h3','Feedback');heading.id='game-feedback-title';feedback.append(heading);
@@ -536,8 +574,23 @@ function visiblePresenceCount(people){
 }
 const presenceResize=new ResizeObserver(()=>{if(library)renderPresence();});
 
+function presenceLabel(status){return ({idle:'Idle',away:'Away'})[status]||'Online';}
 function renderPresence() {
-  let people=(library.friends||[]).filter(person=>person.id!==me.player_id);const list=$('friends');
+  const list=$('friends'),playing=new Map();
+  for(const game of library.apps||[])for(const player of gamePlayers(game)){
+    const entries=playing.get(player.id)||[];
+    entries.push(playerName(player)+(player.guest&&player.count>1?' are':' is')+' currently playing '+game.title+' · '+playerStatus(game,player));
+    playing.set(player.id,entries);
+  }
+  const self=list.querySelector('.presence-self'),ownStatus=library.friends?.find(p=>p.id===me.player_id)?.status;
+  if(self&&!me.inspecting){
+    self.dataset.status=ownStatus||'active';
+    const label=me.name+' · '+presenceLabel(ownStatus)+' · Profile menu';
+    $('account-trigger').setAttribute('aria-label',label);$('account-trigger').title=label;
+    const ownGames=$('account-playing');
+    setText(ownGames,(playing.get(me.player_id)||[]).join('\n'));ownGames.hidden=!ownGames.textContent;
+  }
+  let people=(library.friends||[]).filter(person=>person.id!==me.player_id).map(person=>({...person,playing:playing.get(person.id)||[]}));
   // Leave menus and keyboard focus intact when a poll has no presence changes.
   const visibleCount=visiblePresenceCount(people);
   if(chatPresence)people=chatPresenceLayout(people,visibleCount,list);
@@ -557,13 +610,14 @@ function renderPresence() {
     const item=el('li',undefined,'presence-person'+(overflow?' presence-more':''));
     const menu=el('details',undefined,'header-menu friend-menu');menu.dataset.key=key;
     const trigger=el('summary'),panel=el('div',undefined,'account-menu friend-actions');
-    trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · online');
+    trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · '+presenceLabel(persons[0].status));
     if(overflow)trigger.textContent='+'+persons.length;
-    else {item.dataset.playerId=key;trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
+    else {item.dataset.playerId=key;item.dataset.status=persons[0].status||'active';trigger.title=[persons[0].name+' · '+presenceLabel(persons[0].status),...persons[0].playing].join('\n');trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
     for(const person of persons){
       panel.append(el('p',person.name,'friend-name'));
       const targets=me.inspecting?[]:(person.join_targets||[]);
-      if(!targets.length)panel.append(el('p','Online','quiet friend-status'));
+      panel.append(el('p',presenceLabel(person.status),'quiet friend-status'));
+      for(const description of person.playing)panel.append(el('p',description,'friend-status'));
       for(const target of targets){
         const button=el('button','Join '+target.title);button.type='button';button.dataset.friendAction=target.session_id+':'+person.id;
         button.onclick=()=>{
@@ -702,37 +756,128 @@ function updateRecentAge(){
   setText(time,recentAge(at));if(time.dateTime!==iso){time.dateTime=iso;time.title=date.toLocaleString();}
 }
 let feedSignature;
+const pendingFeedReactions=new Set();
+const feedPicker=el('div',undefined,'feed-reaction-picker');feedPicker.id='feed-reaction-picker';
+feedPicker.setAttribute('popover','auto');feedPicker.setAttribute('role','dialog');$('recent-menu').append(feedPicker);
+function feedReactionTrigger(id){return [...$('feed').querySelectorAll('.feed-react-toggle')].find(button=>button.dataset.update===id);}
+function positionFeedPicker(){
+  if(!feedPicker.matches(':popover-open'))return;
+  const trigger=feedReactionTrigger(feedPicker.dataset.update);
+  if(!trigger||!$('recent-menu').open){feedPicker.hidePopover();return;}
+  const bounds=trigger.getBoundingClientRect(),width=Math.min(356,innerWidth-32);
+  feedPicker.style.width=width+'px';feedPicker.style.left=Math.max(16,Math.min(bounds.right-width,innerWidth-width-16))+'px';
+  feedPicker.style.maxHeight=Math.max(44,innerHeight-32)+'px';
+  const height=feedPicker.getBoundingClientRect().height;
+  feedPicker.style.top=Math.max(16,Math.min(bounds.bottom+8+height<=innerHeight-16?bounds.bottom+8:bounds.top-height-8,innerHeight-height-16))+'px';
+}
+feedPicker.addEventListener('toggle',()=>{
+  const open=feedPicker.matches(':popover-open');
+  for(const trigger of $('feed').querySelectorAll('.feed-react-toggle'))trigger.setAttribute('aria-expanded',String(open&&trigger.dataset.update===feedPicker.dataset.update));
+});
+feedPicker.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();feedPicker.hidePopover();feedReactionTrigger(feedPicker.dataset.update)?.focus({preventScroll:true});}
+});
+window.addEventListener('resize',positionFeedPicker);
+$('activity').addEventListener('scroll',()=>{if(feedPicker.matches(':popover-open'))feedPicker.hidePopover();});
+function syncFeedChoices(game){
+  for(const choice of feedPicker.children){
+    choice.setAttribute('aria-pressed',String(choice.dataset.emoji===game.update_reactions?.mine));
+    choice.setAttribute('aria-disabled',String(pendingFeedReactions.has(game.update_id)));
+  }
+}
+async function saveFeedReaction(game,button){
+  const id=game.update_id;
+  if(pendingFeedReactions.has(id))return;
+  pendingFeedReactions.add(id);
+  syncFeedChoices(game);
+  try{
+    await api('/api/apps/'+encodeURIComponent(game.id)+'/updates/'+encodeURIComponent(id)+'/reaction',{
+      method:'PUT',body:JSON.stringify({emoji:button.dataset.emoji}),signal:AbortSignal.timeout(12000)
+    });
+    if(feedPicker.matches(':popover-open')&&feedPicker.contains(button)){
+      clearTimeout(noticeTimer);$('notice').classList.remove('visible');$('notice').textContent='';
+      updateConfetti(button);feedPicker.hidePopover();feedReactionTrigger(id)?.focus({preventScroll:true});
+    }
+    await refresh(true);
+  }catch(error){
+    showError(error);
+    if(error.status===409)await refresh(true);
+  }finally{
+    pendingFeedReactions.delete(id);
+    const current=library.apps.find(app=>app.update_id===id);
+    if(current&&feedPicker.dataset.update===id)syncFeedChoices(current);
+  }
+}
+function openFeedReactions(game){
+  if(inspection||me?.inspecting)return;
+  if(feedPicker.matches(':popover-open'))feedPicker.hidePopover();
+  feedPicker.dataset.update=game.update_id;
+  feedPicker.setAttribute('aria-label','React to '+game.title+' update');feedPicker.replaceChildren();
+  for(const [emoji,label] of emojis){
+    const button=el('button');button.type='button';button.dataset.emoji=emoji;
+    button.append(reactionFace(emoji,'feed-reaction-face'));button.setAttribute('aria-label','React: '+label);
+    button.onclick=()=>saveFeedReaction(game,button);feedPicker.append(button);
+  }
+  syncFeedChoices(game);feedPicker.showPopover();positionFeedPicker();
+  (feedPicker.querySelector('[aria-pressed="true"]')||feedPicker.firstElementChild).focus({preventScroll:true});
+}
+function feedReactions(game){
+  const button=el('button',undefined,'feed-react-toggle');button.type='button';button.dataset.update=game.update_id;
+  const mine=game.update_reactions?.mine;
+  if(mine)button.append(reactionFace(mine,'feed-reaction-face'));
+  else button.innerHTML='<svg class="feed-react-outline" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 14c2-6 7-11 13-11 0 6-5 11-11 13zM9.5 10.5l-4-.5L3 13l5 1m5.5.5.5 4-3 2.5-1-5M6.5 16.5C4 17 3 19 3 21c2 0 4-1 4.5-3.5"/><circle cx="16" cy="8" r="1.6"/></svg>';
+  button.title=mine?'Change your reaction':'React to this update';
+  button.setAttribute('aria-label','React to '+game.title+' update');button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-controls',feedPicker.id);
+  button.setAttribute('aria-expanded',String(feedPicker.matches(':popover-open')&&feedPicker.dataset.update===game.update_id));
+  button.onclick=()=>openFeedReactions(game);return button;
+}
+function appendUpdateCounts(body,counts){
+  const tally=el('span',undefined,'feed-update-counts');
+  for(const [emoji,label] of emojis){
+    const count=counts?.[emoji];if(!count)continue;
+    const chip=el('span');chip.setAttribute('role','img');chip.setAttribute('aria-label',label+' × '+count);
+    chip.append(reactionFace(emoji),String(count));tally.append(chip);
+  }
+  if(tally.childElementCount)body.append(tally);
+}
 function renderFeed() {
   const feed=$('feed');const entries=[];
   for(const game of library.apps){entries.push({game,at:game.updated,emoji:'↗',title:game.author?.name?game.author.name+' updated '+game.title:game.title+' updated',text:'',person:game.author});for(const r of game.reactions)entries.push({game,reaction:r,at:r.updated,emoji:r.emoji,title:r.name+' reacted to '+game.title,text:r.text,person:{id:r.id,name:r.name,avatar:r.avatar}});}
   entries.sort((a,b)=>b.at-a.at);
-  const keys=new Set(entries.slice(0,12).map(entry=>JSON.stringify([entry.at,entry.title,entry.text])));
+  const keys=new Set(entries.slice(0,12).map(entry=>JSON.stringify([entry.game.id,entry.reaction?.id??entry.game.update_id,entry.at,entry.title,entry.text])));
   if(!seenEvents||$('recent-menu').open)seenEvents=keys;
   const unseen=[...keys].some(key=>!seenEvents.has(key));
   $('recent-toggle').classList.toggle('has-updates',unseen);syncRecentMotion();
   const label=unseen?'Recently · new events':'Recently';
   if($('recent-toggle').getAttribute('aria-label')!==label)$('recent-toggle').setAttribute('aria-label',label);
-  const signature=JSON.stringify(entries.slice(0,12).map(({game,...entry})=>[game.id,entry]));
+  const signature=JSON.stringify(entries.slice(0,12).map(({game,...entry})=>[game.id,entry,entry.reaction?null:[game.update_id,game.update_reactions],!!(inspection||me?.inspecting)]));
   if(signature===feedSignature){updateRecentAge();return;}feedSignature=signature;
   const previous=new Map([...feed.children].map(row=>[row.dataset.key,row])),rows=[],focused=document.activeElement;
   let replacementFocus;
   if(!entries.length)rows.push(el('p','Game updates and reactions show up here.','quiet'));
   for(const entry of entries.slice(0,12)){
     const key=JSON.stringify([entry.game.id,entry.reaction?entry.reaction.id||entry.reaction.name:null]);
-    const signature=JSON.stringify([entry.at,entry.title,entry.text,entry.emoji,entry.person]);
+    const signature=JSON.stringify([entry.at,entry.title,entry.text,entry.emoji,entry.person,entry.reaction?null:[entry.game.update_id,entry.game.update_reactions],!!(inspection||me?.inspecting)]);
     const old=previous.get(key);
     if(old?.dataset.signature===signature){rows.push(old);continue;}
-    const row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');
-    row.dataset.key=key;row.dataset.signature=signature;row.dataset.at=entry.at;
+    const item=el('div',undefined,'feed-entry'),row=el('button',undefined,'feed-row'),body=el('span');row.type='button';row.setAttribute('aria-haspopup','dialog');
+    item.dataset.key=key;item.dataset.signature=signature;row.dataset.at=entry.at;
     row.onclick=()=>{$('recent-menu').open=false;const game=library.apps.find(game=>game.id===entry.game.id);if(game)openGameDetail(game,entry.reaction);};
     body.append(el('small',entry.title));if(entry.text)body.append(el('p',entry.text));
+    if(!entry.reaction)appendUpdateCounts(body,entry.game.update_reactions?.counts);
     const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
     if(entry.person?.name)mark.append(profileAvatar(entry.person.name,entry.person.id||entry.person.name,entry.person.avatar));
-    mark.append(reactionFace(entry.emoji,'feed-emoji'));row.append(mark,body);rows.push(row);
-    if(old===focused)replacementFocus=row;
+    mark.append(reactionFace(entry.emoji,'feed-emoji'));row.append(mark,body);item.append(row);
+    if(!entry.reaction&&entry.game.update_id&&!inspection&&!me?.inspecting)item.append(feedReactions(entry.game));
+    rows.push(item);
+    if(old?.contains(focused))replacementFocus=focused.classList.contains('feed-react-toggle')?item.querySelector('.feed-react-toggle')||row:row;
   }
   const hadFocus=feed.contains(focused);
-  reconcileChildren(feed,rows);updateRecentAge();
+  reconcileChildren(feed,rows);updateRecentAge();positionFeedPicker();
+  if(feedPicker.matches(':popover-open')){
+    const current=library.apps.find(app=>app.update_id===feedPicker.dataset.update);
+    if(current)syncFeedChoices(current);
+  }
   if(hadFocus)(focused.isConnected?focused:replacementFocus||$('recent-toggle')).focus({preventScroll:true});
 }
 for(const [emoji,label]of emojis){const l=el('label'),radio=el('input');radio.type='radio';radio.name='emoji';radio.value=emoji;radio.required=true;radio.setAttribute('aria-label',label);l.title=label;l.append(radio,reactionFace(emoji),el('small',label,'reaction-caption'));$('emoji').append(l);}
@@ -806,10 +951,67 @@ function openReaction(game, selectedEmoji) {
 $('close-reaction').onclick=()=>$('reaction-dialog').close();
 $('reaction-form').onsubmit=async event=>{event.preventDefault();try{const f=new FormData(event.target);await api(`/api/apps/${currentReaction.id}/reaction`,{method:'PUT',body:JSON.stringify({emoji:f.get('emoji'),text:f.get('text'),screenshot:reactionScreenshot})});$('reaction-dialog').close();reactionBurst($('game-detail').open?$('game-feedback'):[...$('games').querySelectorAll('.game')].find(card=>card.dataset.app===currentReaction.id)?.querySelector('.creator'),f.get('emoji'));notice('Reaction sent!');await refresh();}catch(error){showError(error);}};
 $('remove-reaction').onclick=async()=>{try{await api(`/api/apps/${currentReaction.id}/reaction`,{method:'DELETE'});$('reaction-dialog').close();await refresh();}catch(error){showError(error);}};
+function adminRegion(title,body){
+  const region=el('details',undefined,'admin-region');
+  body.classList.add('admin-region-body');region.append(el('summary',title),body);return region;
+}
+async function loadAuthorTools(){
+  if(!me.admin||me.inspecting||$('game-authors')?.dataset.dirty==='true')return;
+  const data=await api('/api/admin/game-authors');
+  if(!$('admin').open||$('game-authors')?.dataset.dirty==='true')return;
+  let section=$('game-authors');
+  if(!section){section=el('section');section.id='game-authors';$('admin-controls').prepend(adminRegion('Game authors',section));}
+  const previous=section.querySelector('select')?.value;
+  section.replaceChildren(el('p','Credit collaborators in the order you choose. Publishing access stays the same.','quiet'));
+  const form=el('form',undefined,'author-editor'),gameLabel=el('label','Game'),gameSelect=el('select'),list=el('ol',undefined,'author-order'),addLabel=el('label','Add author'),candidate=el('select'),add=el('button','Add','secondary'),save=el('button','Save authors'),status=el('p',undefined,'author-status');
+  gameSelect.setAttribute('aria-label','Game to credit');candidate.setAttribute('aria-label','Author to add');list.setAttribute('aria-label','Authors in credit order');status.setAttribute('role','status');
+  add.type='button';save.type='submit';
+  for(const game of data.games){const option=el('option',game.title);option.value=game.id;gameSelect.append(option);}
+  if(data.games.some(game=>game.id===previous))gameSelect.value=previous;
+  let draft=[],saving=false;
+  const dirty=()=>{section.dataset.dirty='true';status.textContent='Unsaved changes';};
+  const draw=focus=>{
+    list.replaceChildren();
+    draft.forEach((author,index)=>{
+      const row=el('li'),person=el('span',undefined,'author-person'),actions=el('span',undefined,'author-actions');
+      person.append(profileAvatar(author.name,author.id,author.avatar),el('span',author.name));
+      for(const [label,delta] of [['Move earlier',-1],['Move later',1],['Remove',0]]){
+        const button=el('button',delta<0?'↑':delta>0?'↓':'×','secondary');button.type='button';button.dataset.action=label;button.dataset.author=author.id;button.setAttribute('aria-label',label+' '+author.name);
+        button.disabled=saving||(delta!==0&&(index+delta<0||index+delta>=draft.length));
+        button.onclick=()=>{if(delta)[draft[index],draft[index+delta]]=[draft[index+delta],draft[index]];else draft.splice(index,1);dirty();draw({id:author.id,action:label});};
+        actions.append(button);
+      }
+      row.append(person,actions);list.append(row);
+    });
+    const selected=candidate.value;candidate.replaceChildren();
+    const available=data.members.filter(member=>!draft.some(author=>author.id===member.id));
+    for(const member of available){const option=el('option',member.name);option.value=member.id;candidate.append(option);}
+    if([...candidate.options].some(option=>option.value===selected))candidate.value=selected;
+    if(!available.length)candidate.append(el('option',data.members.length?'All credited':'No profiles available'));
+    candidate.disabled=saving||!available.length;add.disabled=candidate.disabled;
+    gameSelect.disabled=saving||!data.games.length;save.disabled=saving||!draft.length||section.dataset.dirty!=='true';
+    if(focus){const target=[...list.querySelectorAll('button')].find(button=>button.dataset.author===focus.id&&button.dataset.action===focus.action&&!button.disabled);(target||list.querySelector('button:not(:disabled)')||candidate).focus({preventScroll:true});}
+  };
+  const selectGame=()=>{draft=[...(data.games.find(game=>game.id===gameSelect.value)?.authors||[])];section.dataset.dirty='false';status.textContent=data.games.length?'':'No uploaded games yet.';draw();};
+  gameSelect.onchange=selectGame;
+  add.onclick=()=>{const member=data.members.find(member=>member.id===candidate.value);if(member){draft.push(member);dirty();draw();}};
+  form.onsubmit=async event=>{
+    event.preventDefault();if(saving||!draft.length)return;
+    const id=gameSelect.value;saving=true;draw();status.textContent='Saving…';
+    try{
+      const result=await api('/api/admin/apps/'+encodeURIComponent(id)+'/authors',{method:'PUT',body:JSON.stringify({authors:draft.map(author=>author.id)})});
+      data.games.find(game=>game.id===id).authors=result.authors;draft=result.authors;section.dataset.dirty='false';status.textContent='Authors saved.';
+      await refresh();
+    }catch(error){status.textContent=error.message;}
+    finally{saving=false;draw();}
+  };
+  gameLabel.append(gameSelect);addLabel.append(candidate);const addRow=el('div',undefined,'author-add');addRow.append(addLabel,add);form.append(gameLabel,list,addRow,save,status);section.append(form);selectGame();
+}
+
 async function openAdmin(){
   refreshServerUpdates();
   if(!me?.admin&&!me?.operator)return;
-  $('admin').showModal();refreshNetworkHealth();
+  $('admin').showModal();refreshNetworkHealth();loadAuthorTools().catch(showError);
   if(!me.admin||adminLoaded||adminLoading)return;
   adminLoading=true;$('admin-status').textContent='Loading admin tools…';
   try{
@@ -901,6 +1103,7 @@ function setupAccount(){
     admin.onclick=()=>{menu.open=false;openAdmin();};panel.append(admin);
   }
   refreshServerUpdates=initServerUpdates({panel:$('admin').querySelector('.admin-panel'),api,me});
+  const ownGames=el('p',undefined,'friend-status');ownGames.id='account-playing';ownGames.hidden=true;panel.prepend(ownGames);
   panel.append(out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
@@ -916,7 +1119,7 @@ document.addEventListener('keydown',event=>{
   const menu=document.querySelector('header details[open]');
   if(menu){closeHeaderMenus();menu.querySelector('summary').focus();}
 });
-$('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();syncRecentMotion();});
+$('recent-menu').addEventListener('toggle',()=>{if($('recent-menu').open&&library)renderFeed();else if(feedPicker.matches(':popover-open'))feedPicker.hidePopover();syncRecentMotion();});
 $('close-recent').onclick=()=>{$('recent-menu').open=false;$('recent-toggle').focus();};
 let profileUsageRequest,profileReminderBusy=false,profileReminderPending=false,profileReminderAttempted=false,profilePickerOpened=false;
 function profileReminderReady(){return me&&!me.inspecting&&library&&!document.hidden&&!document.querySelector('dialog[open]');}
@@ -985,7 +1188,7 @@ $('profile-form').onsubmit=async event=>{
   try{
     const saved=await api('/api/profile',{method:'PUT',body:JSON.stringify({avatar})});
     me.avatar=saved.avatar;me.avatar_prompt_seen=true;renderAccount();
-    if(library){for(const game of library.apps)if(game.author?.id===me.player_id)game.author.avatar=me.avatar;for(const person of library.friends||[])if(person.id===me.player_id)person.avatar=me.avatar;renderGames();renderPresence();renderGameDetail();}
+    if(library){for(const game of library.apps){for(const author of gameAuthors(game))if(author.id===me.player_id)author.avatar=me.avatar;if(game.author?.id===me.player_id)game.author.avatar=me.avatar;}for(const person of library.friends||[])if(person.id===me.player_id)person.avatar=me.avatar;renderGames();renderPresence();renderGameDetail();}
     $('profile-dialog').close();notice('Profile picture saved.');
   }catch(error){$('profile-error').textContent=error.message;}
   finally{$('save-profile').disabled=false;$('save-profile').textContent='Save';$('close-profile').disabled=false;$('profile-choices').disabled=false;}
@@ -995,6 +1198,10 @@ try {
   me=await api('/api/me');pinProfile(me.player_id);$('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar,onSpeakerContext:arrangeChatParticipants});
+  if(!me.inspecting){
+    const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
+    if(document.hasFocus()&&!document.hidden)active();
+  }
   initVoice({me,api,notice});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
@@ -1025,7 +1232,7 @@ ${newGameConnection.setup_code}
 
 First look for this game's existing connection to this server. Reuse it and its original app ID, ignoring this code if already connected. Otherwise exchange the code before lengthy editing, using the guide's CLI or HTTP recipe. Save the permanent connection privately under .local/; exclude credentials from Git, exports, and logs. Reuse it for every update.
 
-Declare the actual Single player/Multiplayer modes. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Keep save and presence API calls at deliberate checkpoints or menus, never inside per-frame render or physics loops, and cap 3D WebGL render resolution to a 1080p pixel budget so 4K/HiDPI screens stay at 60 fps. Explain unsupported features rather than silently removing them.
+Declare the actual play modes. For co-op with independent runs, follow the guide’s Play and Join Friend instructions even if this game already uses Infuser matchmaking. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Keep save and presence API calls at deliberate checkpoints or menus, never inside per-frame render or physics loops, and cap 3D WebGL render resolution to a 1080p pixel budget so 4K/HiDPI screens stay at 60 fps. Explain unsupported features rather than silently removing them.
 
 Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Set orientation in infuser.game.json to landscape or portrait for the game’s intended mobile layout, and set resolution to "native" once the game caps its own 3D render buffer (or is a lightweight 2D game) or leave the default "hd" 1080p player cap. Save a short factual game description through the metadata API. For every game type and engine: if high-quality image generation is not your strength, prefer a detailed art_prompt in game metadata for an Infuser art agent to fulfill later. Describe the real game's subjects, composition, style, palette, and mood. Otherwise upload high-quality art meeting the art spec. Do not spend time staging screenshots: use one only if it makes exceptional cover art with no UI, HUD, or browser chrome. An art prompt is a complete handoff; keep publishing.
 
@@ -1106,12 +1313,12 @@ function renderSearchOptions(){
   const input=$('game-search'),panel=$('search-options'),query=input.value.trim().toLowerCase();
   const previous=searchChoices[searchActive]?.key,authors=new Map();
   for(const game of library.apps){
-    if(game.author?.id&&game.author.name&&!authors.has(game.author.id))authors.set(game.author.id,game.author);
+    for(const author of gameAuthors(game))if(author.id&&author.name&&!authors.has(author.id))authors.set(author.id,author);
   }
   const people=[...authors.values()].filter(p=>!query||p.name.toLowerCase().includes(query));
   searchChoices=people.slice(0,query?4:2).map(person=>({kind:'gamer',person,key:'gamer:'+person.id}));
   if(query)searchChoices.push(...library.apps.filter(g=>g.title.toLowerCase().includes(query)).slice(0,6).map(game=>({kind:'game',game,key:'game:'+game.id})));
-  const signature=JSON.stringify(searchChoices.map(choice=>choice.kind==='gamer'?[choice.key,choice.person]:[choice.key,choice.game.title,choice.game.author?.name]));
+  const signature=JSON.stringify(searchChoices.map(choice=>choice.kind==='gamer'?[choice.key,choice.person]:[choice.key,choice.game.title,authorNames(choice.game)]));
   if(!panel.hidden&&signature===searchSignature)return;searchSignature=signature;
   panel.replaceChildren();
   for(const [i,choice] of searchChoices.entries()){
@@ -1122,7 +1329,7 @@ function renderSearchOptions(){
       text.append(el('strong',choice.person.name),el('small','Gamer · View games'));
     }else{
       const mark=el('span','▸','search-game-mark');mark.setAttribute('aria-hidden','true');row.append(mark);
-      text.append(el('strong',choice.game.title),el('small','Game'+(choice.game.author?.name?' · '+choice.game.author.name:'')));
+      text.append(el('strong',choice.game.title),el('small','Game'+(authorNames(choice.game)?' · '+authorNames(choice.game):'')));
     }
     row.append(text);row.onmousedown=event=>event.preventDefault();row.onclick=()=>chooseSearchOption(searchChoices.find(current=>current.key===choice.key));panel.append(row);
   }
@@ -1166,12 +1373,35 @@ function reactionBurst(target,emoji){
   hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
   setTimeout(()=>burst.remove(),950);
 }
+function updateConfetti(target){
+  document.querySelector('.reaction-burst')?.remove();
+  if(!target.isConnected||reactionMotion.matches||document.hidden)return;
+  const bounds=target.getBoundingClientRect(),x=bounds.left+bounds.width/2,y=bounds.top+bounds.height/2;
+  const burst=el('div',undefined,'reaction-burst update-confetti');burst.setAttribute('popover','manual');burst.setAttribute('aria-hidden','true');document.body.append(burst);burst.showPopover();
+  const colors=['#ff668a','#ffc857','#62dfb0','#66b8ff','#b38aff','#ff914d'];
+  for(let i=0;i<64;i++){
+    const piece=el('span',undefined,'update-confetti-piece');piece.style.background=colors[i%colors.length];piece.style.left=x+'px';piece.style.top=y+'px';
+    if(i%3===0)piece.style.borderRadius='50%';burst.append(piece);
+    const dx=(Math.random()-.5)*Math.min(620,innerWidth*1.3),rise=100+Math.random()*150,fall=160+Math.random()*200,spin=(Math.random()-.5)*1000;
+    const frames=Array.from({length:9},(_,step)=>{
+      const t=step/8,dy=-4*rise*t*(1-t)+fall*t*t;
+      return {offset:t,transform:`translate(${dx*t}px,${dy}px) rotate(${spin*t}deg) scaleX(${Math.cos(t*Math.PI*4)})`,opacity:t<.7?1:(1-t)/.3};
+    });
+    piece.animate(frames,{duration:1100+Math.random()*500,delay:Math.random()*90,easing:'linear',fill:'both'});
+  }
+  setTimeout(()=>burst.remove(),1800);
+}
 async function refreshNetworkHealth(){
   if(networkHealthBusy||document.hidden||!me?.admin||!$('admin').open)return;
+  let box=$('network-health');if(!box){
+    box=el('section');box.id='network-health';
+    const region=adminRegion('Network diagnostics',box);region.addEventListener('toggle',()=>{if(region.open)refreshNetworkHealth();});
+    $('admin').querySelector('.admin-panel').append(region);
+  }
+  if(!box.parentElement.open)return;
   networkHealthBusy=true;
-  let box=$('network-health');if(!box){box=el('section');box.id='network-health';$('admin').querySelector('.admin-panel').append(box);}
   try{
-    const data=await api('/api/admin/peer-health',{signal:AbortSignal.timeout(12000)});box.replaceChildren(el('h3','Network diagnostics'));
+    const data=await api('/api/admin/peer-health',{signal:AbortSignal.timeout(12000)});box.replaceChildren();
     if(!data.sessions.length){box.append(el('p','No active peer sessions.','quiet'));return;}
     const milliseconds=value=>typeof value==='number'&&Number.isFinite(value)?Math.round(value)+' ms':'measuring';
     for(const session of data.sessions){
@@ -1184,7 +1414,7 @@ async function refreshNetworkHealth(){
       }
     }
     box.append(el('p','Browser-reported network round trips. Rendering and game simulation can add delay.','quiet'));
-  }catch{box.replaceChildren(el('h3','Network diagnostics'),el('p','Diagnostics unavailable. Games can keep running.','quiet'));}
+  }catch{box.replaceChildren(el('p','Diagnostics unavailable. Games can keep running.','quiet'));}
   finally{networkHealthBusy=false;}
 }
 setInterval(refreshNetworkHealth,5000);

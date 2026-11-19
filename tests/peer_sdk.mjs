@@ -4,7 +4,7 @@ import baseTest from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import { join as legacyJoin } from '../sdk/peers.js';
-import { join as versionedJoin } from '../sdk/v1/peers.js';
+import { create, join as versionedJoin } from '../sdk/v1/peers.js';
 for(const [variant,join] of [['legacy',legacyJoin],['v1',versionedJoin]]) {
 const test=(name,fn)=>baseTest(variant+': '+name,fn);
 
@@ -55,6 +55,16 @@ function setup(t, role = 'host') {
     open(pc) { pc.connectionState='connected'; pc.dc.readyState='open'; pc.dc.onopen(); },
   };
 }
+
+if (variant === 'v1') test('Host creates an independent open room and rejects a join target', async t => {
+  const h=setup(t);
+  await assert.rejects(create({sessionId:'a'.repeat(32)}), /target/);
+  assert.equal(h.requests.length,0);
+  const room=await create();
+  assert.equal(h.requests[0].body.create,true);
+  assert.equal(h.requests[0].body.joinable,true);
+  room.close();
+});
 
 test('connection preference permits direct paths in v1; explicit relay tests stay relay-only', async t => {
   const h=setup(t);

@@ -106,6 +106,8 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
         get(|h: HeaderMap| async move {
             let email = match h.get("cookie").and_then(|v| v.to_str().ok()) {
                 Some("member=host") => "host@example.com",
+                Some("member=host2") => "host2@example.com",
+                Some("member=friend2") => "friend2@example.com",
                 Some("member=friend") => "friend@example.com",
                 _ => {
                     return (
@@ -132,7 +134,12 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
         format!("{auth_url}/auth"),
         secret.display().to_string()
     ))?;
-    for (email, name) in [("host@example.com", "River"), ("friend@example.com", "Sky")] {
+    for (email, name) in [
+        ("host@example.com", "River"),
+        ("friend@example.com", "Sky"),
+        ("host2@example.com", "Lake"),
+        ("friend2@example.com", "Ash"),
+    ] {
         platform::member(&cfg, email, name, false, true)?;
     }
     let p = portal::Platform::open(Arc::new(Controller::open(
@@ -146,7 +153,7 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
         for app in ["pond","plain","hidden"] {
             let manifest=json!({"schema_version":1,"app_id":app,"title":app,"play_modes":["solo","multiplayer"],"solo_runtime":"client_only","multiplayer":{"mode":"peer_hosted","transport":"webrtc","max_players":2,"join_policy":"anytime","direct_connect":"disabled","relay_fallback":"required"},"launch_intents":if app=="plain"{json!([])}else{json!(["join_friend"])}});
             d.builds.insert(format!("{app}/one"),Build{manifest:serde_json::from_value(manifest)?,server:None,spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
-            d.apps.insert(app.into(),App{build:"one".into(),updated:now(),listed:app!="hidden"});
+            d.apps.insert(app.into(),App {publication: None,build:"one".into(),updated:now(),listed:app!="hidden"});
         }Ok(())
     })?;
     let (url, _server) = serve(portal::router(p.clone())).await?;
@@ -163,11 +170,162 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
         .await?["intent"]
             .is_null()
     );
+    let library_view = || value(member(&http, &url, "friend", Method::GET, "/api/library"));
+    let open_page = || async {
+        let html = host
+            .call(&http, &url, Method::GET, "/_infuser/play")
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        Ok::<_, anyhow::Error>(
+            html.split("data-player-page=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .to_owned(),
+        )
+    };
+    let close_page = |page: &str| {
+        host.call(
+            &http,
+            &url,
+            Method::POST,
+            &format!("/_infuser/player-pages/{page}/close"),
+        )
+    };
+    let playing = |view: &Value| {
+        view["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|app| app["id"] == "pond")
+            .unwrap()["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|player| player["name"] == "River")
+    };
+    let first = open_page().await?;
+    let second = open_page().await?;
+    assert_ne!(first, second);
+    assert_eq!(
+        close_page(&second)
+            .header("origin", "https://other.example")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    close_page(&first).send().await?.error_for_status()?;
+    assert!(
+        playing(&library_view().await?),
+        "closing one duplicate must preserve the other tab"
+    );
+    close_page(&second).send().await?.error_for_status()?;
+    value(host.call(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
+    assert!(
+        !playing(&library_view().await?),
+        "a late heartbeat must not revive a departed game"
+    );
+    let current_page = open_page().await?;
+    close_page(&second).send().await?.error_for_status()?;
+    assert!(
+        playing(&library_view().await?),
+        "refresh survives a delayed close from its old page"
+    );
+    let game_mode = |mode: &str| {
+        host.call(
+            &http,
+            &url,
+            Method::PUT,
+            "/_infuser/api/v1/presence/v1/activity",
+        )
+        .json(&json!({"activity":mode}))
+    };
+    for mode in ["title_screen", "single_player"] {
+        value(game_mode(mode)).await?;
+        let view = library_view().await?;
+        let card = view["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == "pond")
+            .unwrap();
+        assert_eq!(card["players"][0]["activity"], mode);
+        assert_eq!(card["join_targets"], json!([]));
+    }
+    assert_eq!(game_mode("made_up").send().await?.status(), 422);
+    value(member(
+        &http,
+        &url,
+        "host",
+        Method::POST,
+        "/api/presence/input",
+    ))
+    .await?;
+    for (age, expected) in [(0, "active"), (150, "idle"), (650, "away")] {
+        db.connection
+            .lock()
+            .unwrap()
+            .execute("UPDATE profile_input SET seen=?1", [now() - age])?;
+        // Both the Library poll and the SDK heartbeat renew reachability only.
+        value(member(&http, &url, "host", Method::GET, "/api/library")).await?;
+        value(host.call(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
+        let view = library_view().await?;
+        let river = view["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "River")
+            .unwrap();
+        assert_eq!(river["status"], expected);
+    }
+    let guest = launch(&http, &url, "host", true, None).await?;
+    value(guest.call(&http, &url, Method::POST, "/_infuser/input")).await?;
+    let view = library_view().await?;
+    assert_eq!(
+        view["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "River")
+            .unwrap()["status"],
+        "away",
+        "Guest play must not reset the profile's idle clock"
+    );
+    value(guest.call(&http, &url, Method::DELETE, "/_infuser/heartbeat")).await?;
+    value(host.call(&http, &url, Method::POST, "/_infuser/input")).await?;
+    let view = library_view().await?;
+    assert_eq!(
+        view["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "River")
+            .unwrap()["status"],
+        "active"
+    );
     let room = value(
         host.call(&http, &url, Method::POST, "/_infuser/peers")
             .json(&json!({"connection_id":"host-connection-0001","joinable":true})),
     )
     .await?;
+    close_page(&current_page).send().await?.error_for_status()?;
+    let departed = library_view().await?;
+    assert!(!playing(&departed));
+    assert!(
+        departed["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|friend| friend["join_targets"].as_array().unwrap().is_empty()),
+        "the last close removes stale Join Friend buttons"
+    );
+    open_page().await?;
     let library = value(member(&http, &url, "friend", Method::GET, "/api/library")).await?;
     assert_eq!(
         library["apps"].as_array().unwrap().len(),
@@ -408,5 +566,128 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
             .len(),
         1
     );
+    two_independent_parties(&http, &url).await
+}
+
+async fn two_independent_parties(http: &reqwest::Client, url: &str) -> Result<()> {
+    const PEERS: &str = "/_infuser/api/v1/peers";
+    const PRESENCE: &str = "/_infuser/api/v1/presence/v1";
+    let host_a = launch(http, url, "host", false, None).await?;
+    let host_b = launch(http, url, "host2", false, None).await?;
+    let create = |host: &Player| {
+        host.call(http, url, Method::POST, PEERS)
+            .json(&json!({"connection_id":"a-new-host-connection","create":true}))
+    };
+    let (a, b) = tokio::try_join!(value(create(&host_a)), value(create(&host_b)))?;
+    assert_eq!(a["role"], "host");
+    assert_eq!(b["role"], "host");
+    assert_ne!(a["epoch"], b["epoch"]);
+    let retry = value(create(&host_a)).await?;
+    assert_eq!(retry["epoch"], a["epoch"]);
+    assert_eq!(retry["self_id"], a["self_id"]);
+    let snapshot = value(host_a.call(http, url, Method::GET, PRESENCE)).await?;
+    assert_eq!(snapshot["peer_sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(snapshot["can_create"], true);
+    assert!(snapshot["session"].is_null());
+    assert_eq!(snapshot["can_start"], true);
+    let library = value(member(http, url, "friend", Method::GET, "/api/library")).await?;
+    let card = library["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|app| app["id"] == "pond")
+        .unwrap();
+    let targets = card["join_targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 2);
+    let intent_for = |name: &str| {
+        let target = targets
+            .iter()
+            .find(|target| target["name"] == name)
+            .unwrap();
+        json!({"kind":"join_friend","session_id":target["session_id"],"player_id":target["player_id"]})
+    };
+    let river = intent_for("River");
+    let lake = intent_for("Lake");
+    assert_eq!(river["session_id"], a["epoch"]);
+    assert_eq!(lake["session_id"], b["epoch"]);
+    let (sky, ash) = tokio::try_join!(
+        launch(http, url, "friend", false, Some(&river)),
+        launch(http, url, "friend2", false, Some(&lake))
+    )?;
+    async fn join_selected(http: &reqwest::Client, url: &str, guest: &Player) -> Result<Value> {
+        let request = value(guest.call(
+            http,
+            url,
+            Method::POST,
+            "/_infuser/launch-intent/v1/consume",
+        ))
+        .await?;
+        let target = &request["intent"];
+        value(guest.call(http,url,Method::POST,PEERS).json(&json!({
+            "connection_id":"friend-room-connection","expected_epoch":target["session_id"],"expected_player":target["player_id"]
+        }))).await
+    }
+    let wrong=sky.call(http,url,Method::POST,PEERS).json(&json!({
+        "connection_id":"wrong-room-connection","expected_epoch":a["epoch"],"expected_player":lake["player_id"]
+    })).send().await?;
+    assert_eq!(wrong.status(), 410);
+    let (joined_a, joined_b) = tokio::try_join!(
+        join_selected(http, url, &sky),
+        join_selected(http, url, &ash)
+    )?;
+    for (joined, host, names) in [
+        (&joined_a, &a, ["River", "Sky"]),
+        (&joined_b, &b, ["Lake", "Ash"]),
+    ] {
+        assert_eq!(joined["epoch"], host["epoch"]);
+        assert_eq!(joined["role"], "member");
+        let members = joined["peers"].as_array().unwrap();
+        assert_eq!(members.len(), 2);
+        assert!(
+            names
+                .iter()
+                .all(|name| members.iter().any(|p| p["name"] == *name))
+        );
+    }
+    let send = |recipient: &Value| {
+        host_a.call(http,url,Method::POST,
+        &format!("{PEERS}/{}/signals",a["self_id"].as_str().unwrap())).json(&json!({
+            "epoch":a["epoch"], "to":recipient["self_id"], "payload":{"type":"offer","description":"test"}
+        }))
+    };
+    assert_eq!(send(&joined_b).send().await?.status(), 404);
+    value(send(&joined_a)).await?;
+    let poll = |player: &Player, room: &Value| {
+        player.call(
+            http,
+            url,
+            Method::GET,
+            &format!("{PEERS}/{}", room["self_id"].as_str().unwrap()),
+        )
+    };
+    assert_eq!(
+        value(poll(&sky, &joined_a)).await?["signals"][0]["from"],
+        a["self_id"]
+    );
+    assert_eq!(value(poll(&ash, &joined_b)).await?["signals"], json!([]));
+    let full = value(host_b.call(http, url, Method::GET, PRESENCE)).await?;
+    assert!(
+        full["peer_sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["reason"] == "full")
+    );
+    assert_eq!(full["can_create"], true);
+    value(host_a.call(
+        http,
+        url,
+        Method::DELETE,
+        &format!("{PEERS}/{}", a["self_id"].as_str().unwrap()),
+    ))
+    .await?;
+    let remaining = value(ash.call(http, url, Method::GET, PRESENCE)).await?;
+    assert_eq!(remaining["peer_sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(remaining["peer_sessions"][0]["id"], b["epoch"]);
     Ok(())
 }

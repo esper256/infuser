@@ -67,14 +67,17 @@ connection and publish commands can wait until the game is ready to upload.
 ## Design multiplayer before choosing a transport
 
 A game can offer **both Single player and Multiplayer**. Ordinary Play opens
-its title screen; start networking when the player chooses multiplayer or uses
-Join Friend. A client-only title screen should not wake a server.
+the game's title screen. For co-op, give the player a **Play** button and an
+unchecked **Play Solo** checkbox. Play starts a fresh room that friends can join,
+even when someone else is already hosting. Checking Play Solo starts a private
+single-player run. Wait for the choice before starting networking. **Join Friend**
+from the Library goes straight to the selected player's room.
 
 - **Small co-op, board, or party game:** consider [peer hosting](peer-hosting.md).
-  One player hosts the shared room. Infuser supplies discovery and mandatory TURN
+  Each host has an independent room. Infuser supplies discovery and mandatory TURN
   fallback, with direct LAN/internet connections as optimizations. No router setup
   is needed. Host departure ends the session; host migration is not supplied.
-- **Authoritative action game or multiple rooms:** consider a dedicated
+- **Server-authoritative game:** consider a dedicated
   WebSocket backend and [dedicated sessions](dedicated-sessions.md). One managed
   backend can report several rooms. It validates inputs and owns shared state;
   Infuser supplies verified admission, room discovery, and Join Friend.

@@ -113,9 +113,26 @@ Declare the game's actual modes in `infuser.game.json`. `play_modes` accepts
 `["solo"]`, `["multiplayer"]`, or both; `solo` is the API spelling of Single player.
 For single player, set `solo_runtime` to `client_only` or `shared_server`.
 Multiplayer also declares its topology, transport, capacity, and join policy.
-Copy the complete example from the matching multiplayer recipe.
+For co-op, make the title screen's **Play** button host a fresh joinable room.
+Put **Play Solo** beside it as an unchecked checkbox if the game supports single
+player. An existing room or a full party should never disable Play. For a local
+solo run, skip room creation and report `single_player`. Copy the transport calls
+from the matching multiplayer recipe.
 
-- **Peer-hosted:** one player hosts the shared room. WebRTC requires Infuser TURN
+**Updating a peer game that already uses Infuser?** Check for `peers.rooms.v1`
+in the target server’s `sdk.capabilities` and add it to the game’s required
+capabilities. If the server lacks it, you can prepare the game now and publish
+after the server updates. Replace untargeted matchmaking on
+the Host or Play button with the adapter’s create call. If the title screen lists rooms, read
+`peer_sessions`. Use `can_create` for Host availability. Keep both the room
+and player IDs on Join Friend. Republish under the existing app ID.
+
+To let a player launch directly into a friend's current game from the Library,
+follow [Implement Join Friend](launch-intents.md#implement-join-friend-from-the-library).
+It covers host admission, the launch handoff, and how a mixed-mode game tells
+the Library that a player chose single player.
+
+- **Peer-hosted:** one player hosts each room. WebRTC requires Infuser TURN
   fallback, even when LAN or direct internet connections work. Use the
   [browser peer SDK](peer-hosting.md), Godot adapter, or PeerJS adapter as appropriate.
   Test with relay forced; LAN-only and direct-only networking are unsupported.
@@ -220,7 +237,7 @@ Successful publication is enough to hand the game back to its player; lack of a
 Google login is **not a publishing blocker**. Do not stop after uploading files:
 complete publication and check its result. Only admins can play `--preview`
 publications; do not hide a user's game from them by using it. Queued updates wait
-for the active session to end; do not describe them as live yet.
+for active rooms or the running backend to finish; do not describe them as live yet.
 
 Run the game's available local checks. Use the prebuilt publisher or HTTP API;
 do not install a compiler, Docker, WSL, or a browser-test framework just to publish

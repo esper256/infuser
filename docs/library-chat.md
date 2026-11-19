@@ -75,15 +75,26 @@ profile menu. On iPhone/iPad, use **Share → Add to Home Screen**, then open th
 icon. The installed website is named **Infuser**; **Infuser Play** remains the
 native game launcher.
 
-In your profile menu, turn **Chat notifications** on for each device you want.
+In your profile menu, turn **Group Chat notifications** on for each device you want.
 Permission is requested only after that tap. On iOS/iPadOS, this requires the
 Home Screen app (16.4 or later). If permission was denied, change it in the
 browser/device settings before trying again. Turn the same switch off to stop
 alerts on that device. Signing out unsubscribes that browser too.
+On Android, the browser manages the system notification channel. Use the
+Infuser profile menu to control Group Chat alerts on that device.
 
-Alerts work while the Library is closed. They say “Your group has a new message”
-without including message text. They are quiet, share one notification slot,
-and open chat when tapped. Arrival never navigates a window or exits fullscreen.
+New subscriptions use **Sound: device default**. If you already had alerts on,
+they stay quiet until you tap **Sound: quiet** in your profile menu to switch.
+Tap the sound setting again to change it back. **Send test notification** sends
+one alert to this device. It does not post to chat.
+
+With device sound on, the first incoming alert can ring. A burst shares one
+notification and stays quiet until five minutes pass without another message.
+Alerts are quiet while you are reading chat on that device. Your phone controls
+the tone, volume and Focus or Do Not Disturb settings.
+
+Alerts work while the Library is closed. The lock screen shows a link to group
+chat without message text. Tapping opens chat. Arrival preserves fullscreen.
 Delivery is best-effort and subject to the browser, OS notification settings and
 network availability. No alerts for your own messages or groups you cannot access.
 An active visit also allows alerts from its host room; queued alerts are checked

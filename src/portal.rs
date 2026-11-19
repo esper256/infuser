@@ -31,6 +31,7 @@ use std::{
 };
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
+mod authors;
 mod avatars;
 mod capture;
 mod card_art;
@@ -55,6 +56,7 @@ mod screenshots;
 mod sdk_v1;
 mod server_builds;
 mod server_diagnostics;
+mod update_reactions;
 mod urls;
 mod visits;
 mod voice;
@@ -568,6 +570,11 @@ pub fn router(platform: Platform) -> Router {
         .route("/assets/reactions/{file}", get(reaction_art::image))
         .route("/api/profile/picture-prompt", post(avatars::picture_prompt))
         .route("/api/profile", get(avatars::usage).put(avatars::update).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/presence/input", post(presence::library_input))
+        .route("/_infuser/input", post(presence::game_input))
+        .route("/_infuser/player-pages/{page}/close", post(presence::close_page))
+        .route("/assets/activity-input.js",get(sdk_v1::activity_input))
+        .route("/_infuser/activity-input.js",get(sdk_v1::activity_input))
         .route("/api/library", get(library::list))
         .route("/api/client-state", get(client::state))
         .route("/assets/client-updates.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/client-updates.js")) }))
@@ -588,8 +595,11 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/apps/{app}/launch", post(launch))
         .route("/api/apps/{app}/card-art/{build}", get(card_art::image))
         .route("/api/launches/{id}", get(launch_status))
+        .route("/api/apps/{app}/updates/{publication}/reaction", put(update_reactions::set))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/apps/{app}/reactions/{player}", delete(remove_game_reaction))
+        .route("/api/admin/game-authors", get(authors::inventory))
+        .route("/api/admin/apps/{app}/authors", put(authors::set).layer(DefaultBodyLimit::max(16384)))
         .route("/api/admin/members", get(members).post(invite))
         .route("/api/admin/members/handle", put(rename_member).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/apps/{app}/visibility", put(set_visibility).layer(DefaultBodyLimit::max(1024)))
@@ -961,6 +971,33 @@ struct React {
     #[serde(default)]
     screenshot: Option<String>,
 }
+fn valid_emoji(emoji: &str) -> bool {
+    [
+        "⭐",
+        "👍",
+        "🚀",
+        "❤️",
+        "👏",
+        "💡",
+        "😅",
+        "⚡",
+        "🧠",
+        "🎯",
+        "🧭",
+        "🧲",
+        "🐦‍⬛",
+        "🍵",
+        "💎",
+        "🧩",
+        "🎢",
+        "🪄",
+        "🎨",
+        "🎵",
+        "😄",
+        "🤝",
+    ]
+    .contains(&emoji)
+}
 async fn react(
     State(p): State<Platform>,
     Path(app): Path<String>,
@@ -976,32 +1013,7 @@ async fn react(
             .ok_or_else(|| fault(404, "Game not found."))?
             .to_owned();
     ensure!(
-        [
-            "⭐",
-            "👍",
-            "🚀",
-            "❤️",
-            "👏",
-            "💡",
-            "😅",
-            "⚡",
-            "🧠",
-            "🎯",
-            "🧭",
-            "🧲",
-            "🐦‍⬛",
-            "🍵",
-            "💎",
-            "🧩",
-            "🎢",
-            "🪄",
-            "🎨",
-            "🎵",
-            "😄",
-            "🤝",
-        ]
-        .contains(&body.emoji.as_str())
-            && body.text.chars().count() <= 140,
+        valid_emoji(&body.emoji) && body.text.chars().count() <= 140,
         fault(
             400,
             "Choose a reaction and keep your note to 140 characters."
@@ -1281,16 +1293,18 @@ async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
     Ok(reply(json!({"intent":intent})))
 }
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let (_, launch) = p.game(&h)?;
+    let (id, launch) = p.game(&h)?;
     let data = p.db.catalog()?;
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
+    let page = presence::open_page(&p.db, &id, &launch.host)?;
+    let html = include_str!("../web/game-player.html").replace("PLAYER_PAGE_ID", &page);
     let mut response = (
         [
             ("Cache-Control", "no-store"),
             ("Referrer-Policy", "no-referrer"),
             ("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src blob:; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
         ],
-        Html(include_str!("../web/game-player.html")),
+        Html(html),
     ).into_response();
     // Threaded web exports require isolation on the enclosing document as well.
     if build.cross_origin_isolation {
@@ -1314,6 +1328,8 @@ async fn heartbeat(State(p): State<Platform>, h: HeaderMap) -> Answer {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PeerJoin {
+    #[serde(default)]
+    create: bool,
     connection_id: String,
     #[serde(default = "yes")]
     relay_only: bool,
@@ -1387,6 +1403,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
             build: &launch.build,
             connection: &body.connection_id,
             max_players: multiplayer.max_players,
+            create: body.create,
             expected_epoch: body.expected_epoch.as_deref(),
             expected_player: body.expected_player.as_deref(),
             joinable: body.joinable,

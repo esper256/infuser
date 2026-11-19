@@ -126,6 +126,11 @@ changed or deleted; unpublishing the app also cancels its pending update. The qu
 survives controller restarts. Never force a second server or give players mismatched
 clients. An admin force-restart UI is not implemented yet.
 
+For peer-hosted games, `sdk.capabilities` includes `peers.rooms.v1` when
+independent rooms are available. The legacy `session_policy: "one_per_app"`
+field describes the managed server process. Room capacity and admission are
+per gameplay session. See [peer rooms](peer-hosting.md).
+
 ## Player website
 
 These routes require a signed-in, invited Google account. Requests that change
@@ -235,7 +240,9 @@ capabilities are explicit opt-ins; legacy runtime routes retain their behavior.
 It separates online members, launches with this game open, and active peer-room
 participants. Peer hosts use `PUT /_infuser/api/v1/peers/PEER/joinability` with
 `{ "epoch": "SESSION_ID", "joinable": true }`. A targeted join sends
-`expected_epoch` to `POST /_infuser/api/v1/peers`; session creation may supply `joinable`.
+`expected_epoch` to `POST /_infuser/api/v1/peers`. To host a fresh room, send
+`create: true` and a new `connection_id`. Admission starts open unless the host
+supplies `joinable: false`.
 See the [presence contract](presence.md) for admission, expiry and compatibility.
 
 `launchIntent.consume()` uses `POST /_infuser/api/v1/launch-intent/v1/consume`. It returns

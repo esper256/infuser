@@ -71,7 +71,7 @@ pub fn capabilities(relay: bool) -> Value {
         crate::dedicated::CAPABILITY,
     ];
     if relay {
-        available.push("peers.webrtc.v1");
+        available.extend(["peers.webrtc.v1", "peers.rooms.v1"]);
     }
     json!({"status":"preview","majors":[1],"api_majors":[1],"default_major":1,"path":"/_infuser/sdk/v1.js","api_base":"/_infuser/api/v1","capabilities":available,"legacy_path":"/_infuser/sdk.js"})
 }

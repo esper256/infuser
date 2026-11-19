@@ -126,7 +126,7 @@ async fn capabilities(State(app): State<App>, headers: HeaderMap) -> Result<Resp
         "play_modes":["solo","multiplayer"],
         "session_policy":"one_per_app",
         "multiplayer_modes":{
-            "peer_hosted":{"available":app.controller.config.controller.turn.is_some(),"transport":"webrtc","max_players":8,"experimental":true},
+            "peer_hosted":{"available":app.controller.config.controller.turn.is_some(),"transport":"webrtc","room_policy":"multiple","max_players":8,"experimental":true},
             "relayed":{"available":false,"reason":"Infuser WebSocket relay is not installed yet."},
             "dedicated":{"available":true},
             "persistent_world":{"available":true}

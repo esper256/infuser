@@ -12,14 +12,16 @@ const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'Orb
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
 const game={can_manage_visibility:true,can_moderate_reactions:true,id:'firefly-drift',title:'Firefly Drift',description:'A quiet flight through a glowing forest.',author,updated:now-60,card_art_url:'/test-art/firefly',url:'https://library.test/games/firefly-drift',tags:['3d','arcade','chill'],can_edit_tags:true,players:[],join_targets:[{name:'OrbitFox',session_id:'session',player_id:'two'}],reactions:[{...friend,emoji:'👏',text:'Love the atmosphere.',updated:now,mine:false},{...author,emoji:'⭐',text:'',updated:now-10,mine:true}]};
 const apps=[game,{...game,id:'nocomgame',title:'NoCOMgame',description:null,author:friend,card_art_url:null,tags:['3d','sandbox','action','survival','exploration'],reactions:[]},{...game,id:'event-horizon',title:'Event Horizon',author:friend,card_art_url:'/test-art/event',reactions:[]},{...game,id:'dodge',title:'Dodge the Creeps',author:null,preview:true,card_art_url:null,reactions:[]},{...game,id:'lantern',title:'Lantern Lake',author:null,preview:true,card_art_url:null,reactions:[]}];
+for(const app of apps){app.update_id=app.id+'-release-a';app.update_reactions={mine:null,counts:{}};}
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
-let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility;
+let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility,failAuthors=false,failReaction=false,releaseReaction;
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
  await context.route('https://library.test/**',async route=>{
   const request=route.request(),path=new URL(request.url()).pathname,method=request.method();let data;
+  if(path==='/api/presence/input')return route.fulfill({json:{ok:true}});
   if(method!=='GET')writes.push({path,body:request.postDataJSON()});
   if(path==='/api/me')return route.fulfill({status:unauthorized?401:200,json:unauthorized?{error:'Sign in'}:me});
   if(path==='/api/library'){reads++;data={apps,friends:[author,friend],tags:tags.map(id=>({id,label:id==='3d'?'3D':id[0].toUpperCase()+id.slice(1),count:apps.filter(g=>g.tags.includes(id)).length}))};}
@@ -27,6 +29,8 @@ try {
   else if(path==='/api/screenshots')data={screenshots:[{id:'shot'}]};
   else if(path==='/api/screenshots/shot')data={image:'data:image/webp;base64,'+(await readFile(new URL('assets/avatars/loot-raccoon-128.webp',root))).toString('base64')};
   else if(path==='/api/client-state')data={version:'review',game_open:false};
+  else if(path==='/api/admin/game-authors')data={games:apps.map(g=>({id:g.id,title:g.title,authors:g.authors??(g.author?[g.author]:[])})),members:[author,friend]};
+  else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:503,json:{error:'Please retry author credits.'}});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
   else if(path==='/api/admin/members')data={members:{}};
   else if(path==='/api/admin/credentials')data={credentials:[]};
   else if(path==='/api/admin/peer-health')data={sessions:[]};
@@ -37,6 +41,13 @@ try {
   else if(/^\/api\/admin\/apps\/[^/]+\/reactions\//.test(path)){
    if(failModeration)return route.fulfill({status:503,json:{error:'Please retry deletion.'}});
    const app=apps.find(g=>g.id===path.split('/')[4]);app.reactions=app.reactions.filter(r=>r.id!==path.split('/')[6]);data={ok:true};
+  }
+  else if(path.includes('/updates/') && path.endsWith('/reaction')){
+   if(failReaction){await new Promise(resolve=>{releaseReaction=resolve;});return route.fulfill({status:503,json:{error:'Please retry reaction.'}});}
+   if(path.split('/')[5]!==game.update_id)return route.fulfill({status:409,json:{error:'A newer update is available.'}});
+   const {emoji}=request.postDataJSON(),votes=game.update_reactions;
+   if(votes.mine)votes.counts[votes.mine]--;
+   votes.mine=emoji;votes.counts[emoji]=(votes.counts[emoji]||0)+1;data={ok:true};
   }
   else if(path.endsWith('/reaction')){game.reactions=game.reactions.filter(r=>!r.mine);if(method==='PUT')game.reactions.push({...author,...request.postDataJSON(),updated:now+1,mine:true});data={ok:true};}
   else if(path.endsWith('/tags')){game.tags=request.postDataJSON().tags;data={ok:true};}
@@ -66,9 +77,69 @@ try {
  async function close(){await page.locator('#close-game-detail').click();await page.waitForFunction(()=>!document.querySelector('#game-detail').open);}
  async function open(){await card().locator('.game-open').click();await dialog.waitFor();}
  async function popup(action){const opening=page.waitForEvent('popup');await action();const tab=await opening;await tab.waitForURL('**/game-fixture');await tab.close();}
+ // Admin credits reorder without granting ownership; compact portraits keep the dock size.
+ const originalCreator=await card().locator('.creator').boundingBox();
+ await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
+ const editor=page.locator('#game-authors');await page.locator('#admin summary').filter({hasText:'Game authors'}).click();await editor.getByLabel('Game to credit').selectOption(game.id);
+ await editor.getByLabel('Author to add').selectOption(friend.id);await editor.getByRole('button',{name:'Add',exact:true}).click();
+ await editor.getByLabel('Move earlier '+friend.name,{exact:true}).click();
+ assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);
+ await page.evaluate(()=>refreshTestLibrary());assert.equal(await editor.locator('.author-person').count(),2,'polling preserves draft');
+ failAuthors=true;await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Please retry author credits.',{exact:true}).waitFor();
+ assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);failAuthors=false;
+ await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Authors saved.',{exact:true}).waitFor();
+ assert.deepEqual(writes.at(-1).body.authors,[friend.id,author.id]);
+ await page.locator('#close-admin').click();
+ assert.equal((await card().locator('.creator').boundingBox()).width,originalCreator.width);
+ assert.equal(await card().locator('.author-stack .avatar').count(),2);
+ const badges=await card().locator('.author-stack .avatar').evaluateAll(nodes=>nodes.map(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y};}));
+ assert.equal(badges[0].y,badges[1].y,'author badges overlap horizontally');
+ assert(Math.abs(badges[1].x-badges[0].x-10)<.1,'author spacing is ten pixels');
+ await open();assert.deepEqual(await dialog.locator('.detail-authors strong').allTextContents(),[friend.name,author.name]);await close();
+ for(const width of [320,900]){
+   await page.setViewportSize({width,height:900});
+   for(const theme of ['nightglass','cartridge-club']){
+     await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);
+     await card().scrollIntoViewIfNeeded();await card().screenshot({path:new URL(`authors-${theme}-${width}-card.png`,out).pathname});
+     await open();assert.deepEqual(await dialog.locator('.detail-authors strong').allTextContents(),[friend.name,author.name]);
+     assert(await dialog.locator('.detail-authors').evaluate(e=>e.scrollWidth<=e.clientWidth+1));
+     await page.screenshot({path:new URL(`authors-${theme}-${width}-detail.png`,out).pathname});await close();
+   }
+ }
+ await page.setViewportSize({width:1500,height:1000});await page.evaluate(()=>{document.documentElement.dataset.theme='nightglass';});
+ // A short name sits flush with Play. A wrapped name grows upward from the same edge.
+ const savedTitle=game.title;
+ await page.setViewportSize({width:320,height:844});
+ for(const theme of ['nightglass','cartridge-club']){
+   await page.evaluate(t=>InfuserThemes.select(t),theme);
+   for(const [title,wraps] of [['Go',false],['Firefly Drift and the Mystery of Lantern Lake',true]]){
+     game.title=title;await page.evaluate(()=>refreshTestLibrary());
+     const edges=await card().evaluate(c=>['.game-heading','.actions > button','.play-menu > summary'].map(s=>{
+       const {top,bottom}=c.querySelector(s).getBoundingClientRect();return {top,bottom};
+     }));
+     const [plate,...controls]=edges;
+     for(const control of controls){
+       assert(Math.abs(plate.bottom-control.bottom)<1,`${theme}: title and Play share a bottom edge`);
+       assert(wraps?plate.top<control.top-1:Math.abs(plate.top-control.top)<1,`${theme}: ${title} height`);
+     }
+     await card().screenshot({path:new URL(`card-alignment-${theme}-${wraps?'two':'one'}.png`,out).pathname});
+   }
+ }
+ game.title=savedTitle;await page.evaluate(()=>refreshTestLibrary());
+ await page.setViewportSize({width:1500,height:1000});await page.evaluate(()=>InfuserThemes.select('nightglass'));
+ // Search finds a secondary author, then return to the original fixture for existing journeys.
+ await page.locator('#game-search').fill(author.name);await page.keyboard.press('Escape');assert(await card().isVisible());await page.locator('#game-search').fill('');
+ await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
+ await editor.getByLabel('Game to credit').selectOption(game.id);
+ for(const width of [320,1500]){await page.setViewportSize({width,height:1000});assert(await editor.evaluate(e=>e.scrollWidth<=e.clientWidth+1));await page.screenshot({path:new URL(`authors-editor-${width}.png`,out).pathname});}
+ await editor.getByLabel('Remove '+friend.name,{exact:true}).click();await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Authors saved.',{exact:true}).waitFor();await page.locator('#close-admin').click();
+ delete game.authors;game.author=author;
  // Active player badges are separate from reactions and do not recreate covers.
  game.players=[{...author},{...author},{...friend},{...friend,guest:true,player_id:'guest-one'},{...friend,guest:true,player_id:'guest-two'},{id:'three',name:'Nova',avatar:'circuit-fox'},{id:'four',name:'Sky',avatar:'moss-knight'}];
  await page.evaluate(()=>refreshTestLibrary());
+ await open();const roster=dialog.getByRole('region',{name:'Playing now'});
+ assert.equal(await roster.locator('li').count(),5);assert(await roster.getByRole('button',{name:'Join OrbitFox',exact:true}).isVisible());
+ await close();
  const live=()=>card().locator('.game-live');
  assert.equal(await live().locator('summary .game-player').count(),3);
  assert.equal(await live().locator('.game-player-more').textContent(),'+2');
@@ -153,10 +224,14 @@ try {
  await search.fill('orbit');await search.press('ArrowDown');await search.press('Escape');assert(await suggestions.isHidden());
  await search.click();await search.press('Tab');assert(await suggestions.isHidden());
  await search.fill('');await search.press('Escape');
+ const dockInset=()=>pendingCard().evaluate(c=>c.getBoundingClientRect().bottom-c.querySelector('.game-dock').getBoundingClientRect().bottom);
+ let emptyInset;
  // Only the last 28 days contribute; a busy card never grows past eight faces.
  for(const [n,faces] of [[0,0],[1,1],[8,4],[12,5],[18,6],[25,8],[50,8]]){
   apps[1].reactions=[...recentReactions(n),{id:'old',name:'Old',emoji:'⭐',updated:now-29*86400,text:''}];await page.evaluate(()=>refreshTestLibrary());
   assert.equal(await pendingCard().locator('.game-buzz span').count(),faces);
+  if(!faces)emptyInset=await dockInset();
+  else assert(Math.abs(await dockInset()-emptyInset)<1,'adding reactions keeps the dock on its original baseline');
   if(faces===8)assert.equal(await pendingCard().locator('.game-buzz span').nth(1).evaluate(e=>getComputedStyle(e).marginLeft),'-15px','eight faces use the original cramped spacing');
  }
  apps[1].reactions=recentReactions(8);await page.evaluate(()=>refreshTestLibrary());
@@ -183,11 +258,19 @@ try {
    assert.equal(await page.locator('#friends [data-player-id="one"]').count(),1);
    await page.locator('#hidden-games').evaluate(e=>e.open=true);
    await page.evaluate(()=>document.activeElement.blur());
-   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=p.left+1&&b.top>=h.bottom;})),'reaction stacks must not overlap controls');
+   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{
+    const plate=card.querySelector('.game-heading'),row=plate.parentElement;
+    const h=plate.getBoundingClientRect(),p=card.querySelector('.actions').getBoundingClientRect();
+    const withinPlate=child=>{const r=child.getBoundingClientRect();return r.left>=h.left-1&&r.right<=h.right+1;};
+    return h.right+8<=p.left&&Math.abs(h.bottom-p.bottom)<1&&
+      h.left>=card.getBoundingClientRect().left&&[plate.querySelector('.game-open'),plate.querySelector('.creator')].every(withinPlate)&&
+      parseFloat(getComputedStyle(plate).borderTopWidth)>0&&getComputedStyle(row).backgroundColor==='rgba(0, 0, 0, 0)';
+   })),`${theme} ${width}: title and author share a bordered plate beside Play`);
+   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=h.left+1||b.bottom<=Math.min(p.top,h.top);})),'reaction stacks must not overlap controls');
    assert(await page.locator('#games .game').evaluateAll(cards=>cards.every(card=>{
     const buzz=card.querySelector('.game-buzz');if(!buzz)return true;
     const c=card.getBoundingClientRect(),face=buzz.firstElementChild.getBoundingClientRect(),hang=(face.bottom-c.bottom)/face.height;
-    return face.left>=c.left&&face.left-c.left<=8&&hang>=.15&&hang<=.25&&buzz.getBoundingClientRect().height>=44;
+    return face.left>=c.left&&face.left-c.left<=8&&((hang>=.15&&hang<=.25)||(!card.classList.contains("hidden-game")&&face.bottom<=card.querySelector(".game-dock").getBoundingClientRect().top))&&buzz.getBoundingClientRect().height>=44;
    })),'emoji faces should hang 20% below the card, stay inside its left edge, and retain a touch target');
    await search.fill('');await search.click();
    assert.equal(await suggestions.getByRole('option').count(),2);
@@ -303,6 +386,81 @@ try {
  assert.equal(game.reactions.find(r=>r.mine).screenshot,'shot');
  await open();await dialog.locator('.screenshot-tile').click();await page.locator('.screenshot-viewer img').waitFor();await page.keyboard.press('Escape');assert(await dialog.isVisible());await close();
  assert.deepEqual(await page.evaluate(()=>[0,60,3600,7200,86400,-20].map(age=>testRecentAge(100000-age,100000))),['just now','a minute ago','an hour ago','2 hours ago','a day ago','just now']);
+ // A game review and an update vote are independent, even when another tab edits the review.
+ game.updated=now+2;game.update_reactions.counts={'❤️':1};game.reactions=game.reactions.filter(r=>!r.mine);
+ game.reactions.push({...author,emoji:'⭐',text:'Keep my note',screenshot:'shot',updated:now,mine:true});
+ await page.evaluate(()=>refreshTestLibrary());await page.locator('#recent-toggle').click();
+ const update=()=>page.locator('#feed').getByRole('button',{name:'React to Firefly Drift update',exact:true});
+ const picker=page.locator('#feed-reaction-picker');
+ assert.equal(await update().count(),1);
+ assert(await update().locator('svg.feed-react-outline').isVisible());
+ assert.equal(await update().locator('.feed-reaction-face').count(),0);
+ await update().click();
+ assert.equal(await picker.getByRole('button').count(),22);
+ assert.equal(await picker.locator('input,textarea,small').count(),0);
+ assert.equal(await picker.locator('img.reaction-image').count(),10,'all illustrated reactions are available');
+ assert.equal(await picker.getByRole('button',{name:'React: Fun together',exact:true}).count(),1);
+ await page.keyboard.press('Escape');assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await update().evaluate(e=>e===document.activeElement));
+ const panel=page.locator('#activity');
+ await panel.evaluate(e=>e.style.maxHeight='160px');
+ await update().click();
+ // Constrain the emoji grid as on a short screen, exercising a real overflow scroll.
+ await picker.evaluate(e=>{e.style.maxHeight='120px';e.scrollTop=40;});
+ await page.waitForFunction(()=>document.querySelector('#feed-reaction-picker').scrollTop>0);
+ assert(await picker.isVisible());
+ await panel.evaluate(e=>e.scrollTop=e.scrollTop===0?40:0);
+ await picker.waitFor({state:'hidden'});assert(await panel.isVisible());
+ await page.waitForFunction(()=>document.querySelector('#feed .feed-react-toggle[data-update="firefly-drift-release-a"]').getAttribute('aria-expanded')==='false');
+ await panel.evaluate(e=>e.style.removeProperty('max-height'));
+ await update().click();
+ const reactionsBefore=writes.length;failReaction=true;
+ await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelectorAll('#feed-reaction-picker button[aria-disabled="true"]').length===22);
+ await page.evaluate(()=>refreshTestLibrary());
+ assert(await picker.isVisible(),'polling keeps the picker open');
+ await picker.getByRole('button',{name:'React: Great job',exact:true}).dispatchEvent('click');
+ assert.equal(writes.length,reactionsBefore+1,'a pending save cannot be submitted twice');
+ assert.equal(typeof releaseReaction,'function');releaseReaction();failReaction=false;
+ await page.getByText('Please retry reaction.',{exact:true}).waitFor();
+ await page.waitForFunction(()=>!document.querySelector('#feed-reaction-picker button[aria-disabled="true"]'));
+ assert.equal(await page.locator('.update-confetti').count(),0);
+ assert.equal(await picker.locator('[aria-pressed=true]').count(),0);
+ game.reactions.find(r=>r.mine).text='Edited in another tab';
+ await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
+ await page.locator('.update-confetti:popover-open').waitFor();
+ assert.deepEqual(writes.at(-1),{path:'/api/apps/firefly-drift/updates/'+game.update_id+'/reaction',body:{emoji:'❤️'}});
+ await page.locator('#feed').getByRole('img',{name:'Loved it × 2',exact:true}).waitFor();
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-update="firefly-drift-release-a"]')?.textContent==='❤️');
+ assert.equal(await update().locator('svg.feed-react-outline').count(),0);
+ assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await dialog.isHidden());
+ assert.equal(await page.locator('#notice.visible').count(),0,'a successful retry clears the earlier error');
+ assert(await page.locator('.update-confetti-piece').count()>0);
+ assert(await page.locator('.update-confetti-piece').evaluateAll(pieces=>new Set(pieces.map(piece=>piece.style.background)).size>=3));
+ await page.screenshot({path:new URL('recent-reaction-confetti.png',out).pathname});
+ await page.waitForFunction(()=>!document.querySelector('.update-confetti'));
+ await update().click();await picker.getByRole('button',{name:'React: Nice!',exact:true}).focus();await page.keyboard.press('Enter');
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-update="firefly-drift-release-a"]')?.textContent==='👍');
+ assert(await update().evaluate(e=>e===document.activeElement),'saving returns keyboard focus to the reaction button');
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await update().click();await picker.getByRole('button',{name:'React: Fun together',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.feed-react-toggle[data-update="firefly-drift-release-a"] img')?.getAttribute('src')==='/assets/reactions/together.webp');
+ assert.equal(game.update_reactions.mine,'🤝');assert.deepEqual(game.reactions.find(r=>r.mine),{...author,emoji:'⭐',text:'Edited in another tab',screenshot:'shot',updated:now,mine:true});assert.equal(await page.locator('.update-confetti').count(),0);
+ for(const theme of ['nightglass','cartridge-club'])for(const width of [320,390,1500]){
+  await page.setViewportSize({width,height:900});await page.evaluate(t=>InfuserThemes.select(t),theme);
+  await update().click();
+  assert(await picker.evaluate(e=>{const b=e.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.top>=0&&b.bottom<=innerHeight&&e.scrollWidth<=e.clientWidth;}),'picker stays in the viewport without horizontal overflow');
+  assert(await picker.getByRole('button').evaluateAll(buttons=>buttons.every(b=>b.getBoundingClientRect().height>=44)));
+  await page.screenshot({path:new URL('recent-picker-'+theme+'-'+width+'.png',out).pathname});
+  await page.keyboard.press('Escape');
+ }
+ // A publication arriving between opening the picker and submitting cannot inherit the vote.
+ await update().click();game.update_id='firefly-drift-release-b';game.update_reactions={mine:null,counts:{}};
+ await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
+ await page.getByText('A newer update is available.',{exact:true}).waitFor();await picker.waitFor({state:'hidden'});
+ assert.equal(game.update_reactions.mine,null);assert.equal(await page.locator('.update-confetti').count(),0);
+ await update().click();assert.equal(await picker.locator('[aria-pressed=true]').count(),0);await page.keyboard.press('Escape');
+ await page.setViewportSize({width:390,height:844});
+ await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
  // Unread Recently animates only the icon, clears on opening,
  // and retains a static highlight with reduced motion.
  for(const theme of ['nightglass','cartridge-club']){
@@ -311,6 +469,7 @@ try {
   assert(await recent.evaluate(e=>e.hasAttribute('data-motion')&&getComputedStyle(e,'::before').animationName==='recent-halo'));
   await page.waitForFunction(()=>document.querySelector('#recent-toggle').classList.contains('wiggling'),{},{timeout:16000});
   assert.equal(await recent.locator('img.brand-icon').evaluate(e=>getComputedStyle(e).animationName),'recent-wiggle');
+  assert(await recent.evaluate(e=>getComputedStyle(e,'::before').backgroundImage.includes('radial-gradient')));
   assert.equal(await recent.locator('img.brand-icon').count(),1);
   assert.equal(await recent.textContent(),'');
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
@@ -366,7 +525,7 @@ try {
    await trigger.click();
    assert(await menu.locator('.game-admin-items').evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;}));
    await page.screenshot({path:new URL(`${theme}-${width}-admin.png`,out).pathname});
-   await dialog.locator('.detail-creator p').click();assert.equal(await menu.evaluate(e=>e.open),false);
+   await dialog.locator('.detail-authors').click();assert.equal(await menu.evaluate(e=>e.open),false);
    await trigger.click();failVisibility=true;releaseVisibility=undefined;
    const action=menu.getByRole('button',{name:'Hide game',exact:true});
    const requested=page.waitForRequest(r=>r.url().endsWith('/visibility'));
@@ -400,6 +559,7 @@ try {
  await page.emulateMedia({forcedColors:'active'});await open();assert(await dialog.isVisible());await close();await page.emulateMedia({forcedColors:'none'});
  // The same detail UI works read-only in operator inspection.
  me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),22);await close();
+ await page.locator('#recent-toggle').click();assert.equal(await page.locator('#feed .feed-react-toggle').count(),0,'read-only inspection cannot react to updates');await page.locator('#close-recent').click();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);
  console.log('PASS: shared details/cards, both themes at desktop/tablet/320/390, launch/guest/join, pending-art transitions, author search, 28-day attenuated reaction stacks, positive reactions with optional notes and bursts, unread Recently, centered card scaling, tags, activity targets, profile, visibility, text safety, inspection, landing, reduced motion and forced colors.');

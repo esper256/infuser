@@ -59,8 +59,14 @@ export const saves = {
 };
 export async function leave() { stopped = true; clearInterval(timer); await request('heartbeat', { method: 'DELETE' }); }
 // Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
-export const peers = { join: async options => (await import('/_infuser/sdk/v1/peers.js')).join(options) };
-export const peerjs = { join: async options => (await import('/_infuser/sdk/v1/peerjs.js')).join(options) };
+export const peers = {
+  create: async options => (await import('/_infuser/sdk/v1/peers.js')).create(options),
+  join: async options => (await import('/_infuser/sdk/v1/peers.js')).join(options)
+};
+export const peerjs = {
+  create: async options => (await import('/_infuser/sdk/v1/peerjs.js')).create(options),
+  join: async options => (await import('/_infuser/sdk/v1/peerjs.js')).join(options)
+};
 const checkpoint = method => async (...args) => checkpoints[method](...args);
 export const cloud = {
   load:checkpoint('load'),read:checkpoint('read'),history:checkpoint('history'),commit:checkpoint('commit'),resolve:checkpoint('resolve'),
@@ -82,7 +88,8 @@ export const runtime = {
 };
 export const presence = {
   // A snapshot only: no backend acquisition, peer lease, or presence spoofing.
-  get: () => request('presence/v1', {signal:AbortSignal.timeout(5000)})
+  get: () => request('presence/v1', {signal:AbortSignal.timeout(5000)}),
+  setActivity: activity => request('presence/v1/activity', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activity}),signal:AbortSignal.timeout(5000)})
 };
 export const launchIntent = {
   // Consume in the game after loading its state, never in the embedding player.

@@ -11,14 +11,16 @@ const errors=[];page.on('pageerror',e=>errors.push(e.message));
 const me={player_id:'self',name:'Alex',admin:false,avatar:'circuit-fox',avatars:[{id:'circuit-fox',name:'Circuit Fox'},{id:'moss-knight',name:'Moss Knight'}]};
 let friends=[{id:'a',name:'Rowan',avatar:'moss-knight'},{id:'b',name:'Sam',avatar:'circuit-fox'},{id:'c',name:'Quinn',avatar:'moss-knight'}];
 let launches=[];let stale=false;
+friends[2].status='away';
 friends[0].join_targets=[{app_id:'firefly',title:'Firefly Drift',session_id:'session-a',player_id:'a'}];
 friends[1].join_targets=[{app_id:'firefly',title:'Firefly Drift',session_id:'session-b',player_id:'b'}];
 let tagCatalog=['Arcade','Chill','Cooperative','Adventure','Puzzle','Racing','Strategy','Something with a very long tag label'].map((label,i)=>({id:'tag-'+i,label,count:1}));
-const game={id:'firefly',title:'Firefly Drift',card_art_url:'/art',play_modes:['solo'],tags:tagCatalog.map(t=>t.id),can_edit_tags:true,players:[],reactions:[],updated:1};
+const game={id:'firefly',title:'Firefly Drift',card_art_url:'/art',play_modes:['solo'],tags:tagCatalog.map(t=>t.id),can_edit_tags:true,players:[{id:'a',name:'Rowan',activity:'multiplayer'},{id:'c',name:'Quinn',activity:'single_player'}],reactions:[],updated:1};
 await context.route('https://library.test/**',async route=>{
  const path=new URL(route.request().url()).pathname;
  if(path==='/api/apps/firefly/launch'){launches.push(route.request().postDataJSON());return stale?route.fulfill({status:409,json:{error:'That session ended. Try again.'}}):route.fulfill({json:{state:'ready',launch_id:'launch',url:'https://library.test/playing'}});}
  if(path==='/playing')return route.fulfill({body:'Playing'});
+ if(path==='/api/presence/input')return route.fulfill({json:{ok:true}});
  if(path==='/api/me')return route.fulfill({json:me});
  if(path==='/api/library')return route.fulfill({json:{apps:[game],friends,tags:tagCatalog}});
  if(path==='/api/chat')return route.fulfill({json:{messages:[]}});
@@ -73,6 +75,7 @@ try {
  await page.setViewportSize({width:1280,height:900});await page.evaluate(()=>refreshLibrary());
  const first=page.locator('.friend-menu[data-key="a"]');
  await first.locator('summary').focus();await page.keyboard.press('Enter');
+ assert.match(await first.innerText(),/Rowan is currently playing Firefly Drift/);
  const join=first.getByRole('button',{name:'Join Firefly Drift'});await join.focus();
  await page.evaluate(()=>refreshLibrary());
  assert.equal(await first.getAttribute('open'),'');assert.equal(await join.evaluate(el=>el===document.activeElement),true);
@@ -81,6 +84,8 @@ try {
  await page.setViewportSize({width:390,height:760});
  const more=page.locator('.friend-menu[data-key="overflow"]');await more.locator('summary').click();
  const panel=more.locator('.friend-actions');const box=await panel.boundingBox();assert.ok(box.x>=15&&box.x+box.width<=375,JSON.stringify(box));
+ assert.match(await panel.innerText(),/Quinn is currently playing Firefly Drift · Single player/);
+ assert.match(await panel.innerText(),/Away/);
  assert.match(await panel.innerText(),/Sam/);assert.match(await panel.innerText(),/Quinn/);
  popup=page.waitForEvent('popup');await more.getByRole('button',{name:'Join Firefly Drift'}).click();gamePage=await popup;await gamePage.waitForURL('**/playing');await gamePage.close();
  assert.equal(launches.pop().intent.player_id,'b');

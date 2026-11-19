@@ -27,7 +27,7 @@ async fn encrypted_replacement_restores_saves_and_only_retires_after_verificatio
     db.edit(|d| {
         d.members.insert("player@example.test".into(),serde_json::from_value(json!({"name":"Player","admin":true,"enabled":true}))?);
         d.builds.insert("pond/one".into(),serde_json::from_value(json!({"manifest":{"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo"],"solo_runtime":"client_only"},"server":null,"spa":false,"cross_origin_isolation":false,"ready":true,"created":0,"files":{"index.html":4}}))?);
-        d.apps.insert("pond".into(),platform::App{build:"one".into(),updated:0,listed:true});
+        d.apps.insert("pond".into(),platform::App {publication: None,build:"one".into(),updated:0,listed:true});
         Ok(())
     })?;
     db.save_write(

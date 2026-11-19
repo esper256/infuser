@@ -248,7 +248,7 @@ async fn two_devices_conflict_restart_resolve_and_guest_cleanup() -> Result<()> 
         for app in ["pond","other"] {
             let manifest=serde_json::from_value(json!({"schema_version":1,"app_id":app,"title":"Pond","play_modes":["solo"],"solo_runtime":"client_only","cloud_saves":declaration()}))?;
             d.builds.insert(format!("{app}/one"),Build{manifest,server:None,spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
-            d.apps.insert(app.into(),App{build:"one".into(),listed:false,updated:now()});
+            d.apps.insert(app.into(),App {publication: None,build:"one".into(),listed:false,updated:now()});
         }
         for id in ["a","b","guest","fresh","other"] {d.launches.insert(id.into(),Launch{deployment:None,visit:None,intent:None,app:if id=="other"{"other"}else{"pond"}.into(),build:"one".into(),email:"admin@example.com".into(),guest:matches!(id,"guest"|"fresh"),host:format!("{id}.games.example.com"),token_hash:platform::hash(id),exchanged:true,expires:now()+300,grant_expires:now()+300,seen:now(),lease_id:None,lease_token:None});}
         Ok(())

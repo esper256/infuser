@@ -34,7 +34,7 @@ try {
     await page.route('https://game.test/**', async route => {
       const path = new URL(route.request().url()).pathname;
       const files = {'/_infuser/play':'game-player.html','/_infuser/player.js':'game-player.js',
-        '/_infuser/player.css':'game-player.css','/_infuser/screenshot-capture.js':'screenshot-capture.js'};
+        '/_infuser/activity-input.js':'activity-input.js','/_infuser/player.css':'game-player.css','/_infuser/screenshot-capture.js':'screenshot-capture.js'};
       if (path === '/_infuser/context') return route.fulfill({json:{manifest:{title:'Game',orientation},library_url:'/library'}});
       const file = files[path];
       if (!file) return route.fulfill({contentType:'text/html',body:'<canvas></canvas>'});
@@ -44,6 +44,12 @@ try {
     await page.goto('https://game.test/_infuser/play');
     await page.waitForFunction(() => !document.querySelector('#screenshot').disabled);
     assert((await page.locator('#game').boundingBox()).y > 0, 'windowed game starts below header');
+    if (!mobile) {
+      const canvas = page.frameLocator('#game').locator('canvas');
+      const reported = page.waitForRequest(r => new URL(r.url()).pathname === '/_infuser/input' && r.method() === 'POST');
+      await canvas.click();
+      assert.equal((await reported).postData(), null, 'input in the game reports activity without input contents');
+    }
     const expected = orientation || 'landscape';
     const mismatched = start !== expected;
     assert.deepEqual(await page.evaluate(() => locks), mobile && !mismatched ? [expected] : []);

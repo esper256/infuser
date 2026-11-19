@@ -105,7 +105,7 @@ async fn borrowed_servers_isolate_admission_and_cut_off_expired_visits() -> Resu
     )?;
     let deployment = p.db.edit(|d| {
         d.groups.names.insert("host".into(),"Host".into());
-        d.apps.insert("pond".into(),App{build:"one".into(),listed:true,updated:now()});
+        d.apps.insert("pond".into(),App {publication: None,build:"one".into(),listed:true,updated:now()});
         d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["multiplayer"],"server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(spec),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
         d.visits.insert("visit".into(),Visit{name:"Saturday".into(),host:"host".into(),participants:BTreeMap::from([("a@example.test".into(),Participant{after_message:0,ended:false})]),games:["pond".into()].into(),expires:now()+3600,ended:false});
         d.ensure_deployment("pond","host")
@@ -416,7 +416,7 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
     controller.register("pond", game)?;
     let game = controller.snapshot().games["pond"].spec.clone();
     p.db.edit(|d| {
-        d.apps.insert("pond".into(),App{build:"one".into(),listed:true,updated:now()});
+        d.apps.insert("pond".into(),App {publication: None,build:"one".into(),listed:true,updated:now()});
         d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(game),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
         for who in ["a","b","guest"] {
             let lease = controller.acquire("pond",who,now())?;
@@ -757,6 +757,7 @@ async fn review_load(
                 d.apps.insert(
                     format!("load-{app}"),
                     App {
+                        publication: None,
                         build: "build-0".into(),
                         listed: true,
                         updated: now(),

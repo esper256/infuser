@@ -50,8 +50,10 @@ in the online-player list. A small gap, subtle halo, and online marker with a ro
 bottom distinguish this badge; the menu includes the portrait picker, theme choice, and sign out.
 Keep it mounted during presence refreshes. The chosen portrait appears on their
 creator and presence badges.
-Initials remain available. Never invent author identities. Cards use the Nightglass layout with
-a content-sized glass dock. Missing or unavailable game artwork uses a muted,
+Initials remain available. Never invent author identities. Each Library card frames
+the title and author badge together to the left of Play. A one-line title box
+matches the height of Play. A wrapped title grows upward from the same bottom edge.
+Missing or unavailable game artwork uses a muted,
 abstract composition of overlapping colored loops, without logos, invented game imagery, or filler
 copy. Keep it static and subordinate to the real game covers. A game with no
 cover and a pending art brief uses the approved “Generating...” variant; never
@@ -73,6 +75,16 @@ Show real artwork, the author, description, tags, update date, and feedback with
 player portraits. Recently entries open the referenced game and reaction. Keep
 feedback positive and qualitative. The shared dialog stacks on phones, retains
 scroll and focus during refresh, and uses the active theme's materials.
+
+Unread Recently activity gives the logo a soft, pulsing glow. An occasional small
+nudge leads into a stronger wiggle. Opening Recently clears the attention effects.
+Each game-update entry has one reaction button. It opens a popup with all 22
+reaction icons, without visible labels or a comment field. Selecting an icon
+saves immediately. Each player gets one emoji per update and can change it.
+Counts appear on the update itself. Each new publication starts fresh. Game
+reviews, notes and screenshots stay on the game card. A successful reaction launches multicolored
+confetti from the selected emoji. Reduced motion keeps a static unread glow and
+suppresses the wiggle and confetti; hidden tabs stop the attention animation.
 
 Online players appear as overlapping avatars beside the logo. Use all available
 header space before replacing players with a +N overflow badge; reserve room for

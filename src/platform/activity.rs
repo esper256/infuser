@@ -37,6 +37,16 @@ pub(super) fn initialize(c: &mut Connection) -> Result<()> {
                     ON CONFLICT(email) DO UPDATE SET seen=excluded.seen WHERE seen!=excluded.seen;
             END;")?;
     }
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS profile_input(profile TEXT PRIMARY KEY, seen INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS launch_modes(launch TEXT PRIMARY KEY, mode TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS player_pages(page TEXT PRIMARY KEY,host TEXT NOT NULL,closed INTEGER NOT NULL DEFAULT 0);
+        CREATE TRIGGER IF NOT EXISTS remove_player_pages AFTER DELETE ON runtime_launches
+        BEGIN DELETE FROM player_pages WHERE host=json_extract(OLD.data,'$.host')
+        AND NOT EXISTS(SELECT 1 FROM runtime_launches WHERE json_extract(data,'$.host')=player_pages.host); END;
+        CREATE TRIGGER IF NOT EXISTS remove_launch_mode AFTER DELETE ON runtime_launches
+        BEGIN DELETE FROM launch_modes WHERE launch=OLD.id; END;",
+    )?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS catalog_revision(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
         INSERT OR IGNORE INTO catalog_revision VALUES(1,0);")?;
     // Invalidation belongs in SQLite so operator CLI writes and supported older

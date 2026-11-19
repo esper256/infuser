@@ -55,8 +55,8 @@ scoped by Infuser; never copy signed-in progress into it.
 
 ## Presence and launch intent
 
-`GetPresenceAsync()` returns `PresenceSnapshot`: players, the peer `session`,
-dedicated `sessions`, `can_start`, and `unavailable_reason`. A missing peer room
+`GetPresenceAsync()` returns `PresenceSnapshot`: players, `peer_sessions`, dedicated `sessions`,
+`can_create`, and `unavailable_reason`. The legacy `session` and `can_start` remain available. A missing peer room
 is normalized to null. Treat absent arrays as empty. Poll about every five seconds
 only while needed; presence does not reserve a seat. `PresenceAsync()` remains
 available for callers using raw JSON. See [presence](../../docs/presence.md).
@@ -68,6 +68,8 @@ the target or create a new room. See [launch intents](../../docs/launch-intents.
 
 ## Peer-hosted games
 
+Use `CreatePeerRoomAsync()` to host an independent joinable room on Play.
+Pass `joinable: false` to start closed while loading.
 `JoinPeersAsync(PeerOptions)` accepts `intent`, optional `sessionId`, `relayOnly`,
 and `joinable`. The default is closed; the host calls `SetJoinableAsync(true)`
 after initializing. `PeerRoom` contains the connection `id`, `hostId`, `role`,

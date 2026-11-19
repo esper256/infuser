@@ -37,10 +37,10 @@ The durable decisions are:
 - Infuser verifies identity and platform access. The game owns its simulation,
   room creation and final atomic admission. Presence is a discovery hint, not a
   seat reservation or an invitation.
-- A game deployment may host multiple sessions inside its one server. Encourage joining
-  friends through UX while allowing an explicit independent run. Where supported,
-  the game's title screen can highlight Join friends and Play on my own. The
-  Library's primary Play still opens the game; its artwork remains uncluttered.
+- Each peer host can create an independent room. A dedicated game can run
+  multiple sessions inside one server. For co-op, the game's Play button starts
+  a fresh joinable room and Play Solo is an unchecked option. Friends can join a
+  specific player from the Library. Its primary Play still opens the game.
   Playing alone may require the backend and does not imply creating a private
   multiplayer room. The game declares the actual activity and joinability.
 - A targeted join must enter the observed session or fail visibly. It must not

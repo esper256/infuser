@@ -9,16 +9,19 @@ async function request(path, body, method = 'POST') {
   if (!response.ok) throw Object.assign(new Error(result.error || 'Shared session unavailable'),{status:response.status});
   return result;
 }
-export async function join({Peer, relayOnly = false, sessionId, playerId, joinable = false,
+export function create(options) { return enter(true, options); }
+export function join(options) { return enter(false, options); }
+async function enter(createRoom, {Peer, relayOnly = false, sessionId, playerId, joinable = createRoom,
   connectionOptions = {}, onConnection = () => {}, onState = () => {}, onEnd = () => {}} = {}) {
   if (typeof Peer !== 'function') throw new TypeError('Pass the project’s PeerJS Peer constructor.');
   if (typeof relayOnly !== 'boolean' || typeof joinable !== 'boolean') throw new TypeError('relayOnly and joinable must be booleans');
+  if (createRoom && (sessionId !== undefined || playerId !== undefined)) throw new TypeError('Create takes no session or player target');
   if (sessionId !== undefined && !/^[a-f0-9]{32}$/.test(sessionId)) throw new TypeError('invalid sessionId');
   if (playerId !== undefined && (sessionId === undefined || typeof playerId !== 'string' || !/^[a-zA-Z0-9-]{1,96}$/.test(playerId))) throw new TypeError('playerId requires a sessionId');
   // Only public DataConnection settings. Connection identity/configuration is platform-owned.
   if (Object.keys(connectionOptions).some(k => !['serialization','reliable','label','metadata'].includes(k))) throw new TypeError('unsupported PeerJS connection option');
   const start = performance.now(), startWall = Date.now();
-  const initial = await request('', {adapter:'peerjs',connection_id:crypto.randomUUID(),relay_only:relayOnly,expected_epoch:sessionId,expected_player:playerId,joinable});
+  const initial = await request('', {...(createRoom ? {create:true} : {}), adapter:'peerjs',connection_id:crypto.randomUUID(),relay_only:relayOnly,expected_epoch:sessionId,expected_player:playerId,joinable});
   let live = true, lastPoll = start, state = initial, peer, timer, healthTimer, refreshed = start;
   let lastPollWall = startWall;
   let iceServers = initial.ice_servers;

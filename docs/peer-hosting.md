@@ -3,9 +3,9 @@
 Audience: game authors and their agents.
 
 This browser JSON-message adapter is tested with Three.js/Vite. The game owns
-its title screen and
-chooses when to join multiplayer. Single player stays local. There is one shared
-session per app, with at most eight browser peers; the first participant hosts.
+its title screen. For co-op, Play hosts a fresh room with up to eight browser
+peers, including the host. Other players can host their own rooms at the same
+time. An unchecked Play Solo option lets the player choose a local run.
 This transport is a preview; SDK 1.0 is not yet stable.
 
 Existing PeerJS games can use the [PeerJS adapter](peerjs.md) instead of replacing
@@ -13,17 +13,19 @@ their DataConnection message handling with this JSON helper. Both share the same
 session, presence, Join friend, and mandatory relay rules. Declare the adapter
 explicitly; their signaling protocols and message framing are not interchangeable.
 
-Declare both supported play modes in `infuser.game.json`:
+For co-op with local solo play and Library Join Friend, declare these fields in
+`infuser.game.json` and handle the [launch intent](launch-intents.md) at startup:
 
 ```json
 {
   "sdk": {
     "major": 1,
     "api_major": 1,
-    "required_capabilities": ["peers.webrtc.v1"]
+    "required_capabilities": ["peers.webrtc.v1", "peers.rooms.v1"]
   },
   "play_modes": ["solo", "multiplayer"],
   "solo_runtime": "client_only",
+  "launch_intents": ["join_friend"],
   "multiplayer": {
     "mode": "peer_hosted",
     "transport": "webrtc",
@@ -45,7 +47,7 @@ joinability](presence.md) for title-screen discovery and safe targeted joins.
 
 ```js
 import { peers } from '/_infuser/sdk/v1.js';
-const room = await peers.join({
+const room = await peers.create({
   relayOnly: false, // Normal play: allow direct paths, retain TURN fallback.
   joinable: false, // Keep new players out until the host's game state is ready.
   onState(state) { /* state.peers, state.connected, state.role */ },
@@ -74,12 +76,13 @@ The [Godot web adapter](engines/godot-web.md) uses the same coordinator and rela
 but Godot owns its `WebRTCMultiplayerPeer` channels and RPCs. The JSON messaging
 API below describes the browser helper, not Godot's wire protocol.
 
-To join the session shown on a title screen, pass `sessionId: snapshot.session.id`
+To join a room from `snapshot.peer_sessions`, pass the selected room’s `id` as `sessionId`
 to `peers.join()`. This must fail if that session ended or stopped accepting
 players; it never appoints a replacement host. A new session uses `joinable` only
 on creation. A member or a repeated join cannot change the host's admission policy.
-Existing integrations omitting `joinable` retain ordinary join behavior, but their
-rooms are not advertised as joinable until the host explicitly sets it.
+`peers.create()` opens its room by default. Older integrations using untargeted
+`peers.join()` keep automatic matchmaking. If they omit `joinable`, the host
+must explicitly open admission before the room appears as joinable.
 
 Messages are JSON, limited to 64 KiB, over an ordered reliable DataChannel.
 `send` returns false when disconnected or congested: games should keep their
@@ -93,7 +96,7 @@ is valid. The host rebuilds failed peer links inside that same session; games
 should send their latest authoritative snapshot when a member reconnects. Once
 the lease expires, `close()` is called, or the host departs, the room is terminal:
 late negotiation results and obsolete channel events cannot revive it. `onEnd`
-fires once. Rejoining requires an explicit new `peers.join()` call. A channel
+fires once. Return to the title screen so the player can host again or choose a live room. A channel
 closing during `send()` returns false rather than throwing into the game loop.
 
 The controller handles authenticated HTTP signaling only; game traffic flows
@@ -111,7 +114,7 @@ refresh/rejoin starts a new one. No seamless host migration is promised. Browser
 background throttling can slow a browser-hosted simulation; games should surface
 host connection status and allow leaving/rejoining.
 
-A publish during an active peer session queues the new build. When the session
+A publish during an active peer session queues the new build. When the last room
 ends, the controller promotes it; already-open old clients must reopen before
 starting another multiplayer session. Single-player saves are unchanged.
 

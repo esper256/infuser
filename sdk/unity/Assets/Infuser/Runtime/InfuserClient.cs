@@ -79,6 +79,7 @@ namespace Infuser.Unity
             if (launch.intent != null && string.IsNullOrEmpty(launch.intent.kind)) launch.intent = null;
             return launch;
         }
+        public Task<string> SetActivityAsync(string activity) => CallJsonAsync("presence.activity", JsonUtility.ToJson(new ActivityField { activity = activity }));
         public Task<string> PresenceAsync() => CallJsonAsync("presence");
         public async Task<PresenceSnapshot> GetPresenceAsync()
         {
@@ -86,6 +87,8 @@ namespace Infuser.Unity
             if (value.session != null && string.IsNullOrEmpty(value.session.id)) value.session = null;
             return value;
         }
+        public Task<PeerRoom> CreatePeerRoomAsync(bool relayOnly = false, bool joinable = true)
+            => CallAsync<PeerRoom>("peer.create", JsonUtility.ToJson(new JoinFields { relayOnly = relayOnly, joinable = joinable }));
         public Task<PeerRoom> JoinPeersAsync(PeerOptions options)
         {
             if (options == null) throw new ArgumentNullException(nameof(options));

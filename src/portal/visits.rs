@@ -217,13 +217,14 @@ impl Platform {
         });
         let changed = data.deployments.iter().any(|(id, dep)| {
             data.apps.get(&dep.app).is_some_and(|a| {
-                a.build != dep.active.build
-                    && (data
-                        .pending_promotions
-                        .get(id)
-                        .is_none_or(|q| q.build != a.build)
-                        || (!state.games.get(id).is_some_and(|i| i.reserved())
-                            && !self.peers.active(id, now())))
+                if a.build == dep.active.build {
+                    return a.publication != dep.active.publication;
+                }
+                data.pending_promotions
+                    .get(id)
+                    .is_none_or(|q| q.build != a.build)
+                    || (!state.games.get(id).is_some_and(|i| i.reserved())
+                        && !self.peers.active(id, now()))
             })
         });
         if !missing && !changed {
@@ -246,6 +247,10 @@ impl Platform {
                     continue;
                 };
                 if dep.active.build == latest.build {
+                    // Republishing the same build starts a fresh activity row without restarting play.
+                    if dep.active.publication != latest.publication {
+                        dep.active = latest.clone();
+                    }
                     continue;
                 }
                 if state.games.get(id).is_some_and(|i| i.reserved()) || self.peers.active(id, now())

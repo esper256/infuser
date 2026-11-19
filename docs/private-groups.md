@@ -4,7 +4,7 @@ Audience: server operators.
 
 One Infuser installation can host separate families. Each account belongs to one
 private group. Members see that group’s games, players, chat, reactions, and tags.
-A family’s admins manage only its invitations, game visibility, and agent
+A family’s admins manage only its invitations, game visibility, author credits, and agent
 connections. They cannot browse or administer other groups.
 
 Existing accounts, games, saves, and publishing connections belong to **Home**.
@@ -49,6 +49,23 @@ Inspection does not announce the operator online, create a membership, launch
 games, post messages, or modify anything. **Return home** restores normal use;
 the tab also returns home after 15 minutes. Existing home-group games and other
 tabs continue normally.
+
+## Game author credits
+
+Admins open **profile picture → Admin tools → Game authors**, choose an uploaded
+game (including hidden games), and add or remove profiles from their library.
+The arrow buttons set the credit order; **Save authors** applies it. At least one
+author is required. Cards show overlapping portraits, while the full game popup
+shows each portrait and name in order. Searching by any credited author finds
+the game.
+
+Credits are display metadata only. They do not change the original owner,
+publishing tokens, tag-editing permissions, or update access. Games without
+explicit credits use their original owner. Saved credits survive game updates.
+The Library API returns the ordered `authors` array and keeps `author` as its
+first entry for older clients. Admin endpoints are `GET /api/admin/game-authors`
+and `PUT /api/admin/apps/{app}/authors` with an `authors` array of profile IDs.
+Visitors cannot edit credits, and operator inspection remains read-only.
 
 ## Visits
 

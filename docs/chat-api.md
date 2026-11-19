@@ -35,3 +35,7 @@ Google, Mozilla, Apple or Microsoft push services, use HTTPS and port 443; redir
 are disabled. Endpoints are private credentials and must not be logged. Since
 alerts have no payload, no chat content or encryption keys are sent or stored for
 push delivery.
+
+`POST /api/notifications/test` with `{endpoint}` sends a normal empty push to
+a subscription already registered to the current profile. Success means the
+provider accepted the request. Each profile can send one test every 30 seconds.

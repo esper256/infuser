@@ -1,5 +1,5 @@
 // Experimental WebRTC star topology. Keep game rules in the game, not this transport.
-// One host per app; host departure ends the session. This is not the SDK 1.0 contract.
+// One host per room; host departure ends the session. This is not the SDK 1.0 contract.
 async function request(path, body, method = 'POST') {
   const response = await fetch('/_infuser/api/v1/peers' + path, {
     method, credentials: 'same-origin', signal: AbortSignal.timeout(5000),
@@ -9,12 +9,15 @@ async function request(path, body, method = 'POST') {
   if (!response.ok) throw Object.assign(new Error(result.error || 'Peer session unavailable'), {status:response.status});
   return result;
 }
-export async function join({relayOnly = false, sessionId, playerId, joinable, onState = () => {}, onMessage = () => {}, onEnd = () => {}} = {}) {
+export function create(options) { return enter(true, options); }
+export function join(options) { return enter(false, options); }
+async function enter(createRoom, {relayOnly = false, sessionId, playerId, joinable, onState = () => {}, onMessage = () => {}, onEnd = () => {}} = {}) {
+  if (createRoom && (sessionId !== undefined || playerId !== undefined)) throw new TypeError('Create takes no session or player target');
   if (sessionId !== undefined && (typeof sessionId !== 'string' || !/^[a-f0-9]{32}$/.test(sessionId))) throw new TypeError('sessionId must be an observed session ID');
   if (joinable !== undefined && typeof joinable !== 'boolean') throw new TypeError('joinable must be a boolean');
   if (playerId !== undefined && (sessionId === undefined || typeof playerId !== 'string' || !/^[a-zA-Z0-9-]{1,96}$/.test(playerId))) throw new TypeError('playerId requires a sessionId and an opaque player ID');
   const started = performance.now(), startedWall = Date.now();
-  const initial = await request('', {connection_id: crypto.randomUUID(), relay_only: relayOnly, expected_epoch:sessionId, expected_player:playerId, joinable});
+  const initial = await request('', {...(createRoom ? {create:true} : {}), connection_id: crypto.randomUUID(), relay_only: relayOnly, expected_epoch:sessionId, expected_player:playerId, joinable:joinable ?? (createRoom ? true : undefined)});
   let state = initial, live = true, lastPoll = started, cursor = 0, refreshed = started, timer, healthTimer;
   let lastPollWall = startedWall;
   let iceServers = initial.ice_servers;

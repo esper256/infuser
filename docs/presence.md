@@ -10,11 +10,11 @@ Managed server occupancy alone does not mean that a game is joinable: opt into
 
 Dedicated games receive an additive `sessions` array containing
 `{id,label,activity,joinable,max_players,players}`; each player has
-`{player_id,name,guest}`. The singular `session` below remains the peer-room field.
+`{player_id,name,guest}`. Use `peer_sessions` for peer-hosted rooms.
 Use `sessions.connect({action:'join',target:{session_id,player_id}})` for a dedicated
 target. Reports expire after 45 seconds; new joins are unavailable while an update
 drains existing runs. This adds `server_draining` to `unavailable_reason`.
-The rest of this page describes the unchanged peer API.
+The rest of this page describes peer rooms.
 
 ## What a game learns
 
@@ -41,17 +41,18 @@ if (me.capabilities.presence?.version === 1) {
     {"player_id":"guest-opaque-launch-id","name":"Guest","guest":true,"is_self":false,
      "online":true,"game_open":true,"multiplayer":true}
   ],
-  "session": {
+  "peer_sessions": [{
     "id": "opaque-session-epoch",
     "build_id": "one",
+    "matchmaking": false,
     "host_player_id": "guest-opaque-launch-id",
     "player_count": 1,
     "max_players": 4,
     "joinable": true,
     "reason": null,
     "players": [{"player_id":"guest-opaque-launch-id","name":"Guest","guest":true}]
-  },
-  "can_start": false,
+  }],
+  "can_create": true,
   "unavailable_reason": null
 }
 ```
@@ -70,11 +71,18 @@ Peer membership uses its existing 30-second coordinator lease. Disabled members
 and expired/unexchanged launches do not appear. A snapshot prunes invalid peer
 launches; if that removes the host, the session ends. It contains no emails,
 tickets, credentials, signaling payloads, telemetry, or other games' metadata.
-All invited members are the current social circle; no separate friend list exists.
+The Library lists players within the current private group or visit. The web
+player reports a departing tab so the Library can remove the game on its next
+refresh after the last tab closes. Switching tabs keeps the game listed. When a
+browser exits without sending that report, the 90-second heartbeat timeout applies.
+Game authors do not need to add a close handler.
 
-`session` is null when no live room exists. `can_start` is true only when a room
-can be created for this published build and topology; reading it reserves nothing.
-Its availability is a hint, not a promise that the later join cannot fail.
+Use `peer_sessions` for the room picker. Show each host's name by matching
+`host_player_id` to a room member. `can_create` indicates whether this build
+can start a fresh room, even when others are full. Reading presence reserves
+nothing. The room marked `matchmaking: true` also appears in the legacy
+`session` field. That field is null when there is no automatic matchmaking room.
+For peer games, legacy `can_start` means a new matchmaking room can start.
 `unavailable_reason` is null or `unsupported_topology`, `relay_unavailable`,
 `newer_build`, or `coordinator_restarting`. After a controller restart, new peer sessions wait for old connections to expire.
 
@@ -90,14 +98,14 @@ snapshot and session target. Do not replace an existing adapter just for presenc
 ## What a host reports
 
 ```js
-const room = await peers.join({joinable:false});
+const room = await peers.create({joinable:false});
 // Initialize the host simulation, then:
 if (room.role === 'host') await room.setJoinable(true);
 // During a round that cannot accept newcomers:
 if (room.role === 'host') await room.setJoinable(false);
 ```
 
-The only report is a boolean: whether this session accepts new participants.
+For peer admission the host reports a boolean: whether this session accepts new participants.
 Names, identities, occupancy and capacity come from authenticated launches and
 the manifest. Only the verified host connection can update admission, with its
 matching session ID (`epoch` in the peer API). Members cannot update it; IDs from
@@ -118,7 +126,7 @@ renew the host lease; the normal signaling poll does that.
 For a displayed session, capture its ID when the player chooses Join:
 
 ```js
-const observed = snapshot.session;
+const observed = snapshot.peer_sessions.find(room => room.id === selectedRoomId);
 if (observed?.joinable) {
   try {
     const room = await peers.join({sessionId:observed.id});
@@ -136,9 +144,13 @@ Do not silently retry without the session ID: that would change the player's
 intent. [Launcher Join friend intents](launch-intents.md) use this same guard,
 plus a target player ID so a friend leaving also causes a visible failure.
 
-An ordinary Multiplayer choice with no observed session may call `peers.join()`
-without `sessionId`: it starts the one shared room, or joins a concurrently created
-room if that room permits admission. It never creates a parallel world.
+Use `peers.create()` for Host or the default co-op Play button. It always hosts
+a fresh room and opens admission by default. The HTTP equivalent is
+`POST /_infuser/api/v1/peers` with `{"create":true,"connection_id":"<uuid>"}`.
+Retry the same live connection ID to receive the same room. For Join Friend pass
+both `sessionId` and `playerId` to `peers.join`. Older untargeted `peers.join()`
+calls still use a shared matchmaking room and cannot take a seat in a room
+someone explicitly created.
 
 Old clients that omit `joinable` preserve their existing ordinary-join behavior.
 Their rooms have `accepting_players:null` and are not advertised as joinable.
@@ -150,3 +162,11 @@ Presence reads do not renew browser or peer leases, start servers, reserve seats
 or alter fullscreen. The normal SDK heartbeat remains required. Cache only briefly,
 handle fetch failures, and show a small player list or Join action in the game's own
 title screen. Numeric network diagnostics remain in admin tools.
+
+The Library shows **Online** for two minutes after input, **Idle** until ten
+minutes, then **Away** while the player remains connected. Keyboard, pointer,
+wheel and gamepad input in the hosted web player count. Library polls and game
+heartbeats establish reachability only. A disconnected player drops from the
+online strip when their 90-second presence expires. The optional
+[game mode report](launch-intents.md#implement-join-friend-from-the-library)
+describes what the player is doing separately from these indicators.

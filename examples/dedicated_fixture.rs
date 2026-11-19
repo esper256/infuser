@@ -311,6 +311,7 @@ async fn main() -> Result<()> {
             d.apps.insert(
                 "dedicated-lab".into(),
                 App {
+                    publication: None,
                     build: "one".into(),
                     listed: true,
                     updated: now(),

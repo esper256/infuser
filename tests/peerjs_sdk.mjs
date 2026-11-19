@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {setImmediate} from 'node:timers/promises';
-import {join} from '../sdk/v1/peerjs.js';
+import {create,join} from '../sdk/v1/peerjs.js';
 import {connectInfuser} from '../sdk/optional.js';
 function fixture(t) {
   let clock=1000,poll,renewalFailures=0;
@@ -29,13 +29,20 @@ function fixture(t) {
     destroy(){this.destroyed=true;}
     reconnect(){this.disconnected=false;this.reconnections=(this.reconnections||0)+1;}
   }
-  return {snapshot,peers,messages,ended,requests,
+  return {Peer,snapshot,peers,messages,ended,requests,
     start:()=>join({Peer,onConnection:c=>c.on('data',d=>messages.push(d)),onEnd:e=>ended.push(e)}),
     poll:value=>poll=value,failRenewal:()=>renewalFailures=1,
     jump:ms=>clock+=ms,
     async advance(ms=0){clock+=ms;t.mock.timers.tick(ms);await setImmediate();}
   };
 }
+test('PeerJS Host creates an independent open room',async t=>{
+  const h=fixture(t);
+  const room=await create({Peer:h.Peer});
+  assert.equal(h.requests[0].body.create,true);
+  assert.equal(h.requests[0].body.joinable,true);
+  room.close();
+});
 test('PeerJS sends preserve binary data and fence stale callbacks before sleep timers run',async t=>{
   const h=fixture(t),room=await h.start();await h.advance();
   const c=room.connections[0],bytes=new Uint8Array([0,255]);

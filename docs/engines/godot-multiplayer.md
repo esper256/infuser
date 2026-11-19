@@ -22,15 +22,20 @@ networking stack merely because the game exports to the web.
 Use the peer-hosted WebRTC declaration in the
 [example manifest](../../examples/godot-web/infuser.game.json), keeping only the
 play modes the game actually supports. The installation must advertise
-`peers.webrtc.v1`.
+`peers.webrtc.v1` and `peers.rooms.v1`. Include both in `sdk.required_capabilities`.
 
-Use `direct_connect: "optional"` and `peers.join(false)` for normal play.
+Use `direct_connect: "optional"` and `await peers.create()` on the title screen's Play
+button. Copy the current addon when updating an existing game. Leave Play Solo
+unchecked by default. When checked, skip peer setup and start local play. If
+upgrading an older game, replace `await peers.join()` in its host handler.
+Use `can_create` for host availability, even when `peer_sessions` contains
+other rooms. Keep the targeted `join` call in the Join Friend handler.
 WebRTC checks local-network and direct internet paths as well as TURN relay paths;
 relay fallback is required even when direct connections work. UPnP is not needed.
-Use `peers.join(true)` to force relay during a test.
+Use `peers.create(true)` on the host and `peers.join(true, intent)` on the joining player to test relay.
 
-The first player hosts; the second joins the same session. Host departure or an
-expired connection lease ends the room. The addon retries brief interruptions,
+Each host creates a separate room. A friend joins the selected host. Host departure or expiry of the host’s
+lease ends only that room. A departing member frees a seat. The addon retries brief interruptions,
 refreshes TURN credentials, and reconnects within the same live room. After a room
 ends, offer an explicit return to the title screen or a new join; do not resume an
 old simulation automatically.

@@ -69,6 +69,13 @@ Cancel leaves the conflict pending; retry uses the same resolution commit ID.
 For an existing-project walkthrough, see [Dodge the Creeps](../../examples/godot-existing/README.md).
 It adds a best-score checkpoint at game-over while keeping the original gameplay.
 
+For co-op, copy the current peer addon and require `peers.rooms.v1`. Use
+`await peers.create()` for Play and an unchecked Play Solo checkbox for local
+play. Each host gets a separate room. A host that needs setup time can start
+closed with `await peers.create(false, false)`.
+Call `await peers.set_joinable(true)` when friends can enter and
+`await peers.set_joinable(false)` to close admission. The default is open.
+
 Declare `launch_intents: ["join_friend"]` for supported peer-hosted games. Consume
 the intent once at startup and pass it to the Godot peer adapter as
 `peers.join(false, intent)`; this is GDScript, not the JavaScript SDK signature. A stale

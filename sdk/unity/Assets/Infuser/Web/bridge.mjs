@@ -45,6 +45,7 @@ export function createBridge(send, loadSdk = connect) {
     if (op === 'ready') return api ? {hosted:true, ...await api.ready} : {hosted:false};
     if (!api) throw failure('not_hosted', 'Use the game’s standalone save or networking path.');
     switch (op) {
+      case 'presence.activity': return api.presence.setActivity(a.activity);
       case 'presence': return api.presence.get();
       case 'launch_intent': return api.launchIntent.consume();
       case 'cloud.load': return api.cloud.load(a.group);
@@ -67,6 +68,7 @@ export function createBridge(send, loadSdk = connect) {
           files:{[a.file]:JSON.parse(a.json)}, summary:a.summary || ''};
         return a.candidateRevision ? api.cloud.resolve(a.group, {...checkpoint, candidateRevision:a.candidateRevision}) : api.cloud.commit(a.group, checkpoint);
       }
+      case 'peer.create':
       case 'peer.join': {
         if (peer || socket || joining || closing) throw failure('already_connected', 'Wait for the current multiplayer join or leave to finish.');
         joining = true;
@@ -80,7 +82,7 @@ export function createBridge(send, loadSdk = connect) {
             if (a.intent.kind !== 'join_friend' || !a.intent.session_id || !a.intent.player_id) throw failure('invalid_target', 'Invalid Join Friend target.');
             options.sessionId = a.intent.session_id; options.playerId = a.intent.player_id;
           } else if (a.sessionId) options.sessionId = a.sessionId;
-          const room = await api.peers.join(options);
+          const room = await (op === 'peer.create' ? api.peers.create(options) : api.peers.join(options));
           if (current !== generation || disposed) { room.close(); throw failure('cancelled', 'Join cancelled.'); }
           peer = room;
           return {id:room.id, hostId:room.hostId, role:room.role, epoch:room.epoch};

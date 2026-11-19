@@ -3,7 +3,144 @@ use super::*;
 use std::collections::BTreeSet;
 
 pub(super) fn capabilities() -> Value {
-    json!({"version":1,"experimental":true,"joinability":["peer_hosted_webrtc","dedicated_websocket"]})
+    json!({"version":1,"experimental":true,"game_activity":["title_screen","single_player","multiplayer"],"joinability":["peer_hosted_webrtc","dedicated_websocket"]})
+}
+
+pub(super) async fn library_input(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let profile = p.member(&h, true).await?;
+    record_input(&p.db, &profile)?;
+    Ok(reply(json!({"ok":true})))
+}
+
+pub(super) async fn game_input(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (_, launch) = p.game(&h)?;
+    if !launch.guest {
+        record_input(&p.db, &launch.email)?;
+    }
+    Ok(reply(json!({"ok":true})))
+}
+
+fn record_input(db: &Database, profile: &str) -> Result<()> {
+    db.connection.lock().unwrap().execute(
+        "INSERT INTO profile_input VALUES(?1,?2) ON CONFLICT(profile) DO UPDATE SET seen=excluded.seen WHERE seen<excluded.seen",
+        rusqlite::params![profile,now()])?;
+    Ok(())
+}
+
+pub(super) fn input_status(last: Option<u64>, time: u64) -> &'static str {
+    match last.map(|t| time.saturating_sub(t)) {
+        Some(0..120) => "active",
+        Some(120..600) => "idle",
+        _ => "away",
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GameActivity {
+    activity: String,
+}
+
+pub(super) async fn set_activity(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(report): Json<GameActivity>,
+) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (id, launch) = p.game(&h)?;
+    let data = p.db.read()?;
+    let manifest = &data
+        .builds
+        .get(&build_key(&launch.app, &launch.build))
+        .ok_or_else(|| fault(410, "Game build expired."))?
+        .manifest;
+    use crate::manifest::PlayMode;
+    let allowed = match report.activity.as_str() {
+        "title_screen" => true,
+        "single_player" => manifest.play_modes.contains(&PlayMode::Solo),
+        "multiplayer" => manifest.play_modes.contains(&PlayMode::Multiplayer),
+        _ => false,
+    };
+    ensure!(
+        allowed,
+        fault(422, "Choose an activity supported by this game.")
+    );
+    let updated =
+        p.db.connection
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO launch_modes SELECT id,?2 FROM runtime_launches WHERE id=?1
+         ON CONFLICT(launch) DO UPDATE SET mode=excluded.mode",
+                rusqlite::params![id, report.activity],
+            )
+            .map_err(anyhow::Error::from)?;
+    ensure!(updated > 0, fault(410, "Game session expired."));
+    Ok(reply(json!({"ok":true})))
+}
+
+// Track documents separately: reloads and duplicate tabs can share a launch cookie.
+pub(super) fn open_page(db: &Database, launch: &str, host: &str) -> Result<String> {
+    let page = secret();
+    let mut c = db.connection.lock().unwrap();
+    let tx = c.transaction()?;
+    tx.execute(
+        "DELETE FROM player_pages WHERE host=?1 AND closed=1",
+        [host],
+    )?;
+    tx.execute(
+        "INSERT INTO player_pages(page,host) SELECT ?2,?3 FROM runtime_launches WHERE id=?1",
+        rusqlite::params![launch, page, host],
+    )?;
+    tx.commit()?;
+    Ok(page)
+}
+
+pub(super) async fn close_page(
+    State(p): State<Platform>,
+    Path(page): Path<String>,
+    h: HeaderMap,
+) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (_, launch) = p.game(&h)?;
+    p.db.connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE player_pages SET closed=1 WHERE host=?1 AND page=?2 AND closed=0",
+            rusqlite::params![launch.host, page],
+        )
+        .map_err(anyhow::Error::from)?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+// Read these small social tables only for Library snapshots, never for routine game heartbeats.
+#[derive(Default)]
+pub(super) struct LibraryActivity {
+    pub inputs: BTreeMap<String, u64>,
+    pub modes: BTreeMap<String, String>,
+    pub closed_hosts: BTreeSet<String>,
+}
+impl LibraryActivity {
+    pub fn read(db: &Database) -> Result<Self> {
+        let c = db.connection.lock().unwrap();
+        let mut inputs = c.prepare_cached("SELECT profile,seen FROM profile_input")?;
+        let mut modes = c.prepare_cached("SELECT launch,mode FROM launch_modes")?;
+        let mut pages =
+            c.prepare_cached("SELECT host FROM player_pages GROUP BY host HAVING min(closed)=1")?;
+        Ok(Self {
+            closed_hosts: pages
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?,
+            inputs: inputs
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?,
+            modes: modes
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?,
+        })
+    }
 }
 
 pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTreeSet<String> {
@@ -77,8 +214,11 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
         );
     }
     p.peers.retain_launches(launch.runtime_id(), &live, time);
-    let session = p.peers.discovery(launch.runtime_id(), &launch.build, time);
-    if let Some(members) = session["players"].as_array() {
+    let rooms = p
+        .peers
+        .discover_all(launch.runtime_id(), &launch.build, time);
+    for session in &rooms {
+        let members = session["players"].as_array().unwrap();
         for member in members {
             let player = member["player_id"].as_str().unwrap();
             players.insert(
@@ -122,10 +262,20 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
     } else {
         None
     };
+    // Older games can auto-match only with the matchmaking room.
+    let matchmaking = rooms.iter().find(|room| room["matchmaking"] == true);
+    let can_create = unavailable.is_none()
+        && (!dedicated
+            || sessions.is_empty()
+            || build
+                .manifest
+                .sessions
+                .as_ref()
+                .is_some_and(|s| s.policy == crate::dedicated::Policy::Multiple));
     Ok(reply(
         json!({"app_id":launch.app,"build_id":launch.build,"self_id":own_id,
-        "players":players.into_values().collect::<Vec<_>>(),"session":session,"sessions":sessions,
-        "can_start":unavailable.is_none() && if dedicated {build.manifest.sessions.as_ref().is_some_and(|s| s.policy == crate::dedicated::Policy::Multiple) || sessions.is_empty()} else {session.is_null()},"unavailable_reason":unavailable}),
+        "players":players.into_values().collect::<Vec<_>>(),"session":matchmaking,"peer_sessions":rooms,"sessions":sessions,
+        "can_create":can_create,"can_start":can_create && (dedicated || matchmaking.is_none()),"unavailable_reason":unavailable}),
     ))
 }
 

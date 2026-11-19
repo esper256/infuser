@@ -69,10 +69,20 @@ pub struct Build {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct App {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication: Option<String>,
     pub build: String,
     pub updated: u64,
     #[serde(default = "listed")]
     pub listed: bool,
+}
+impl App {
+    pub fn update_id(&self, deployment: &str) -> String {
+        match &self.publication {
+            Some(id) => format!("{deployment}.{id}"),
+            None => format!("{deployment}.legacy.{}-{}", self.build, self.updated),
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PendingPromotion {
@@ -134,6 +144,9 @@ pub struct Data {
     pub setup_claims: BTreeMap<String, SetupClaim>,
     #[serde(default)]
     pub owners: BTreeMap<String, String>,
+    // Ordered display credits only; never grants publishing or ownership rights.
+    #[serde(default)]
+    pub author_credits: BTreeMap<String, Vec<String>>,
     // The renamed catalog field deliberately makes pre-genesis binaries refuse
     // this state rather than interpret profiles as login email identities.
     #[serde(rename = "profiles", alias = "members")]
@@ -421,6 +434,9 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO visits VALUES(1,'{}');")?;
         channels::initialize(&mut c)?;
         screenshots::initialize(&c)?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS update_reactions(
+            deployment TEXT NOT NULL, profile TEXT NOT NULL, publication TEXT NOT NULL, emoji TEXT NOT NULL,
+            PRIMARY KEY(deployment,profile)) WITHOUT ROWID;")?;
         crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS portrait_builds(build_key TEXT PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS native_resolution_builds(build_key TEXT PRIMARY KEY);

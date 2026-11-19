@@ -124,6 +124,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
                 Some("member=frizz") => "frizz@example.com",
                 Some("member=admin") => "admin@example.com",
                 Some("member=user") => "user@example.com",
+                Some("member=artist") => "artist@example.com",
                 Some("member=visitor") => "visitor@example.com",
                 _ => "",
             };
@@ -334,6 +335,130 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     );
     let (home, home_key) = c.publish("frizz", "home-special").await?;
     let (away, away_key) = c.publish("user", "away-special").await?;
+    // Ordered display credits are admin-only and never transfer publishing rights.
+    ok(c.member("admin", Method::POST, "/api/admin/members")
+        .json(&json!({"email":"artist@example.com","name":"Collaborator"})))
+    .await?;
+    let artist_id = p.db.read()?.player_id("artist@example.com");
+    let author_path = format!("/api/admin/apps/{away}/authors");
+    let user_id = p.db.read()?.player_id("user@example.com");
+    let admin_id = p.db.read()?.player_id("admin@example.com");
+    let foreign_id = p.db.read()?.player_id("frizz@example.com");
+    let initial = ok(c.member("user", Method::GET, "/api/library")).await?;
+    assert_eq!(initial["apps"][0]["authors"][0]["id"], user_id);
+    let credentials_before = serde_json::to_value(&p.db.read()?.credentials)?;
+    let inventory = ok(c.member("admin", Method::GET, "/api/admin/game-authors")).await?;
+    assert_eq!(inventory["games"].as_array().unwrap().len(), 1);
+    assert_eq!(inventory["games"][0]["id"], away);
+    assert!(!inventory.to_string().contains(&foreign_id));
+    denied(c.member("user", Method::GET, "/api/admin/game-authors")).await?;
+    for who in ["user", "artist", "frizz", ""] {
+        denied(
+            c.member(who, Method::PUT, &author_path)
+                .json(&json!({"authors":[user_id]})),
+        )
+        .await?;
+    }
+    denied(
+        c.member("admin", Method::PUT, &author_path)
+            .header("origin", "https://elsewhere.example")
+            .json(&json!({"authors":[user_id]})),
+    )
+    .await?;
+    denied(
+        c.member("admin", Method::PUT, &author_path)
+            .header("x-infuser-inspect-group", "home")
+            .json(&json!({"authors":[user_id]})),
+    )
+    .await?;
+    for invalid in [
+        json!([]),
+        json!([user_id, user_id]),
+        json!([foreign_id]),
+        json!(["missing"]),
+    ] {
+        assert_eq!(
+            c.member("admin", Method::PUT, &author_path)
+                .json(&json!({"authors":invalid}))
+                .send()
+                .await?
+                .status(),
+            400
+        );
+    }
+    for ids in [
+        json!([admin_id, user_id]),
+        json!([user_id, admin_id]),
+        json!([artist_id]),
+    ] {
+        let saved = ok(c
+            .member("admin", Method::PUT, &author_path)
+            .json(&json!({"authors":ids})))
+        .await?;
+        assert_eq!(
+            saved["authors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a["id"].clone())
+                .collect::<Vec<_>>(),
+            *ids.as_array().unwrap()
+        );
+        let public = ok(c.member("user", Method::GET, "/api/library")).await?;
+        assert_eq!(public["apps"][0]["authors"], saved["authors"]);
+        assert_eq!(public["apps"][0]["author"], saved["authors"][0]);
+        assert_eq!(
+            ok(c.member("artist", Method::GET, "/api/library")).await?["apps"][0]["can_edit_tags"],
+            false,
+            "credit does not grant tag-editing rights"
+        );
+        assert_eq!(
+            public["apps"][0]["can_edit_tags"], true,
+            "owner keeps authoring permissions after removal from credits"
+        );
+    }
+    ok(c.member("admin", Method::PUT, &author_path)
+        .json(&json!({"authors":[admin_id,user_id]})))
+    .await?;
+    assert_eq!(p.db.read()?.owners[&away], "user@example.com");
+    assert_eq!(
+        serde_json::to_value(&p.db.read()?.credentials)?,
+        credentials_before
+    );
+    ok(c.key(&away_key, Method::GET, "/api/publisher/capabilities")).await?;
+    // Publishing another build must retain the explicit credits and their order.
+    let next_build = format!("/api/publisher/apps/{away}/builds/second");
+    ok(c.key(&away_key, Method::PUT, &next_build).json(&json!({"manifest":{"schema_version":1,"app_id":away,"title":"Moon Race","play_modes":["solo"],"solo_runtime":"client_only"}}))).await?;
+    ok(c.key(
+        &away_key,
+        Method::PUT,
+        &format!("{next_build}/files/index.html"),
+    )
+    .body("<script type=module src='/_infuser/sdk.js'></script>"))
+    .await?;
+    let mut updated_art = Vec::new();
+    image_webp::WebPEncoder::new(&mut updated_art).encode(
+        &vec![70; 1024 * 1024 * 3],
+        1024,
+        1024,
+        image_webp::ColorType::Rgb8,
+    )?;
+    ok(c.key(
+        &away_key,
+        Method::PUT,
+        &format!("{next_build}/files/infuser-art/card-hero.webp"),
+    )
+    .body(updated_art))
+    .await?;
+    ok(
+        c.key(&away_key, Method::POST, &format!("{next_build}/publish"))
+            .json(&json!({"listed":true})),
+    )
+    .await?;
+    assert_eq!(
+        p.db.read()?.author_credits[&away],
+        vec!["admin@example.com", "user@example.com"]
+    );
     // Same title/slug is independent; publisher codes automatically inherit their family.
     assert_eq!(
         ok(c.member("frizz", Method::GET, "/api/games/moon-race")).await?["app_id"],
@@ -774,6 +899,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     let reopened = platform::Database::open(temp.path())?;
     assert_eq!(reopened.read()?.groups.member("user@example.com"), group);
     assert!(reopened.read()?.operator("frizz@example.com"));
+    assert_eq!(
+        reopened.read()?.author_credits[&away],
+        vec!["admin@example.com", "user@example.com"]
+    );
     let mut unsafe_cfg = cfg.clone();
     unsafe_cfg.controller.private_groups = false;
     let disabled_state = tempfile::tempdir()?;
