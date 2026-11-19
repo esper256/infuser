@@ -85,9 +85,17 @@ sudo journalctl -u infuser-host-apply.service --since '15 minutes ago'
 ```
 
 Apply runs as a finite systemd job. A disconnected SSH session does not cancel
-it. It takes the existing backup/update/reboot lock, requires idle admission and
-stops the controller while applying changes. Busy admission or lock contention
-exits with status 75; retry later. There is no forced interruption option.
+it. It takes the existing backup/update/reboot lock and asks for admission
+under the **strict host policy** described in [host maintenance](host-maintenance.md):
+it waits until games, shared games, reserved servers, and publishing are idle.
+It does not use the update caps, and Update anyway does not apply. The admin
+update panel shows why a deferred run is waiting. Busy admission or lock
+contention exits with status 75; retry later.
+
+If the release manifest lists `ansible` in `host`, this run is required for
+that version to take effect. It then uses the **release host policy**: the same
+10-minute and 2-hour waits as a binary update, and Update anyway applies.
+A successful apply clears that requirement. A failed apply does not.
 
 The health collector's timer is temporarily paused so its automatic recovery
 cannot restart the controller mid-update; its previous running state is restored.

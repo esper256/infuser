@@ -81,6 +81,7 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
     let state = dir.path().join("state");
     let manifest = Arc::new(Mutex::new(Release {
         commit: good.clone(),
+        host: Vec::new(),
         artifacts: BTreeMap::from([(
             "linux-amd64".into(),
             Artifact {

@@ -38,9 +38,9 @@ cleanup(){
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-# OS patching uses the existing update admission contract, without its force option.
-code=$(request POST '{"purpose":"update","force":false}')
-[[ "$code" != 409 ]] || defer 'players, publishing or maintenance are active'
+# Strict host policy, unless release.json says this reboot delivers the new version.
+code=$(request POST '{"purpose":"reboot"}')
+[[ "$code" != 409 ]] || defer "$(jq -r '.error // "play is still active"' "$work/response")"
 [[ "$code" == 200 ]] || { echo "Maintenance admission failed (HTTP $code); no reboot." >&2; exit 1; }
 lease=$(jq -er '.lease.id | strings | select(length > 0)' "$work/response")
 [[ -f "$flag" ]] || defer 'the reboot request has been cleared'
@@ -50,8 +50,10 @@ if [[ ${1:-} == --check ]]; then
   echo 'Reboot would be permitted; check mode released maintenance without rebooting.'
   exit 0
 fi
-echo 'Ubuntu requires a reboot; Infuser is idle. Requesting an orderly reboot.'
+echo 'Reboot admitted. Requesting an orderly reboot.'
 # Respect shutdown inhibitors. Never use --force or bypass normal service shutdown.
+# A release-required reboot is cleared on the next boot, not before this call,
+# so an inhibited reboot can try again.
 systemctl --check-inhibitors=yes reboot
 requested=true
 # Successful shutdown keeps admission closed until the daemon stops (lease also expires).

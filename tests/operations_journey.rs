@@ -330,6 +330,116 @@ async fn activation_names_an_open_game_and_does_not_wait_for_its_check_in() -> R
     Ok(())
 }
 
+#[tokio::test]
+async fn reboot_stays_strict_unless_the_release_requires_it() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let cfg: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}",
+        root.path().to_str().unwrap()
+    ))?;
+    let controller = Arc::new(Controller::open(
+        cfg.clone(),
+        Arc::new(Docker {
+            settings: cfg.controller.clone(),
+        }),
+    )?);
+    let p = portal::Platform::open(controller.clone())?;
+    p.db.edit(|data| {
+        data.metadata.insert(
+            "pond".into(),
+            infuser::platform::GameMetadata {
+                title: Some("Pond".into()),
+                ..infuser::platform::GameMetadata::default()
+            },
+        );
+        data.launches.insert(
+            "active".into(),
+            serde_json::from_value(json!({
+                "app":"pond","build":"one","email":"player@example.test","guest":true,
+                "host":"pond.example.test","token_hash":"fixture","exchanged":true,
+                "expires":now()+3600,"grant_expires":now()+3600,"seen":now(),
+                "lease_id":null,"lease_token":null
+            }))?,
+        );
+        Ok(())
+    })?;
+    let router = operations::routes(p.clone(), "control");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let base = format!("http://{}", listener.local_addr()?);
+    let _server = Server(tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    }));
+    let http = reqwest::Client::new();
+    let reboot = http
+        .post(format!("{base}/v1/maintenance"))
+        .bearer_auth("control")
+        .json(&json!({"purpose":"reboot"}))
+        .send()
+        .await?;
+    assert_eq!(reboot.status(), StatusCode::CONFLICT);
+    let body = reboot.text().await?;
+    assert!(body.contains("Pond"), "{body}");
+    assert!(p.controller.deployment.read().host_wait.is_some());
+    assert_eq!(
+        http.post(format!("{base}/v1/maintenance"))
+            .bearer_auth("control")
+            .json(&json!({"purpose":"reboot","force":true}))
+            .send()
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let release = "b".repeat(40);
+    http.post(format!("{base}/v1/deployment"))
+        .bearer_auth("control")
+        .json(&json!({"release":release,"phase":"waiting","host_steps":["reboot"]}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let required = http
+        .post(format!("{base}/v1/maintenance"))
+        .bearer_auth("control")
+        .json(&json!({"purpose":"reboot"}))
+        .send()
+        .await?;
+    let required_status = required.status();
+    let required_body = required.text().await?;
+    assert_eq!(required_status, StatusCode::OK, "{required_body}");
+    let required: Value = serde_json::from_str(&required_body)?;
+    assert_eq!(required["policy"], "release");
+    http.delete(format!("{base}/v1/maintenance"))
+        .bearer_auth("control")
+        .json(&json!({"id":required["lease"]["id"]}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let ansible = http
+        .post(format!("{base}/v1/maintenance"))
+        .bearer_auth("control")
+        .json(&json!({"purpose":"ansible"}))
+        .send()
+        .await?;
+    assert_eq!(ansible.status(), StatusCode::CONFLICT);
+    assert!(ansible.text().await?.contains("Pond"));
+    p.controller.deployment.edit(|record| {
+        record.boot_id = Some("previous-boot".into());
+        record
+            .host_required
+            .push(infuser::deployment::HostStep::Reboot);
+        Ok(())
+    })?;
+    p.controller.deployment.observe_boot()?;
+    assert!(
+        !p.controller
+            .deployment
+            .read()
+            .host_required
+            .contains(&infuser::deployment::HostStep::Reboot),
+        "a new boot completes a required reboot"
+    );
+    Ok(())
+}
+
 async fn admit(http: &reqwest::Client, base: &str, release: &str) -> Result<(StatusCode, String)> {
     let response = http
         .post(format!("{base}/v1/deployment/admit"))

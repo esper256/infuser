@@ -230,6 +230,7 @@ impl Platform {
             native_manifests: Default::default(),
         };
         platform.reconcile_publications()?;
+        platform.controller.deployment.observe_boot()?;
         Ok(platform)
     }
     fn config(&self) -> &Config {

@@ -9,7 +9,11 @@ const serverFiles = ['infuser-linux-amd64', 'infuser-linux-arm64',
   'Infuser-Play-Setup.exe', 'Infuser-Play.flatpak'];
 const macFiles = ['infuser-macos-amd64', 'infuser-macos-arm64'];
 
-function prepare(directory, commit, channel) {
+function prepare(directory, commit, channel, host = []) {
+  if (!Array.isArray(host) || host.some(step => !['reboot', 'ansible'].includes(step))) {
+    throw new Error('host steps must be reboot, ansible, or both');
+  }
+  host = [...new Set(host)];
   if (!SHA.test(commit)) throw new Error('Invalid release commit');
   if (!['server', 'macos'].includes(channel)) throw new Error('Invalid release channel');
   const files = [...(channel === 'server' ? serverFiles : macFiles)];
@@ -23,7 +27,10 @@ function prepare(directory, commit, channel) {
   const artifact = file => ({ file, sha256: hashes[file] });
   const write = (file, data) => { fs.writeFileSync(path.join(directory, file), JSON.stringify(data, null, 2) + '\n'); files.push(file); };
   const platforms = channel === 'server' ? ['linux-amd64', 'linux-arm64'] : ['macos-amd64', 'macos-arm64'];
-  write('release.json', { commit, artifacts: Object.fromEntries(platforms.map(p => [p, artifact('infuser-' + p)])) });
+  const manifest = { commit, artifacts: Object.fromEntries(platforms.map(p => [p, artifact('infuser-' + p)])) };
+  // Omitted when empty so updaters that reject unknown fields can still read it.
+  if (host.length) manifest.host = host;
+  write('release.json', manifest);
   if (channel === 'server') {
     write('play-release.json', { protocol: 1, commit, artifacts: {
       'linux-x86_64': artifact('infuser-play-linux-x86_64'),
@@ -51,7 +58,9 @@ function api(route, method = 'GET', body) {
 
 async function publish({ directory, commit, channel, repository, runUrl }, request = api, upload = cli) {
   if (repository !== 'esper256/infuser') throw new Error('Unexpected repository');
-  const files = prepare(directory, commit, channel);
+  const planPath = path.join(process.cwd(), 'deploy/host-plan.json');
+  const host = fs.existsSync(planPath) ? JSON.parse(fs.readFileSync(planPath, 'utf8')).steps || [] : [];
+  const files = prepare(directory, commit, channel, host);
   const root = `repos/${repository}`, tag = `${channel === 'server' ? 'build' : 'macos'}-${commit}`;
   const compare = async (base, head) => {
     const result = await request(`${root}/compare/${base}...${head}`);

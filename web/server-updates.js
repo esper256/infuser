@@ -22,6 +22,7 @@ export function initServerUpdates({panel,api,me}) {
   }
   const current=buildCard('Running now'),next=buildCard('Staged update');next.card.classList.add('update-candidate');
   const activityList=node('div');activityList.className='update-activity';activityList.setAttribute('role','status');activityList.hidden=true;
+  const hostBox=node('div');hostBox.className='update-host';hostBox.hidden=true;
   const status=node('div'),reason=node('p'),blockers=node('ul'),wait=node('p'),checked=node('p'),message=node('p');
   status.className='update-status';reason.className='update-progress';wait.className=checked.className='update-caption';message.className='update-message';message.setAttribute('role','status');
   status.append(reason,blockers,wait,checked);
@@ -30,7 +31,7 @@ export function initServerUpdates({panel,api,me}) {
   const confirm=node('div');confirm.className='update-confirm';confirm.hidden=true;
   const actions=node('div');actions.className='dialog-actions';actions.append(cancel,action);
   const note=node('p','The updater rechecks the latest release before restarting, so a newer build may replace the one shown.');note.className='update-caption';
-  confirm.append(warning,actions);section.append(header,builds,activityList,status,open,confirm,note,message);
+  confirm.append(warning,actions);section.append(header,builds,activityList,hostBox,status,open,confirm,note,message);
   let state,busy=false,submitting=false,requestId,reachable=true;
   const set=(object,key,value)=>{if(object[key]!==value)object[key]=value;};
   const text=(element,value)=>set(element,'textContent',value);
@@ -66,6 +67,24 @@ export function initServerUpdates({panel,api,me}) {
       }));
     }
     set(activityList,'hidden',!activity.length);
+    const host=state.host||null;
+    const hostSignature=JSON.stringify(host);
+    if(hostBox.dataset.host!==hostSignature){
+      hostBox.dataset.host=hostSignature;
+      hostBox.replaceChildren();
+      if(host){
+        const heading=node('strong',host.summary||''),detail=node('p',host.effect||''),waited=node('p');
+        waited.className='update-caption';
+        text(waited,host.since?'Waiting '+humanWait(host.since):'');
+        hostBox.append(heading,detail,waited);
+        for(const item of host.activity||[]){
+          if(!item.holds)continue;
+          const line=node('p',item.summary||'');
+          hostBox.append(line);
+        }
+      }
+    }
+    set(hostBox,'hidden',!host);
     const why=!reachable?'Waiting for Infuser to respond':!state.configured?'Automatic updates are not reporting to this server.':stale?'Waiting for a fresh update check':phases[phase]||(state.available?(authorized?'One update is authorized. Waiting for the updater.':holds.length?'The update is waiting.':'The update will install on the next check, usually within a minute.'):'No update is waiting.');
     text(reason,why);
     set(blockers,'hidden',true);

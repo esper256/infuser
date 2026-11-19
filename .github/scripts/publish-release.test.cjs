@@ -47,6 +47,7 @@ test('server release is complete, single-commit, and retains both existing insta
   const f = fixture(t), files = prepare(f.directory, commit, 'server');
   const read = name => JSON.parse(fs.readFileSync(path.join(f.directory, name)));
   assert.equal(read('release.json').commit, commit);
+  assert.equal(read('release.json').host, undefined);
   assert.deepEqual(Object.keys(read('release.json').artifacts), ['linux-amd64', 'linux-arm64']);
   assert.equal(read('play-release.json').commit, commit);
   assert.equal(read('play-release.json').protocol, 1);
@@ -62,6 +63,13 @@ test('server release is complete, single-commit, and retains both existing insta
     assert.equal(hash, crypto.createHash('sha256').update(fs.readFileSync(path.join(f.directory, file))).digest('hex'));
   }
   assert(!files.some(file => file.includes('macos')));
+});
+test('a release can name the host step it cannot take effect without', t => {
+  const f = fixture(t);
+  prepare(f.directory, commit, 'server', ['reboot', 'reboot']);
+  const manifest = JSON.parse(fs.readFileSync(path.join(f.directory, 'release.json')));
+  assert.deepEqual(manifest.host, ['reboot']);
+  assert.throws(() => prepare(f.directory, commit, 'server', ['kernel']));
 });
 test('Mac manifest requires both architectures and never includes server/Play assets', t => {
   const f = fixture(t, 'macos'), files = prepare(f.directory, commit, 'macos');

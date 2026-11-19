@@ -130,7 +130,11 @@ impl Gate {
     }
     /// Binary activation. Unlike [`Self::begin`], an ordinary open request does
     /// not block: heartbeats and page loads are not the publish being received.
-    pub fn begin_update(&self, interrupt_publishing: bool) -> Result<Option<Lease>> {
+    pub fn begin_update(&self, purpose: &str, interrupt_publishing: bool) -> Result<Option<Lease>> {
+        ensure!(
+            matches!(purpose, "update" | "reboot" | "ansible"),
+            "invalid maintenance purpose"
+        );
         let mut state = self.0.lock().unwrap();
         let now = crate::controller::now();
         if state.lease.as_ref().is_some_and(|l| l.expires > now)
@@ -140,7 +144,7 @@ impl Gate {
         }
         let lease = Lease {
             id: crate::store::secret(),
-            purpose: "update".into(),
+            purpose: purpose.into(),
             expires: now + 60,
         };
         state.lease = Some(lease.clone());
@@ -152,7 +156,7 @@ impl Gate {
         idle: impl FnOnce() -> Result<bool>,
     ) -> Result<Option<Lease>> {
         ensure!(
-            matches!(purpose, "backup" | "update"),
+            matches!(purpose, "backup" | "update" | "reboot" | "ansible"),
             "invalid maintenance purpose"
         );
         let mut state = self.0.lock().unwrap();
@@ -169,9 +173,14 @@ impl Gate {
         Ok(Some(lease))
     }
     pub fn end(&self, id: &str) {
+        self.take(id);
+    }
+    pub fn take(&self, id: &str) -> Option<Lease> {
         let mut state = self.0.lock().unwrap();
-        if state.lease.as_ref().is_some_and(|l| l.id == id) {
-            state.lease = None;
+        if state.lease.as_ref().is_some_and(|lease| lease.id == id) {
+            state.lease.take()
+        } else {
+            None
         }
     }
     pub fn active(&self) -> bool {
@@ -233,22 +242,32 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn report_update(&self, report: &crate::deployment::Report) -> Result<()> {
-        let send = |report: crate::deployment::Report| {
-            self.http
-                .post(self.url.replace("/v1/maintenance", "/v1/deployment"))
-                .bearer_auth(&self.token)
-                .json(&report)
-                .send()
+    pub async fn report_update(
+        &self,
+        report: &crate::deployment::Report,
+        host_steps: Option<&[crate::deployment::HostStep]>,
+    ) -> Result<()> {
+        let send = |report: &crate::deployment::Report,
+                    host_steps: Option<&[crate::deployment::HostStep]>| {
+            let mut body = serde_json::to_value(report)?;
+            if let Some(steps) = host_steps {
+                body["host_steps"] = serde_json::to_value(steps)?;
+            }
+            Ok::<_, anyhow::Error>(
+                self.http
+                    .post(self.url.replace("/v1/maintenance", "/v1/deployment"))
+                    .bearer_auth(&self.token)
+                    .json(&body),
+            )
         };
-        let response = send(report.clone()).await?;
+        let response = send(report, host_steps)?.send().await?;
         if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY
-            && report.built_at.is_some()
+            && (report.built_at.is_some() || host_steps.is_some())
         {
             // A rollback/older controller may not understand optional metadata.
             let mut legacy = report.clone();
             legacy.built_at = None;
-            send(legacy).await?.error_for_status()?;
+            send(&legacy, None)?.send().await?.error_for_status()?;
         } else {
             response.error_for_status()?;
         }

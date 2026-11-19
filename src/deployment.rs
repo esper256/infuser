@@ -29,6 +29,29 @@ pub struct Report {
     #[serde(default)]
     pub maintenance_blocked: bool,
 }
+/// A host step named by `release.json`. Omitted from the manifest when empty.
+/// An installed updater from before this field existed rejects a manifest that
+/// includes it, so publish `host` only after that updater is installed.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HostStep {
+    Reboot,
+    Ansible,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HostPolicy {
+    /// Scheduled reboot or routine Ansible. Waits until play is idle.
+    Strict,
+    /// This step is required for a release to take effect. Same caps as activation.
+    Release,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct HostWait {
+    pub step: HostStep,
+    pub policy: HostPolicy,
+    pub since: u64,
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Grant {
     pub id: String,
@@ -45,6 +68,20 @@ pub struct Record {
     pub available_since: Option<u64>,
     pub grant: Option<Grant>,
     pub last_request: Option<String>,
+    /// Host steps the release named by `host_release` still needs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub host_required: Vec<HostStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_release: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_wait: Option<HostWait>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boot_id: Option<String>,
+    /// When this release's host steps were first recorded. The release-required
+    /// reboot or Ansible wait is measured from here, including after the binary
+    /// is already current.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_appeared: Option<u64>,
 }
 pub struct Tracker {
     path: PathBuf,
@@ -112,6 +149,108 @@ impl Tracker {
             Ok(())
         })
     }
+    /// Replace the host steps required by `release`. An empty list means this
+    /// release needs no reboot or Ansible to take effect.
+    pub fn note_host(&self, release: &str, steps: &[HostStep]) -> Result<()> {
+        ensure!(valid_id(release, 40), "invalid release ID");
+        let steps = canonical_steps(steps);
+        self.edit(|record| {
+            if record.host_release.as_deref() != Some(release) {
+                record.host_wait = None;
+                record.host_appeared = Some(now());
+            }
+            record.host_release = Some(release.to_owned());
+            record.host_required = steps.clone();
+            if steps.is_empty() {
+                record.host_appeared = None;
+            } else {
+                record.host_appeared.get_or_insert(now());
+            }
+            Ok(())
+        })
+    }
+    pub fn host_required(&self, step: HostStep) -> bool {
+        let record = self.read();
+        record.host_required.contains(&step)
+            && record.host_release.as_deref().is_some_and(|release| {
+                release == crate::BUILD_SHA
+                    || record
+                        .report
+                        .as_ref()
+                        .and_then(|report| report.release.as_deref())
+                        == Some(release)
+            })
+    }
+    pub fn note_host_wait(&self, step: HostStep, policy: HostPolicy) -> Result<()> {
+        self.edit(|record| {
+            if record
+                .host_wait
+                .as_ref()
+                .is_none_or(|wait| wait.step != step || wait.policy != policy)
+            {
+                record.host_wait = Some(HostWait {
+                    step,
+                    policy,
+                    since: now(),
+                });
+            }
+            Ok(())
+        })
+    }
+    pub fn clear_host_wait(&self, step: HostStep) -> Result<()> {
+        self.edit(|record| {
+            if record
+                .host_wait
+                .as_ref()
+                .is_some_and(|wait| wait.step == step)
+            {
+                record.host_wait = None;
+            }
+            Ok(())
+        })
+    }
+    pub fn complete_host_step(&self, step: HostStep) -> Result<()> {
+        self.edit(|record| {
+            record.host_required.retain(|required| *required != step);
+            if record
+                .host_wait
+                .as_ref()
+                .is_some_and(|wait| wait.step == step)
+            {
+                record.host_wait = None;
+            }
+            Ok(())
+        })
+    }
+    /// A new boot means a required reboot has happened. The first observation
+    /// only records the boot, so opening the controller does not clear a step.
+    pub fn observe_boot(&self) -> Result<()> {
+        let Ok(boot) = std::fs::read_to_string("/proc/sys/kernel/random/boot_id") else {
+            return Ok(());
+        };
+        let boot = boot.trim();
+        if boot.is_empty() {
+            return Ok(());
+        }
+        self.edit(|record| {
+            if record.boot_id.as_deref() != Some(boot) {
+                if record.boot_id.is_some() {
+                    record
+                        .host_required
+                        .retain(|step| *step != HostStep::Reboot);
+                    if record
+                        .host_wait
+                        .as_ref()
+                        .is_some_and(|wait| wait.step == HostStep::Reboot)
+                    {
+                        record.host_wait = None;
+                    }
+                }
+                record.boot_id = Some(boot.to_owned());
+            }
+            Ok(())
+        })
+    }
     pub fn authorize(&self, id: &str, current_build: &str, actor: &str) -> Result<()> {
         ensure!(
             valid_id(id, 32),
@@ -161,6 +300,15 @@ impl Record {
             .as_ref()
             .is_some_and(|g| g.expires > now() && g.current_build == crate::BUILD_SHA)
     }
+}
+fn canonical_steps(steps: &[HostStep]) -> Vec<HostStep> {
+    let mut out = Vec::new();
+    for step in [HostStep::Reboot, HostStep::Ansible] {
+        if steps.contains(&step) {
+            out.push(step);
+        }
+    }
+    out
 }
 fn valid_id(value: &str, len: usize) -> bool {
     value.len() == len

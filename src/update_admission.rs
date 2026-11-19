@@ -12,8 +12,13 @@
 //! being built, are lost if the process dies mid-way.
 
 use crate::{
-    controller::now, maintenance::LiveRequest, platform::Data, portal::Platform,
-    server_package::Phase, store::Phase as GamePhase,
+    controller::now,
+    deployment::{HostPolicy, HostStep, Record},
+    maintenance::LiveRequest,
+    platform::Data,
+    portal::Platform,
+    server_package::Phase,
+    store::Phase as GamePhase,
 };
 use anyhow::Result;
 use serde::Serialize;
@@ -46,10 +51,12 @@ pub struct Admission {
 }
 
 pub fn describe(p: &Platform) -> Result<Vec<Item>> {
+    describe_since(p, p.controller.deployment.read().available_since)
+}
+pub fn describe_since(p: &Platform, available_since: Option<u64>) -> Result<Vec<Item>> {
     let time = now();
     let data = p.db.read()?;
     let state = p.controller.snapshot();
-    let available_since = p.controller.deployment.read().available_since;
     let requests = p.controller.maintenance.requests();
     let mut items = Vec::new();
     let mut covered = BTreeSet::new();
@@ -97,7 +104,10 @@ pub fn describe(p: &Platform) -> Result<Vec<Item>> {
 }
 
 pub fn admission(p: &Platform) -> Result<Admission> {
-    let items = describe(p)?;
+    admission_since(p, p.controller.deployment.read().available_since)
+}
+pub fn admission_since(p: &Platform, available_since: Option<u64>) -> Result<Admission> {
+    let items = describe_since(p, available_since)?;
     let holding: Vec<_> = items.iter().filter(|item| item.holds).collect();
     let publish_open = items
         .iter()
@@ -623,6 +633,142 @@ fn age(seconds: u64) -> String {
         format!("{} h {} min", seconds / 3600, (seconds % 3600) / 60)
     } else {
         format!("{} d {} h", seconds / 86_400, (seconds % 86_400) / 3600)
+    }
+}
+
+/// Scheduled reboots and routine Ansible. This is the previous idle check,
+/// named on its own: open games, shared games, reserved servers, publishing
+/// or server builds (including a queued image), and any open request.
+/// Voice is not a wait. A reboot still drops it; that was already true.
+pub fn describe_strict(p: &Platform) -> Result<Vec<Item>> {
+    let time = now();
+    let data = p.db.read()?;
+    let state = p.controller.snapshot();
+    let mut items = Vec::new();
+    if state.build_reservation.is_some()
+        || data.server_builds.values().any(|job| job.active())
+        || p.controller.maintenance.publishing() > 0
+    {
+        items.push(Item {
+            kind: "packaging",
+            holds: true,
+            summary: "Publishing or a server image is still in progress.".into(),
+            effect: "This waits until that work finishes. A reboot or configuration change would interrupt it.".into(),
+            since: None,
+            gives_up_at: None,
+        });
+    }
+    for (app, game) in &state.games {
+        if !matches!(
+            game.phase,
+            GamePhase::Starting | GamePhase::Ready | GamePhase::Stopping
+        ) {
+            continue;
+        }
+        let title = game_title(&data, app);
+        items.push(Item {
+            kind: "dedicated",
+            holds: true,
+            summary: format!("The server for \"{title}\" is still running."),
+            effect: "This waits until that server is stopped. A reboot stops it.".into(),
+            since: None,
+            gives_up_at: None,
+        });
+    }
+    if let Some(mut playing) = playing_item(&data, &BTreeSet::new(), time) {
+        playing.holds = true;
+        playing.effect = "This waits until that game is closed. A reboot stops play.".into();
+        items.push(playing);
+    }
+    let diagnostics = p.peer_rooms().diagnostics(time);
+    if diagnostics["sessions"]
+        .as_array()
+        .is_some_and(|sessions| !sessions.is_empty())
+    {
+        for named in peer_items(&data, &diagnostics, Some(time), time) {
+            let mut item = named.item;
+            item.holds = true;
+            item.gives_up_at = None;
+            item.effect = "This waits until that shared game ends. A reboot ends it.".into();
+            items.push(item);
+        }
+    }
+    // Ignore this status request and brief check-ins. A download that is still
+    // transferring is what the strict check is actually waiting on.
+    if p.controller.maintenance.requests().iter().any(|request| {
+        !request.path.is_empty()
+            && request.path != "/api/operator/update"
+            && !request.path.contains("heartbeat")
+            && time.saturating_sub(request.started) >= LONG_REQUEST
+    }) {
+        items.push(Item {
+            kind: "request",
+            holds: true,
+            summary: "A page or download is still open.".into(),
+            effect: "This waits until that request finishes.".into(),
+            since: None,
+            gives_up_at: None,
+        });
+    }
+    if let Some(voice) = voice_item(p) {
+        items.push(voice);
+    }
+    Ok(items)
+}
+
+#[derive(Serialize)]
+pub struct HostPanel {
+    pub step: HostStep,
+    pub policy: HostPolicy,
+    pub since: u64,
+    pub summary: String,
+    pub effect: String,
+    pub activity: Vec<Item>,
+}
+
+pub fn host_panel(p: &Platform, record: &Record) -> Result<Option<HostPanel>> {
+    let Some(wait) = record.host_wait.clone() else {
+        return Ok(None);
+    };
+    let activity = match wait.policy {
+        HostPolicy::Strict => describe_strict(p)?,
+        HostPolicy::Release => describe_since(p, record.host_appeared.or(record.available_since))?,
+    };
+    let holding = activity.iter().any(|item| item.holds);
+    let (summary, effect) = host_copy(wait.step, wait.policy, holding);
+    Ok(Some(HostPanel {
+        step: wait.step,
+        policy: wait.policy,
+        since: wait.since,
+        summary,
+        effect,
+        activity,
+    }))
+}
+
+fn host_copy(step: HostStep, policy: HostPolicy, holding: bool) -> (String, String) {
+    let name = match step {
+        HostStep::Reboot => "reboot",
+        HostStep::Ansible => "configuration update",
+    };
+    match policy {
+        HostPolicy::Strict => (
+            if holding {
+                format!("A {name} is waiting until play is idle.")
+            } else {
+                format!("A {name} was waiting. Nothing is open now.")
+            },
+            "This is scheduled maintenance, not part of delivering a new version. It waits for open games, shared games, game servers, and publishing. Update anyway does not apply. It tries again on the next maintenance window.".into(),
+        ),
+        HostPolicy::Release => (
+            format!("A {name} is required for the new version to take effect."),
+            if holding {
+                "It uses the same waits as the update. Update anyway applies to it."
+            } else {
+                "Nothing is holding it now. It can run on its next try. Update anyway applies to it."
+            }
+            .into(),
+        ),
     }
 }
 

@@ -111,6 +111,7 @@ async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
         "release_built_at":record.release_built_at,"publishing":publishing,
         "available":record.available(),"available_since":record.available_since,"checked_at":record.checked_at,
         "report":record.report,"stale":stale,"reasons":reasons,"activity":activity,
+        "host":crate::update_admission::host_panel(&p, &record)?,
         "authorized_until":record.grant.filter(|g|g.expires>now() && g.current_build==crate::BUILD_SHA).map(|g|g.expires)}),
     ))
 }

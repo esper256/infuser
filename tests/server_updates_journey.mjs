@@ -99,6 +99,10 @@ try {
  assert(await page.locator('.update-publishing').isHidden());
  assert(await page.getByText('The update will install on the next check, usually within a minute.',{exact:true}).isVisible());
  assert.equal(await page.getByText('Build time unknown',{exact:true}).count(),2);
+ await page.evaluate(async()=>{state.host={step:'reboot',policy:'strict',since:Date.now()/1000-120,summary:'A reboot is waiting until play is idle.',effect:'Update anyway does not apply. It tries again on the next maintenance window.',activity:[{holds:true,summary:'Alex has “Pond” open in the browser.'}]};await refresh();});
+ await page.getByText('A reboot is waiting until play is idle.',{exact:true}).waitFor();
+ await page.locator('.update-host').getByText('Alex has “Pond” open in the browser.',{exact:true}).waitFor();
+ await page.locator('.update-host').getByText('Update anyway does not apply.',{exact:false}).waitFor();
  await page.evaluate(async()=>{state.configured=false;state.available=false;state.checked_at=0;await refresh();});
  assert(await page.getByText('Not configured',{exact:true}).isVisible());
  assert(await page.locator('#server-update').isVisible());

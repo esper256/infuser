@@ -24,19 +24,26 @@ request(){
       --header 'Content-Type: application/json' --data-binary "$2" \
       --output "$runtime/admission.json" --write-out '%{http_code}' "http://127.0.0.1:$port/v1/maintenance"
 }
+applied=false
 cleanup(){
   local code=$?
   trap - EXIT
   "$here/recover.sh" --locked || code=1
-  if [[ -n "$lease" ]]; then request DELETE "$(jq -nc --arg id "$lease" '{id:$id}')" >/dev/null || true; fi
+  if [[ -n "$lease" ]]; then
+    if [[ "$applied" == true ]]; then
+      request DELETE "$(jq -nc --arg id "$lease" '{id:$id,done:true}')" >/dev/null || true
+    else
+      request DELETE "$(jq -nc --arg id "$lease" '{id:$id}')" >/dev/null || true
+    fi
+  fi
   rm -f -- "$runtime/admission.json"
   exit "$code"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-code=$(request POST '{"purpose":"update","force":false}')
-[[ "$code" != 409 ]] || { echo 'Apply deferred: games, publishing or maintenance are active.'; exit 75; }
+code=$(request POST '{"purpose":"ansible"}')
+[[ "$code" != 409 ]] || { echo "Apply deferred: $(jq -r '.error // "play is still active"' "$runtime/admission.json")"; exit 75; }
 [[ "$code" == 200 ]] || { echo "Admission failed (HTTP $code); nothing applied." >&2; exit 1; }
 lease=$(jq -er '.lease.id | strings | select(length>0)' "$runtime/admission.json")
 expires=$(jq -er '.lease.expires | numbers' "$runtime/admission.json")
@@ -59,3 +66,4 @@ systemctl stop "$unit"
 export INFUSER_HOST_GUARDED=1
 "${INFUSER_ANSIBLE_BIN:-/opt/infuser/ansible/bin/ansible-playbook}" \
   -i "$1" "$here/host.yml"
+applied=true
