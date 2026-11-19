@@ -82,7 +82,7 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 
 /* Nightglass: sculptural color loops for missing art, without game-specific imagery. */
 .games { display: grid; align-items: stretch; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 22px; }
-.game { display: flex; flex-direction: column; gap: 24px; position: relative; isolation: isolate; container-type: inline-size; width: 100%; max-width: 100%; min-width: 0; aspect-ratio: var(--game-ratio,1.2); min-height: 280px; padding: 16px; border: 1px solid #ffffff26; border-radius: 22px; overflow: visible; background: #102d32; box-shadow: 0 18px 50px #0004; transform-origin: center; transition: transform .25s ease,border-color .25s ease,box-shadow .25s ease; }
+.game { display: flex; flex-direction: column; gap: 24px; position: relative; isolation: isolate; container-type: inline-size; width: 100%; max-width: 100%; min-width: 0; aspect-ratio: var(--game-ratio,1.2); min-height: 280px; --card-padding: 16px; padding: var(--card-padding); border: 1px solid #ffffff26; border-radius: 22px; overflow: visible; background: #102d32; box-shadow: 0 18px 50px #0004; transform-origin: center; transition: transform .25s ease,border-color .25s ease,box-shadow .25s ease; }
 .game:before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: linear-gradient(#03101a66,transparent 30%,transparent 65%,#001b2655); pointer-events: none; }
 .game-art {
   position: absolute; z-index: -2; inset: 0; border-radius: inherit; overflow: hidden;
@@ -756,8 +756,11 @@ button.feed-row:hover { border-color: var(--accent); }
 /* Reactions sit 4px inside the left edge, with 20% below the card.
    The 44px hit area extends upward so the visible overhang stays small. */
 .game-bottom { position: static; margin-top: auto; width: 100%; min-width: 0; }
-/* Clear the reaction stack’s 44px hit area at the lower left. */
-.game-bottom:has(.game-buzz) { padding-bottom: 26px; }
+/* Keep the controls on the bottom edge. When the reactions and controls cannot
+   share that row, wrap the reactions above it. */
+.game:not(.hidden-game) .game-bottom { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px 6px; }
+.game:not(.hidden-game) .game-dock { max-width: 100%; margin-left: auto; }
+.game:not(.hidden-game) .game-buzz { position: relative; left: auto; bottom: auto; margin-left: calc(4px - var(--card-padding)); margin-bottom: calc(-1 * var(--card-padding) - var(--buzz-size) * .2 - 1px); }
 .game-buzz { --buzz-size: 28px; position: absolute; z-index: 2; left: 4px; bottom: calc(var(--buzz-size) * -.2 - 1px); display: flex; align-items: flex-end; flex: none; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink); }
 .game-buzz:hover { background: transparent; }
 .game-buzz span { display: grid; place-items: center; position: relative; width: var(--buzz-size); height: var(--buzz-size); font-size: 23px; line-height: 1; background: transparent; filter: drop-shadow(4px 2px .5px rgb(0 0 0 / 60%)); }

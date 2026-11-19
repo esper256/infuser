@@ -71,7 +71,11 @@ Peer membership uses its existing 30-second coordinator lease. Disabled members
 and expired/unexchanged launches do not appear. A snapshot prunes invalid peer
 launches; if that removes the host, the session ends. It contains no emails,
 tickets, credentials, signaling payloads, telemetry, or other games' metadata.
-The Library lists players within the current private group or visit.
+The Library lists players within the current private group or visit. The web
+player reports a departing tab so the Library can remove the game on its next
+refresh after the last tab closes. Switching tabs keeps the game listed. When a
+browser exits without sending that report, the 90-second heartbeat timeout applies.
+Game authors do not need to add a close handler.
 
 Use `peer_sessions` for the room picker. Show each host's name by matching
 `host_player_id` to a room member. `can_create` indicates whether this build

@@ -80,18 +80,59 @@ pub(super) async fn set_activity(
     Ok(reply(json!({"ok":true})))
 }
 
+// Track documents separately: reloads and duplicate tabs can share a launch cookie.
+pub(super) fn open_page(db: &Database, launch: &str, host: &str) -> Result<String> {
+    let page = secret();
+    let mut c = db.connection.lock().unwrap();
+    let tx = c.transaction()?;
+    tx.execute(
+        "DELETE FROM player_pages WHERE host=?1 AND closed=1",
+        [host],
+    )?;
+    tx.execute(
+        "INSERT INTO player_pages(page,host) SELECT ?2,?3 FROM runtime_launches WHERE id=?1",
+        rusqlite::params![launch, page, host],
+    )?;
+    tx.commit()?;
+    Ok(page)
+}
+
+pub(super) async fn close_page(
+    State(p): State<Platform>,
+    Path(page): Path<String>,
+    h: HeaderMap,
+) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (_, launch) = p.game(&h)?;
+    p.db.connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE player_pages SET closed=1 WHERE host=?1 AND page=?2 AND closed=0",
+            rusqlite::params![launch.host, page],
+        )
+        .map_err(anyhow::Error::from)?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 // Read these small social tables only for Library snapshots, never for routine game heartbeats.
 #[derive(Default)]
 pub(super) struct LibraryActivity {
     pub inputs: BTreeMap<String, u64>,
     pub modes: BTreeMap<String, String>,
+    pub closed_hosts: BTreeSet<String>,
 }
 impl LibraryActivity {
     pub fn read(db: &Database) -> Result<Self> {
         let c = db.connection.lock().unwrap();
         let mut inputs = c.prepare_cached("SELECT profile,seen FROM profile_input")?;
         let mut modes = c.prepare_cached("SELECT launch,mode FROM launch_modes")?;
+        let mut pages =
+            c.prepare_cached("SELECT host FROM player_pages GROUP BY host HAVING min(closed)=1")?;
         Ok(Self {
+            closed_hosts: pages
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?,
             inputs: inputs
                 .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .collect::<rusqlite::Result<_>>()?,

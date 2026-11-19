@@ -171,6 +171,72 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
             .is_null()
     );
     let library_view = || value(member(&http, &url, "friend", Method::GET, "/api/library"));
+    let open_page = || async {
+        let html = host
+            .call(&http, &url, Method::GET, "/_infuser/play")
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        Ok::<_, anyhow::Error>(
+            html.split("data-player-page=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .to_owned(),
+        )
+    };
+    let close_page = |page: &str| {
+        host.call(
+            &http,
+            &url,
+            Method::POST,
+            &format!("/_infuser/player-pages/{page}/close"),
+        )
+    };
+    let playing = |view: &Value| {
+        view["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|app| app["id"] == "pond")
+            .unwrap()["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|player| player["name"] == "River")
+    };
+    let first = open_page().await?;
+    let second = open_page().await?;
+    assert_ne!(first, second);
+    assert_eq!(
+        close_page(&second)
+            .header("origin", "https://other.example")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    close_page(&first).send().await?.error_for_status()?;
+    assert!(
+        playing(&library_view().await?),
+        "closing one duplicate must preserve the other tab"
+    );
+    close_page(&second).send().await?.error_for_status()?;
+    value(host.call(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
+    assert!(
+        !playing(&library_view().await?),
+        "a late heartbeat must not revive a departed game"
+    );
+    let current_page = open_page().await?;
+    close_page(&second).send().await?.error_for_status()?;
+    assert!(
+        playing(&library_view().await?),
+        "refresh survives a delayed close from its old page"
+    );
     let game_mode = |mode: &str| {
         host.call(
             &http,
@@ -248,6 +314,18 @@ async fn library_join_friend_is_opt_in_once_and_bound_to_friend_and_room() -> Re
             .json(&json!({"connection_id":"host-connection-0001","joinable":true})),
     )
     .await?;
+    close_page(&current_page).send().await?.error_for_status()?;
+    let departed = library_view().await?;
+    assert!(!playing(&departed));
+    assert!(
+        departed["friends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|friend| friend["join_targets"].as_array().unwrap().is_empty()),
+        "the last close removes stale Join Friend buttons"
+    );
+    open_page().await?;
     let library = value(member(&http, &url, "friend", Method::GET, "/api/library")).await?;
     assert_eq!(
         library["apps"].as_array().unwrap().len(),
