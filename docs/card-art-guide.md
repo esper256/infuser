@@ -109,7 +109,7 @@ and the actual overlays described below.
 | --- | --- |
 | Outer 15% on left and right of the source | Expendable scenery and atmosphere. No essential face, object, or defining feature here. |
 | Top of the rendered card | Quieter supporting scenery behind one mode line and one horizontally scrollable tag row. At the smallest card, allow roughly the top quarter for metadata and inset. |
-| Lower right of the rendered card | Supporting scenery behind the compact title/author/Play dock. The title is capped at two lines. On the smallest card, allow roughly the bottom 40% including the inset; the dock may span nearly its full width. |
+| Lower right of the rendered card | Supporting scenery behind the framed title and author badge, with Play beside them on the right. The title is capped at two lines. On the smallest card, allow roughly the bottom 40% including the inset; the row may span nearly its full width. |
 | Remaining visible artwork | Place the identifying feature wherever it reads best. Avoid a tiny subject lost in scenery. Judge the actual overlay preview rather than aiming at a fixed percentage coordinate. |
 
 Infuser limits the overlays rather than asking the artist to reserve ever more
@@ -153,7 +153,7 @@ Do not describe an invented illustration as a gameplay capture.
 3. Preview centered-cover crops at **368 × 388 px** and **284 × 380 px**, plus a
    larger **600 × 632 px** card. Important content must survive all three.
 4. Place the actual Library overlay over each crop: top metadata and the
-   bottom-right title/author/Play dock. Check a long title and many tags too:
+   bottom row with the title, author badge and Play button. Check a long title and many tags too:
    the title must remain capped at two lines and tags at one scrollable row.
    If the standard controls obscure the subject, adjust the composition. Report
    overflowing Infuser controls as a platform issue; do not edit Infuser's UI.
