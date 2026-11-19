@@ -103,39 +103,68 @@ try {
     assert((await gameBounds()).y > 0);
     assert(await page.locator('#controls-edge').isHidden());
     if (!mobile) {
+      const resolution = page.locator('#resolution');
+      assert.equal(await resolution.isHidden(), true, 'resolution control is hidden when the display is already within 1080p');
+      await resolution.evaluate(button => button.click());
+      assert.equal(await page.evaluate(() => window.infuserHdCap()), true, 'a sub-1080p click does not leave the 1080p cap');
       await page.setViewportSize({width:3840,height:2160});
+      await page.waitForFunction(() => {
+        const button = document.getElementById('resolution');
+        const win = document.getElementById('game').contentWindow;
+        return !button.hidden && button.textContent === 'HD' && win.innerWidth * win.innerHeight <= 1920 * 1080 + 1920;
+      });
       const scaled = await page.evaluate(() => {
         const frame = document.getElementById('game');
         const box = frame.getBoundingClientRect();
         const vp = document.getElementById('viewport').getBoundingClientRect();
         const win = frame.contentWindow;
+        const button = document.getElementById('resolution');
         return {
-          pressed: document.getElementById('resolution').getAttribute('aria-pressed'),
+          text: button.textContent,
+          label: button.getAttribute('aria-label'),
+          title: button.title,
+          pressed: button.getAttribute('aria-pressed'),
+          hidden: button.hidden,
           visualMatchesViewport: Math.abs(box.width - vp.width) < 1 && Math.abs(box.height - vp.height) < 1,
           innerPixels: win.innerWidth * win.innerHeight,
           dpr: win.devicePixelRatio,
         };
       });
-      assert.equal(scaled.pressed, 'true');
+      assert.equal(scaled.hidden, false);
+      assert.equal(scaled.text, 'HD');
+      assert.equal(scaled.label, 'Rendering HD (1080p) — switch to MAX');
+      assert.equal(scaled.title, scaled.label);
+      assert.equal(scaled.pressed, null);
       assert(scaled.visualMatchesViewport, '4K player visually fills the 4K viewport');
       assert(scaled.innerPixels <= 1920 * 1080 + 1920, '4K player caps inner layout viewport to 1080p budget');
-      assert.equal(scaled.dpr, 1);
-      await page.locator('#resolution').click();
+      assert(scaled.dpr <= 1, 'capped 4K player does not exceed a device pixel ratio of 1');
+      await resolution.click();
       const native = await page.evaluate(() => {
         const win = document.getElementById('game').contentWindow;
+        const button = document.getElementById('resolution');
         return {
-          pressed: document.getElementById('resolution').getAttribute('aria-pressed'),
+          text: button.textContent,
+          label: button.getAttribute('aria-label'),
+          title: button.title,
+          pressed: button.getAttribute('aria-pressed'),
+          mode: button.dataset.mode,
           innerWidth: win.innerWidth,
         };
       });
-      assert.equal(native.pressed, 'false');
+      assert.equal(native.text, 'MAX');
+      assert.equal(native.label, 'Rendering MAX (native) — switch to HD');
+      assert.equal(native.title, native.label);
+      assert.equal(native.pressed, null);
+      assert.equal(native.mode, 'max');
       assert.equal(native.innerWidth, 3840);
-      await page.locator('#resolution').click();
+      await resolution.click();
+      assert.equal(await resolution.textContent(), 'HD');
+      assert.equal(await resolution.getAttribute('aria-label'), 'Rendering HD (1080p) — switch to MAX');
     }
     const count = await page.evaluate(() => attempts);
     await page.evaluate(dir => {window.turn(dir==='portrait'?'landscape':'portrait');window.turn(dir);}, expected);
     assert.equal(await page.evaluate(() => attempts), count, 'rotating after exit does not reopen fullscreen');
     await page.close();
   }
-  console.log('PASS: legacy landscape, declared portrait, desktop, both rotation directions, fullscreen-on-turn, tap fallback, edge swipes, mouse and keyboard controls, full-size iframe, auto-hide and exit.');
+  console.log('PASS: legacy landscape, declared portrait, desktop, both rotation directions, fullscreen-on-turn, tap fallback, edge swipes, mouse and keyboard controls, full-size iframe, auto-hide, exit, and HD/MAX resolution label.');
 } finally { await browser.close(); }
