@@ -224,10 +224,14 @@ try {
  await search.fill('orbit');await search.press('ArrowDown');await search.press('Escape');assert(await suggestions.isHidden());
  await search.click();await search.press('Tab');assert(await suggestions.isHidden());
  await search.fill('');await search.press('Escape');
+ const dockInset=()=>pendingCard().evaluate(c=>c.getBoundingClientRect().bottom-c.querySelector('.game-dock').getBoundingClientRect().bottom);
+ let emptyInset;
  // Only the last 28 days contribute; a busy card never grows past eight faces.
  for(const [n,faces] of [[0,0],[1,1],[8,4],[12,5],[18,6],[25,8],[50,8]]){
   apps[1].reactions=[...recentReactions(n),{id:'old',name:'Old',emoji:'⭐',updated:now-29*86400,text:''}];await page.evaluate(()=>refreshTestLibrary());
   assert.equal(await pendingCard().locator('.game-buzz span').count(),faces);
+  if(!faces)emptyInset=await dockInset();
+  else assert(Math.abs(await dockInset()-emptyInset)<1,'adding reactions keeps the dock on its original baseline');
   if(faces===8)assert.equal(await pendingCard().locator('.game-buzz span').nth(1).evaluate(e=>getComputedStyle(e).marginLeft),'-15px','eight faces use the original cramped spacing');
  }
  apps[1].reactions=recentReactions(8);await page.evaluate(()=>refreshTestLibrary());
@@ -262,11 +266,11 @@ try {
       h.left>=card.getBoundingClientRect().left&&[plate.querySelector('.game-open'),plate.querySelector('.creator')].every(withinPlate)&&
       parseFloat(getComputedStyle(plate).borderTopWidth)>0&&getComputedStyle(row).backgroundColor==='rgba(0, 0, 0, 0)';
    })),`${theme} ${width}: title and author share a bordered plate beside Play`);
-   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=p.left+1&&b.top>=h.bottom;})),'reaction stacks must not overlap controls');
+   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=h.left+1||b.bottom<=Math.min(p.top,h.top);})),'reaction stacks must not overlap controls');
    assert(await page.locator('#games .game').evaluateAll(cards=>cards.every(card=>{
     const buzz=card.querySelector('.game-buzz');if(!buzz)return true;
     const c=card.getBoundingClientRect(),face=buzz.firstElementChild.getBoundingClientRect(),hang=(face.bottom-c.bottom)/face.height;
-    return face.left>=c.left&&face.left-c.left<=8&&hang>=.15&&hang<=.25&&buzz.getBoundingClientRect().height>=44;
+    return face.left>=c.left&&face.left-c.left<=8&&((hang>=.15&&hang<=.25)||(!card.classList.contains("hidden-game")&&face.bottom<=card.querySelector(".game-dock").getBoundingClientRect().top))&&buzz.getBoundingClientRect().height>=44;
    })),'emoji faces should hang 20% below the card, stay inside its left edge, and retain a touch target');
    await search.fill('');await search.click();
    assert.equal(await suggestions.getByRole('option').count(),2);

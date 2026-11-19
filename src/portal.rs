@@ -590,6 +590,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/profile", get(avatars::usage).put(avatars::update).layer(DefaultBodyLimit::max(1024)))
         .route("/api/presence/input", post(presence::library_input))
         .route("/_infuser/input", post(presence::game_input))
+        .route("/_infuser/player-pages/{page}/close", post(presence::close_page))
         .route("/assets/activity-input.js",get(sdk_v1::activity_input))
         .route("/_infuser/activity-input.js",get(sdk_v1::activity_input))
         .route("/api/library", get(library::list))
@@ -1351,16 +1352,18 @@ async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
     Ok(reply(json!({"intent":intent})))
 }
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let (_, launch) = p.game(&h)?;
+    let (id, launch) = p.game(&h)?;
     let data = p.db.read()?;
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
+    let page = presence::open_page(&p.db, &id, &launch.host)?;
+    let html = include_str!("../web/game-player.html").replace("PLAYER_PAGE_ID", &page);
     let mut response = (
         [
             ("Cache-Control", "no-store"),
             ("Referrer-Policy", "no-referrer"),
             ("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src blob:; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
         ],
-        Html(include_str!("../web/game-player.html")),
+        Html(html),
     ).into_response();
     // Threaded web exports require isolation on the enclosing document as well.
     if build.cross_origin_isolation {

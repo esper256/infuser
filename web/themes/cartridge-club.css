@@ -39,7 +39,7 @@
 [data-theme="cartridge-club"] .tag-filter.selected { background: #d3f997; color: #18241f; border-color: #e4ffbc; }
 [data-theme="cartridge-club"] .search-label input { background: #111f32; border-color: #445a70; }
 [data-theme="cartridge-club"] .games { gap: 24px; }
-[data-theme="cartridge-club"] .game { border-radius: 18px; border-color: #8aa6bc70; box-shadow: 0 4px 0 #334459,0 16px 30px #02071255; padding: 14px; }
+[data-theme="cartridge-club"] .game { border-radius: 18px; border-color: #8aa6bc70; box-shadow: 0 4px 0 #334459,0 16px 30px #02071255; --card-padding: 14px; }
 [data-theme="cartridge-club"] .game h2 { font-weight: 750; letter-spacing: -.035em; }
 [data-theme="cartridge-club"] .game:not(.hidden-game) .game-heading { border-radius: 13px; border-color: #9bbfd266; border-top-color: #b5d8e699; box-shadow: 0 3px 0 #070f2055,0 8px 20px #02091244; }
 [data-theme="cartridge-club"] .actions > button { font-weight: 800; }

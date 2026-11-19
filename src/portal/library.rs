@@ -102,7 +102,8 @@ impl View<'_> {
             .launches
             .iter()
             .filter(|(_, launch)| {
-                launch.runtime_id() == runtime
+                !self.activity.closed_hosts.contains(&launch.host)
+                    && launch.runtime_id() == runtime
                     && launch.exchanged
                     && launch.expires > self.time
                     && launch.seen + 90 > self.time
@@ -151,6 +152,30 @@ impl View<'_> {
                 })
             })
             .collect();
+        // Room leases can outlive the departing tab. Suppress its stale Join
+        // targets while preserving other active players' normal lease behavior.
+        if !self.activity.closed_hosts.is_empty() && !join_targets.is_empty() {
+            let departed: std::collections::BTreeSet<_> = data
+                .launches
+                .iter()
+                .filter(|(_, l)| {
+                    l.runtime_id() == runtime && self.activity.closed_hosts.contains(&l.host)
+                })
+                .map(|(id, l)| {
+                    if l.guest {
+                        format!("guest-{id}")
+                    } else {
+                        data.player_id(&l.email)
+                    }
+                })
+                .collect();
+            join_targets.retain(|target| {
+                !departed.contains(target["player_id"].as_str().unwrap())
+                    || players
+                        .iter()
+                        .any(|player| player["player_id"] == target["player_id"])
+            });
+        }
         let authors = authors::credits(data, id);
         let card_art_url = card_art::url(id, &app.build, build, data.metadata.get(id))
             .map(|url| {

@@ -119,7 +119,17 @@ function syncOrientation(turned = false) {
 const onTurn = () => syncOrientation(true);
 if (screen.orientation?.addEventListener) screen.orientation.addEventListener('change', onTurn);
 else window.addEventListener('orientationchange', onTurn);
-addEventListener('pagehide', releaseOrientation);
+addEventListener('pagehide', event => {
+  releaseOrientation();
+  const page = document.documentElement.dataset.playerPage;
+  if (!event.persisted && page) {
+    // Keep the same-origin POST alive as the tab closes. The player response
+    // suppresses referrers by default; the endpoint verifies the request Origin.
+    fetch('/_infuser/player-pages/'+page+'/close', {
+      method:'POST', keepalive:true, credentials:'same-origin', referrerPolicy:'same-origin'
+    }).catch(()=>{}); // The heartbeat timeout covers missed departures.
+  }
+});
 addEventListener('pageshow', event => { if (event.persisted) syncOrientation(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncOrientation(); });
 mobile.addEventListener('change', () => mobile.matches ? syncOrientation() : releaseOrientation());
