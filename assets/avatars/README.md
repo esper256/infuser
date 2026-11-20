@@ -2,9 +2,11 @@
 
 Audience: Infuser developers.
 
-Eighty-one original AI-generated pictures for Infuser's profile picker, generated
+Eighty-six original AI-generated pictures for Infuser profile pictures, generated
 for this project rather than sourced from a stock library or an existing game
-franchise. The collection mixes characters with object-only gaming artwork.
+franchise. Eighty-five appear in the shared picker. Origami Unicorn is
+operator-assigned and is left out of that picker. The collection mixes characters
+with object-only gaming artwork.
 
 - Original set: Circuit Fox, Orbit Racer, Moss Knight, Storm Drake, Deepwave.
 - Character portraits: Neon Runner, Bass Pilot, Frost Scout, Forge Rider.
@@ -85,3 +87,12 @@ The ten secret-world additions were generated individually on 2026-11-16 and
 imported as one batch. They depict miniature imaginative hideouts without people
 or faces, using distinct architectural silhouettes and luminous color palettes.
 Opaque 512px PNG sources have the standard 128px and 256px WebP exports.
+
+Five more pictures were added on 2026-11-20: Tinker Goblin, Clockwork Owl,
+Circuit Crane, Signal Kettle, and Origami Unicorn. The first four are ordinary
+picker choices. Origami Unicorn is marked hidden in `src/portal/avatars.rs`, so
+the picker catalog omits it and a member cannot select it. An operator can still
+assign it, and the picture renders for anyone who already has it. Its source is
+scaled slightly and kept centered so the horn tip stays inside the circular CSS
+crop. All five use opaque 512px PNG sources and the standard lossy 128px and
+256px WebP exports.

@@ -47,6 +47,20 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
                         ("X-Auth-Request-User", "two@example.com"),
                     ],
                 ),
+                Some("member=gob") => (
+                    StatusCode::ACCEPTED,
+                    [
+                        ("X-Auth-Request-Email", "gob@example.com"),
+                        ("X-Auth-Request-User", "gob@example.com"),
+                    ],
+                ),
+                Some("member=keeper") => (
+                    StatusCode::ACCEPTED,
+                    [
+                        ("X-Auth-Request-Email", "keeper@example.com"),
+                        ("X-Auth-Request-User", "keeper@example.com"),
+                    ],
+                ),
                 _ => (
                     StatusCode::UNAUTHORIZED,
                     [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
@@ -257,7 +271,29 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .await?;
     assert_eq!(again, json!({"show":false}));
     let catalog = before["avatars"].as_array().unwrap();
-    assert_eq!(catalog.len(), 81);
+    assert_eq!(catalog.len(), 85);
+    let portraits = before["portraits"].as_array().unwrap();
+    assert_eq!(
+        portraits,
+        &vec![json!({"id":"origami-unicorn","name":"Origami Unicorn"})]
+    );
+    assert!(
+        catalog
+            .iter()
+            .all(|avatar| avatar["id"] != "origami-unicorn")
+    );
+    for (id, name) in [
+        ("tinker-goblin", "Tinker Goblin"),
+        ("clockwork-owl", "Clockwork Owl"),
+        ("circuit-crane", "Circuit Crane"),
+        ("signal-kettle", "Signal Kettle"),
+    ] {
+        assert!(
+            catalog
+                .iter()
+                .any(|avatar| avatar["id"] == id && avatar["name"] == name)
+        );
+    }
     let last_avatar = catalog.last().unwrap()["id"].as_str().unwrap();
     for avatar in catalog {
         let id = avatar["id"].as_str().unwrap();
@@ -313,6 +349,7 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
     }
     for (body, status) in [
         (json!({"avatar":"https://elsewhere.example/pic.png"}), 400),
+        (json!({"avatar":"origami-unicorn"}), 400),
         (json!({"avatar":"../outside"}), 400),
         (
             json!({"avatar":"circuit-fox","email":"two@example.com"}),
@@ -535,5 +572,129 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .json()
         .await?;
     assert_eq!(again["show"], false);
+    // The hidden picture stays out of the picker, members cannot select it, and
+    // an operator can assign it to the member named Gob. It still renders.
+    platform::member(&cfg, "gob@example.com", "Gob", false, true)?;
+    platform::member(&cfg, "keeper@example.com", "Keeper", true, true)?;
+    for cookie in ["member=one", "member=keeper"] {
+        assert_eq!(
+            request(Method::PUT, "/api/operator/members/Gob/avatar", cookie)
+                .json(&json!({"avatar":"origami-unicorn"}))
+                .send()
+                .await?
+                .status(),
+            403
+        );
+    }
+    let assigned: Value = request(
+        Method::PUT,
+        "/api/operator/members/Gob/avatar",
+        "member=two",
+    )
+    .json(&json!({"avatar":"origami-unicorn"}))
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
+    assert_eq!(assigned["name"], "Gob");
+    assert_eq!(assigned["avatar"], "origami-unicorn");
+    let by_email: Value = request(
+        Method::PUT,
+        "/api/operator/members/gob@example.com/avatar",
+        "member=two",
+    )
+    .json(&json!({"avatar":"origami-unicorn"}))
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
+    assert_eq!(by_email["avatar"], "origami-unicorn");
+    assert_eq!(
+        request(Method::PUT, "/api/profile", "member=gob")
+            .json(&json!({"avatar":"origami-unicorn"}))
+            .send()
+            .await?
+            .status(),
+        400
+    );
+    let gob: Value = request(Method::GET, "/api/me", "member=gob")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(gob["avatar"], "origami-unicorn");
+    assert!(
+        gob["avatars"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|avatar| avatar["id"] != "origami-unicorn")
+    );
+    assert!(
+        gob["portraits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|avatar| avatar["id"] == "origami-unicorn")
+    );
+    for size in [128, 256] {
+        let image = http
+            .get(format!("{url}/assets/avatars/origami-unicorn/{size}.webp"))
+            .send()
+            .await?
+            .error_for_status()?;
+        assert_eq!(image.headers()["content-type"], "image/webp");
+        let bytes = image.bytes().await?;
+        assert_eq!(&bytes[..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WEBP");
+    }
+    let present: Value = request(Method::GET, "/api/library", "member=gob")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let shown = present["friends"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|person| person["name"] == "Gob")
+        .unwrap();
+    assert_eq!(shown["avatar"], "origami-unicorn");
+    let seen: Value = request(Method::GET, "/api/library", "member=one")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let seen_gob = seen["friends"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|person| person["name"] == "Gob")
+        .unwrap();
+    assert_eq!(seen_gob["avatar"], "origami-unicorn");
+    let usage: Value = request(Method::GET, "/api/profile", "member=one")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(
+        usage["users"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|user| user == &json!({"name":"Gob","avatar":"origami-unicorn"}))
+    );
+    assert_eq!(
+        platform::Database::open(dir.path())?.read()?.members["gob@example.com"]
+            .avatar
+            .as_deref(),
+        Some("origami-unicorn")
+    );
     Ok(())
 }

@@ -88,7 +88,7 @@ impl Data {
                 || (email.contains('@')
                     && email.len() < 254
                     && !email.chars().any(char::is_whitespace)),
-            crate::portal::fault(400, "Use a Google email address.")
+            crate::portal::fault(400, "Use an email address.")
         );
         ensure!(
             !name.is_empty() && name.chars().count() <= 40 && !name.chars().any(char::is_control),

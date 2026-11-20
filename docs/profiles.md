@@ -21,9 +21,10 @@ Profiles with pictures and read-only admin inspection do not show the reminder.
 
 ## Add another profile
 
-A group admin can invite your existing Google email from **Admin tools**, just
-as they would invite a new user. Infuser creates a separate profile in that
-group. Your original profile stays unchanged. Inviting an existing member of
+A group admin can invite your email from **Admin tools**, just
+as they would invite a new user. That address can be a Google account, or any
+address that will use a member sign-in link. Infuser creates a separate profile
+in that group. Your original profile stays unchanged. Inviting an existing member of
 the same group edits that group's existing profile; it does not add a duplicate.
 
 An operator can also use an existing Google email when creating a group and

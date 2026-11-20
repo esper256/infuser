@@ -170,6 +170,15 @@ invitation is no longer pending, so Google still cannot claim it. The older
 binary has no member-link redeem path. Do not delete the new tables or
 identity fields to make an old binary start. Restore the snapshot instead.
 
+## Hidden profile pictures
+
+Origami Unicorn does not appear in the profile picture picker, and a member
+cannot choose it. An operator assigns it from **Admin tools**: open **Members**,
+choose **Picture** on that person's row, and save **Origami Unicorn**. The
+picture still shows on their profile, in presence, and anywhere else that member
+appears. The control is on the row labeled with their name, including a member
+named Gob.
+
 ## Supported recovery
 
 After successful migration, roll back only to genesis or newer compatible
