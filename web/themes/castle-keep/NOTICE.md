@@ -12,4 +12,4 @@ Infuser did not draw these faces, and the CSS does not fetch them from a CDN.
   2014 The Nunito Project Authors (https://github.com/googlefonts/nunito).
   Weights 400 and 700, Latin subset, original family name kept.
 
-`stone.svg`, `grass.svg`, `oak.svg`, `runes.svg`, `steel.svg`, and `parchment.svg` are original textures.
+`stone.svg`, `grass.svg`, `oak.svg`, `steel.svg`, and `parchment.svg` are original textures.

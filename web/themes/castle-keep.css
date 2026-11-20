@@ -78,13 +78,12 @@
     radial-gradient(ellipse at 14% 0%, #ffb15a55, transparent 36%),
     radial-gradient(ellipse at 84% 20%, #ff7a2a24, transparent 32%),
     url("/assets/themes/castle-keep/grass.svg"),
-    url("/assets/themes/castle-keep/runes.svg"),
     radial-gradient(ellipse at 50% 68%, transparent 8%, #05080ccc 76%),
     url("/assets/themes/castle-keep/stone.svg");
-  background-repeat: no-repeat, no-repeat, repeat-x, no-repeat, no-repeat, repeat;
-  background-position: center top, center top, center bottom, center bottom 96px, center, center top;
-  background-size: auto, auto, auto 84px, 150px 188px, auto, 280px 154px;
-  background-attachment: fixed, fixed, fixed, fixed, fixed, fixed;
+  background-repeat: no-repeat, no-repeat, repeat-x, no-repeat, repeat;
+  background-position: center top, center top, center bottom, center, center top;
+  background-size: auto, auto, auto 84px, auto, 280px 154px;
+  background-attachment: fixed, fixed, fixed, fixed, fixed;
   color: var(--ink);
   font-family: Nunito, "Segoe UI", system-ui, sans-serif;
 }
@@ -546,20 +545,14 @@
   border: 6px solid #2a333c;
   border-radius: 10px;
   background-color: #1a2430;
-  background-image:
-    radial-gradient(ellipse at 0% 0%, #ff9a3c22, transparent 36%),
-    url("/assets/themes/castle-keep/runes.svg");
-  background-size: auto, 140px 140px;
+  background-image: radial-gradient(ellipse at 0% 0%, #ff9a3c22, transparent 36%);
   color: var(--ink);
   box-shadow: inset 0 0 0 2px var(--gold), 0 18px 0 #07090c, 0 28px 50px #000c;
 }
 [data-theme="castle-keep"] dialog::backdrop { background: #07090ce0; backdrop-filter: none; }
 [data-theme="castle-keep"] #game-detail {
   background-color: #1a2430;
-  background-image:
-    radial-gradient(ellipse at 100% 0%, #7ec8ff18, transparent 32%),
-    url("/assets/themes/castle-keep/runes.svg");
-  background-size: auto, 140px 140px;
+  background-image: radial-gradient(ellipse at 100% 0%, #7ec8ff18, transparent 32%);
 }
 [data-theme="castle-keep"] .detail-art.game-art { box-shadow: inset 0 0 0 8px #0e0a08, inset 0 0 0 11px var(--gold); }
 [data-theme="castle-keep"] .detail-info h2 { color: var(--gold); font-size: clamp(30px, 4vw, 44px); text-shadow: 0 0 12px #ff9a3c44; }
@@ -721,10 +714,7 @@
   border: 4px solid #2a333c;
   border-radius: 12px;
   background-color: #121820;
-  background-image:
-    radial-gradient(ellipse at 50% 0%, #ff9a3c22, transparent 40%),
-    url("/assets/themes/castle-keep/runes.svg");
-  background-size: auto, 120px 120px;
+  background-image: radial-gradient(ellipse at 50% 0%, #ff9a3c22, transparent 40%);
   color: var(--ink);
   box-shadow: inset 0 0 0 2px var(--gold), 0 12px 0 #07090c, 0 22px 40px #000a;
 }
@@ -760,8 +750,19 @@
   pointer-events: none;
 }
 [data-theme="castle-keep"] .own .chat-bubble::before { background: #2a333c; border-color: var(--gold); }
+[data-theme="castle-keep"] .chat-meta,
+[data-theme="castle-keep"] .chat-meta time { color: #5c4632; }
 [data-theme="castle-keep"] .chat-meta strong { color: var(--heart); }
+[data-theme="castle-keep"] .own .chat-meta,
+[data-theme="castle-keep"] .own .chat-meta time { color: #d5dde4; }
 [data-theme="castle-keep"] .own .chat-meta strong { color: var(--gold); }
+[data-theme="castle-keep"] #chat-emoji-toggle,
+[data-theme="castle-keep"] #chat-emoji-toggle:hover { color: var(--manuscript-ink); background: transparent; }
+[data-theme="castle-keep"] #chat-close {
+  background: #121820;
+  color: var(--ink);
+  border: 2px solid var(--gold);
+}
 [data-theme="castle-keep"] .chat-message .chat-portrait {
   border: 2px solid var(--mortar);
   box-shadow: 0 3px 0 var(--mortar);

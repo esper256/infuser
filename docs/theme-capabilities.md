@@ -94,7 +94,7 @@ move the header, the card grid, Recently, or the chat dock. The page is night
 ashlar with torchlight and a darker turf baseline, and the header ends in
 a straight capstone. Game cards are iron-bound oak plaques hung on that wall, with
 the cover in a gold frame and the title on a brass plate just under the
-cover. One faint carved shield sits in the stone. Filter tags and the tags
+cover. Filter tags and the tags
 on a plaque keep the shared pill size and are painted as small brass plaques,
 crimson with a heart when chosen. Play and
 the other controls are blackened steel. A heart still marks a chosen tag, a
