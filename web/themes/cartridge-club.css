@@ -126,6 +126,31 @@
   color: #2a1248;
   border-color: #120818;
 }
+/* "More ▾" sits in the same row as the filters. Shared .tag-more is a
+   thinner pill; match the filter's face, type, padding, and baseline.
+   Fine-pointer height is set below. Coarse pointers keep the shared 44px. */
+[data-theme="cartridge-club"] #tag-filters .tag-more {
+  border: 3px solid #120818;
+  border-radius: 12px;
+  background: #4e2d86;
+  color: #fff6e4;
+  box-shadow: 0 3px 0 #120818;
+  padding: 6px 12px;
+  font-family: Fredoka, "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 550;
+}
+[data-theme="cartridge-club"] #tag-filters .tag-more:hover {
+  background: #6438aa;
+  border-color: #120818;
+  color: #fff6e4;
+}
+[data-theme="cartridge-club"] #tag-filters .tag-more.selected,
+[data-theme="cartridge-club"] #tag-filters .tag-more.selected:hover {
+  background: #ffe14a;
+  color: #2a1248;
+  border-color: #120818;
+}
 [data-theme="cartridge-club"] .search-label input {
   border: 3px solid #120818;
   border-radius: 14px;
@@ -145,6 +170,66 @@
 }
 [data-theme="cartridge-club"] .add-game:hover { background: #ff7aa4; border-color: #120818; }
 [data-theme="cartridge-club"] #game-count { color: #fff6e4; }
+
+/* Overflow lists open in the top layer, but the panel element stays inside
+   #tag-filters or .game-tags, so selectors through that row still match.
+   The frame follows the row it came from: purple deck, or cream label plate. */
+[data-theme="cartridge-club"] #tag-filters .tag-overflow-panel {
+  border: 4px solid #120818;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #6438aa, #3a1d72);
+  color: #fff6e4;
+  box-shadow: inset 0 2px 0 #eadcff66, 0 6px 0 #120818;
+  padding: 14px 14px 18px;
+  font-family: Fredoka, "Segoe UI", system-ui, sans-serif;
+}
+[data-theme="cartridge-club"] .game-tags .tag-overflow-panel {
+  border: 3px solid #1a0c30;
+  border-radius: 16px;
+  background: #fff6d2;
+  color: #2a1248;
+  box-shadow: 4px 4px 0 #120818;
+  padding: 12px 12px 14px;
+  font-family: Fredoka, "Segoe UI", system-ui, sans-serif;
+}
+[data-theme="cartridge-club"] .tag-overflow-panel .tag-filter {
+  border: 3px solid #120818;
+  border-radius: 12px;
+  background: #4e2d86;
+  color: #fff6e4;
+  box-shadow: 0 3px 0 #120818;
+}
+[data-theme="cartridge-club"] .tag-overflow-panel .tag-filter:hover {
+  background: #6438aa;
+  border-color: #120818;
+  color: #fff6e4;
+}
+[data-theme="cartridge-club"] .tag-overflow-panel .tag-filter.selected,
+[data-theme="cartridge-club"] .tag-overflow-panel .tag-filter.selected:hover {
+  background: #ffe14a;
+  color: #2a1248;
+  border-color: #120818;
+}
+[data-theme="cartridge-club"] .tag-overflow-panel .tag-chip,
+[data-theme="cartridge-club"] .tag-overflow-panel .edit-tags {
+  background: #fff6d2;
+  color: #2a1248;
+  border: 2px solid #1a0c30;
+  border-radius: 999px;
+  box-shadow: none;
+}
+[data-theme="cartridge-club"] .tag-overflow-panel .tag-chip:hover,
+[data-theme="cartridge-club"] .tag-overflow-panel .edit-tags:hover {
+  background: #fff6d2;
+  color: #2a1248;
+  border-color: #1a0c30;
+}
+[data-theme="cartridge-club"] .tag-overflow-panel .tag-chip.selected,
+[data-theme="cartridge-club"] .tag-overflow-panel .tag-chip.selected:hover {
+  background: #ffe14a;
+  color: #2a1248;
+  border-color: #1a0c30;
+}
 
 /* Cartridge shell. The shared card DOM stays: art, tags, title, Play, portraits. */
 [data-theme="cartridge-club"] .game:not(.hidden-game) {
@@ -190,6 +275,28 @@
   color: #2a1248;
   border: 2px solid #1a0c30;
   border-radius: 999px;
+}
+/* The card "…" is a chip, not the toolbar's More pill. Same cream face
+   and the same fine-pointer height as the tags beside it; the glyph stays
+   centered, including when the shared coarse rule grows the target to 44px. */
+[data-theme="cartridge-club"] .game-tags .tag-more {
+  background: #fff6d2;
+  color: #2a1248;
+  border: 2px solid #1a0c30;
+  border-radius: 999px;
+  box-shadow: none;
+  padding: 3px 6.75px;
+  font-family: Fredoka, "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 550;
+  text-align: center;
+}
+[data-theme="cartridge-club"] .game-tags .tag-more:hover,
+[data-theme="cartridge-club"] .game-tags .tag-more.selected,
+[data-theme="cartridge-club"] .game-tags .tag-more.selected:hover {
+  background: #fff6d2;
+  color: #2a1248;
+  border-color: #1a0c30;
 }
 [data-theme="cartridge-club"] .game:not(.hidden-game) .game-heading {
   border: 3px solid #1a0c30;
@@ -318,6 +425,23 @@
 @media (max-width: 650px) {
   [data-theme="cartridge-club"] header { margin-top: 10px; padding-block: 12px; gap: 10px; }
   [data-theme="cartridge-club"] .game:not(.hidden-game) > .game-art { inset: 44px 12px 96px 12px; }
+  /* Filters step down to 11px here. Keep More on that same baseline. */
+  [data-theme="cartridge-club"] #tag-filters .tag-more { font-size: 11px; }
+}
+@media (pointer: fine) {
+  [data-theme="cartridge-club"] #tag-filters .tag-more { min-height: 40px; }
+  [data-theme="cartridge-club"] .game-tags .tag-more { min-height: 25px; min-width: 28px; }
+}
+@media (pointer: coarse) {
+  /* Restate the shared touch target so the themed padding still fills a 44px pill. */
+  [data-theme="cartridge-club"] #tag-filters .tag-more,
+  [data-theme="cartridge-club"] .game-tags .tag-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 @media (max-width: 390px) {
   [data-theme="cartridge-club"] header { border-radius: 18px; }
@@ -343,6 +467,7 @@
   [data-theme="cartridge-club"] .account-menu,
   [data-theme="cartridge-club"] .feed-row,
   [data-theme="cartridge-club"] .game-heading,
+  [data-theme="cartridge-club"] .tag-overflow-panel,
   [data-theme="cartridge-club"] button,
   [data-theme="cartridge-club"] input {
     background-image: none;
