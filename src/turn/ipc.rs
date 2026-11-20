@@ -9,7 +9,6 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
-    time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -86,9 +85,14 @@ impl Gate {
         {
             return false;
         }
-        reply_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap_or(false)
+        // Admission runs on the relay's async worker. In the browser fixture the
+        // daemon is the same runtime, so a plain block would leave nobody to
+        // answer and every overlapping allocate would be rejected.
+        let wait = move || reply_rx.recv().unwrap_or(false);
+        match tokio::runtime::Handle::try_current() {
+            Ok(_) => tokio::task::block_in_place(wait),
+            Err(_) => wait(),
+        }
     }
 
     pub fn publish(&self, snapshot: Snapshot) {
@@ -115,12 +119,7 @@ fn pump(path: PathBuf, rx: mpsc::Receiver<Job>) {
 }
 
 fn connect(path: &Path) -> Option<std::os::unix::net::UnixStream> {
-    let stream = std::os::unix::net::UnixStream::connect(path).ok()?;
-    stream.set_read_timeout(Some(Duration::from_secs(1))).ok()?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(1)))
-        .ok()?;
-    Some(stream)
+    std::os::unix::net::UnixStream::connect(path).ok()
 }
 
 /// True when the daemon answered. Admission itself may still be false.
