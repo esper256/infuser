@@ -1,6 +1,8 @@
 # Private installation configuration. All paths must be absolute.
 controller_config = "/etc/infuser/infuser.toml"
 services = ["infuser.service", "infuser-update.timer"]
+# After cutover to the embedded relay, remove infuser-turn here and add
+# infuser-turn.service to services. A stopped coturn container would stay red.
 containers = ["infuser-web", "infuser-login", "infuser-turn", "infuser-peerjs"]
 metrics_dir = "/var/lib/infuser-monitor/textfile"
 updater_state_dir = "/var/lib/infuser-updater"

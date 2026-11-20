@@ -17,6 +17,16 @@ async fn main() -> Result<()> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "turn-fingerprint") {
+        println!("{}", infuser::turn::FINGERPRINT);
+        return Ok(());
+    }
+    if args.first().is_some_and(|s| s == "turn") {
+        return infuser::turn::run(Path::new(
+            args.get(1).context("configuration path required")?,
+        ))
+        .await;
+    }
     if args.first().is_some_and(|s| s == "doctor") {
         let settings = infuser::host_health::Settings::load(Path::new(
             args.get(1).context("operations config required")?,
@@ -310,7 +320,7 @@ async fn main() -> Result<()> {
     .contains(&command)
     {
         bail!(
-            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser member-link CONFIG MEMBER [--revoke|--list] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
+            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser member-link CONFIG MEMBER [--revoke|--list] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser turn-fingerprint | infuser turn CONFIG | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
         );
     }
     let path = args.get(1).context("configuration path required")?;
@@ -371,6 +381,7 @@ async fn main() -> Result<()> {
         "Infuser API listening on loopback"
     );
     let platform = infuser::portal::Platform::open(controller.clone())?;
+    platform.listen_turn_bridge()?;
     platform.recover_packaging().await?;
     // The listener is already bound. Compression of existing builds stays off
     // this thread so /healthz can answer before those copies exist.

@@ -32,7 +32,10 @@ player application. The game SDK is [pre-1.0](sdk-contract.md).
   games, with browser login and isolated guest saves.
 
 Caddy handles HTTPS and routing; the login proxy handles Google OAuth. Optional
-shared services provide coturn relay and PeerServer signaling. PeerServer runs
+shared services provide a TURN relay and PeerServer signaling. The relay is
+coturn by default. `engine = "embedded"` runs `infuser turn` from the same
+binary, in its own process, so a normal controller deploy does not restart it.
+PeerServer runs
 once for the installation, not once per game. Static browser games need no game
 container. Operators configure services; game authors declare their requirements.
 

@@ -78,6 +78,7 @@ export async function connect(options={}) {
     }
     if(socket.readyState!==WebSocket.OPEN)throw failure('connection_lost','The connection closed during admission.');
     Object.defineProperty(socket,'infuser',{value:Object.freeze({attempt_id:id,session:result.session,lease_id:server.session_id})});
+    if (window.parent !== window) window.parent.postMessage({type:'infuser-path', label:'Server'}, location.origin);
     completed=true;
     // Resolve first so game code can attach handlers, then replay early welcome
     // frames in order. Capture stays active until this flush, including new frames.

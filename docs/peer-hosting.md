@@ -127,3 +127,16 @@ not overlay the game, open dialogs, or change fullscreen. A green connection
 means the peer links are connected; it does not claim that device rendering or
 the game's simulation is fast. Games should not add numeric network overlays to
 the normal player experience.
+
+The same bar shows one word for how this match is reaching the other players.
+It uses the same size and color as the Guest tag. Infuser chooses the word.
+The browser does not report the path, and the word is visible to everyone.
+
+- **Server** — this player is connected to a dedicated session through `sessions.connect()`.
+- **Relayed** — Infuser's relay is forwarding this player's game traffic.
+- **STUN** — Infuser has seen a STUN check for this player and is not forwarding the game.
+- **LAN** — Infuser is not on the path. Solo play uses this word.
+
+A host playing with several other people sees a count of those people, for example `3 STUN, 1 relayed`. A relay allocation that is open but not carrying game packets does not count as Relayed. STUN checks alone do not. While the installation still uses coturn, a peer room hides the word instead of guessing. Dedicated sessions can still say Server.
+
+Two people on the same LAN still show STUN when their browsers complete a STUN check, which they do even for a direct game. A player who loaded the page over IPv6 can show LAN, because the relay's record of that check is the IPv4 address it saw.

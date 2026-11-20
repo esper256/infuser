@@ -176,6 +176,11 @@ pub trait Service: Send + Sync {
     async fn promote(&self, _release: &str) -> Result<()> {
         Ok(())
     }
+    /// Restart the embedded relay only when its code changed. The default
+    /// leaves test doubles and coturn installations untouched.
+    async fn sync_turn(&self, _previous: &Path, _current: &Path) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -358,6 +363,45 @@ impl Service for Systemd {
             .promote(release)
             .await
     }
+    async fn sync_turn(&self, previous: &Path, current: &Path) -> Result<bool> {
+        if !turn_embedded(&self.config.controller_config)? {
+            return Ok(false);
+        }
+        let next = turn_fingerprint(current).await;
+        let state = platform_state_dir(&self.config.controller_config)?;
+        let running = std::fs::read_to_string(state.join("turn.fingerprint"))
+            .ok()
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty());
+        let _ = previous;
+        if !crate::turn::restart_needed(running.as_deref(), next.as_deref(), true) {
+            return Ok(false);
+        }
+        let listed = tokio::time::timeout(
+            Duration::from_secs(8),
+            tokio::process::Command::new("systemctl")
+                .args(["show", "infuser-turn.service", "--property=LoadState"])
+                .stdin(Stdio::null())
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await??;
+        if !String::from_utf8_lossy(&listed.stdout).contains("LoadState=loaded") {
+            tracing::info!("embedded relay unit is not installed");
+            return Ok(false);
+        }
+        let status = tokio::time::timeout(
+            Duration::from_secs(45),
+            tokio::process::Command::new("systemctl")
+                .args(["restart", "infuser-turn.service"])
+                .stdin(Stdio::null())
+                .kill_on_drop(true)
+                .status(),
+        )
+        .await??;
+        ensure!(status.success(), "could not restart infuser-turn.service");
+        Ok(true)
+    }
 }
 
 impl Systemd {
@@ -404,6 +448,59 @@ fn platform_state_dir(path: &Path) -> Result<PathBuf> {
         "platform state_dir must be absolute"
     );
     Ok(file.controller.state_dir)
+}
+
+async fn turn_note(config: &Settings, service: &dyn Service) -> String {
+    let previous = config.install_dir.join("previous").join("infuser");
+    let current = config.install_dir.join("current").join("infuser");
+    match service.sync_turn(&previous, &current).await {
+        Ok(true) => " The relay restarted because its code changed.".into(),
+        Ok(false) => String::new(),
+        Err(error) => format!(" The relay did not restart: {error}."),
+    }
+}
+
+fn turn_embedded(path: &Path) -> Result<bool> {
+    #[derive(Deserialize)]
+    struct File {
+        #[serde(default)]
+        controller: Controller,
+    }
+    #[derive(Default, Deserialize)]
+    struct Controller {
+        #[serde(default)]
+        turn: Option<Turn>,
+    }
+    #[derive(Default, Deserialize)]
+    struct Turn {
+        #[serde(default)]
+        engine: String,
+    }
+    let file: File = toml::from_str(&fs::read_to_string(path)?)?;
+    Ok(file
+        .controller
+        .turn
+        .is_some_and(|turn| turn.engine == "embedded"))
+}
+
+async fn turn_fingerprint(binary: &Path) -> Option<String> {
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new(binary)
+            .arg("turn-fingerprint")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let text = text.trim();
+    (text.len() == 16 && text.bytes().all(|byte| byte.is_ascii_hexdigit())).then(|| text.to_owned())
 }
 
 async fn systemctl(config: &Settings, action: &str) -> Result<()> {
@@ -559,12 +656,18 @@ async fn resume_held_current(config: &Settings, service: &dyn Service) -> Result
             }
             clear_probation(service).await;
             note_outcome(config, &name, crate::deploy_outcomes::Kind::Activated, "");
-            Ok(Some(format!("Recovered successful activation of {name}")))
+            let note = turn_note(config, service).await;
+            Ok(Some(format!(
+                "Recovered successful activation of {name}{note}"
+            )))
         }
         Trial::ServingWrites => {
             clear_probation(service).await;
             note_outcome(config, &name, crate::deploy_outcomes::Kind::Activated, "");
-            Ok(Some(format!("Recovered successful activation of {name}")))
+            let note = turn_note(config, service).await;
+            Ok(Some(format!(
+                "Recovered successful activation of {name}{note}"
+            )))
         }
         Trial::Unreachable => {
             let previous = linked_release(&config.install_dir, "previous")?;
@@ -1173,16 +1276,18 @@ pub async fn update(
                     }
                     clear_probation(service).await;
                     finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
+                    let note = turn_note(config, service).await;
                     return Ok(format!(
-                        "Recovered successful activation of {}",
+                        "Recovered successful activation of {}{note}",
                         pending.commit
                     ));
                 }
                 Trial::ServingWrites => {
                     clear_probation(service).await;
                     finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
+                    let note = turn_note(config, service).await;
                     return Ok(format!(
-                        "Recovered successful activation of {}",
+                        "Recovered successful activation of {}{note}",
                         pending.commit
                     ));
                 }
@@ -1504,7 +1609,8 @@ pub async fn update(
             maintenance_blocked: false,
         })
         .await;
-    Ok(format!("Activated {}", release.commit))
+    let note = turn_note(config, service).await;
+    Ok(format!("Activated {}{note}", release.commit))
 }
 
 #[cfg(test)]
