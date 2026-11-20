@@ -124,7 +124,7 @@ async function api(path, options = {}) {
   if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
   const r = await profileFetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });
   const result = await r.json();
-  if(!r.ok) { if(selectedVisit && r.status===403 && String(result.error).includes('visit has ended'))returnHome(); const error = new Error(result.error || 'Please try again.'); error.status = r.status; throw error; }
+  if(!r.ok) { if(selectedVisit && r.status===403 && String(result.error).includes('visit has ended'))returnHome(); const error = new Error(result.error || 'Please try again.'); error.status = r.status; error.code = result.code || ''; error.updating = result.code === 'updating'; throw error; }
   return result;
 }
 function showError(error) { notice(error.message); }

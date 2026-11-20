@@ -41,6 +41,7 @@ fn fault(status: u16, message: &str) -> anyhow::Error {
 pub struct Controller {
     pub deployment: crate::deployment::Tracker,
     pub maintenance: Arc<crate::maintenance::Gate>,
+    pub probation: Arc<crate::probation::Gate>,
     pub last_tick: std::sync::atomic::AtomicU64,
     pub config: Config,
     pub engine: Arc<dyn Engine>,
@@ -116,9 +117,11 @@ impl Controller {
             "active reservations exceed the new budget"
         );
         store.save(&state)?;
+        let probation = crate::probation::Gate::load(&config.controller.state_dir);
         Ok(Self {
             deployment: crate::deployment::Tracker::open(&config.controller.state_dir)?,
             maintenance: Default::default(),
+            probation,
             last_tick: std::sync::atomic::AtomicU64::new(now()),
             config,
             engine,

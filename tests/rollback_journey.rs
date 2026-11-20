@@ -85,6 +85,20 @@ impl Service for Host {
         let path = fs::read_link(self.install.join("current"))?;
         Ok(path.file_name().unwrap() == commit && commit != self.bad)
     }
+    async fn arm_probation(&self, release: &str) -> Result<()> {
+        self.events.lock().unwrap().push(format!("arm:{release}"));
+        infuser::probation::arm(&self.platform, release)
+    }
+    async fn disarm_probation(&self) -> Result<()> {
+        self.events.lock().unwrap().push("disarm".into());
+        infuser::probation::disarm(&self.platform)
+    }
+    async fn probation_held(&self, release: &str) -> Result<bool> {
+        Ok(infuser::probation::holds_release(&self.platform, release))
+    }
+    async fn armed_release(&self) -> Result<Option<String>> {
+        Ok(infuser::probation::armed(&self.platform))
+    }
 }
 
 struct Layout {
@@ -210,12 +224,30 @@ async fn failed_activation_restores_the_snapshot_taken_before_the_switch() -> Re
     assert!(error.to_string().contains("rolled back"));
     let events = host.events.lock().unwrap().join(" ");
     let preserve_good = events.find(&format!("preserve:{good}")).unwrap();
+    let arm_bad = events.find(&format!("arm:{bad}")).unwrap();
     let restart_bad = events.find(&format!("restart:{bad}")).unwrap();
-    let stop = events.find("stop").unwrap();
     let restore_good = events.find(&format!("restore:{good}")).unwrap();
     let restart_good = events.rfind(&format!("restart:{good}")).unwrap();
-    assert!(preserve_good < restart_bad && restart_bad < stop && stop < restore_good);
-    assert!(restore_good < restart_good);
+    assert!(preserve_good < arm_bad && arm_bad < restart_bad);
+    assert!(restart_bad < restore_good && restore_good < restart_good);
+    assert!(
+        events[restart_bad..restore_good].contains("stop"),
+        "{events}"
+    );
+    assert!(
+        !infuser::probation::holds_release(&layout.platform, &bad),
+        "rolled-back candidate must not stay in probation"
+    );
+    let outcomes: serde_json::Value =
+        serde_json::from_slice(&fs::read(layout.platform.join("deploy-outcomes.json"))?)?;
+    assert_eq!(outcomes["outcomes"][0]["release"], bad);
+    assert_eq!(outcomes["outcomes"][0]["result"], "rolled_back");
+    assert_eq!(
+        outcomes["outcomes"][0]["reason"],
+        infuser::probation::HEALTH_FAILURE
+    );
+    assert_eq!(outcomes["outcomes"][1]["release"], good);
+    assert_eq!(outcomes["outcomes"][1]["result"], "activated");
     assert_eq!(
         fs::read_link(layout.install.join("current"))?
             .file_name()
@@ -269,7 +301,9 @@ async fn snapshot_failure_leaves_the_running_release_in_place() -> Result<()> {
             .unwrap(),
         initial.as_str()
     );
-    assert!(host.events.lock().unwrap().is_empty());
+    let events = host.events.lock().unwrap().join(" ");
+    assert_eq!(events, format!("stop restart:{initial}"));
+    assert!(!layout.install.join("previous").exists());
     Ok(())
 }
 
@@ -385,6 +419,14 @@ async fn operator_rollback_restores_the_previous_release_and_database() -> Resul
         fs::read_to_string(layout.updater.join("failed-release"))?,
         good
     );
+    let outcomes: serde_json::Value =
+        serde_json::from_slice(&fs::read(layout.platform.join("deploy-outcomes.json"))?)?;
+    assert_eq!(outcomes["outcomes"][0]["release"], good);
+    assert_eq!(outcomes["outcomes"][0]["result"], "rolled_back");
+    assert_eq!(
+        outcomes["outcomes"][0]["reason"],
+        infuser::probation::OPERATOR_RESTORE
+    );
     let error = updater::rollback(&layout.config, &operator)
         .await
         .unwrap_err();
@@ -437,5 +479,97 @@ async fn back_to_back_snapshots_release_the_update_lock_while_other_threads_spaw
     for thread in threads {
         thread.join().expect("spawner thread panicked");
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn reboot_mid_trial_is_finished_by_the_next_update_run() -> Result<()> {
+    let initial = "a".repeat(40);
+    let good = "b".repeat(40);
+    let bad = "c".repeat(40);
+    let manifest = Arc::new(Mutex::new(release(&good)));
+    let layout = layout(manifest, &initial).await?;
+    let host = Host {
+        install: layout.install.clone(),
+        platform: layout.platform.clone(),
+        snapshots: layout.updater.join("rollback"),
+        bad: bad.clone(),
+        events: Mutex::new(Vec::new()),
+        fail_snapshot: false,
+        disk_full: false,
+    };
+    let http = reqwest::Client::new();
+    let activated =
+        updater::update(&layout.config, &layout.source, "linux-amd64", &http, &host).await?;
+    assert!(activated.contains("Activated"), "{activated}");
+    assert!(
+        !infuser::probation::holds_release(&layout.platform, &good),
+        "a finished activation must not leave the marker armed"
+    );
+
+    // Updater died after the switch, before promote. pending.json is the record.
+    fs::write(
+        layout.updater.join("pending.json"),
+        format!(r#"{{"commit":"{good}","previous":"{initial}"}}"#),
+    )?;
+    infuser::probation::arm(&layout.platform, &good)?;
+    let resumed =
+        updater::update(&layout.config, &layout.source, "linux-amd64", &http, &host).await?;
+    assert!(
+        resumed.contains("Recovered successful activation"),
+        "{resumed}"
+    );
+    assert_eq!(
+        fs::read_link(layout.install.join("current"))?
+            .file_name()
+            .unwrap(),
+        good.as_str()
+    );
+    assert!(!layout.updater.join("pending.json").exists());
+    assert!(!infuser::probation::holds_release(&layout.platform, &good));
+    assert!(
+        !host
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| event.starts_with("restore:")),
+        "a healthy trial must be promoted, not restored"
+    );
+
+    // Same reboot, but pending.json was lost. The marker alone must still resume.
+    infuser::probation::arm(&layout.platform, &good)?;
+    let from_marker =
+        updater::update(&layout.config, &layout.source, "linux-amd64", &http, &host).await?;
+    assert!(
+        from_marker.contains("Recovered successful activation"),
+        "{from_marker}"
+    );
+    assert!(!infuser::probation::holds_release(&layout.platform, &good));
+
+    // Reboot of a candidate that never passed its health check rolls back.
+    fs::create_dir_all(layout.install.join("releases").join(&bad))?;
+    fs::remove_file(layout.install.join("current"))?;
+    symlink(
+        layout.install.join("releases").join(&bad),
+        layout.install.join("current"),
+    )?;
+    rollback::capture(&layout.platform, &layout.updater.join("rollback"), &good)?;
+    fs::write(
+        layout.updater.join("pending.json"),
+        format!(r#"{{"commit":"{bad}","previous":"{good}"}}"#),
+    )?;
+    infuser::probation::arm(&layout.platform, &bad)?;
+    let rolled =
+        updater::update(&layout.config, &layout.source, "linux-amd64", &http, &host).await?;
+    assert!(rolled.contains("restored previous release"), "{rolled}");
+    assert_eq!(
+        fs::read_link(layout.install.join("current"))?
+            .file_name()
+            .unwrap(),
+        good.as_str()
+    );
+    assert!(!layout.updater.join("pending.json").exists());
+    assert!(!infuser::probation::holds_release(&layout.platform, &bad));
     Ok(())
 }

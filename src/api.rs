@@ -28,10 +28,7 @@ pub fn router_with_peers(
     peers: Option<Arc<crate::peers::Rooms>>,
 ) -> Router {
     Router::new()
-        .route(
-            "/healthz",
-            get(|| async { Json(json!({"status": "ok", "build": crate::BUILD_SHA})) }),
-        )
+        .route("/healthz", get(health))
         .route("/v1/apps", get(list))
         .route("/v1/capabilities", get(capabilities))
         .route("/v1/peer-health", get(peer_health))
@@ -46,11 +43,23 @@ pub fn router_with_peers(
             controller.maintenance.clone(),
             crate::maintenance::admission,
         ))
+        .layer(axum::middleware::from_fn_with_state(
+            controller.probation.clone(),
+            crate::probation::guard,
+        ))
         .with_state(App {
             controller,
             token_hash: Sha256::digest(token.as_bytes()).into(),
             peers,
         })
+}
+
+async fn health(State(app): State<App>) -> Json<serde_json::Value> {
+    Json(json!({
+        "status": "ok",
+        "build": crate::BUILD_SHA,
+        "probation": !app.controller.probation.accepting(),
+    }))
 }
 
 struct ApiError(anyhow::Error);

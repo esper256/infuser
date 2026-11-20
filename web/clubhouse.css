@@ -237,6 +237,15 @@ dialog::backdrop { background: #030b10c9; backdrop-filter: blur(8px); }
 .update-confirm { padding: 16px; border: 1px solid var(--warm); border-radius: 12px; }
 .update-confirm p { margin-top: 0; font-size: 13px; line-height: 1.5; }
 .update-confirm .dialog-actions { flex-wrap: wrap; }
+.rollback-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.rollback-notice[hidden] { display: none; }
+.rollback-notice p { margin: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.rollback-notice button { flex: none; }
+.update-outcomes { margin: 0 0 8px; }
+.update-outcomes[hidden] { display: none; }
+.update-outcomes h4 { margin: 0 0 6px; color: var(--quiet); font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.update-outcomes ul { margin: 0; padding-left: 1.1em; color: var(--quiet); font-size: 13px; line-height: 1.45; }
+.update-outcomes li { margin: 3px 0; overflow-wrap: anywhere; }
 .update-message { margin: 14px 0 0; font-size: 13px; line-height: 1.5; }
 .update-message:empty { display: none; }
 @media (max-width: 540px) { .update-builds { grid-template-columns: 1fr; } .update-build { padding: 14px; } }

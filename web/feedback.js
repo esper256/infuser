@@ -61,6 +61,8 @@ export function initFeedback(button, closeMenu, api, admin=false) {
     }catch(error){
       // Intake retries reuse the same ID and immutable report. Public posting is
       // durably claimed server-side; ambiguous results must never trigger retries.
+      // An update in progress rejected the write before saving it, so the draft stays.
+      if(error.updating){message(error.message);return;}
       intakeUncertain=!reviewId&&(!error.status||error.status>=500);
       locked=!!reviewId&&(!error.status||error.status>=500&&error.status!==503||error.status===409);
       if(locked)message('Posting could not be confirmed. Refresh the queue and check GitHub before creating another report. This entry cannot be sent twice.');

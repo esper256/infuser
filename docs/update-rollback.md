@@ -35,13 +35,21 @@ larger. The running release stays in place, and host health reports
 `rollback-snapshot`. `failed-release` is one small file that is replaced, not
 appended.
 
-The copy runs while the controller is still up, after activation is allowed and
-the host maintenance lock is held. It does not pause games by itself. The
-activation that follows still restarts the controller. A game already open in
-the browser keeps running. A shared peer game ends and has to be started again.
-A dedicated game server keeps running, but players' connections drop and can
-rejoin. An agent's publish that is still arriving, or a server image that is
-still being built, is lost.
+The copy runs after the controller has stopped, once activation is allowed and
+the host maintenance lock is held. Stopping first lets in-flight requests finish,
+then the snapshot includes every committed write. The candidate that starts
+afterward is on trial: it serves reads and the health check, and it refuses
+user writes until the updater promotes it. A failed health check restores this
+snapshot and the previous release. Because the trial did not accept those
+writes, the restore does not discard chat, reactions, saves, sign-ins, or
+profile edits. If the candidate had already been promoted, or it is no longer
+holding writes, the updater leaves the database in place rather than restoring
+over something a person committed. A migration the candidate applied at startup
+is part of the database file, so a restore puts the previous schema back with
+the previous data. A game already open in the browser keeps running. A shared
+peer game ends and has to be started again. A dedicated game server keeps
+running, but players' connections drop and can rejoin. An agent's publish that
+is still arriving, or a server image that is still being built, is lost.
 
 ## Enable it
 

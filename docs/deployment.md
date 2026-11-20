@@ -30,16 +30,29 @@ for the backup worker. Keep these changes explicit when adopting a release.
    Every pass looks for a newer release. It checks GitHub again after staging;
    if another release appeared, it leaves the older candidate inactive and fetches
    the newer one on the next pass.
-4. It atomically switches `current`, restarts the controller, and checks `/healthz`
-   for the exact new build ID. Game containers continue running; peer rooms end
+4. It stops the controller and then snapshots the databases, so every
+   committed write is in the snapshot. It marks the next start as a trial,
+   switches `current`, and starts that release. The trial serves reads and
+   `/healthz`, and answers user writes with a temporary "updating, try again
+   in a moment" response. Game containers continue running; peer rooms end
    when the controller restarts, so their players must rejoin.
-5. If activation fails, it restores the pre-update SQLite snapshot and the
-   previous release, then checks that release's health. The snapshot is taken
-   after games are idle and before `current` changes. If the snapshot cannot be
-   restored, the new selection stays in place rather than starting an older
-   binary against migrated state. See [Roll back a bad update](update-rollback.md).
+5. The health check looks for the exact new build ID and for that trial.
+   When it passes, the updater promotes the release and writes are accepted.
+   If it fails while the trial is still holding writes, the updater restores
+   the snapshot and the previous release, then checks that release's health.
+   A candidate that already accepted writes is left in place instead, so the
+   restore cannot discard them. Schema changes the candidate applied are
+   undone only by that snapshot restore. If the snapshot cannot be restored,
+   the new selection stays in place rather than starting an older binary
+   against migrated state. See [Roll back a bad update](update-rollback.md).
    The failed release is held until a newer build arrives or an operator clears
-   the local `failed-release` file to retry it.
+   the local `failed-release` file to retry it. That file lives in the updater
+   state directory and is not a web request, so a trial does not block clearing
+   it. Install this updater before relying on the trial. An older updater does
+   not mark the candidate or promote it, and copying `current` into the updater
+   path can only happen after `current` already contains this release. The
+   activation that first moves `current` is therefore still the previous
+   updater and is not protected.
 
 The manifest and binaries are downloaded through GitHub release URLs, avoiding
 continuous unauthenticated API polling. Checksums detect corruption; trust comes
@@ -147,7 +160,10 @@ enable backup timers or configure backup storage.
 ## Update from Admin tools
 
 The server operator sees **Server updates** inside **Admin tools**, including when
-no update is waiting. **Running now** and **Next update** compare the build IDs,
+no update is waiting. A failed release that was rolled back leaves a short notice
+there, with the release and the reason, until the operator dismisses it. Recent
+activations and rollbacks stay listed under that notice. Group admins and players
+do not see it. **Running now** and **Next update** compare the build IDs,
 ages and local build dates. Hover a shortened ID for the full commit. Build ages
 come from embedded compile timestamps, independently of the update waiting time.
 Older binaries or updater installations without this metadata show **Build time
