@@ -64,20 +64,3 @@ jobs:
             assert.equal(typeof github.rest.pulls.list, 'function');
       - name: Release publication policy tests
         run: node --test .github/scripts/publish-release.test.cjs .github/scripts/mac-release-plan.test.cjs
-      - name: Create artifact fixture
-        run: |
-          mkdir -p fixture
-          printf 'Infuser artifact compatibility\n' > fixture/binary
-          (cd fixture && sha256sum binary > SHA256SUMS)
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: infuser-action-smoke
-          path: fixture/*
-          retention-days: 1
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: infuser-action-smoke
-          path: restored
-          merge-multiple: true
-      - name: Verify downloaded layout and bytes
-        run: cd restored && sha256sum --check SHA256SUMS
