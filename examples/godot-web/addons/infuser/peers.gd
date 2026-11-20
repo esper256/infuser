@@ -1,6 +1,10 @@
 extends Node
-## Experimental two-player Godot adapter using Infuser's existing star signaling.
-## No host migration: losing the host/lease ends the shared session.
+## Peer-hosted rooms of 2–8 players on Infuser's star signaling.
+## The host is the WebRTCMultiplayerPeer server (Godot id 1). Each member is a
+## client linked only to the host. server_relay forwards RPCs through that link,
+## so members never open WebRTC connections to each other. Every member's
+## traffic, including TURN, is carried by the host. Losing the host or the lease
+## ends the room. One member who cannot connect is retried and does not end it.
 signal ended(reason: String)
 signal changed
 
@@ -20,6 +24,7 @@ var _refresh_at := 0
 var _refreshing := false
 var _tick_callback: JavaScriptObject
 var _ticker := 0
+var _roster_key := ""
 
 func _tick(_args: Array) -> void:
 	_process(0.0)
@@ -76,6 +81,7 @@ func _enter(relay_only: bool, intent: Dictionary, joinable: bool, create_room: b
 	_next_poll = 0
 	_polling = false
 	_live = true
+	_roster_key = ""
 	if OS.has_feature("web"):
 		# Browsers can pause rendering in a hidden tab. Coordinator renewal
 		# must not depend on a game frame; long/full suspension still fences.
@@ -86,9 +92,9 @@ func _enter(relay_only: bool, intent: Dictionary, joinable: bool, create_room: b
 	if err != OK:
 		close("Couldn't create the multiplayer connection.")
 		return {"ok": false, "error": "WebRTC initialization failed."}
-	multiplayer.multiplayer_peer = rtc
-	_bind_rtc()
-	Infuser.network("connecting")
+	_attach()
+	_report_network()
+	_mark_roster()
 	changed.emit()
 	return {"ok": true, "value": room}
 
@@ -97,13 +103,48 @@ func set_joinable(accepting: bool) -> Dictionary:
 		return {"ok": false, "error": "Only the active host can change who may join."}
 	return await _request("/" + str(room.self_id) + "/joinability", "PUT", {"epoch": room.epoch, "joinable": accepting})
 
+func _attach() -> void:
+	# Relay is what lets member A see member B. The WebRTC links stay a star.
+	multiplayer.server_relay = true
+	multiplayer.multiplayer_peer = rtc
+	_bind_rtc()
+
 func _bind_rtc() -> void:
-	rtc.peer_connected.connect(func(_id: int):
-		Infuser.network("connected")
-		changed.emit())
-	rtc.peer_disconnected.connect(func(_id: int):
-		Infuser.network("connecting")
-		changed.emit())
+	rtc.peer_connected.connect(_on_peer_connection_changed)
+	rtc.peer_disconnected.connect(_on_peer_connection_changed)
+
+func _on_peer_connection_changed(_id: int) -> void:
+	_report_network()
+	changed.emit()
+
+func _report_network() -> void:
+	if not _live or rtc == null:
+		return
+	var expected := 0
+	var ready := 0
+	for peer: Dictionary in room.peers:
+		var id: String = peer.id
+		if id == room.self_id:
+			continue
+		expected += 1
+		if not _links.has(id):
+			continue
+		var pc: WebRTCPeerConnection = _links[id].pc
+		if pc.get_connection_state() == WebRTCPeerConnection.STATE_CONNECTED and rtc.has_peer(_number(id)):
+			ready += 1
+	# Alone, the host is still waiting for friends. Connected means the whole star is up.
+	Infuser.network("connected" if expected > 0 and ready == expected else "connecting")
+
+func _mark_roster() -> bool:
+	var ids := PackedStringArray()
+	for peer: Dictionary in room.peers:
+		ids.append(str(peer.id))
+	ids.sort()
+	var key := "|".join(ids)
+	if key == _roster_key:
+		return false
+	_roster_key = key
+	return true
 
 func _number(id: String) -> int:
 	# Godot reserves 1 for the host. IDs are session-local, not player identity.
@@ -173,13 +214,17 @@ func _poll() -> void:
 		_cursor = int(message.sequence)
 	if room.role == "host":
 		for peer: Dictionary in room.peers:
+			if not is_active():
+				return
 			var id: String = peer.id
-			if id == room.self_id:
+			if id == room.self_id or _links.has(id):
 				continue
-			if not _links.has(id):
-				var link := _connect(id, Infuser.uuid())
-				if not link.is_empty() and link.pc.create_offer() != OK:
-					close("Couldn't start the peer connection.")
+			var link := _connect(id, Infuser.uuid())
+			if link.is_empty():
+				return # A local adapter failure already ended the room.
+			if link.pc.create_offer() != OK:
+				_drop(id) # Retry this member next poll; the others keep playing.
+	var stale: Array = []
 	for link: Dictionary in _links.values():
 		var state: int = link.pc.get_connection_state()
 		if not rtc.has_peer(_number(link.id)):
@@ -190,13 +235,20 @@ func _poll() -> void:
 			if link.disconnected == 0:
 				link.disconnected = Infuser.now_msec()
 			if room.role == "host" and Infuser.now_msec() - int(link.disconnected) >= 2500:
-				_drop(link.id)
-				Infuser.network("connecting")
+				stale.append(str(link.id))
 				continue
 		var waiting_since: int = link.disconnected if link.disconnected != 0 else link.created
 		if Infuser.now_msec() - waiting_since > 20000 and state != WebRTCPeerConnection.STATE_CONNECTED:
-			close("Couldn't reach the other player. Join again.")
+			if room.role == "host":
+				stale.append(str(link.id))
+				continue
+			close("Couldn't reach the host. Join again.")
 			return
+	for id: String in stale:
+		_drop(id)
+	_report_network()
+	if _mark_roster():
+		changed.emit()
 
 func _connect(id: String, generation: String) -> Dictionary:
 	var replacing := _links.has(id)
@@ -209,8 +261,7 @@ func _connect(id: String, generation: String) -> Dictionary:
 		if rtc.create_client(_number(room.self_id)) != OK:
 			close("Couldn't reconnect to the shared game.")
 			return {}
-		multiplayer.multiplayer_peer = rtc
-		_bind_rtc()
+		_attach()
 	for other: String in _links:
 		if _number(other) == _number(id):
 			close("Peer ID collision. Start a new shared session.")

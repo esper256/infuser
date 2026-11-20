@@ -46,7 +46,7 @@ most established path. Choose another engine when it better suits the game:
 | --- | --- |
 | Three.js/Vite or plain HTML/JavaScript | Browser hosting and SDK integration are supported. [Recipe](engines/threejs-vite.md). |
 | Browser game with a Node HTTP/WebSocket backend | Managed source packaging and dedicated sessions are implemented. [Recipe](engines/node-server.md). |
-| Godot Web | Preview with saves, guest play, and WebRTC multiplayer. Check supported exports and outstanding device tests in the [recipe](engines/godot-web.md). |
+| Godot Web | Preview with saves, guest play, and WebRTC multiplayer for 2–8 players in one host-relayed room. Check supported exports and outstanding device tests in the [recipe](engines/godot-web.md). |
 | Unity Web | Experimental hosting and C#/JavaScript adapter. Compiled Unity acceptance is still pending; do not promise a fully tested integration. [Recipe](engines/unity-web.md). |
 | Native Godot | Infuser Play preview for single-player Windows and Linux, including Bazzite. Physical Windows acceptance remains pending. [Recipe](engines/godot-native.md). |
 | Bevy, native Unity, or other native engines | No validated integration yet. Explain that limit before choosing one for Infuser. |
@@ -100,8 +100,11 @@ For every multiplayer design:
    not silently create a different room or world.
 4. Handle startup, disconnects, and background tabs with useful waiting/retry
    states. Save before an idle backend shuts down.
-5. Keep a multiplayer test plan, including two clients and forced relay for peer
-   games. Never declare multiplayer as single player just to get it published.
+5. Keep a multiplayer test plan. For a peer-hosted game, include forced relay
+   and, when `max_players` is above 2, a host plus at least two members. Godot
+   games that still store one remote player need the
+   [upgrade steps](engines/godot-multiplayer.md#upgrading-a-two-player-game).
+   Never declare multiplayer as single player just to get it published.
 
 ## Build with integration points in place
 

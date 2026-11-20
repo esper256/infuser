@@ -13,7 +13,7 @@ var pending_checkpoint: Dictionary = {}
 var loaded := false
 var guest := false
 var position_local := Vector2(360, 330)
-var position_other := Vector2(600, 330)
+var positions: Dictionary = {}
 var received := 0
 var ticks := 0.0
 var send_clock := 0.0
@@ -37,9 +37,12 @@ func _ready() -> void:
 	chooser.prepared.connect(_report)
 	peers.ended.connect(func(reason: String):
 		multiplayer_mode = false
+		positions.clear()
 		status.text = reason
 		join_button.disabled = false
 		_report())
+	peers.changed.connect(_roster)
+	multiplayer.peer_disconnected.connect(_peer_left)
 	var ui := CanvasLayer.new()
 	add_child(ui)
 	var column := VBoxContainer.new()
@@ -209,17 +212,21 @@ func _join(intent: Dictionary = {}, matchmaking: bool = false) -> void:
 	if result.ok:
 		multiplayer_mode = true
 		leave_button.disabled = false
-		status.text = "The lake is open. Waiting for a friend…"
+		_roster()
 	else:
 		join_button.disabled = false
 		status.text = result.error
-	_report()
+		_report()
 
 func _process(delta: float) -> void:
 	ticks += delta
 	if loaded:
 		if autoplay:
-			var offset := 0.0 if not multiplayer_mode or multiplayer.is_server() else PI
+			# The host keeps the original path. Each member takes a different
+			# lane so a full boat does not stack on one lantern.
+			var offset := 0.0
+			if multiplayer_mode and not multiplayer.is_server():
+				offset = float(absi(multiplayer.get_unique_id()) % 7 + 1) * TAU / 8.0
 			position_local = Vector2(480 + cos(ticks + offset) * 170, 370 + sin(ticks * 1.3 + offset) * 65)
 		else:
 			position_local += Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down") * delta * 180
@@ -231,11 +238,33 @@ func _process(delta: float) -> void:
 			_drift.rpc(position_local)
 	queue_redraw()
 
+func _roster() -> void:
+	if not multiplayer_mode:
+		return
+	if positions.is_empty():
+		var roster: Array = peers.room.get("peers", [])
+		var cap := int(peers.room.get("max_players", roster.size()))
+		status.text = "On the lake: %d of %d." % [roster.size(), cap]
+	_report()
+
+func _peer_left(id: int) -> void:
+	positions.erase(id)
+	if multiplayer_mode and positions.is_empty():
+		_roster()
+	elif multiplayer_mode:
+		_report()
+
+# The addon keeps a star and turns on server_relay, so this rpc reaches every
+# other player through the host. There is one WebRTC connection per member,
+# and TURN carries that same hop. Key state by the sender, never by peer id 2.
 @rpc("any_peer", "call_remote", "unreliable_ordered", 0)
 func _drift(point: Vector2) -> void:
 	if not peers.is_active() or not point.is_finite():
 		return
-	position_other = point.clamp(Vector2(50, 260), Vector2(910, 510))
+	var sender := multiplayer.get_remote_sender_id()
+	if sender <= 0 or sender == multiplayer.get_unique_id():
+		return
+	positions[sender] = point.clamp(Vector2(50, 260), Vector2(910, 510))
 	received += 1
 	status.text = "Drifting together."
 	_report()
@@ -247,9 +276,17 @@ func _draw() -> void:
 		var p := Vector2(50 + fmod(i * 139, 860), 265 + fmod(i * 71, 235))
 		p.y += sin(ticks + i) * 6
 		draw_circle(p, 3, Color(0.95, 0.83, 0.4, 0.5 + sin(ticks + i) * 0.3))
+	if multiplayer_mode and peers.is_active():
+		var ids: Array = positions.keys()
+		ids.sort()
+		for index in ids.size():
+			_lantern(positions[ids[index]], _remote_color(index))
 	_lantern(position_local, Color(1, 0.78, 0.3))
-	if multiplayer_mode and peers.is_active() and not multiplayer.get_peers().is_empty():
-		_lantern(position_other, Color(0.3, 0.86, 1))
+
+func _remote_color(index: int) -> Color:
+	# The first remote stays the original cyan so a pair looks the same.
+	var palette := [Color(0.3, 0.86, 1), Color(0.95, 0.45, 0.55), Color(0.45, 0.9, 0.55), Color(0.75, 0.55, 0.95), Color(0.95, 0.7, 0.35), Color(0.55, 0.75, 0.95), Color(0.9, 0.85, 0.45)]
+	return palette[index % palette.size()]
 
 func _lantern(p: Vector2, color: Color) -> void:
 	for radius in [34, 24, 15]:
@@ -261,5 +298,5 @@ func _report() -> void:
 	score.text = str(lanterns) + " lanterns"
 	# Disposable game's read-only acceptance probe; no credentials or general SDK contract.
 	if OS.has_feature("web"):
-		var probe := {"loaded": loaded, "guest": guest, "lanterns": lanterns, "revision": revision, "received": received, "multiplayer": multiplayer_mode, "status": status.text, "save_choice_ready": chooser.can_choose(), "role": peers.room.get("role", ""), "session": peers.room.get("epoch", ""), "policy": peers.room.get("ice_transport_policy", "")}
+		var probe := {"loaded": loaded, "guest": guest, "lanterns": lanterns, "revision": revision, "received": received, "multiplayer": multiplayer_mode, "status": status.text, "save_choice_ready": chooser.can_choose(), "role": peers.room.get("role", ""), "session": peers.room.get("epoch", ""), "policy": peers.room.get("ice_transport_policy", ""), "roster": peers.room.get("peers", []).size(), "others": positions.size(), "max_players": int(peers.room.get("max_players", 0))}
 		JavaScriptBridge.eval("window.lanternLake = " + JSON.stringify(probe), true)

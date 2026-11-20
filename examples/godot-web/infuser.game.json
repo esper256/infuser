@@ -12,7 +12,7 @@
   "multiplayer": {
     "mode": "peer_hosted",
     "transport": "webrtc",
-    "max_players": 2,
+    "max_players": 4,
     "join_policy": "anytime",
     "direct_connect": "optional",
     "relay_fallback": "required"

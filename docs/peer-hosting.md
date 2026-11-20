@@ -72,9 +72,11 @@ published manifest still enforces relay-only behavior, regardless of the client
 option. Use `relayOnly: true` for a relay test with an authorized player session, and check the
 selected pair is relay/relay with traffic in both directions.
 
-The [Godot web adapter](engines/godot-web.md) uses the same coordinator and relay,
-but Godot owns its `WebRTCMultiplayerPeer` channels and RPCs. The JSON messaging
-API below describes the browser helper, not Godot's wire protocol.
+The [Godot web adapter](engines/godot-web.md) uses the same coordinator, the same
+2–8 player cap, and the same relay. Godot owns its `WebRTCMultiplayerPeer`
+channels and RPCs. Members connect only to the host, and Godot's server relay
+forwards gameplay through that hop, including TURN. The JSON messaging API
+below describes the browser helper, not Godot's wire protocol.
 
 To join a room from `snapshot.peer_sessions`, pass the selected room’s `id` as `sessionId`
 to `peers.join()`. This must fail if that session ended or stopped accepting
