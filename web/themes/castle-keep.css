@@ -64,6 +64,7 @@
   --iron: #0e141a;
   --mortar: #10161e;
   --pennant: polygon(0 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 0 100%);
+  --guidon: polygon(0 0, calc(100% - 12px) 0, 100% 22%, calc(100% - 30px) 50%, 100% 78%, calc(100% - 12px) 100%, 0 100%);
   --shield: polygon(10% 0, 90% 0, 100% 16%, 100% 62%, 50% 100%, 0 62%, 0 16%);
   --heart-red: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath fill='%239d1c32' d='M16 27.2C8.2 21.6 2 16.8 2 10.6 2 6.6 5 3.8 8.8 3.8c2.2 0 4.2 1 5.6 2.7L16 8.4l1.6-1.9c1.4-1.7 3.4-2.7 5.6-2.7 3.8 0 6.8 2.8 6.8 6.8 0 6.2-6.2 11-14 16.6z'/%3E%3C/svg%3E");
   --heart-cream: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath fill='%23fff6ee' d='M16 27.2C8.2 21.6 2 16.8 2 10.6 2 6.6 5 3.8 8.8 3.8c2.2 0 4.2 1 5.6 2.7L16 8.4l1.6-1.9c1.4-1.7 3.4-2.7 5.6-2.7 3.8 0 6.8 2.8 6.8 6.8 0 6.2-6.2 11-14 16.6z'/%3E%3C/svg%3E");
@@ -76,15 +77,15 @@
 [data-theme="castle-keep"] body {
   background-color: #141c26;
   background-image:
-    radial-gradient(ellipse at 8% 0%, #ff9a3c40, transparent 26%),
-    radial-gradient(ellipse at 92% 18%, #ff7a2a28, transparent 22%),
-    radial-gradient(ellipse at 40% 70%, #7ec8ff14, transparent 28%),
+    radial-gradient(ellipse at 14% 0%, #ffb15a55, transparent 36%),
+    radial-gradient(ellipse at 84% 20%, #ff7a2a24, transparent 32%),
     url("/assets/themes/castle-keep/grass.svg"),
     url("/assets/themes/castle-keep/runes.svg"),
+    radial-gradient(ellipse at 50% 68%, transparent 8%, #05080ccc 76%),
     url("/assets/themes/castle-keep/stone.svg");
-  background-repeat: no-repeat, no-repeat, no-repeat, repeat-x, repeat, repeat;
-  background-position: center top, center top, center, center bottom, center, center top;
-  background-size: auto, auto, auto, auto 84px, 180px 180px, 160px 92px;
+  background-repeat: no-repeat, no-repeat, repeat-x, repeat, no-repeat, repeat;
+  background-position: center top, center top, center bottom, center, center, center top;
+  background-size: auto, auto, auto 84px, 380px 340px, auto, 280px 154px;
   background-attachment: fixed, fixed, fixed, fixed, fixed, fixed;
   color: var(--ink);
   font-family: Nunito, "Segoe UI", system-ui, sans-serif;
@@ -109,16 +110,16 @@
   letter-spacing: 0.01em;
 }
 
-/* Battlement. Merlons sit in the padding, under the controls. */
+/* Crenellations. Each merlon has a lit cap and a shaded face; the gaps are night sky. */
 [data-theme="castle-keep"] header {
   padding-top: 14px;
-  padding-bottom: 32px;
+  padding-bottom: 58px;
   border-bottom: 0;
   background-color: #1a2430;
   background-image:
-    radial-gradient(ellipse at 18% 0%, #ff9a3c55, transparent 42%),
+    radial-gradient(ellipse at 18% 0%, #ffb15a66, transparent 46%),
     url("/assets/themes/castle-keep/stone.svg");
-  background-size: auto, 160px 92px;
+  background-size: auto, 280px 154px;
   color: var(--ink);
 }
 [data-theme="castle-keep"] header::after {
@@ -127,9 +128,9 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 16px;
-  background: repeating-linear-gradient(90deg, #4a5c70 0 34px, #10161e 34px 52px);
-  box-shadow: 0 -4px 0 var(--heart), 0 -8px 16px #ff8a2a66;
+  height: 42px;
+  background: url("/assets/themes/castle-keep/battlement.svg") left bottom / 88px 42px repeat-x;
+  box-shadow: 0 10px 16px #ff8a2a33;
   pointer-events: none;
 }
 [data-theme="castle-keep"] .brand-wordmark {
@@ -306,43 +307,104 @@
     linear-gradient(180deg, #3a4654, #141b24 70%);
   box-shadow: inset 0 1px 0 #ffffff22, 0 8px 0 #07090c, 0 0 24px #ff8a2a22;
 }
+/* Swallowtail guidon. The lance is the rod; the cloth flies from it. */
 [data-theme="castle-keep"] .tag-filter,
 [data-theme="castle-keep"] .game-tags .tag-chip,
 [data-theme="castle-keep"] .tag-overflow-panel .tag-chip {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
   border: 0;
   border-radius: 0;
-  clip-path: var(--pennant);
-  padding: 6px 22px 6px 12px;
-  background-color: var(--royal);
-  background-image: linear-gradient(90deg, #c6a15a 0 4px, transparent 4px), linear-gradient(#2f6fd0, #16356e);
+  clip-path: none;
+  min-height: 36px;
+  padding: 6px 38px 6px 18px;
+  background: transparent;
   color: #f6f1e6;
   box-shadow: none;
-  text-shadow: none;
+  text-shadow: 0 1px 0 #0008;
+  font-weight: 700;
 }
-[data-theme="castle-keep"] .tag-filter:hover,
-[data-theme="castle-keep"] .game-tags .tag-chip:hover,
-[data-theme="castle-keep"] .tag-overflow-panel .tag-chip:hover {
-  background-color: #2f6fd0;
-  background-image: linear-gradient(90deg, #e2c074 0 4px, transparent 4px), linear-gradient(#4d86e0, #1e4f9a);
-  border-color: transparent;
-  color: #fff;
+[data-theme="castle-keep"] .tag-filter::before,
+[data-theme="castle-keep"] .game-tags .tag-chip::before,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: 1px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  border-radius: 4px;
+  background:
+    radial-gradient(circle at 50% 4px, #f3e2b0 0 2.5px, transparent 3px),
+    radial-gradient(circle at 50% calc(100% - 4px), #f3e2b0 0 2.5px, transparent 3px),
+    linear-gradient(90deg, #1a120c, #d7b56a 46%, #2a2016);
+  box-shadow: 0 0 0 1px #07090c;
+  pointer-events: none;
+}
+[data-theme="castle-keep"] .tag-filter::after,
+[data-theme="castle-keep"] .game-tags .tag-chip::after,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 8px;
+  top: 5px;
+  right: 0;
+  bottom: 5px;
+  clip-path: var(--guidon);
+  background-color: var(--royal);
+  background-image:
+    linear-gradient(90deg, #e2c074 0 4px, transparent 4px),
+    linear-gradient(180deg, #ffffff55 0%, transparent 22%, #00000000 48%, #00000038 100%),
+    linear-gradient(115deg, transparent 0 58%, #0000002b 60% 64%, transparent 66%),
+    linear-gradient(180deg, #5b92e4, #1e4f9a 46%, #14356e);
+  pointer-events: none;
+}
+[data-theme="castle-keep"] .tag-filter:hover::after,
+[data-theme="castle-keep"] .game-tags .tag-chip:hover::after,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip:hover::after {
+  background-image:
+    linear-gradient(90deg, #f0d48a 0 4px, transparent 4px),
+    linear-gradient(180deg, #ffffff66 0%, transparent 22%, #00000028 100%),
+    linear-gradient(115deg, transparent 0 58%, #00000022 60% 64%, transparent 66%),
+    linear-gradient(180deg, #7aabef, #2f6fd0 46%, #1e4f9a);
 }
 [data-theme="castle-keep"] .tag-filter.selected,
 [data-theme="castle-keep"] .tag-filter.selected:hover,
-[data-theme="castle-keep"] .tag-chip.selected,
-[data-theme="castle-keep"] .tag-chip.selected:hover {
-  padding-right: 34px;
-  background-color: var(--heart);
-  background-image: var(--heart-cream), linear-gradient(90deg, #4a1018 0 4px, transparent 4px), linear-gradient(#c4374c, #8e162b);
-  background-repeat: no-repeat, no-repeat, no-repeat;
-  background-position: right 16px center, left center, center;
-  background-size: 12px 11px, auto, auto;
+[data-theme="castle-keep"] .game-tags .tag-chip.selected,
+[data-theme="castle-keep"] .game-tags .tag-chip.selected:hover,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip.selected,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip.selected:hover {
+  padding-left: 30px;
   color: #fff6ee;
-  border-color: transparent;
+}
+[data-theme="castle-keep"] .tag-filter.selected::after,
+[data-theme="castle-keep"] .tag-filter.selected:hover::after,
+[data-theme="castle-keep"] .game-tags .tag-chip.selected::after,
+[data-theme="castle-keep"] .game-tags .tag-chip.selected:hover::after,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip.selected::after,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip.selected:hover::after {
+  background-color: var(--heart);
+  background-image:
+    var(--heart-cream),
+    linear-gradient(90deg, #f0d48a 0 4px, transparent 4px),
+    linear-gradient(180deg, #ffffff44 0%, transparent 24%, #00000038 100%),
+    linear-gradient(115deg, transparent 0 58%, #00000030 60% 64%, transparent 66%),
+    linear-gradient(180deg, #e2556c, #c4324a 46%, #8e162b);
+  background-repeat: no-repeat;
+  background-position: 8px center, left center, center, center, center;
+  background-size: 12px 11px, auto, auto, auto, auto;
 }
 [data-theme="castle-keep"] .tag-filter:focus-visible,
 [data-theme="castle-keep"] .tag-chip:focus-visible,
-[data-theme="castle-keep"] .tag-more:focus-visible { clip-path: none; }
+[data-theme="castle-keep"] .tag-more:focus-visible {
+  clip-path: none;
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
 [data-theme="castle-keep"] .tag-more {
   clip-path: var(--shield);
   border: 0;
@@ -433,10 +495,13 @@
 }
 [data-theme="castle-keep"] .add-game:focus-visible { clip-path: none; }
 
-/* Iron-bound oak, hung on the granite. The cover is a painting, not more stone. */
+/* Iron-bound oak, hung on the granite. The cover is a painting, not more stone.
+   It stays in the column so the brass plate sits under it, and a wrapped
+   reaction row (a later layout) still lands on the wood. */
 [data-theme="castle-keep"] .game:not(.hidden-game) {
   --card-padding: 14px;
-  padding: 12px 12px 16px;
+  gap: 10px;
+  padding: 12px 12px 14px;
   border: 3px solid #0e0a08;
   border-radius: 6px;
   background-color: #2a1a12;
@@ -451,6 +516,16 @@
     0 10px 0 #07090c,
     0 18px 28px #000a;
 }
+[data-theme="castle-keep"] .game:not(.hidden-game) > .game-meta { order: 1; position: relative; z-index: 2; }
+[data-theme="castle-keep"] .game:not(.hidden-game) > .game-bottom {
+  order: 3;
+  margin-top: 0;
+  position: relative;
+  z-index: 2;
+  flex-wrap: wrap-reverse;
+  align-items: flex-start;
+  gap: 4px 6px;
+}
 [data-theme="castle-keep"] .game:not(.hidden-game)::before {
   inset: auto;
   top: -10px;
@@ -464,9 +539,28 @@
   box-shadow: 0 3px 0 #07090c, 0 0 0 2px var(--gold);
 }
 [data-theme="castle-keep"] .game:not(.hidden-game) > .game-art {
-  inset: 50px 16px 112px 16px;
+  order: 2;
+  position: relative;
+  z-index: 0;
+  inset: auto;
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: auto;
+  min-height: 0;
+  height: auto;
+  margin: 0 6px;
   border-radius: 2px;
   box-shadow: 0 0 0 3px var(--gold), 0 0 0 6px #0e0a08, inset 0 10px 18px #00000088;
+}
+[data-theme="castle-keep"] .game:not(.hidden-game) > .game-art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+[data-theme="castle-keep"] .game:not(.hidden-game) .game-buzz {
+  margin-left: 4px;
+  margin-bottom: 2px;
 }
 [data-theme="castle-keep"] .game-art:not(:has(img))::before {
   border-color: #f0cb84;
@@ -845,16 +939,18 @@
 [data-theme="castle-keep"] .chooser-brand { color: var(--ink); }
 
 @media (max-width: 520px) {
-  [data-theme="castle-keep"] header { padding-bottom: 28px; }
+  [data-theme="castle-keep"] header { padding-bottom: 52px; }
   [data-theme="castle-keep"] .library-toolbar { grid-template-columns: minmax(0, 1fr); }
   [data-theme="castle-keep"] .library-toolbar .tag-filters { grid-area: 1 / 1; }
   [data-theme="castle-keep"] .library-toolbar .search-label { grid-area: 2 / 1; max-width: none; }
   [data-theme="castle-keep"] .library-toolbar .add-game { grid-area: 3 / 1; justify-self: stretch; }
-  [data-theme="castle-keep"] .game:not(.hidden-game) > .game-art { inset: 48px 10px 104px 10px; }
 }
 @media (pointer: coarse) {
   [data-theme="castle-keep"] .tag-filter,
   [data-theme="castle-keep"] .library-toolbar .tag-more,
+  [data-theme="castle-keep"] .game-tags .tag-chip,
+  [data-theme="castle-keep"] .tag-overflow-panel .tag-chip,
+  [data-theme="castle-keep"] .edit-tags,
   [data-theme="castle-keep"] .library-toolbar .search-label input,
   [data-theme="castle-keep"] .add-game,
   [data-theme="castle-keep"] .actions > button,
@@ -893,6 +989,12 @@
     forced-color-adjust: auto;
   }
   [data-theme="castle-keep"] header::after,
+  [data-theme="castle-keep"] .tag-filter::before,
+  [data-theme="castle-keep"] .tag-filter::after,
+  [data-theme="castle-keep"] .game-tags .tag-chip::before,
+  [data-theme="castle-keep"] .game-tags .tag-chip::after,
+  [data-theme="castle-keep"] .tag-overflow-panel .tag-chip::before,
+  [data-theme="castle-keep"] .tag-overflow-panel .tag-chip::after,
   [data-theme="castle-keep"] .tag-overflow-panel::before,
   [data-theme="castle-keep"] .own .chat-bubble::after { content: none; }
 }

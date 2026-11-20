@@ -1,31 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="160" height="92" viewBox="0 0 160 92" shape-rendering="geometricPrecision">
-  <rect width="160" height="92" fill="#141b24"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="154" viewBox="0 0 280 154" shape-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="arris" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".28"/>
+      <stop offset=".22" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".7" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".55"/>
+    </linearGradient>
+    <linearGradient id="joint" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".4"/>
+    </linearGradient>
+  </defs>
+  <rect width="280" height="154" fill="#0b1016"/>
   <g>
-    <rect x="3" y="3" width="74" height="40" rx="1.5" fill="#3d4c5c"/>
-    <rect x="3" y="3" width="74" height="5" fill="#6a7c8e" opacity=".55"/>
-    <rect x="3" y="36" width="74" height="7" fill="#24303c"/>
-    <path d="M14 16h28M18 24h18" stroke="#9fb4c8" stroke-opacity=".22" stroke-width="1"/>
+    <rect x="4" y="4" width="104" height="36" fill="#3c4e62"/>
+    <rect x="4" y="4" width="104" height="36" fill="url(#arris)"/>
+    <rect x="96" y="4" width="12" height="36" fill="url(#joint)"/>
   </g>
   <g>
-    <rect x="83" y="3" width="74" height="40" rx="1.5" fill="#32404e"/>
-    <rect x="83" y="3" width="74" height="5" fill="#5d7082" opacity=".5"/>
-    <rect x="83" y="36" width="74" height="7" fill="#1c2630"/>
-    <path d="M96 18h22M100 27h34" stroke="#9fb4c8" stroke-opacity=".18" stroke-width="1"/>
+    <rect x="114" y="4" width="62" height="36" fill="#2a3a4c"/>
+    <rect x="114" y="4" width="62" height="36" fill="url(#arris)"/>
+    <rect x="164" y="4" width="12" height="36" fill="url(#joint)"/>
   </g>
   <g>
-    <rect x="3" y="49" width="34" height="40" rx="1.5" fill="#2c3a48"/>
-    <rect x="3" y="49" width="34" height="5" fill="#607488" opacity=".45"/>
-    <rect x="3" y="82" width="34" height="7" fill="#1a232c"/>
+    <rect x="182" y="4" width="94" height="36" fill="#4a6076"/>
+    <rect x="182" y="4" width="94" height="36" fill="url(#arris)"/>
   </g>
   <g>
-    <rect x="43" y="49" width="74" height="40" rx="1.5" fill="#465668"/>
-    <rect x="43" y="49" width="74" height="5" fill="#7d90a4" opacity=".4"/>
-    <rect x="43" y="82" width="74" height="7" fill="#24303c"/>
-    <path d="M58 64h40M64 73h18" stroke="#0e141c" stroke-opacity=".35" stroke-width="1"/>
+    <rect x="4" y="46" width="46" height="52" fill="#334656"/>
+    <rect x="4" y="46" width="46" height="52" fill="url(#arris)"/>
+    <rect x="38" y="46" width="12" height="52" fill="url(#joint)"/>
   </g>
   <g>
-    <rect x="123" y="49" width="34" height="40" rx="1.5" fill="#364656"/>
-    <rect x="123" y="49" width="34" height="5" fill="#688094" opacity=".45"/>
-    <rect x="123" y="82" width="34" height="7" fill="#1c2630"/>
+    <rect x="56" y="46" width="122" height="52" fill="#41566c"/>
+    <rect x="56" y="46" width="122" height="52" fill="url(#arris)"/>
+    <rect x="166" y="46" width="12" height="52" fill="url(#joint)"/>
+  </g>
+  <g>
+    <rect x="184" y="46" width="40" height="52" fill="#243442"/>
+    <rect x="184" y="46" width="40" height="52" fill="url(#arris)"/>
+    <rect x="212" y="46" width="12" height="52" fill="url(#joint)"/>
+  </g>
+  <g>
+    <rect x="230" y="46" width="46" height="52" fill="#3a4e62"/>
+    <rect x="230" y="46" width="46" height="52" fill="url(#arris)"/>
+  </g>
+  <g>
+    <rect x="4" y="104" width="78" height="46" fill="#2e4154"/>
+    <rect x="4" y="104" width="78" height="46" fill="url(#arris)"/>
+    <rect x="70" y="104" width="12" height="46" fill="url(#joint)"/>
+  </g>
+  <g>
+    <rect x="88" y="104" width="54" height="46" fill="#51687e"/>
+    <rect x="88" y="104" width="54" height="46" fill="url(#arris)"/>
+    <rect x="130" y="104" width="12" height="46" fill="url(#joint)"/>
+  </g>
+  <g>
+    <rect x="148" y="104" width="128" height="46" fill="#35485c"/>
+    <rect x="148" y="104" width="128" height="46" fill="url(#arris)"/>
   </g>
 </svg>

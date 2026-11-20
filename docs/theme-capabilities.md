@@ -91,9 +91,11 @@ top bar. Recently stays the shared dropdown.
 
 Castle Keep (`[data-theme="castle-keep"]`) is a material preview. It does not
 move the header, the card grid, Recently, or the chat dock. The page is night
-granite with torchlight and a darker turf baseline. Game cards are iron-bound
-oak plaques hung on that wall, with the cover in a gold frame and the title
-on a brass plate. Tag filters are royal-blue and crimson pennants. Play and
+ashlar with torchlight and a darker turf baseline, and the header ends in
+crenellations. Game cards are iron-bound oak plaques hung on that wall, with
+the cover in a gold frame and the title on a brass plate just under the
+cover. Filter tags and the tags on a plaque are swallowtail pennants on a
+lance: royal blue, or crimson with a heart when chosen. Play and
 the other controls are blackened steel. A heart still marks a chosen tag, a
 reaction, and your own chat note. `--browser-chrome` is `#10161e`. At 520px and below, filters, search,
 and Add a game stack, which matches DOM order. Coarse pointers get 44px
