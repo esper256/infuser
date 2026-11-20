@@ -48,7 +48,7 @@ inspect build status before deciding whether to repeat an operation.
 | PUT | `/api/publisher/apps/APP/builds/BUILD/server/files/PATH` | Upload private managed-server source |
 | POST / GET | `/api/publisher/apps/APP/builds/BUILD/server-build` | Seal/queue server packaging, or inspect its state/logs |
 | GET | `/api/publisher/apps/APP/server-diagnostics` | Private live/recent runtime logs, health, exit status and build correlation |
-| POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for admin-only preview |
+| POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for admin-only preview. The first publish of a new game can return 409 `duplicate_title` |
 | DELETE | `/api/publisher/apps/APP/builds/BUILD` | Remove an unused build |
 | DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |
 
@@ -94,7 +94,11 @@ in the build manifest when `game_metadata.orientations` is advertised.
 Omitting it selects landscape. A raw WebP PUT to the
 app-level `card-art` endpoint applies immediately without touching builds or
 sessions. DELETE clears that override. Metadata PATCH accepts `{"title":"Name"}`
-or `{"title":null}` to restore the build title. It also accepts `description`
+or `{"title":null}` to restore the build title. After an admin renames the game,
+`title_locked` is true and a different title, or `title:null`, returns 409. Sending
+the locked title again changes nothing. Omit `title` to edit the description or
+art prompt. The next publish keeps the locked Library name and does not copy the
+manifest title over it. Description accepts
 (1–2000 plain-text characters) or `description:null` when capabilities include
 `game_metadata.description_max_chars`. Read existing metadata before editing.
 `art_prompt` (up to 4000 characters, or null to cancel) stores a private pending
@@ -116,6 +120,25 @@ pinned to a digest; image upload/build/pull automation is not yet provided.
 For `web:true`, the player endpoint is its game origin plus `/_infuser/server`;
 The platform authenticates and strips this prefix before proxying HTTP/WebSockets. Native
 TCP/UDP endpoints use expiring IP admission plus game-validated launch tickets.
+The first publish of an app that has never had a ready build compares the manifest
+title with current Library names in the same private group, including hidden games
+and an admin's locked name. Comparison trims leading and trailing whitespace and
+ignores case. Internal spaces, punctuation, and accents are not folded, so
+`Pond` matches ` pond ` and `POND`, while `Pond Life` does not match `Pond  Life`
+or `Pond-Life`. A match returns 409:
+
+```json
+{"error":"A game with this title already exists: \"Pond\" (id pond, address pond, hidden). ...","code":"duplicate_title","matches":[{"app_id":"pond","title":"Pond","slug":"pond","hidden":true}]}
+```
+
+`matches` names each existing game's title, id, slug when it has one, and whether
+it is hidden. Publish an update to that game instead. The build draft is kept, so
+the same publish can be retried with `{"allow_duplicate_title":true}` when a
+separate copy is intentional. The CLI flag is `--allow-duplicate-title`. An update
+to an app that already has a published or ready build never returns this warning,
+even when the new manifest title matches another game. Capabilities advertise
+`game_metadata.duplicate_titles.version`.
+
 Publishing returns 202 with `state:"queued"` while the game has an active managed
 server or peer room. The upload activates after that server shuts down or the
 peer session ends;
@@ -197,6 +220,26 @@ be used as a player login.
   requests `listed:true`. Metadata and build updates remain available through the API.
   **Unhide game** clears the admin hide and shows the latest active build.
   Library games expose `can_manage_visibility` only for admins managing their own group's games.
+- Admin-only `PUT /api/admin/apps/APP/title` with `{"title":"Night Pond"}` changes the
+  Library name and locks it. The name is trimmed, 1–80 characters, without control
+  characters. The slug, app id, saves, and play address stay the same. A later
+  agent publish keeps this name. The response includes `title_locked:true` and
+  `slug_unchanged:true`. In **Admin tools → Games**, choose **Rename**.
+- Admin-only `GET /api/admin/apps/APP/deletion` describes what deletion removes:
+  releases and web files, saves, screenshots, leaderboards (none are stored
+  separately; scores in saves go with the saves), reactions, cloud checkpoints,
+  publishing connections, publish captures, dedicated-server containers, world
+  volumes, packaged images, and the address. Operator-supplied images that Infuser
+  did not build are left on the host. `blocked` explains when delete will refuse.
+- Admin-only `POST /api/admin/apps/APP/deletion` with `{"confirm":"Night Pond"}`
+  deletes a hidden game after the admin types its current name, ignoring spaces
+  at the ends. A visible game returns 409. A live room, a running dedicated server,
+  or a publish still in progress also returns 409; delete does not stop them.
+  The record lists who deleted which game and when in `admin-audit.jsonl` in the
+  state directory. In **Admin tools → Games**, **Delete** is available only for a
+  hidden game and shows the removal list before the name is typed.
+- `GET /api/admin/games` lists the signed-in admin's published games with `id`,
+  `title`, `slug`, `hidden`, and `title_locked`.
 - Admin-only `/api/admin/members` GET/POST and `/api/admin/credentials` GET/POST;
   DELETE `/api/admin/credentials/ID` revokes a credential.
 - Admin-only `PUT /api/admin/members/handle` with `{"email":"player@example.com","name":"New handle"}`

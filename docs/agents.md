@@ -231,6 +231,17 @@ unless the game or the user's request calls for a change.
 On a publishing failure, read its build log or [runtime diagnostics](server-diagnostics.md)
 before asking the user for help. Reuse the existing app and credentials.
 
+A **first** publish whose title matches another game in this private group,
+including a hidden one, is refused with HTTP 409 and `code: duplicate_title`.
+The message names that game's title, id, address, and whether it is hidden.
+Titles match after trimming whitespace and ignoring case. Update the existing
+game instead of creating a second copy. Retry the same publish with
+`{"allow_duplicate_title":true}` (CLI `--allow-duplicate-title`) only when a
+separate game is intentional. Publishing an update to this game never raises
+that warning. If metadata shows `title_locked: true`, an admin set the Library
+name. Keep it: do not PATCH a different title, and do not expect the next
+manifest title to replace it.
+
 Check the publish response, then read the build's `publication_state` and game
 metadata with the publisher credential. Confirm the intended build is active or
 queued, and that the title, tags, description, and art request/cover are correct.

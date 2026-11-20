@@ -143,6 +143,19 @@ override URLs return 404. Library refresh picks up the change.
 These edits do not change the game's title screen, manifest, ownership, gameplay
 modes, build selection, or visibility.
 
+## Library title precedence
+
+The Library shows `title_override` when it is set, and otherwise the active
+build's manifest title. A normal publish stores the manifest title on that build
+and does not clear an author override.
+
+An admin rename sets `title_locked` true. That locked name wins over every later
+manifest title. `PATCH` with a different `title`, or `title: null`, returns 409
+until an admin renames the game again. Sending the same locked title changes
+nothing. Description, art prompt, cover, tags, and the address are not locked.
+Agents should read `title_locked` before editing the title and leave a locked
+name unchanged.
+
 The member Library exposes only `card_art_pending`, true when the game has no
 active cover and an unfulfilled prompt. The UI uses a shared “Generating...”
 placeholder; private prompt text and revisions remain restricted to metadata APIs.

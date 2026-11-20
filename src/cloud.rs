@@ -498,6 +498,26 @@ impl Database {
         Ok(outcome)
     }
 }
+pub fn delete_app(tx: &Transaction<'_>, app: &str) -> Result<()> {
+    let bytes: u64 = tx.query_row(
+        "SELECT (SELECT COALESCE(SUM(bytes),0) FROM cloud_revisions WHERE app=?1)+(SELECT COALESCE(SUM(bytes),0) FROM cloud_receipts WHERE app=?1)",
+        [app],
+        |r| r.get(0),
+    )?;
+    for table in [
+        "cloud_heads",
+        "cloud_revisions",
+        "cloud_receipts",
+        "cloud_conflicts",
+    ] {
+        tx.execute(&format!("DELETE FROM {table} WHERE app=?1"), [app])?;
+    }
+    tx.execute(
+        "UPDATE cloud_usage SET bytes=CASE WHEN bytes>?1 THEN bytes-?1 ELSE 0 END WHERE id=1",
+        [bytes],
+    )?;
+    Ok(())
+}
 pub fn delete_owner(tx: &Transaction<'_>, owner: &str) -> Result<()> {
     let bytes:u64=tx.query_row("SELECT (SELECT COALESCE(SUM(bytes),0) FROM cloud_revisions WHERE owner=?1)+(SELECT COALESCE(SUM(bytes),0) FROM cloud_receipts WHERE owner=?1)",[owner],|r|r.get(0))?;
     for table in [

@@ -161,7 +161,7 @@ async fn stage(p: &Platform, body: Body, limit: u64) -> Result<Staged> {
 pub(super) async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"sessions":crate::dedicated::capabilities(),"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"orientations":["landscape","portrait"],"resolutions":["hd","native"],"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"sessions":crate::dedicated::capabilities(),"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"title_locked":true,"duplicate_titles":{"version":1,"confirm":"allow_duplicate_title","normalization":"trim-lowercase"},"orientations":["landscape","portrait"],"resolutions":["hd","native"],"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -414,6 +414,9 @@ pub(super) async fn upload(
 pub(super) struct Promotion {
     #[serde(default = "yes")]
     listed: bool,
+    /// First publication only. An update never consults this flag.
+    #[serde(default)]
+    allow_duplicate_title: bool,
 }
 pub(super) async fn publish(
     State(p): State<Platform>,
@@ -427,11 +430,33 @@ pub(super) async fn publish(
     let _mutation = mutation;
     p.validate_promotion(&app, &build)?;
     let _guard = p.publishing.lock().unwrap();
-    let state = p.promote(&app, &build, body.as_ref().is_none_or(|b| b.listed))?;
+    let allow_duplicate = body.as_ref().is_some_and(|b| b.allow_duplicate_title);
+    let listed = body.as_ref().is_none_or(|b| b.listed);
+    let duplicates = {
+        let data = p.db.catalog()?;
+        let manifest_title = data
+            .builds
+            .get(&build_key(&app, &build))
+            .ok_or_else(|| fault(404, "unknown build"))?
+            .manifest
+            .title
+            .clone();
+        if games::new_publication(&data, &app) {
+            games::duplicate_matches(&data, &app, &manifest_title)
+        } else {
+            Vec::new()
+        }
+    };
+    if !duplicates.is_empty() && !allow_duplicate {
+        return Ok(games::duplicate_conflict(&duplicates));
+    }
+    let state = p.promote(&app, &build, listed)?;
     let slug = p.db.catalog()?.game_urls[&app].slug.clone();
-    let mut response = reply(
-        json!({"app_id":app,"build_id":build,"branch":"default","state":state,"slug":slug,"url":format!("https://{}/games/{slug}",p.domain())}),
-    );
+    let mut published = json!({"app_id":app,"build_id":build,"branch":"default","state":state,"slug":slug,"url":format!("https://{}/games/{slug}",p.domain())});
+    if !duplicates.is_empty() {
+        published["warnings"] = json!([{"code":"duplicate_title","matches":duplicates}]);
+    }
+    let mut response = reply(published);
     if state == "queued" {
         *response.status_mut() = StatusCode::ACCEPTED;
     }
@@ -499,12 +524,14 @@ impl Platform {
                 fault(409, "server packaging has not passed readiness checks")
             );
             crate::game_urls::assign(d, app, &b.manifest.title);
+            // Placeholder connection labels follow the Library name, including an admin lock.
+            let display = metadata::title(d, app, &b.manifest.title).to_owned();
             for credential in d
                 .credentials
                 .values_mut()
                 .filter(|c| c.app == app && c.role == "publish" && c.label == "Existing game")
             {
-                credential.label = b.manifest.title.clone();
+                credential.label = display.clone();
             }
             let changes_server = b.server.is_some()
                 || d.apps

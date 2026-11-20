@@ -11,6 +11,9 @@ pub struct GameMetadata {
     pub card_art_revision: Option<String>,
     pub card_art_bytes: u64,
     pub updated: u64,
+    /// An admin rename. Later publishes and publisher title edits keep this name.
+    #[serde(default)]
+    pub title_locked: bool,
 }
 
 pub(super) fn initialize(c: &Connection) -> Result<()> {
@@ -32,11 +35,17 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
             )?;
         }
     }
+    if !columns.iter().any(|column| column == "title_locked") {
+        c.execute(
+            "ALTER TABLE game_metadata ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     Ok(())
 }
 
 pub(super) fn read(c: &Connection) -> Result<BTreeMap<String, GameMetadata>> {
-    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated,description,art_prompt,art_prompt_completed_revision FROM game_metadata")?;
+    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated,description,art_prompt,art_prompt_completed_revision,title_locked FROM game_metadata")?;
     let rows = statement.query_map([], |r| {
         Ok((
             r.get(0)?,
@@ -48,6 +57,7 @@ pub(super) fn read(c: &Connection) -> Result<BTreeMap<String, GameMetadata>> {
                 card_art_revision: r.get(2)?,
                 card_art_bytes: r.get(3)?,
                 updated: r.get(4)?,
+                title_locked: r.get::<_, i64>(8)? != 0,
             },
         ))
     })?;
@@ -62,6 +72,8 @@ pub struct MetadataUpdate<'a> {
     pub art: Option<Option<&'a [u8]>>,
     /// Completing artwork must not overwrite a newer brief or a completed request.
     pub complete_prompt: Option<&'a str>,
+    /// Admin rename. Publisher title edits cannot set or clear the lock.
+    pub override_lock: bool,
 }
 
 impl Database {
@@ -96,10 +108,27 @@ impl Database {
             )?;
         }
         if let Some(title) = update.title {
-            tx.execute(
-                "UPDATE game_metadata SET title=?2,updated=?3 WHERE app=?1",
-                params![app, title, now()],
-            )?;
+            let locked = tx.query_row(
+                "SELECT title_locked FROM game_metadata WHERE app=?1",
+                [app],
+                |r| r.get::<_, i64>(0),
+            )? != 0;
+            let current: Option<String> =
+                tx.query_row("SELECT title FROM game_metadata WHERE app=?1", [app], |r| {
+                    r.get(0)
+                })?;
+            if locked && !update.override_lock && title != current.as_deref() {
+                return Err(crate::portal::fault(
+                    409,
+                    "An admin renamed this game. The Library title stays through later publishes. Ask an admin to change it.",
+                ));
+            }
+            if update.override_lock || title != current.as_deref() {
+                tx.execute(
+                    "UPDATE game_metadata SET title=?2,updated=?3,title_locked=CASE WHEN ?4=1 THEN 1 ELSE title_locked END WHERE app=?1",
+                    params![app, title, now(), i64::from(update.override_lock)],
+                )?;
+            }
         }
         if let Some(art) = update.art {
             let revision = art.map(|bytes| {

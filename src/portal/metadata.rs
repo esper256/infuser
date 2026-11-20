@@ -24,7 +24,7 @@ fn view(d: &platform::Data, app: &str) -> Result<Value> {
     let prompt_pending = art_pending(d, app);
     Ok(
         json!({"app_id":app,"private_group":d.groups.app(app),"build":active.build,"listed":active.listed,
-        "title":title(d,app,&build.manifest.title),"title_override":metadata.title,"orientation":build.manifest.orientation,
+        "title":title(d,app,&build.manifest.title),"title_override":metadata.title,"title_locked":metadata.title_locked,"orientation":build.manifest.orientation,
         "description":metadata.description,
         "art_prompt":metadata.art_prompt,"art_prompt_revision":prompt_revision,"art_prompt_pending":prompt_pending,
         "card_art_url":card_art::url(app,&active.build,build,d.metadata.get(app)),

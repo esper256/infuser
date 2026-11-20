@@ -38,6 +38,14 @@ names; reusing its own alias is allowed. Names stay reserved after unpublishing
 so another game cannot take over an old link. This is not an app-ID rename and
 does not move saves, publishing credentials, reactions, or multiplayer identity.
 
+Admin tools rename the Library title only. They do not change the slug. A new
+play origin is `slug--g-…` on the wildcard host, so a slug change would strand
+browser storage on the old origin, and Infuser does not redirect that origin.
+The publisher and owner slug endpoints above remain available for a deliberate
+address change; old `/games/SLUG` aliases keep resolving, but new launches use
+the new prefix. Deleting a hidden game removes its slug and aliases entirely.
+Old links then 404, and a future game may reuse the address. There is no redirect.
+
 ## Play URLs and share links
 
 Actual play origins look like `moon-racers--g-OPAQUE_ID.YOUR_INFUSER`. The readable
