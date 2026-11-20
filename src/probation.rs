@@ -106,11 +106,14 @@ pub fn holds_this_build(state_dir: &Path) -> bool {
 }
 
 pub fn holds_release(state_dir: &Path, release: &str) -> bool {
-    let Ok(bytes) = fs::read(marker_path(state_dir)) else {
-        return false;
-    };
-    serde_json::from_slice::<Marker>(&bytes)
-        .is_ok_and(|marker| marker.version == 1 && marker.release == release)
+    armed(state_dir).is_some_and(|armed| armed == release)
+}
+
+/// The release named by the marker, if a readable marker is present.
+pub fn armed(state_dir: &Path) -> Option<String> {
+    let bytes = fs::read(marker_path(state_dir)).ok()?;
+    let marker: Marker = serde_json::from_slice(&bytes).ok()?;
+    (marker.version == 1 && release_name(&marker.release)).then_some(marker.release)
 }
 
 fn release_name(value: &str) -> bool {
@@ -136,6 +139,13 @@ fn safe(request: &Request) -> bool {
         || request.method() == Method::HEAD
         || request.method() == Method::OPTIONS
         || request.uri().path() == "/v1/deployment/promote"
+        || operator_recovery(request.method(), request.uri().path())
+}
+
+/// Exact operator recovery writes. A prefix would also let through group
+/// creation, sign-in links, and visits, which stay held with everything else.
+fn operator_recovery(method: &Method, path: &str) -> bool {
+    method == Method::POST && matches!(path, "/api/operator/update" | "/api/operator/update/notice")
 }
 
 fn held(request: &Request) -> Response {
@@ -207,5 +217,25 @@ mod tests {
         assert!(!holds_release(dir.path(), crate::BUILD_SHA));
         assert!(Gate::load(dir.path()).accepting());
         Ok(())
+    }
+
+    #[test]
+    fn operator_recovery_is_an_exact_allowlist() {
+        assert!(operator_recovery(&Method::POST, "/api/operator/update"));
+        assert!(operator_recovery(
+            &Method::POST,
+            "/api/operator/update/notice"
+        ));
+        assert!(!operator_recovery(&Method::POST, "/api/operator/groups"));
+        assert!(!operator_recovery(
+            &Method::POST,
+            "/api/operator/update/extra"
+        ));
+        assert!(!operator_recovery(&Method::DELETE, "/api/operator/update"));
+        assert!(!operator_recovery(&Method::POST, "/api/chat"));
+        assert!(!operator_recovery(
+            &Method::POST,
+            "/api/operator/members/ada/sign-in-link"
+        ));
     }
 }

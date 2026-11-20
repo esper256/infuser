@@ -161,6 +161,11 @@ pub trait Service: Send + Sync {
     async fn probation_held(&self, _release: &str) -> Result<bool> {
         Ok(true)
     }
+    /// `None` unless this host has a real probation marker. The default stays
+    /// empty so a test double that does not arm a trial is not resumed.
+    async fn armed_release(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
     async fn trial(&self, commit: &str) -> Result<Trial> {
         Ok(if self.healthy(commit).await? {
             Trial::OnProbation
@@ -337,6 +342,10 @@ impl Service for Systemd {
     async fn probation_held(&self, release: &str) -> Result<bool> {
         let state_dir = platform_state_dir(&self.config.controller_config)?;
         Ok(crate::probation::holds_release(&state_dir, release))
+    }
+    async fn armed_release(&self) -> Result<Option<String>> {
+        let state_dir = platform_state_dir(&self.config.controller_config)?;
+        Ok(crate::probation::armed(&state_dir))
     }
     async fn trial(&self, commit: &str) -> Result<Trial> {
         Ok(self
@@ -521,8 +530,65 @@ async fn roll_back(
         &config.state_dir.join("failed-release"),
         candidate.as_bytes(),
     )?;
-    fs::remove_file(config.state_dir.join("pending.json"))?;
+    match fs::remove_file(config.state_dir.join("pending.json")) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     Ok(())
+}
+
+/// `pending.json` is the normal record of an armed trial. If it was lost, the
+/// marker alone still means this boot is holding writes. The next `update` run
+/// finishes that decision: health check, then promote or roll back.
+async fn resume_held_current(config: &Settings, service: &dyn Service) -> Result<Option<String>> {
+    let Some(armed) = service.armed_release().await? else {
+        return Ok(None);
+    };
+    let current = linked_release(&config.install_dir, "current")?;
+    let name = release_label(&current)?;
+    if armed != name {
+        return Ok(None);
+    }
+    match service.trial(&name).await? {
+        Trial::OnProbation => {
+            if service.promote(&name).await.is_err() {
+                return Ok(Some(format!(
+                    "Release {name} passed its health check and is holding writes until promotion finishes"
+                )));
+            }
+            clear_probation(service).await;
+            note_outcome(config, &name, crate::deploy_outcomes::Kind::Activated, "");
+            Ok(Some(format!("Recovered successful activation of {name}")))
+        }
+        Trial::ServingWrites => {
+            clear_probation(service).await;
+            note_outcome(config, &name, crate::deploy_outcomes::Kind::Activated, "");
+            Ok(Some(format!("Recovered successful activation of {name}")))
+        }
+        Trial::Unreachable => {
+            let previous = linked_release(&config.install_dir, "previous")?;
+            let previous_commit = release_label(&previous)?;
+            roll_back(
+                config,
+                service,
+                &previous,
+                &previous_commit,
+                &name,
+                "Interrupted update cannot roll back across the identity genesis boundary; current selection and pending recovery record retained",
+            )
+            .await?;
+            Ok(Some(format!(
+                "Recovered interrupted update {name}; restored previous release"
+            )))
+        }
+    }
+}
+
+async fn clear_probation(service: &dyn Service) {
+    if let Err(error) = service.disarm_probation().await {
+        tracing::warn!(%error, "probation marker was not cleared");
+    }
 }
 
 fn linked_release(install: &Path, name: &str) -> Result<PathBuf> {
@@ -1105,6 +1171,7 @@ pub async fn update(
                             pending.commit
                         ));
                     }
+                    clear_probation(service).await;
                     finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
                     return Ok(format!(
                         "Recovered successful activation of {}",
@@ -1112,6 +1179,7 @@ pub async fn update(
                     ));
                 }
                 Trial::ServingWrites => {
+                    clear_probation(service).await;
                     finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
                     return Ok(format!(
                         "Recovered successful activation of {}",
@@ -1134,6 +1202,9 @@ pub async fn update(
             "Recovered interrupted update {}; restored previous release",
             pending.commit
         ));
+    }
+    if let Some(message) = resume_held_current(config, service).await? {
+        return Ok(message);
     }
     service
         .report(Report {
@@ -1396,6 +1467,7 @@ pub async fn update(
             ));
         }
         Err(error) if error.is::<ServingWrites>() => {
+            clear_probation(service).await;
             note_outcome(
                 config,
                 &release.commit,
@@ -1420,7 +1492,7 @@ pub async fn update(
                 release.commit
             );
         }
-        Ok(true) => {}
+        Ok(true) => clear_probation(service).await,
     }
     finish_activation(config, &release.commit, &failed_file, &pending_file)?;
     prune_releases(config, &release.commit)?;

@@ -506,3 +506,110 @@ async fn rollback_notice_is_shown_to_operators_only() -> Result<()> {
     let _keep_auth = &world.auth;
     Ok(())
 }
+
+#[tokio::test]
+async fn operator_can_authorize_an_update_while_writes_are_held() -> Result<()> {
+    let world = World::open().await?;
+    let (url, server) = world.start().await?;
+    let http = reqwest::Client::new();
+    let staged = "b".repeat(40);
+    let reported = http
+        .post(format!("{url}/v1/deployment"))
+        .bearer_auth(TOKEN)
+        .json(&json!({
+            "release": staged,
+            "phase": "waiting",
+            "maintenance_blocked": false
+        }))
+        .send()
+        .await?;
+    ensure!(reported.status().is_success(), "{}", reported.text().await?);
+    server.shutdown().await;
+    probation::arm(&world.config.controller.state_dir, infuser::BUILD_SHA)?;
+    deploy_outcomes::record(
+        &world.config.controller.state_dir,
+        Outcome {
+            release: "c".repeat(40),
+            at: 1_700_000_000,
+            result: Kind::RolledBack,
+            reason: probation::HEALTH_FAILURE.into(),
+        },
+    )?;
+    let (url, server) = world.start().await?;
+
+    let (status, chat) = body(
+        call(&http, &url, Method::POST, "/api/chat", "sam").json(&json!({
+            "client_id": "held-chat-0000001",
+            "text": "still held"
+        })),
+    )
+    .await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(chat["code"], probation::CODE);
+
+    let (status, group) = body(
+        call(&http, &url, Method::POST, "/api/operator/groups", "ada").json(&json!({
+            "name": "Side room",
+            "admin_email": "ada@example.com",
+            "admin_name": "Ada"
+        })),
+    )
+    .await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{group}");
+    assert_eq!(group["code"], probation::CODE);
+    let (status, link) = body(
+        call(
+            &http,
+            &url,
+            Method::POST,
+            "/api/operator/members/sam@example.com/sign-in-link",
+            "ada",
+        )
+        .json(&json!({})),
+    )
+    .await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{link}");
+    assert_eq!(link["code"], probation::CODE);
+
+    let (status, authorized) = body(
+        call(&http, &url, Method::POST, "/api/operator/update", "ada").json(&json!({
+            "request_id": "a".repeat(32),
+            "current_build": infuser::BUILD_SHA
+        })),
+    )
+    .await?;
+    ensure!(status.is_success(), "{status}: {authorized}");
+    let (status, stranger) = body(
+        call(&http, &url, Method::POST, "/api/operator/update", "sam").json(&json!({
+            "request_id": "b".repeat(32),
+            "current_build": infuser::BUILD_SHA
+        })),
+    )
+    .await?;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{stranger}");
+    assert_ne!(stranger["code"], probation::CODE);
+    let (status, dismissed) = body(
+        call(
+            &http,
+            &url,
+            Method::POST,
+            "/api/operator/update/notice",
+            "ada",
+        )
+        .json(&json!({"release": "c".repeat(40)})),
+    )
+    .await?;
+    ensure!(status.is_success(), "{status}: {dismissed}");
+
+    let (status, chat) = body(
+        call(&http, &url, Method::POST, "/api/chat", "sam").json(&json!({
+            "client_id": "held-chat-0000002",
+            "text": "still held after the operator acted"
+        })),
+    )
+    .await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(chat["code"], probation::CODE);
+    server.shutdown().await;
+    Ok(())
+}

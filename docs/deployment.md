@@ -46,9 +46,13 @@ for the backup worker. Keep these changes explicit when adopting a release.
    the new selection stays in place rather than starting an older binary
    against migrated state. See [Roll back a bad update](update-rollback.md).
    The failed release is held until a newer build arrives or an operator clears
-   the local `failed-release` file to retry it. Install this updater before
-   relying on the trial. An older updater does not mark the candidate or
-   promote it.
+   the local `failed-release` file to retry it. That file lives in the updater
+   state directory and is not a web request, so a trial does not block clearing
+   it. Install this updater before relying on the trial. An older updater does
+   not mark the candidate or promote it, and copying `current` into the updater
+   path can only happen after `current` already contains this release. The
+   activation that first moves `current` is therefore still the previous
+   updater and is not protected.
 
 The manifest and binaries are downloaded through GitHub release URLs, avoiding
 continuous unauthenticated API polling. Checksums detect corruption; trust comes
