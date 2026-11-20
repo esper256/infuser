@@ -3,8 +3,9 @@
  * themes do not use these family names. Fonts and textures are served from
  * /assets/themes/castle-keep/ with their SIL Open Font License notices.
  *
- * The Library stays the shared card grid and top bar. The castle is material:
- * a cut-stone wall, a turf baseline, steel controls, and crimson banners.
+ * The Library stays the shared card grid and top bar. Night granite, torchlight,
+ * and iron-bound oak plaques hung on the wall. Crimson and royal blue are the
+ * heraldry. A heart still marks what is chosen.
  */
 
 @font-face {
@@ -30,34 +31,38 @@
 }
 
 :root[data-theme="castle-keep"] {
-  color-scheme: light;
-  --page: #c4b59a;
-  --field: #f6ead2;
-  --panel: #f6ead2;
-  --card-dock: #f6ead2;
-  --detail-panel: #f6ead2;
-  --feedback-bubble: #f4e3c4;
+  color-scheme: dark;
+  --page: #141c26;
+  --field: #101820;
+  --panel: #1a2430;
+  --card-dock: transparent;
+  --detail-panel: #1a2430;
+  --feedback-bubble: #f6edd8;
   --button-ink: #fff6ee;
-  --ink: #2a2118;
-  --quiet: #5e5144;
-  --accent: #9d1c32;
-  --accent-hover: #b4263c;
-  --accent-pressed: #7a1426;
-  --green: #2f7a34;
-  --warm: #8a3d12;
-  --line: #6a5d4c;
-  --surface: #efe2c8;
-  --glass: #f6ead2;
-  --focus: #0f3d7a;
-  --presence-online: #1f7a38;
-  --browser-chrome: #b7a78c;
+  --ink: #e8e2d4;
+  --quiet: #a9b4be;
+  --accent: #c4324a;
+  --accent-hover: #e0455c;
+  --accent-pressed: #8e1730;
+  --green: #2f8f4e;
+  --warm: #e7b15a;
+  --line: #3d4c5c;
+  --surface: #243140;
+  --glass: #1a2430;
+  --focus: #9ad7ff;
+  --presence-online: #3dce73;
+  --browser-chrome: #10161e;
   --game-ratio: 1.08;
-  --heart: #9d1c32;
-  --steel-ink: #1c1916;
-  --steel-face: linear-gradient(180deg, #f7fafb 0%, #d7dee3 34%, #9aa3ab 70%, #e8eef1 100%);
-  --steel-hot: linear-gradient(180deg, #ffffff 0%, #e7eef2 38%, #b4bec6 74%, #f7fafb 100%);
-  --iron: #3e464c;
-  --mortar: #4a433c;
+  --heart: #c4324a;
+  --gold: #e2c074;
+  --royal: #1e4f9a;
+  --manuscript: #f6edd8;
+  --manuscript-ink: #1c140e;
+  --steel-ink: #f6f1e6;
+  --steel-face: linear-gradient(165deg, #f4f7f8 0%, #b7c3cc 7%, #5c6974 26%, #2a333c 58%, #12181e 80%, #8b98a4 100%);
+  --steel-hot: linear-gradient(165deg, #fff 0%, #d5dee6 8%, #7d8b98 30%, #3a4550 60%, #1c242c 82%, #c5d0d8 100%);
+  --iron: #0e141a;
+  --mortar: #10161e;
   --pennant: polygon(0 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 0 100%);
   --shield: polygon(10% 0, 90% 0, 100% 16%, 100% 62%, 50% 100%, 0 62%, 0 16%);
   --heart-red: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath fill='%239d1c32' d='M16 27.2C8.2 21.6 2 16.8 2 10.6 2 6.6 5 3.8 8.8 3.8c2.2 0 4.2 1 5.6 2.7L16 8.4l1.6-1.9c1.4-1.7 3.4-2.7 5.6-2.7 3.8 0 6.8 2.8 6.8 6.8 0 6.2-6.2 11-14 16.6z'/%3E%3C/svg%3E");
@@ -69,19 +74,23 @@
 }
 
 [data-theme="castle-keep"] body {
-  background-color: #b7a78c;
+  background-color: #141c26;
   background-image:
+    radial-gradient(ellipse at 8% 0%, #ff9a3c40, transparent 26%),
+    radial-gradient(ellipse at 92% 18%, #ff7a2a28, transparent 22%),
+    radial-gradient(ellipse at 40% 70%, #7ec8ff14, transparent 28%),
     url("/assets/themes/castle-keep/grass.svg"),
+    url("/assets/themes/castle-keep/runes.svg"),
     url("/assets/themes/castle-keep/stone.svg");
-  background-repeat: repeat-x, repeat;
-  background-position: center bottom, center top;
-  background-size: auto 84px, 160px 92px;
-  background-attachment: fixed, fixed;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat-x, repeat, repeat;
+  background-position: center top, center top, center, center bottom, center, center top;
+  background-size: auto, auto, auto, auto 84px, 180px 180px, 160px 92px;
+  background-attachment: fixed, fixed, fixed, fixed, fixed, fixed;
   color: var(--ink);
   font-family: Nunito, "Segoe UI", system-ui, sans-serif;
 }
 
-[data-theme="castle-keep"] ::selection { background: #f3c1c8; color: var(--ink); }
+[data-theme="castle-keep"] ::selection { background: #8e1730; color: #fff6ee; }
 
 [data-theme="castle-keep"] body:has(#welcome:not([hidden])) {
   color-scheme: dark;
@@ -105,9 +114,11 @@
   padding-top: 14px;
   padding-bottom: 32px;
   border-bottom: 0;
-  background-color: #a89880;
-  background-image: url("/assets/themes/castle-keep/stone.svg");
-  background-size: 160px 92px;
+  background-color: #1a2430;
+  background-image:
+    radial-gradient(ellipse at 18% 0%, #ff9a3c55, transparent 42%),
+    url("/assets/themes/castle-keep/stone.svg");
+  background-size: auto, 160px 92px;
   color: var(--ink);
 }
 [data-theme="castle-keep"] header::after {
@@ -117,29 +128,29 @@
   right: 0;
   bottom: 0;
   height: 16px;
-  background: repeating-linear-gradient(90deg, #efe6d4 0 34px, #4a433c 34px 52px);
-  box-shadow: 0 -5px 0 var(--heart);
+  background: repeating-linear-gradient(90deg, #4a5c70 0 34px, #10161e 34px 52px);
+  box-shadow: 0 -4px 0 var(--heart), 0 -8px 16px #ff8a2a66;
   pointer-events: none;
 }
 [data-theme="castle-keep"] .brand-wordmark {
-  background: #2a241c;
+  background: #0e141a;
   padding: 5px 8px 6px;
   border-radius: 6px;
-  border: 2px solid #d7dee3;
-  box-shadow: inset 0 0 0 1px #5c656c, 0 3px 0 #1a1612;
+  border: 2px solid var(--gold);
+  box-shadow: inset 0 0 0 1px #5c4010, 0 3px 0 #07090c, 0 0 12px #ff9a3c44;
 }
 [data-theme="castle-keep"] #recent-menu #recent-toggle {
-  background: #2a241c;
-  border: 2px solid #d7dee3;
-  box-shadow: inset 0 0 0 1px #5c656c, 0 3px 0 #1a1612;
+  background: #0e141a;
+  border: 2px solid var(--gold);
+  box-shadow: inset 0 0 0 1px #5c4010, 0 3px 0 #07090c;
 }
 [data-theme="castle-keep"] .presence-self .profile-menu > summary {
-  border: 2px solid #d7dee3;
+  border: 2px solid var(--gold);
   background:
     var(--rivet),
     var(--steel-face);
-  background-color: #d7dee3;
-  box-shadow: 0 3px 0 var(--mortar);
+  background-color: #2a333c;
+  box-shadow: 0 3px 0 #07090c, 0 0 10px #ff9a3c33;
 }
 [data-theme="castle-keep"] .presence-name,
 [data-theme="castle-keep"] .presence-more {
@@ -150,7 +161,7 @@
 }
 [data-theme="castle-keep"] .friends,
 [data-theme="castle-keep"] .friends strong { color: var(--ink); }
-[data-theme="castle-keep"] .live-dot { background: var(--presence-online); box-shadow: 0 0 0 2px #efe6d4; }
+[data-theme="castle-keep"] .live-dot { background: var(--presence-online); box-shadow: 0 0 0 2px #10161e, 0 0 8px #3dce7388; }
 
 /* Forged controls. Cloth banners and quiet menu rows opt out below. */
 [data-theme="castle-keep"] button,
@@ -161,8 +172,8 @@
   background-image: var(--steel-face);
   background-color: #d5dce1;
   color: var(--steel-ink);
-  box-shadow: inset 0 1px 0 #fff, inset 0 -2px 0 #6a7278, 0 3px 0 var(--mortar);
-  text-shadow: 0 1px 0 #ffffffa0;
+  box-shadow: inset 0 1px 0 #ffffff88, inset 0 -3px 0 #000, 0 3px 0 #07090c, 0 0 0 1px #c6a15a55;
+  text-shadow: 0 1px 0 #000000aa;
 }
 [data-theme="castle-keep"] button:hover,
 [data-theme="castle-keep"] .play-menu summary:hover,
@@ -186,24 +197,24 @@
 [data-theme="castle-keep"] .play-menu summary {
   border-radius: 0 8px 8px 0;
   border-left: 1px solid #5c656c;
-  box-shadow: inset 0 1px 0 #fff, inset 0 -2px 0 #6a7278, 0 3px 0 var(--mortar);
+  box-shadow: inset 0 1px 0 #ffffff66, inset 0 -3px 0 #000, 0 3px 0 #07090c;
 }
 [data-theme="castle-keep"] .play-menu-items {
-  border: 3px solid var(--mortar);
+  border: 2px solid var(--gold);
   border-radius: 8px;
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
-  color: var(--ink);
-  box-shadow: 0 8px 0 var(--mortar);
+  background: var(--manuscript) url("/assets/themes/castle-keep/parchment.svg");
+  color: var(--manuscript-ink);
+  box-shadow: 0 8px 0 #07090c;
 }
 [data-theme="castle-keep"] .play-menu-items button,
 [data-theme="castle-keep"] .play-menu-items button:hover {
   background: transparent;
-  color: var(--ink);
+  color: var(--manuscript-ink);
   border-color: transparent;
   box-shadow: none;
   text-shadow: none;
 }
-[data-theme="castle-keep"] .play-menu-items button:hover { background: #f8d5db; color: var(--ink); }
+[data-theme="castle-keep"] .play-menu-items button:hover { background: #f8d5db; color: var(--manuscript-ink); }
 
 [data-theme="castle-keep"] .game-open,
 [data-theme="castle-keep"] .game-open:hover,
@@ -271,10 +282,10 @@
 [data-theme="castle-keep"] input,
 [data-theme="castle-keep"] textarea,
 [data-theme="castle-keep"] select {
-  background: var(--field);
-  color: var(--ink);
-  border: 2px solid var(--mortar);
-  box-shadow: inset 0 2px 0 #00000014;
+  background: var(--manuscript);
+  color: var(--manuscript-ink);
+  border: 2px solid var(--gold);
+  box-shadow: inset 0 2px 0 #00000022;
 }
 [data-theme="castle-keep"] input::placeholder,
 [data-theme="castle-keep"] textarea::placeholder { color: #7a6b58; }
@@ -284,15 +295,16 @@
 [data-theme="castle-keep"] textarea:focus { border-color: var(--heart); }
 [data-theme="castle-keep"] label { color: var(--ink); }
 
-/* Stone ledge for filters, search, and Add a game. */
+/* Blackened iron beam. Pennants hang from it; the wall stays granite. */
 [data-theme="castle-keep"] .library-toolbar {
   padding: 12px;
-  border: 3px solid var(--mortar);
-  border-radius: 10px;
-  background-color: #cfc3ae;
-  background-image: url("/assets/themes/castle-keep/stone.svg");
-  background-size: 160px 92px;
-  box-shadow: inset 0 2px 0 #f3eadc, inset 0 -4px 0 #6a5d4c, 0 6px 0 var(--mortar);
+  border: 2px solid var(--gold);
+  border-radius: 8px;
+  background-color: #1a222c;
+  background-image:
+    radial-gradient(ellipse at 0% 0%, #ff9a3c33, transparent 40%),
+    linear-gradient(180deg, #3a4654, #141b24 70%);
+  box-shadow: inset 0 1px 0 #ffffff22, 0 8px 0 #07090c, 0 0 24px #ff8a2a22;
 }
 [data-theme="castle-keep"] .tag-filter,
 [data-theme="castle-keep"] .game-tags .tag-chip,
@@ -301,19 +313,19 @@
   border-radius: 0;
   clip-path: var(--pennant);
   padding: 6px 22px 6px 12px;
-  background-color: #e2b56a;
-  background-image: linear-gradient(90deg, #6a5330 0 4px, transparent 4px), linear-gradient(#f0cb84, #d7a24e);
-  color: var(--ink);
+  background-color: var(--royal);
+  background-image: linear-gradient(90deg, #c6a15a 0 4px, transparent 4px), linear-gradient(#2f6fd0, #16356e);
+  color: #f6f1e6;
   box-shadow: none;
   text-shadow: none;
 }
 [data-theme="castle-keep"] .tag-filter:hover,
 [data-theme="castle-keep"] .game-tags .tag-chip:hover,
 [data-theme="castle-keep"] .tag-overflow-panel .tag-chip:hover {
-  background-color: #f0cb84;
-  background-image: linear-gradient(90deg, #6a5330 0 4px, transparent 4px), linear-gradient(#ffe3a4, #e2b56a);
+  background-color: #2f6fd0;
+  background-image: linear-gradient(90deg, #e2c074 0 4px, transparent 4px), linear-gradient(#4d86e0, #1e4f9a);
   border-color: transparent;
-  color: var(--ink);
+  color: #fff;
 }
 [data-theme="castle-keep"] .tag-filter.selected,
 [data-theme="castle-keep"] .tag-filter.selected:hover,
@@ -359,13 +371,13 @@
   border-color: transparent;
 }
 [data-theme="castle-keep"] .tag-overflow-panel {
-  border: 4px solid #8d969e;
-  border-radius: 14px 14px 42px 42px;
+  border: 3px solid var(--gold);
+  border-radius: 12px 12px 46px 46px;
   padding: 28px 14px 18px;
-  background-color: var(--field);
-  background-image: url("/assets/themes/castle-keep/parchment.svg");
+  background-color: #1a2430;
+  background-image: linear-gradient(180deg, #243140, #121820);
   color: var(--ink);
-  box-shadow: inset 0 0 0 3px var(--heart), 0 10px 0 var(--mortar), 0 18px 30px #0006;
+  box-shadow: inset 0 0 0 3px var(--heart), 0 12px 0 #07090c, 0 0 24px #7ec8ff22;
 }
 [data-theme="castle-keep"] .tag-overflow-panel::before {
   content: "";
@@ -389,20 +401,22 @@
 [data-theme="castle-keep"] #game-count {
   margin-left: 4px;
   padding: 6px 10px;
-  border: 2px solid var(--mortar);
+  border: 2px solid var(--gold);
   border-radius: 999px;
-  background: #efe6d4;
-  color: var(--ink);
+  background: #10161e;
+  color: var(--gold);
   font-weight: 700;
 }
 [data-theme="castle-keep"] .search-label input {
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
-  color: var(--ink);
+  background: var(--manuscript);
+  color: var(--manuscript-ink);
+  border-color: var(--gold);
 }
 [data-theme="castle-keep"] .search-options {
-  border: 3px solid var(--mortar);
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
-  box-shadow: 0 8px 0 var(--mortar);
+  border: 2px solid var(--gold);
+  background: #1a2430;
+  color: var(--ink);
+  box-shadow: 0 8px 0 #07090c;
 }
 [data-theme="castle-keep"] .add-game,
 [data-theme="castle-keep"] .add-game:hover,
@@ -419,30 +433,40 @@
 }
 [data-theme="castle-keep"] .add-game:focus-visible { clip-path: none; }
 
-/* A stone block on the wall, with a tapestry and a turf sill. */
+/* Iron-bound oak, hung on the granite. The cover is a painting, not more stone. */
 [data-theme="castle-keep"] .game:not(.hidden-game) {
   --card-padding: 14px;
   padding: 12px 12px 16px;
-  border: 3px solid var(--mortar);
-  border-radius: 8px;
-  background-color: #c9baa2;
-  background-image:
-    url("/assets/themes/castle-keep/grass.svg"),
-    url("/assets/themes/castle-keep/stone.svg");
-  background-repeat: repeat-x, repeat;
-  background-position: center bottom, center top;
-  background-size: auto 34px, 160px 92px;
-  background-attachment: scroll, scroll;
-  box-shadow: inset 0 2px 0 #f3eadc, inset 0 -3px 0 #245a28, 0 8px 0 #2a241c, 0 16px 28px #0000002e;
+  border: 3px solid #0e0a08;
+  border-radius: 6px;
+  background-color: #2a1a12;
+  background-image: url("/assets/themes/castle-keep/oak.svg");
+  background-size: 120px 80px;
+  background-attachment: scroll;
+  color: #f3e6c4;
+  box-shadow:
+    inset 0 0 0 2px var(--gold),
+    inset 8px 0 0 #1a120c,
+    inset -8px 0 0 #1a120c,
+    0 10px 0 #07090c,
+    0 18px 28px #000a;
 }
 [data-theme="castle-keep"] .game:not(.hidden-game)::before {
-  border-radius: 5px;
-  background: linear-gradient(#ffffff22, transparent 28%, transparent 70%, #00000022);
+  inset: auto;
+  top: -10px;
+  left: 50%;
+  z-index: 4;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e7eef2, #5c6974 40%, #12181e 72%);
+  box-shadow: 0 3px 0 #07090c, 0 0 0 2px var(--gold);
 }
 [data-theme="castle-keep"] .game:not(.hidden-game) > .game-art {
-  inset: 50px 14px 112px 14px;
-  border-radius: 4px;
-  box-shadow: 0 0 0 4px #f3eadc, 0 0 0 8px var(--mortar), inset 0 10px 18px #00000055;
+  inset: 50px 16px 112px 16px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 3px var(--gold), 0 0 0 6px #0e0a08, inset 0 10px 18px #00000088;
 }
 [data-theme="castle-keep"] .game-art:not(:has(img))::before {
   border-color: #f0cb84;
@@ -456,32 +480,35 @@
   border-bottom-color: var(--heart);
 }
 [data-theme="castle-keep"] .game:not(.hidden-game) .game-heading {
-  border: 2px solid #6a5330;
-  border-radius: 4px;
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
-  color: var(--ink);
-  box-shadow: 0 3px 0 var(--mortar);
+  border: 2px solid #5c4010;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #f8e7b0, #d7a84a 46%, #8a6420);
+  color: var(--manuscript-ink);
+  box-shadow: inset 0 1px 0 #fff6cc, 0 3px 0 #07090c;
   backdrop-filter: none;
 }
+[data-theme="castle-keep"] .game-open,
+[data-theme="castle-keep"] .game-open:active:not(:disabled) { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .game-open:hover { color: var(--heart); }
 [data-theme="castle-keep"] .game h2 { font-size: clamp(20px, 4.8cqw, 28px); line-height: 1.2; }
 [data-theme="castle-keep"] .game .creator .avatar,
-[data-theme="castle-keep"] .avatar { border-color: var(--mortar); }
+[data-theme="castle-keep"] .avatar { border-color: var(--gold); }
 [data-theme="castle-keep"] .game-buzz span {
-  background: radial-gradient(circle, #f6ead2 0 58%, #9d1c3240 62%, transparent 64%);
+  background: radial-gradient(circle, #f6edd8 0 58%, #c4324a88 62%, transparent 68%);
   border-radius: 50%;
 }
 [data-theme="castle-keep"] .game-visibility,
 [data-theme="castle-keep"] .game-meta .quiet {
-  background: #efe6d4;
-  color: var(--ink);
-  border: 1px solid var(--mortar);
+  background: #120c08cc;
+  color: #f3e6c4;
+  border: 1px solid var(--gold);
 }
 [data-theme="castle-keep"] .empty,
 [data-theme="castle-keep"] .loading {
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
+  background: #1a2430;
   color: var(--ink);
-  border: 3px solid var(--mortar);
-  box-shadow: 0 6px 0 var(--mortar);
+  border: 2px solid var(--gold);
+  box-shadow: 0 6px 0 #07090c;
 }
 [data-theme="castle-keep"] .empty p,
 [data-theme="castle-keep"] .loading { color: var(--quiet); }
@@ -489,12 +516,13 @@
 [data-theme="castle-keep"] #hidden-games > summary { color: var(--ink); }
 [data-theme="castle-keep"] #hidden-game-count { background: var(--field); color: var(--ink); border: 2px solid var(--mortar); }
 [data-theme="castle-keep"] #hidden-game-list .hidden-game {
-  border: 3px solid var(--mortar);
-  border-radius: 8px;
-  background-color: #cfc3ae;
-  background-image: url("/assets/themes/castle-keep/stone.svg");
-  background-size: 160px 92px;
-  box-shadow: 0 5px 0 var(--mortar);
+  border: 3px solid #0e0a08;
+  border-radius: 6px;
+  background-color: #2a1a12;
+  background-image: url("/assets/themes/castle-keep/oak.svg");
+  background-size: 120px 80px;
+  color: #f3e6c4;
+  box-shadow: inset 0 0 0 2px var(--gold), 0 6px 0 #07090c;
 }
 [data-theme="castle-keep"] .hidden-game .game-heading {
   background: transparent;
@@ -507,52 +535,67 @@
 }
 @media (hover: hover) {
   [data-theme="castle-keep"] .game:not(.hidden-game):hover {
-    border-color: #2a241c;
-    box-shadow: inset 0 2px 0 #f3eadc, inset 0 -3px 0 #245a28, 0 12px 0 #2a241c, 0 20px 32px #00000040;
+    border-color: var(--gold);
+    box-shadow:
+      inset 0 0 0 2px var(--gold),
+      inset 8px 0 0 #1a120c,
+      inset -8px 0 0 #1a120c,
+      0 14px 0 #07090c,
+      0 0 22px #ff9a3c33;
   }
 }
 
-/* The game is a tapestry hung in a stone frame, with the writing on parchment. */
+/* Open a plaque and the page is night steel, with the story on illuminated parchment. */
 [data-theme="castle-keep"] dialog {
-  border: 8px solid #6e675c;
-  border-radius: 12px;
-  background-color: var(--field);
-  background-image: url("/assets/themes/castle-keep/parchment.svg");
+  border: 6px solid #2a333c;
+  border-radius: 10px;
+  background-color: #1a2430;
+  background-image:
+    radial-gradient(ellipse at 0% 0%, #ff9a3c22, transparent 36%),
+    url("/assets/themes/castle-keep/runes.svg");
+  background-size: auto, 140px 140px;
   color: var(--ink);
-  box-shadow: inset 0 0 0 3px #d7dee3, inset 0 0 0 6px var(--mortar), 0 16px 0 #2a241c, 0 28px 50px #00000055;
+  box-shadow: inset 0 0 0 2px var(--gold), 0 18px 0 #07090c, 0 28px 50px #000c;
 }
-[data-theme="castle-keep"] dialog::backdrop { background: #2a241ccc; backdrop-filter: none; }
-[data-theme="castle-keep"] #game-detail { background-color: var(--detail-panel); background-image: url("/assets/themes/castle-keep/parchment.svg"); }
-[data-theme="castle-keep"] .detail-art.game-art { box-shadow: inset 0 0 0 8px var(--mortar); }
-[data-theme="castle-keep"] .detail-info h2 { color: var(--ink); font-size: clamp(30px, 4vw, 44px); }
+[data-theme="castle-keep"] dialog::backdrop { background: #07090ce0; backdrop-filter: none; }
+[data-theme="castle-keep"] #game-detail {
+  background-color: #1a2430;
+  background-image:
+    radial-gradient(ellipse at 100% 0%, #7ec8ff18, transparent 32%),
+    url("/assets/themes/castle-keep/runes.svg");
+  background-size: auto, 140px 140px;
+}
+[data-theme="castle-keep"] .detail-art.game-art { box-shadow: inset 0 0 0 8px #0e0a08, inset 0 0 0 11px var(--gold); }
+[data-theme="castle-keep"] .detail-info h2 { color: var(--gold); font-size: clamp(30px, 4vw, 44px); text-shadow: 0 0 12px #ff9a3c44; }
 [data-theme="castle-keep"] .game-description {
   padding: 12px 14px;
-  border: 2px solid #c9b48a;
+  border: 2px solid var(--gold);
   border-radius: 4px;
-  background: #fffaf1;
-  color: var(--ink);
+  background: var(--manuscript) url("/assets/themes/castle-keep/parchment.svg");
+  color: var(--manuscript-ink);
 }
 [data-theme="castle-keep"] .detail-tags .tag-chip,
 [data-theme="castle-keep"] .detail-tags .tag-chip:hover {
   clip-path: none;
   padding: 4px 2px;
   background: none;
-  color: var(--ink);
+  color: var(--gold);
 }
 [data-theme="castle-keep"] .detail-tags .tag-chip:hover { color: var(--heart); }
 [data-theme="castle-keep"] .feedback-bubble {
-  background-color: #fffaf1;
+  background-color: var(--manuscript);
   background-image: url("/assets/themes/castle-keep/parchment.svg");
-  border: 2px solid #8a7352;
+  border: 2px solid var(--gold);
   border-radius: 6px 16px 16px 16px;
-  color: var(--ink);
-  box-shadow: 0 3px 0 var(--mortar);
+  color: var(--manuscript-ink);
+  box-shadow: 0 3px 0 #07090c;
 }
-[data-theme="castle-keep"] .feedback-bubble::before { background: #fffaf1; border-color: #8a7352; }
+[data-theme="castle-keep"] .feedback-bubble::before { background: var(--manuscript); border-color: var(--gold); }
 [data-theme="castle-keep"] .reaction-choice {
   border-radius: 10px 10px 18px 18px;
-  background-color: #fffaf1;
-  border: 2px solid #c9b48a;
+  background-color: #121820;
+  border: 2px solid #3d4c5c;
+  color: var(--ink);
 }
 [data-theme="castle-keep"] .reaction-choice[aria-pressed="true"] {
   border-color: var(--heart);
@@ -563,8 +606,8 @@
   background-size: 14px 12px;
   box-shadow: inset 0 0 0 2px var(--heart);
 }
-[data-theme="castle-keep"] .reaction-count { background: var(--field); color: var(--ink); border-color: var(--mortar); }
-[data-theme="castle-keep"] #emoji span { background: #fffaf1; border: 2px solid #c9b48a; color: var(--ink); }
+[data-theme="castle-keep"] .reaction-count { background: #10161e; color: var(--gold); border-color: var(--gold); }
+[data-theme="castle-keep"] #emoji span { background: #121820; border: 2px solid #3d4c5c; color: var(--ink); }
 [data-theme="castle-keep"] #emoji input:checked + span {
   background-color: #f8d5db;
   background-image: var(--heart-red);
@@ -573,8 +616,8 @@
   background-size: 14px 12px;
   border-color: var(--heart);
 }
-[data-theme="castle-keep"] .profile-tile { background: #fffaf1; border-color: #c9b48a; color: var(--ink); }
-[data-theme="castle-keep"] .profile-option:hover .profile-tile { background: #f8e7c8; }
+[data-theme="castle-keep"] .profile-tile { background: #121820; border-color: #3d4c5c; color: var(--ink); }
+[data-theme="castle-keep"] .profile-option:hover .profile-tile { background: #243140; }
 [data-theme="castle-keep"] .profile-option input:checked + .profile-tile {
   border-color: var(--heart);
   background: #f8d5db;
@@ -582,38 +625,38 @@
 [data-theme="castle-keep"] #profile-error { color: var(--heart); }
 [data-theme="castle-keep"] .prompt-card,
 [data-theme="castle-keep"] .prompt-card textarea {
-  background: #fffaf1;
-  color: var(--ink);
-  border-color: var(--line);
+  background: var(--manuscript);
+  color: var(--manuscript-ink);
+  border-color: var(--gold);
 }
 [data-theme="castle-keep"] .prompt-card textarea { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 [data-theme="castle-keep"] .setup-note,
 [data-theme="castle-keep"] .saved-hint,
 [data-theme="castle-keep"] #tag-selection-count { color: var(--quiet); }
 
-/* Recently and the profile menu are parchment hung on the wall. */
+/* Recently and the profile menu are dark iron, edged in gold. */
 [data-theme="castle-keep"] #activity.recent-panel,
 [data-theme="castle-keep"] .account-menu {
-  border: 4px solid #8d969e;
+  border: 3px solid var(--gold);
   border-radius: 10px;
-  background-color: var(--field);
-  background-image: url("/assets/themes/castle-keep/parchment.svg");
+  background-color: #1a2430;
+  background-image: linear-gradient(180deg, #243140, #121820);
   color: var(--ink);
-  box-shadow: inset 0 0 0 3px var(--heart), 0 10px 0 var(--mortar);
+  box-shadow: inset 0 0 0 2px #8e1730, 0 12px 0 #07090c, 0 0 20px #ff9a3c22;
 }
-[data-theme="castle-keep"] #activity h2 { font-size: 28px; color: var(--ink); }
+[data-theme="castle-keep"] #activity h2 { font-size: 28px; color: var(--gold); }
 [data-theme="castle-keep"] .feed-row,
 [data-theme="castle-keep"] .feed-entry:nth-child(3n+2) > .feed-row,
 [data-theme="castle-keep"] .feed-row:nth-child(2n),
 [data-theme="castle-keep"] .feed-row:nth-child(3n+2),
 [data-theme="castle-keep"] button.feed-row,
 [data-theme="castle-keep"] button.feed-row:hover {
-  background-color: #fffaf1;
+  background-color: #121820;
   background-image: none;
-  border: 2px solid #c9b48a;
+  border: 2px solid #3d4c5c;
   border-radius: 8px 14px 14px 8px;
   color: var(--ink);
-  box-shadow: 0 3px 0 #00000014;
+  box-shadow: inset 3px 0 0 var(--heart);
 }
 [data-theme="castle-keep"] .feed-row small,
 [data-theme="castle-keep"] .feed-row p { color: var(--quiet); }
@@ -632,27 +675,27 @@
   color: var(--ink);
 }
 [data-theme="castle-keep"] .account-menu > button:hover,
-[data-theme="castle-keep"] .account-menu > a:hover { background: #f8d5db; color: var(--ink); }
-[data-theme="castle-keep"] .account-menu label { color: var(--ink); font-weight: 700; }
+[data-theme="castle-keep"] .account-menu > a:hover { background: #8e1730; color: #fff6ee; }
+[data-theme="castle-keep"] .account-menu label { color: var(--gold); font-weight: 700; }
 [data-theme="castle-keep"] .account-menu select {
-  background-color: #fffaf1;
-  color: var(--ink);
-  border-color: var(--mortar);
+  background-color: var(--manuscript);
+  color: var(--manuscript-ink);
+  border-color: var(--gold);
 }
 [data-theme="castle-keep"] #notice {
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
+  background: #1a2430;
   color: var(--ink);
-  border: 3px solid var(--mortar);
-  box-shadow: 0 6px 0 var(--mortar);
+  border: 2px solid var(--gold);
+  box-shadow: 0 6px 0 #07090c;
 }
 [data-theme="castle-keep"] .game-live-menu,
 [data-theme="castle-keep"] .game-admin-items,
 [data-theme="castle-keep"] #chat-actions,
 [data-theme="castle-keep"] .feed-reaction-picker {
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
+  background: #1a2430;
   color: var(--ink);
-  border: 3px solid var(--mortar);
-  box-shadow: 0 8px 0 var(--mortar);
+  border: 2px solid var(--gold);
+  box-shadow: 0 8px 0 #07090c;
 }
 [data-theme="castle-keep"] .game-admin-items > button,
 [data-theme="castle-keep"] #chat-actions button {
@@ -679,33 +722,36 @@
 [data-theme="castle-keep"] #voice-toggle:hover { background-image: var(--steel-hot); color: var(--steel-ink); }
 [data-theme="castle-keep"] #chat-unread { color: #fff6ee; border-color: var(--mortar); }
 [data-theme="castle-keep"] #chat-panel {
-  border: 6px solid #6e675c;
+  border: 4px solid #2a333c;
   border-radius: 12px;
-  background-color: var(--field);
-  background-image: url("/assets/themes/castle-keep/parchment.svg");
+  background-color: #121820;
+  background-image:
+    radial-gradient(ellipse at 50% 0%, #ff9a3c22, transparent 40%),
+    url("/assets/themes/castle-keep/runes.svg");
+  background-size: auto, 120px 120px;
   color: var(--ink);
-  box-shadow: inset 0 0 0 3px #d7dee3, 0 10px 0 #2a241c, 0 22px 40px #00000040;
+  box-shadow: inset 0 0 0 2px var(--gold), 0 12px 0 #07090c, 0 22px 40px #000a;
 }
 [data-theme="castle-keep"] .chat-bubble {
-  --bubble: #f6ead2;
+  --bubble: #f6edd8;
   background-color: var(--bubble);
   background-image: url("/assets/themes/castle-keep/parchment.svg");
-  color: var(--ink);
-  border: 2px solid #8a7352;
+  color: var(--manuscript-ink);
+  border: 2px solid var(--gold);
   border-radius: 4px 16px 16px 16px;
-  box-shadow: 0 3px 0 var(--mortar);
+  box-shadow: 0 3px 0 #07090c;
 }
-[data-theme="castle-keep"] .chat-bubble::before { background: var(--bubble); border-color: #8a7352; }
+[data-theme="castle-keep"] .chat-bubble::before { background: var(--bubble); border-color: var(--gold); }
 [data-theme="castle-keep"] .own .chat-bubble {
-  --bubble: #c5ced4;
-  background-color: #d5dce1;
+  --bubble: #2a333c;
+  background-color: #2a333c;
   background-image: url("/assets/themes/castle-keep/steel.svg"), var(--steel-face);
   background-repeat: repeat, no-repeat;
   color: var(--steel-ink);
-  border: 2px solid var(--iron);
+  border: 2px solid var(--gold);
   border-radius: 16px 16px 8px 16px;
   padding-left: 32px;
-  box-shadow: inset 0 1px 0 #fff, 0 3px 0 var(--mortar);
+  box-shadow: inset 0 1px 0 #ffffff55, 0 3px 0 #07090c;
 }
 [data-theme="castle-keep"] .own .chat-bubble::after {
   content: "";
@@ -717,21 +763,21 @@
   background: var(--heart-red) center / contain no-repeat;
   pointer-events: none;
 }
-[data-theme="castle-keep"] .own .chat-bubble::before { background: #d0d7dc; border-color: var(--iron); }
-[data-theme="castle-keep"] .chat-meta strong,
-[data-theme="castle-keep"] .own .chat-meta strong { color: var(--heart); }
+[data-theme="castle-keep"] .own .chat-bubble::before { background: #2a333c; border-color: var(--gold); }
+[data-theme="castle-keep"] .chat-meta strong { color: var(--heart); }
+[data-theme="castle-keep"] .own .chat-meta strong { color: var(--gold); }
 [data-theme="castle-keep"] .chat-message .chat-portrait {
   border: 2px solid var(--mortar);
   box-shadow: 0 3px 0 var(--mortar);
 }
-[data-theme="castle-keep"] .chat-read { box-shadow: 0 0 0 2px #f6ead2; }
-[data-theme="castle-keep"] .chat-pointer { border-bottom-color: #6e675c; }
-[data-theme="castle-keep"] .chat-pointer::after { border-bottom-color: #f6ead2; }
-[data-theme="castle-keep"] .chat-compose-row { background: #efe6d4; border-top: 3px solid var(--mortar); }
-[data-theme="castle-keep"] #chat-input-scroll { background: #fffaf1; border: 2px solid var(--mortar); }
+[data-theme="castle-keep"] .chat-read { box-shadow: 0 0 0 2px #121820; }
+[data-theme="castle-keep"] .chat-pointer { border-bottom-color: var(--gold); }
+[data-theme="castle-keep"] .chat-pointer::after { border-bottom-color: #121820; }
+[data-theme="castle-keep"] .chat-compose-row { background: #10161e; border-top: 3px solid var(--gold); }
+[data-theme="castle-keep"] #chat-input-scroll { background: var(--manuscript); border: 2px solid var(--gold); }
 [data-theme="castle-keep"] #chat-input-scroll:hover,
 [data-theme="castle-keep"] #chat-input-scroll:focus-within { border-color: var(--heart); }
-[data-theme="castle-keep"] #chat-text { background: transparent; color: var(--ink); }
+[data-theme="castle-keep"] #chat-text { background: transparent; color: var(--manuscript-ink); }
 [data-theme="castle-keep"] #chat-send {
   background-image: var(--steel-face);
   color: var(--steel-ink);
@@ -743,30 +789,33 @@
 
 /* Admin tools are a chamber in the same keep. */
 [data-theme="castle-keep"] #admin {
-  background-color: #c4b59a;
+  background-color: #141c26;
   background-image: url("/assets/themes/castle-keep/stone.svg");
   background-size: 160px 92px;
   color: var(--ink);
-  border-color: var(--mortar);
+  border-color: var(--gold);
 }
 [data-theme="castle-keep"] #admin > .panel-heading {
-  background: #3a342c;
-  color: #f6ead2;
+  background: #0e141a;
+  color: var(--gold);
   border-bottom: 5px solid var(--heart);
 }
-[data-theme="castle-keep"] #admin-title { color: #f6ead2; }
-[data-theme="castle-keep"] #admin-status { background: var(--field); color: var(--ink); }
+[data-theme="castle-keep"] #admin-title { color: var(--gold); }
+[data-theme="castle-keep"] #admin-status { background: var(--manuscript); color: var(--manuscript-ink); }
 [data-theme="castle-keep"] .admin-region {
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
-  border: 3px solid var(--mortar);
-  box-shadow: 0 4px 0 var(--mortar);
+  background: var(--manuscript) url("/assets/themes/castle-keep/parchment.svg");
+  color: var(--manuscript-ink);
+  border: 3px solid var(--gold);
+  box-shadow: 0 4px 0 #07090c;
 }
-[data-theme="castle-keep"] .admin-region > summary { color: var(--ink); font-size: 18px; }
-[data-theme="castle-keep"] .admin-region > summary:hover { background: #f8e7c8; }
+[data-theme="castle-keep"] .admin-region > summary { color: var(--manuscript-ink); font-size: 18px; }
+[data-theme="castle-keep"] .admin-region > summary:hover { background: #f8e0a8; }
+[data-theme="castle-keep"] .admin-region label,
+[data-theme="castle-keep"] .admin-region .quiet { color: var(--manuscript-ink); }
 [data-theme="castle-keep"] .admin h3,
 [data-theme="castle-keep"] #members > div,
 [data-theme="castle-keep"] #credentials > div,
-[data-theme="castle-keep"] #admin-games .admin-game { color: var(--ink); }
+[data-theme="castle-keep"] #admin-games .admin-game { color: var(--manuscript-ink); }
 [data-theme="castle-keep"] #members > div,
 [data-theme="castle-keep"] #credentials > div,
 [data-theme="castle-keep"] #admin-games .admin-game { border-bottom-color: #c9b48a; }
@@ -782,14 +831,15 @@
 
 [data-theme="castle-keep"] .profile-chooser { color: var(--ink); }
 [data-theme="castle-keep"] .profile-choice {
-  background: var(--field) url("/assets/themes/castle-keep/parchment.svg");
-  border: 3px solid var(--mortar);
-  color: var(--ink);
-  box-shadow: 0 6px 0 var(--mortar);
+  background-color: #2a1a12;
+  background-image: url("/assets/themes/castle-keep/oak.svg");
+  border: 3px solid var(--gold);
+  color: #f3e6c4;
+  box-shadow: 0 6px 0 #07090c;
 }
 [data-theme="castle-keep"] .profile-choice:hover,
 [data-theme="castle-keep"] .profile-choice:active:not(:disabled) {
-  background: #fffaf1;
+  background-color: #3a2618;
   border-color: var(--heart);
 }
 [data-theme="castle-keep"] .chooser-brand { color: var(--ink); }

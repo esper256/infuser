@@ -11,7 +11,7 @@ page is what shipped.
 `web/themes.js` sets `data-theme` and, once styles have loaded, copies
 `--browser-chrome` onto `<meta name="theme-color">`. Nightglass sets that
 token to `#0c1017`, which is the value already in `web/index.html`. Cartridge
-Club sets `#14071f`. Funny Pages sets `#f4ecda`. Field Notes sets `#f6f0e4`. Castle Keep sets `#b7a78c`. The script does not load
+Club sets `#14071f`. Funny Pages sets `#f4ecda`. Field Notes sets `#f6f0e4`. Castle Keep sets `#10161e`. The script does not load
 behavior, sound, or markup.
 
 `web/index.html` and `web/profiles.html` load `nightglass.css`, then
@@ -90,11 +90,12 @@ horizontal at 360px, with a narrower plate. The header stays the shared
 top bar. Recently stays the shared dropdown.
 
 Castle Keep (`[data-theme="castle-keep"]`) is a material preview. It does not
-move the header, the card grid, Recently, or the chat dock. The page is a
-stone wall with a turf baseline, banners for the tag filters, a shield for
-the tag overflow control, and steel for Play and the other forged controls.
-Crimson is the heart accent on selected tags, reactions, and your own chat
-note. `--browser-chrome` is `#b7a78c`. At 520px and below, filters, search,
+move the header, the card grid, Recently, or the chat dock. The page is night
+granite with torchlight and a darker turf baseline. Game cards are iron-bound
+oak plaques hung on that wall, with the cover in a gold frame and the title
+on a brass plate. Tag filters are royal-blue and crimson pennants. Play and
+the other controls are blackened steel. A heart still marks a chosen tag, a
+reaction, and your own chat note. `--browser-chrome` is `#10161e`. At 520px and below, filters, search,
 and Add a game stack, which matches DOM order. Coarse pointers get 44px
 targets on those controls and on Play. `forced-colors: active` drops the
 theme's images, shadows, clip paths, and custom fonts. The card lift is only
