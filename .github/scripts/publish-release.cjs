@@ -66,7 +66,10 @@ async function publish({ directory, commit, channel, repository, runUrl }, reque
   const planPath = path.join(process.cwd(), 'deploy/host-plan.json');
   const host = fs.existsSync(planPath) ? JSON.parse(fs.readFileSync(planPath, 'utf8')).steps || [] : [];
   const changelogPath = path.join(directory, 'changelog.json');
-  const extras = channel === 'server' && fs.existsSync(changelogPath) ? ['changelog.json'] : [];
+  if (channel === 'server' && !fs.existsSync(changelogPath)) {
+    throw new Error('Server release is missing changelog.json');
+  }
+  const extras = channel === 'server' ? ['changelog.json'] : [];
   const files = prepare(directory, commit, channel, host, extras);
   const changelogNotes = extras.length ? notes(JSON.parse(fs.readFileSync(changelogPath, 'utf8'))) : '';
   const root = `repos/${repository}`, tag = `${channel === 'server' ? 'build' : 'macos'}-${commit}`;

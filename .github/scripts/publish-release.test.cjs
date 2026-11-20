@@ -11,6 +11,11 @@ function fixture(t, channel = 'server', options = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'infuser-release-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   for (const file of channel === 'server' ? serverFiles : macFiles) fs.writeFileSync(path.join(directory, file), `built ${commit}: ${file}`);
+  if (channel === 'server' && !options.noChangelog) {
+    fs.writeFileSync(path.join(directory, 'changelog.json'), JSON.stringify({
+      version: 1, since: previous, changes: [{ text: 'Games remember where you left off', audience: 'family' }],
+    }));
+  }
   const writes = [], reads = [], uploads = [];
   const tag = `${channel === 'server' ? 'build' : 'macos'}-${commit}`;
   let draft = options.existing || null, latestReads = 0;
@@ -111,7 +116,20 @@ test('a tested ancestor can publish even when main has advanced', async t => {
   assert.equal(f.writes[0].body.target_commitish, commit);
   assert.equal(f.writes[0].body.draft, true);
   assert.deepEqual(f.writes.at(-1).body, { draft: false, prerelease: false, make_latest: 'true' });
-  assert.equal(f.uploads[0].length, 11);
+  assert.equal(f.uploads[0].length, 12);
+});
+test('a server release without changelog.json publishes nothing', async t => {
+  const f = fixture(t, 'server', { noChangelog: true });
+  await assert.rejects(f.run(), /Server release is missing changelog\.json/);
+  assert.equal(f.writes.length, 0);
+  assert.equal(f.uploads.length, 0);
+  assert.equal(fs.existsSync(path.join(f.directory, 'release.json')), false);
+});
+test('a Mac release does not require changelog.json', async t => {
+  const f = fixture(t, 'macos');
+  assert.equal(fs.existsSync(path.join(f.directory, 'changelog.json')), false);
+  assert.equal(await f.run(), 'published');
+  assert.equal(f.uploads[0].some(file => file.endsWith('changelog.json')), false);
 });
 test('initial server release works without a previous latest', async t => {
   const f = fixture(t, 'server', { noLatest: true }); assert.equal(await f.run(), 'published');
@@ -158,6 +176,12 @@ test('workflow boundaries keep server release independent and Mac source tied to
   const releaseSteps = server.slice(server.indexOf('  release:'));
   assert(releaseSteps.indexOf('uses: actions/checkout') < releaseSteps.indexOf('uses: actions/download-artifact'), 'checkout must not erase downloaded artifacts');
   assert.match(server, /needs: \[build, desktop\]/); assert.doesNotMatch(server, /macos-publisher:/);
+  const buildUpload = server.slice(server.indexOf('name: infuser-linux-'), server.indexOf('desktop:'));
+  assert.match(buildUpload, /dist\/infuser-linux-\$\{\{ matrix\.arch \}\}/);
+  assert.match(buildUpload, /dist\/changelog\.json/);
+  assert.match(releaseSteps, /merge-multiple: true/);
+  assert.match(releaseSteps, /test -f dist\/changelog\.json/);
+  assert.match(releaseSteps, /test ! -e dist\/dist\/changelog\.json/);
   for (const workflow of [server, mac]) {
     assert.match(workflow, /cancel-in-progress: false/);
     assert.doesNotMatch(workflow, /cancel-in-progress: true|allow-unsafe-pr-checkout|pull_request_target/);

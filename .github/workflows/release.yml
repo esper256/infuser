@@ -59,10 +59,17 @@ jobs:
           mkdir -p dist
           cp target/release/infuser "dist/infuser-linux-$ARCH"
           if [ "$ARCH" = amd64 ]; then cp CHANGELOG.json dist/changelog.json; fi
+      # Both paths are files directly in dist/. The artifact root is that
+      # directory, so download-artifact with merge-multiple writes
+      # dist/changelog.json and not dist/dist/changelog.json. Arm builds
+      # repeat the binary path because they do not ship the changelog.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: infuser-linux-${{ matrix.arch }}
-          path: dist/infuser-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            dist/infuser-linux-${{ matrix.arch }}
+            ${{ matrix.arch == 'amd64' && 'dist/changelog.json' || 'dist/infuser-linux-arm64' }}
           retention-days: 3
 
   desktop:
@@ -130,5 +137,10 @@ jobs:
           pattern: infuser-*
           path: dist
           merge-multiple: true
+      - name: Changelog is beside the merged release files
+        run: |
+          test -f dist/changelog.json
+          test ! -e dist/dist/changelog.json
+          test ! -e dist/infuser-linux-amd64/changelog.json
       - name: Publish complete server and Play release without rolling back latest
         run: node .github/scripts/publish-release.cjs server
