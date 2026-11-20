@@ -234,9 +234,6 @@ impl Platform {
             native_manifests: Default::default(),
         };
         platform.reconcile_publications()?;
-        // Existing builds were uploaded before siblings existed. This is the
-        // same pass publish uses, and a second boot does not rewrite them.
-        platform.precompress_ready()?;
         platform.controller.deployment.observe_boot()?;
         Ok(platform)
     }

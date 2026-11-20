@@ -372,6 +372,9 @@ async fn main() -> Result<()> {
     );
     let platform = infuser::portal::Platform::open(controller.clone())?;
     platform.recover_packaging().await?;
+    // The listener is already bound. Compression of existing builds stays off
+    // this thread so /healthz can answer before those copies exist.
+    platform.spawn_precompress_backfill();
     let voice = platform.clone();
     let voice_worker = tokio::spawn(async move {
         let mut last_warning = 0;

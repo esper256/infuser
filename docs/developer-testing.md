@@ -21,9 +21,11 @@ Unity exports, missing bridge diagnostics, authenticated gzip/Brotli asset heade
 `.unityweb` fallback handling, byte ranges, HEAD, and legacy precompression.
 
 `cargo test --locked --lib precompress --test precompress_journey` checks that
-publishing and server startup write gzip and Brotli siblings, that negotiation
-preserves content type, caching, and cross-origin isolation, and that range and
-conditional requests still return the original bytes. The journey also runs the
+publishing and the background backfill write gzip and Brotli siblings, that a
+sibling left without a journal is kept, that negotiation preserves content
+type, caching, and cross-origin isolation, and that range and conditional
+requests still return the original bytes. It also checks that `/healthz`
+answers while that backfill is still inside a file. The journey runs the
 Godot 4.7 loader's decompress-and-count steps against a real wasm module.
 With existing Playwright and Chromium installations, add:
 

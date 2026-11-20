@@ -537,6 +537,10 @@ impl Platform {
     /// Fills in siblings for builds that were published before compression
     /// existed. A repeat call keeps the copies it already wrote.
     pub fn precompress_ready(&self) -> Result<()> {
+        self.precompress_ready_with(|_| {})
+    }
+    /// Same pass, with a hook before each file that still needs work.
+    pub fn precompress_ready_with(&self, mut before_file: impl FnMut(&str)) -> Result<()> {
         let ready: Vec<_> = self
             .db
             .catalog()?
@@ -555,17 +559,37 @@ impl Platform {
             if !dir.is_dir() {
                 continue;
             }
-            if let Err(error) = crate::precompress::ensure(
+            if let Err(error) = crate::precompress::ensure_during(
                 &dir,
                 &files,
                 reserve,
                 &crate::precompress::stamp_path(&self.config().controller.state_dir, &key),
                 false,
+                &mut before_file,
             ) {
                 tracing::warn!(%error, build = %key, "left an existing build uncompressed");
             }
         }
         Ok(())
+    }
+    /// One file at a time, on a thread the async runtime does not own.
+    /// Listening and `/healthz` do not wait for it.
+    pub fn spawn_precompress_backfill(&self) {
+        let platform = self.clone();
+        if let Err(error) = std::thread::Builder::new()
+            .name("precompress".into())
+            .spawn(move || {
+                // Linux applies this nice value to the calling thread only.
+                if let Err(error) = rustix::process::nice(19) {
+                    tracing::warn!(%error, "precompression kept normal scheduling priority");
+                }
+                if let Err(error) = platform.precompress_ready() {
+                    tracing::warn!(%error, "precompression backfill stopped");
+                }
+            })
+        {
+            tracing::warn!(%error, "precompression backfill did not start");
+        }
     }
     // Callers hold the publication lock, also used by player launches. Never switch
     // the client pointer while its shared server is still on the previous build.

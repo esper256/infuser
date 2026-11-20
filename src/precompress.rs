@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
@@ -65,6 +65,19 @@ impl Coding {
                     ..brotli::enc::BrotliEncoderParams::default()
                 };
                 brotli::BrotliCompress(&mut &input[..], &mut out, &params)?;
+            }
+        }
+        Ok(out)
+    }
+
+    fn decompress(self, encoded: &[u8]) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        match self {
+            Self::Gzip => {
+                flate2::read::GzDecoder::new(encoded).read_to_end(&mut out)?;
+            }
+            Self::Brotli => {
+                brotli::BrotliDecompress(&mut &encoded[..], &mut out)?;
             }
         }
         Ok(out)
@@ -143,6 +156,19 @@ pub(crate) fn ensure(
     stamp_path: &Path,
     strict: bool,
 ) -> Result<Report> {
+    ensure_during(dir, files, disk_reserve, stamp_path, strict, &mut |_| {})
+}
+
+/// `before_file` runs on this thread before each file that still needs work,
+/// so a caller can keep the pass on one blocking thread and observe it.
+pub(crate) fn ensure_during(
+    dir: &Path,
+    files: &BTreeMap<String, u64>,
+    disk_reserve: u64,
+    stamp_path: &Path,
+    strict: bool,
+    before_file: &mut dyn FnMut(&str),
+) -> Result<Report> {
     let catalog: BTreeSet<&str> = files.keys().map(String::as_str).collect();
     let loaded = load_stamp(stamp_path);
     let mut next = Stamp::default();
@@ -203,12 +229,23 @@ pub(crate) fn ensure(
             next.files.insert(relative.clone(), stamp);
             continue;
         }
+        before_file(relative);
         let bytes = fs::read(&source).with_context(|| format!("read {relative}"))?;
         let mut blocked = false;
         for coding in [Coding::Brotli, Coding::Gzip] {
             let sibling_rel = format!("{relative}.{}", coding.suffix());
             if catalog.contains(sibling_rel.as_str()) {
                 stamp.set_decision(coding, Decision::Foreign);
+                continue;
+            }
+            if let Some(stored) = coding.adopt(dir, &sibling_rel, &bytes)? {
+                stamp.set_decision(coding, Decision::Written { bytes: stored });
+                tracing::info!(
+                    path = %relative,
+                    encoding = coding.suffix(),
+                    stored,
+                    "kept an existing precompressed web file"
+                );
                 continue;
             }
             let compressed = coding
@@ -276,6 +313,32 @@ fn candidate(path: &str) -> bool {
             && name.as_bytes()[name.len() - ext.len() - 1] == b'.'
             && name.ends_with(ext)
     })
+}
+
+impl Coding {
+    /// A sibling left on disk without a journal is kept when it decodes to the
+    /// source. The failed production start wrote those copies and then exited
+    /// before the journal.
+    fn adopt(self, dir: &Path, relative: &str, source: &[u8]) -> Result<Option<u64>> {
+        let Some(path) = inside(dir, relative) else {
+            return Ok(None);
+        };
+        let meta = match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_file() => meta,
+            Ok(_) => return Ok(None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let stored = meta.len();
+        if !worth(source.len() as u64, stored) {
+            return Ok(None);
+        }
+        let encoded = fs::read(&path)?;
+        match self.decompress(&encoded) {
+            Ok(decoded) if decoded == source => Ok(Some(stored)),
+            _ => Ok(None),
+        }
+    }
 }
 
 fn worth(original: u64, compressed: u64) -> bool {
@@ -494,6 +557,46 @@ mod tests {
             decode_brotli(&fs::read(dir.join("index.wasm.br")).unwrap()),
             replacement
         );
+    }
+
+    #[test]
+    fn siblings_without_a_journal_are_kept_and_a_bad_one_is_replaced() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("build");
+        let wasm = repetitive(32 * 1024);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("index.wasm"), &wasm).unwrap();
+        let files = BTreeMap::from([("index.wasm".into(), wasm.len() as u64)]);
+        let stamp = root.path().join("stamp.json");
+        ensure(&dir, &files, 0, &stamp, true).unwrap();
+        let brotli = fs::read(dir.join("index.wasm.br")).unwrap();
+        let gzip = fs::read(dir.join("index.wasm.gz")).unwrap();
+        let brotli_modified = fs::metadata(dir.join("index.wasm.br"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        fs::remove_file(&stamp).unwrap();
+        let kept = ensure(&dir, &files, 0, &stamp, true).unwrap();
+        assert!(kept.wrote.is_empty());
+        assert_eq!(fs::read(dir.join("index.wasm.br")).unwrap(), brotli);
+        assert_eq!(fs::read(dir.join("index.wasm.gz")).unwrap(), gzip);
+        assert_eq!(
+            fs::metadata(dir.join("index.wasm.br"))
+                .unwrap()
+                .modified()
+                .unwrap(),
+            brotli_modified
+        );
+
+        fs::write(dir.join("index.wasm.br"), b"not-brotli").unwrap();
+        fs::remove_file(&stamp).unwrap();
+        let replaced = ensure(&dir, &files, 0, &stamp, true).unwrap();
+        assert_eq!(replaced.wrote, vec!["index.wasm.br".to_string()]);
+        assert_eq!(
+            decode_brotli(&fs::read(dir.join("index.wasm.br")).unwrap()),
+            wasm
+        );
+        assert_eq!(fs::read(dir.join("index.wasm.gz")).unwrap(), gzip);
     }
 
     #[test]
