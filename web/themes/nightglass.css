@@ -24,6 +24,7 @@
   --surface: #13242b;
   --glass: linear-gradient(135deg, #1b3537e8, #101e28f5);
   --focus: #e8d5a4;
+  --browser-chrome: #0c1017;
 }
 
 [data-theme="nightglass"] .tag-filter { border-color: transparent; background: none; color: var(--ink); padding-inline: 10px; }

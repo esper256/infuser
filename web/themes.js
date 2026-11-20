@@ -9,9 +9,20 @@
   ]);
   const resolve = id => catalog.find(theme => theme.id === id && theme.status !== 'retired')?.id || defaultId;
   const read = () => { try { return localStorage.getItem(key); } catch { return null; } };
+  function paintChrome() {
+    if (typeof getComputedStyle !== 'function' || typeof document.querySelector !== 'function') return;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    const chrome = getComputedStyle(document.documentElement).getPropertyValue('--browser-chrome').trim();
+    if (chrome) meta.content = chrome;
+  }
   function apply(id) {
     document.documentElement.dataset.theme = resolve(id);
+    paintChrome();
     window.dispatchEvent(new Event('infuser-theme-change'));
+  }
+  if (typeof document.addEventListener === 'function' && document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', paintChrome);
   }
   window.InfuserThemes = Object.freeze({
     catalog, defaultId,

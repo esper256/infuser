@@ -2,9 +2,9 @@
 
 Audience: Infuser developers.
 
-A design note for letting a theme carry fonts, textures, and stronger
-presentation is [Theme capabilities](theme-capabilities.md). It is a proposal.
-Nightglass stays as it is.
+Cartridge Club is a preview that can carry fonts and textures as well as
+colors. What shipped, and what is still deferred, is in
+[Theme capabilities](theme-capabilities.md). Nightglass stays the default.
 
 Themes change presentation, not the application's features or identity. The
 profile dropdown contains **Change profile picture**, **Theme**, and **Sign out**.
@@ -27,11 +27,18 @@ Theme preferences are not account settings and do not change a player's handle o
   to `[data-theme="cartridge-club"]`; it cannot affect the baseline.
 - `web/themes.js` is the small theme registry and preference bootstrap. It runs
   before the stylesheets to restore `infuser.theme` without a flash. It contains
-  no game or account logic. Unknown/retired preferences fall back to `defaultId`;
+  no game or account logic. After styles load, it copies the `--browser-chrome`
+  token onto `<meta name="theme-color">`. Nightglass sets that token to
+  `#0c1017`. Unknown/retired preferences fall back to `defaultId`;
   unavailable browser storage does not prevent selection for the current visit.
-- The server embeds and serves these files like the other Library assets. No
-  dynamic stylesheet URLs, dependencies, theme-specific endpoints, or database
-  migrations are needed.
+- The server embeds theme files and serves them from one allowlisted route,
+  `/assets/themes/{*path}`. Stylesheet URLs stay `/assets/themes/nightglass.css`
+  and `/assets/themes/cartridge-club.css`. A theme's fonts, textures, and
+  license notices live under `/assets/themes/<id>/` and are named in
+  `src/portal/themes.rs`. No dynamic stylesheet URLs, theme-specific
+  endpoints, or database migrations are needed. The Library and the profile
+  picker load `nightglass.css`, then `clubhouse.css`, then the candidate
+  stylesheet. The game player page, `desktop.html`, and the Play app do not.
 
 Shared functionality continues to evolve under every design. The profile menu
 and Recently panel are shared features; switching back to Nightglass does not
@@ -85,8 +92,9 @@ The registry gives each theme a stable ID, display name, and status:
 Nightglass remains the default. Cartridge Club must earn adoption through side-
 by-side review; shipping its preview is not approval to make it the default.
 
-To add a candidate, register a new ID as `preview`, add a scoped stylesheet and
-its embedded asset route/link, and compare it with the baseline on the same real
+To add a candidate, register a new ID as `preview`, add a scoped stylesheet,
+name its files in the theme asset route, link the stylesheet after
+`clubhouse.css`, and compare it with the baseline on the same real
 UI. Do not clone markup or JavaScript. To adopt one after review, mark it `stable`
 and change `defaultId`. Existing explicit preferences remain respected. To retire
 one, mark it `retired`; choose a different stable default first if necessary.
@@ -114,9 +122,12 @@ Card reaction stacks display up to eight faces with diminishing growth. Small
 stacks have modest breathing room, gradually returning to the original 15px overlap
 at eight faces. The Play dock uses 8px padding to leave more artwork visible.
 
-Run `node --test tests/themes.mjs` for registry/preference checks. Browser checks
-must exercise the shared UI in both themes; screenshots alone do not demonstrate
-functional parity. Keep temporary fixtures and comparison screenshots in `.local/`.
+Run `node --test tests/themes.mjs` for registry and browser-chrome checks.
+`node tests/nightglass_pixels.mjs` fails if any Nightglass pixel changes when
+Cartridge Club's rules are removed, or between two settled Nightglass frames.
+CI runs that diff. Browser checks must exercise the shared UI in both themes;
+screenshots alone do not demonstrate functional parity. Keep temporary fixtures
+and comparison screenshots in `.local/`.
 
 Run `node tests/library_detail_journey.mjs` for the isolated mock-API browser
 journey. Set `INFUSER_PLAYWRIGHT` and `INFUSER_CHROMIUM` for an existing browser
