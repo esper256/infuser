@@ -234,6 +234,9 @@ impl Platform {
             native_manifests: Default::default(),
         };
         platform.reconcile_publications()?;
+        // Existing builds were uploaded before siblings existed. This is the
+        // same pass publish uses, and a second boot does not rewrite them.
+        platform.precompress_ready()?;
         platform.controller.deployment.observe_boot()?;
         Ok(platform)
     }
@@ -1747,17 +1750,22 @@ async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
         fault(404, "asset not found")
     );
     let encoded = encoded_web_asset(&selected);
-    let file = p.root().join(&l.app).join(&l.build).join(selected);
+    let file = p.root().join(&l.app).join(&l.build).join(&selected);
     // Never forward a platform or game credential into a filesystem service.
     request.headers_mut().remove("cookie");
     request.headers_mut().remove("authorization");
+    // A Range addresses one representation. A slice of a Brotli or gzip file
+    // is not a byte range of the original, and a browser cannot decode it.
+    // Conditional range requests therefore stay on the original bytes.
+    let negotiable = encoded.is_none();
+    let ranged = request.headers().contains_key(header::RANGE);
     // Unity loaders request compressed filenames explicitly. Do not negotiate
     // another compressed sibling for bytes which already have an encoding.
     let service = ServeFile::new(file);
-    let service = if encoded.is_some() {
-        service
-    } else {
+    let service = if negotiable && !ranged {
         service.precompressed_br().precompressed_gzip()
+    } else {
+        service
     };
     let response = service.oneshot(request).await.unwrap();
     let mut response = response.map(Body::new);
@@ -1771,6 +1779,16 @@ async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
         response.headers_mut().insert(
             "content-type",
             header::HeaderValue::from_static(content_type),
+        );
+    }
+    if negotiable
+        && (response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED)
+    {
+        // 304 responses from the file service omit Vary. The full response
+        // varies on Accept-Encoding, including when this one is uncompressed.
+        response.headers_mut().insert(
+            header::VARY,
+            header::HeaderValue::from_static("accept-encoding"),
         );
     }
     response.headers_mut().insert(

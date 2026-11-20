@@ -19,6 +19,12 @@ These run in the existing fast SDK lane without a Unity installation.
 `cargo test --test publisher_journey --test compatibility_journey` checks explicit
 Unity exports, missing bridge diagnostics, authenticated gzip/Brotli asset headers,
 `.unityweb` fallback handling, byte ranges, HEAD, and legacy precompression.
+
+`cargo test --locked --lib precompress --test precompress_journey` checks that
+publishing and server startup write gzip and Brotli siblings, that negotiation
+preserves content type, caching, and cross-origin isolation, and that range and
+conditional requests still return the original bytes. The journey also runs the
+Godot 4.7 loader's decompress-and-count steps against a real wasm module.
 With existing Playwright and Chromium installations, add:
 
 ```sh

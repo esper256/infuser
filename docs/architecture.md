@@ -24,6 +24,8 @@ player application. The game SDK is [pre-1.0](sdk-contract.md).
   chat, guest play, and administration. Only admins invite or disable members.
 - **Publishing CLI/API:** agents connect once, upload runnable artifacts, validate,
   and publish updates. They retain control of building and deciding when to publish.
+  A published web build also keeps gzip and Brotli copies of its large files so
+  players download less. The original files stay available.
 - **Game SDK/adapters:** browser JavaScript, Godot previews, and a PeerJS preview.
   [Engine recipes](agents.md#choose-the-integration) state tested capabilities.
 - **Infuser Play:** downloads, verifies, updates, and launches supported native

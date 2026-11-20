@@ -50,7 +50,8 @@ without an explicit export path are rejected with instructions.
 
 Gzip or Brotli with **Decompression Fallback off** uses browser decompression.
 Fallback exports ending in `.unityweb` also work: Unity's loader handles them.
-Keep the filenames produced by Unity. If the export requires shared memory,
+Keep the filenames produced by Unity. Infuser leaves those encoded files as
+exported and does not replace them. If the export requires shared memory,
 set `cross_origin_isolation: true`; third-party resources must then satisfy the
 browser's isolation rules. This flag does not add thread support to Unity code.
 Current limits are **64 MiB per file and 256 MiB per build**. Read the server's

@@ -52,6 +52,34 @@ per lifecycle observation and cached for requests. Stop/replacement invalidates
 them; restart rebuilds them. Publication and minute-based expired-launch/save
 cleanup run separately, so one slow Docker operation cannot hold up either loop.
 
+## Precompressed web files
+
+Publish writes `.br` and `.gz` siblings for large `.wasm`, JavaScript, text, and
+`.pck` files before the build becomes current. Startup does the same pass for
+ready builds that do not have them yet. A repeat pass keeps an existing sibling
+when the source length and modification time are unchanged. The record lives
+under `precompress/` in the state directory, outside the files players can
+request. Siblings are not catalog entries, so they do not count toward the
+content budget or the 256 MiB upload limit, and a direct request for the
+sibling name is a 404.
+
+A sibling is stored only when the original is at least 8 KiB and the copy saves
+at least 4 KiB and 10 percent. Images, audio, archives, `.unityweb`, and an
+uploaded `.br` or `.gz` are left alone. Brotli quality is 5 with a 4 MiB window,
+and gzip is level 6, so one engine module finishes well inside the publisher
+client's two-minute timeout and the service memory limit. Writing a copy that
+would cross the free-disk reserve is skipped; the original is still served.
+That skip is not remembered, so a later start tries again.
+
+Players that send `Accept-Encoding` receive the matching sibling with that
+encoding, the original file's content type, and `Vary: accept-encoding`.
+Cache-Control, referrer policy, nosniff, and COOP/COEP are unchanged. A client
+that does not accept compression receives the original file. Byte ranges are
+also served from the original file: a range of a compressed sibling is not a
+range of the resource. Godot 4.7's web loader uses `fetch`, which decompresses
+before the engine sees the bytes, and counts those bytes against the
+uncompressed sizes stored in the export.
+
 ## Native run storage
 
 Infuser Play holds its per-game install lock through verification, run preparation

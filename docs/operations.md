@@ -92,7 +92,11 @@ sessions. Website Google cookies must not be shared with game subdomains.
 
 Keep certificate state persistent and DNS/OAuth secrets outside the checkout.
 The platform pins each browser launch to its build. Missing assets return 404;
-SPA fallback applies only to appropriate navigation requests.
+SPA fallback applies only to appropriate navigation requests. Large web files
+also have gzip and Brotli copies beside the originals. Publishing writes them,
+and the first start after an upgrade writes any that are missing. They are not
+separate catalog entries. A copy that would cross the free-disk reserve is
+skipped, and that file stays uncompressed.
 
 The older `infuser render-caddy` command renders manually configured static sites
 and server routes. It is not the installation path for the Library and publishing
