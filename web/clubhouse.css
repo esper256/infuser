@@ -810,9 +810,11 @@ button.feed-row:hover { border-color: var(--accent); }
 /* Reactions sit 4px inside the left edge, with 20% below the card.
    The 44px hit area extends upward so the visible overhang stays small. */
 .game-bottom { position: static; margin-top: auto; width: 100%; min-width: 0; }
-/* Keep the controls on the bottom edge. When the reactions and controls cannot
-   share that row, wrap the reactions above it. */
-.game:not(.hidden-game) .game-bottom { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px 6px; }
+/* Keep the controls on the bottom edge. A wide or wrapped title cannot share
+   that row: wrap-reverse puts the reactions on the next line, under the plate,
+   instead of above it. The flipped cross axis makes flex-start the bottom, so
+   a shared row still lines up. A few pixels of row gap keep the faces clear. */
+.game:not(.hidden-game) .game-bottom { display: flex; flex-wrap: wrap-reverse; align-items: flex-start; gap: 4px 6px; }
 .game:not(.hidden-game) .game-dock { max-width: 100%; margin-left: auto; }
 .game:not(.hidden-game) .game-buzz { position: relative; left: auto; bottom: auto; margin-left: calc(4px - var(--card-padding)); margin-bottom: calc(-1 * var(--card-padding) - var(--buzz-size) * .2 - 1px); }
 .game-buzz { --buzz-size: 28px; position: absolute; z-index: 2; left: 4px; bottom: calc(var(--buzz-size) * -.2 - 1px); display: flex; align-items: flex-end; flex: none; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink); }
