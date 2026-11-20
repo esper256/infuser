@@ -330,6 +330,7 @@
 }
 [data-theme="field-notes"] .feed-row small,
 [data-theme="field-notes"] .feed-row p { color: var(--pencil); }
+[data-theme="field-notes"] .friend-actions .friend-portrait { border: 2px solid var(--ink); box-shadow: none; background: var(--field); }
 [data-theme="field-notes"] .account-menu label { color: var(--ink); font-size: 15px; font-weight: 700; }
 [data-theme="field-notes"] .account-menu > button,
 [data-theme="field-notes"] .account-menu > a { color: var(--ink); }

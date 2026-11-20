@@ -92,7 +92,8 @@ Five more pictures were added on 2026-11-20: Tinker Goblin, Clockwork Owl,
 Circuit Crane, Signal Kettle, and Origami Unicorn. The first four are ordinary
 picker choices. Origami Unicorn is marked hidden in `src/portal/avatars.rs`, so
 the picker catalog omits it and a member cannot select it. An operator can still
-assign it, and the picture renders for anyone who already has it. Its source is
-scaled slightly and kept centered so the horn tip stays inside the circular CSS
-crop. All five use opaque 512px PNG sources and the standard lossy 128px and
+assign it, and the picture renders for anyone who already has it. The unicorn
+is framed tighter than the first export, with stronger contrast, so the horn
+and body stay readable in the small circular badges. The horn tip stays inside
+that crop. All five use opaque 512px PNG sources and the standard lossy 128px and
 256px WebP exports.

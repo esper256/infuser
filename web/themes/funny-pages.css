@@ -552,6 +552,7 @@
   box-shadow: 6px 6px 0 var(--ink-line);
 }
 [data-theme="funny-pages"] .account-menu { z-index: 40; }
+[data-theme="funny-pages"] .friend-actions .friend-portrait { border: 3px solid var(--ink-line); box-shadow: 3px 3px 0 var(--ink-line); }
 [data-theme="funny-pages"] #activity h2 { font-size: 26px; }
 [data-theme="funny-pages"] .feed-row,
 [data-theme="funny-pages"] .feed-entry:nth-child(3n+2) > .feed-row,

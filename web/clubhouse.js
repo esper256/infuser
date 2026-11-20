@@ -523,6 +523,18 @@ function profileAvatar(name,id,picture,size=128) {
   const tone=Array.from(id||name||'').reduce((value,ch)=>(value+ch.codePointAt(0))%6,0);
   const avatar=el('span',initials.toLocaleUpperCase(),'avatar tone-'+tone+(initials?'':' avatar-unknown'));avatar.setAttribute('aria-hidden','true');return avatar;
 }
+// The name card uses the 256 picture. High-density screens pick it over the 128.
+function nameCardPortrait(name,id,picture){
+  const portrait=profileAvatar(name,id,picture,256);
+  portrait.classList.add('friend-portrait');
+  if(portrait.tagName==='IMG'){
+    const base='/assets/avatars/'+encodeURIComponent(picture)+'/';
+    portrait.src=base+'256.webp';
+    portrait.srcset=base+'128.webp 128w, '+base+'256.webp 256w';
+    portrait.sizes='112px';
+  }
+  return portrait;
+}
 let presenceSignature='',presenceLayoutKey='',presenceSlots=0;
 let chatPresence=null,chatPresenceOrder=[],chatReordering=false,presenceMetrics;
 const presenceItems=new WeakMap(),presenceMotions=new Map(),presenceGhosts=new Set();
@@ -675,6 +687,7 @@ function renderPresence() {
     if(overflow)trigger.textContent='+'+persons.length;
     else {item.dataset.playerId=key;item.dataset.status=persons[0].status||'active';trigger.title=[persons[0].name+' · '+presenceLabel(persons[0].status),...persons[0].playing].join('\n');trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
     for(const person of persons){
+      panel.append(nameCardPortrait(person.name,person.id,person.avatar));
       panel.append(el('p',person.name,'friend-name'));
       const targets=me.inspecting?[]:(person.join_targets||[]);
       panel.append(el('p',presenceLabel(person.status),'quiet friend-status'));

@@ -804,8 +804,10 @@ button.feed-row:hover { border-color: var(--accent); }
 .friend-menu > summary { display: grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; border: 0; border-radius: 50%; list-style: none; background: transparent; color: inherit; cursor: pointer; }
 .friend-menu > summary::-webkit-details-marker { display: none; }
 .presence-person:has(.friend-menu[open]) { z-index: 21; }
-.friend-name { margin: 10px 12px 2px; font-weight: 600; overflow-wrap: anywhere; }
+.friend-actions .friend-portrait { display: grid; width: 112px; height: 112px; margin: 6px auto 0; font-size: 40px; border-color: var(--line); }
+.friend-name { margin: 8px 12px 2px; font-weight: 600; overflow-wrap: anywhere; text-align: center; }
 .friend-status { margin: 4px 12px 12px; font-size: 13px; }
+.friend-actions .friend-status { text-align: center; }
 
 /* Reactions sit 4px inside the left edge, with 20% below the card.
    The 44px hit area extends upward so the visible overhang stays small. */
