@@ -12,7 +12,10 @@ use std::{
     fs,
     os::unix::fs::symlink,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 const CANDIDATE: &[u8] = b"#!/bin/sh\nexit 0\n";
@@ -387,5 +390,52 @@ async fn operator_rollback_restores_the_previous_release_and_database() -> Resul
         .unwrap_err();
     assert!(error.to_string().contains("already the previous release"));
     assert_eq!(*operator.stops.lock().unwrap(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn back_to_back_snapshots_release_the_update_lock_while_other_threads_spawn() -> Result<()> {
+    let initial = "a".repeat(40);
+    let manifest = Arc::new(Mutex::new(release(&"b".repeat(40))));
+    let layout = layout(manifest, &initial).await?;
+    let host = Host {
+        install: layout.install.clone(),
+        platform: layout.platform.clone(),
+        snapshots: layout.updater.join("rollback"),
+        bad: String::new(),
+        events: Mutex::new(Vec::new()),
+        fail_snapshot: false,
+        disk_full: false,
+    };
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut threads = Vec::new();
+    for _ in 0..4 {
+        let stop = stop.clone();
+        threads.push(std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let _ = std::process::Command::new("true").status();
+            }
+        }));
+    }
+    // Declared after the threads so a failed snapshot sets the flag before
+    // those handles are dropped. Otherwise the spawners would keep running.
+    struct Halt(Arc<AtomicBool>);
+    impl Drop for Halt {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+    let halt = Halt(stop.clone());
+    for _ in 0..30 {
+        let message = updater::snapshot_current(&layout.config, &host).await?;
+        assert!(
+            message.contains(&initial),
+            "snapshot did not name the running release: {message}"
+        );
+    }
+    drop(halt);
+    for thread in threads {
+        thread.join().expect("spawner thread panicked");
+    }
     Ok(())
 }
