@@ -2,8 +2,8 @@
 
 Audience: Infuser developers.
 
-Cartridge Club is stable. Funny Pages is a preview that also changes the
-Library's layout. What shipped, and what is still deferred, is in
+Cartridge Club is stable. Funny Pages and Field Notes are previews that
+also change the Library's layout. What shipped, and what is still deferred, is in
 [Theme capabilities](theme-capabilities.md). Nightglass stays the default.
 
 Themes change presentation, not the application's features or identity. The
@@ -23,8 +23,9 @@ Theme preferences are not account settings and do not change a player's handle o
   every theme. Preserve reduced-motion and forced-colors support.
 - `web/themes/nightglass.css` supplies the baseline tokens. It always loads, so
   candidates can override only the tokens and presentation rules they need.
-- `web/themes/cartridge-club.css` and `web/themes/funny-pages.css` are opt-in
-  candidates. Every selector is scoped to that theme's `data-theme` value;
+- `web/themes/cartridge-club.css`, `web/themes/funny-pages.css`, and
+  `web/themes/field-notes.css` are opt-in candidates. Every selector is scoped
+  to that theme's `data-theme` value;
   neither sheet can affect the baseline or the other candidate.
 - `web/themes.js` is the small theme registry and preference bootstrap. It runs
   before the stylesheets to restore `infuser.theme` without a flash. It contains
@@ -34,7 +35,8 @@ Theme preferences are not account settings and do not change a player's handle o
   unavailable browser storage does not prevent selection for the current visit.
 - The server embeds theme files and serves them from one allowlisted route,
   `/assets/themes/{*path}`. Stylesheet URLs stay `/assets/themes/nightglass.css`,
-  `/assets/themes/cartridge-club.css`, and `/assets/themes/funny-pages.css`.
+  `/assets/themes/cartridge-club.css`, `/assets/themes/funny-pages.css`, and
+  `/assets/themes/field-notes.css`.
   A theme's fonts, textures, and license notices live under
   `/assets/themes/<id>/` and are named in `src/portal/themes.rs`. No dynamic
   stylesheet URLs, theme-specific endpoints, or database migrations are
@@ -67,7 +69,10 @@ the masthead's controls in source order, and its panel spans still read
 left to right, top to bottom. The wide grid starts when the library column
 itself is at least 880px, so the masthead does not steal the space the
 panels need. At 360px the masthead returns to the top bar
-and the panels become one column.
+and the panels become one column. Field Notes leaves the header as a top
+bar and turns the game list into one column of horizontal entries: a
+specimen plate on the left, the title and Play control on the right. That
+row stays horizontal on a phone. No shared wrapper was added for it.
 
 ## Cards and game details
 
@@ -109,8 +114,8 @@ The registry gives each theme a stable ID, display name, and status:
 
 Nightglass remains the default. Cartridge Club is stable, so the Theme menu
 does not label it Preview, and it is still not the default. Funny Pages
-stays a preview until it earns adoption. Shipping a preview is not approval
-to make it the default.
+and Field Notes stay previews until they earn adoption. Shipping a preview
+is not approval to make it the default.
 
 To add a candidate, register a new ID as `preview`, add a scoped stylesheet,
 name its files in the theme asset route, link the stylesheet after

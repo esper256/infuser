@@ -21,6 +21,14 @@ const FILES: &[&str] = &[
     "funny-pages/OFL-bangers.txt",
     "funny-pages/OFL-comic-neue.txt",
     "funny-pages/NOTICE.md",
+    "field-notes.css",
+    "field-notes/newsreader-400-latin.woff2",
+    "field-notes/newsreader-700-latin.woff2",
+    "field-notes/caveat-700-latin.woff2",
+    "field-notes/ruled.svg",
+    "field-notes/OFL-newsreader.txt",
+    "field-notes/OFL-caveat.txt",
+    "field-notes/NOTICE.md",
 ];
 
 pub(super) fn source_fingerprint() -> String {
@@ -109,6 +117,38 @@ fn bytes(path: &str) -> Option<(&'static str, &'static [u8])> {
         "funny-pages/NOTICE.md" => (
             "text/plain; charset=utf-8",
             include_bytes!("../../web/themes/funny-pages/NOTICE.md").as_slice(),
+        ),
+        "field-notes.css" => (
+            "text/css",
+            include_bytes!("../../web/themes/field-notes.css").as_slice(),
+        ),
+        "field-notes/newsreader-400-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/field-notes/newsreader-400-latin.woff2").as_slice(),
+        ),
+        "field-notes/newsreader-700-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/field-notes/newsreader-700-latin.woff2").as_slice(),
+        ),
+        "field-notes/caveat-700-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/field-notes/caveat-700-latin.woff2").as_slice(),
+        ),
+        "field-notes/ruled.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../web/themes/field-notes/ruled.svg").as_slice(),
+        ),
+        "field-notes/OFL-newsreader.txt" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/field-notes/OFL-newsreader.txt").as_slice(),
+        ),
+        "field-notes/OFL-caveat.txt" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/field-notes/OFL-caveat.txt").as_slice(),
+        ),
+        "field-notes/NOTICE.md" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/field-notes/NOTICE.md").as_slice(),
         ),
         _ => return None,
     })
