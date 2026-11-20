@@ -3,7 +3,8 @@
 Audience: Infuser developers.
 
 Cartridge Club is stable. Funny Pages and Field Notes are previews that
-also change the Library's layout. What shipped, and what is still deferred, is in
+also change the Library's layout. Castle Keep is a preview that keeps that
+layout and changes the materials. What shipped, and what is still deferred, is in
 [Theme capabilities](theme-capabilities.md). Nightglass stays the default.
 
 Themes change presentation, not the application's features or identity. The
@@ -122,9 +123,9 @@ The registry gives each theme a stable ID, display name, and status:
 | `retired` | Not offered; saved selections resolve to the current default |
 
 Nightglass remains the default. Cartridge Club is stable, so the Theme menu
-does not label it Preview, and it is still not the default. Funny Pages
-and Field Notes stay previews until they earn adoption. Shipping a preview
-is not approval to make it the default.
+does not label it Preview, and it is still not the default. Funny Pages,
+Field Notes, and Castle Keep stay previews until they earn adoption. Shipping
+a preview is not approval to make it the default.
 
 To add a candidate, register a new ID as `preview` in the `web/themes.js`
 catalog, add a scoped stylesheet, and name its files in `src/portal/themes.rs`

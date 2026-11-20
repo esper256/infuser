@@ -9,6 +9,7 @@
     Object.freeze({id: 'cartridge-club', name: 'Cartridge Club', status: 'stable'}),
     Object.freeze({id: 'funny-pages', name: 'Funny Pages', status: 'preview'}),
     Object.freeze({id: 'field-notes', name: 'Field Notes', status: 'preview'}),
+    Object.freeze({id: 'castle-keep', name: 'Castle Keep', status: 'preview'}),
   ]);
   const resolve = id => catalog.find(theme => theme.id === id && theme.status !== 'retired')?.id || defaultId;
   const read = () => { try { return localStorage.getItem(key); } catch { return null; } };

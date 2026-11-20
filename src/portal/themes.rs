@@ -35,6 +35,17 @@ const FILES: &[&str] = &[
     "field-notes/OFL-newsreader.txt",
     "field-notes/OFL-caveat.txt",
     "field-notes/NOTICE.md",
+    "castle-keep.css",
+    "castle-keep/medievalsharp-latin.woff2",
+    "castle-keep/nunito-400-latin.woff2",
+    "castle-keep/nunito-700-latin.woff2",
+    "castle-keep/stone.svg",
+    "castle-keep/grass.svg",
+    "castle-keep/steel.svg",
+    "castle-keep/parchment.svg",
+    "castle-keep/OFL-medievalsharp.txt",
+    "castle-keep/OFL-nunito.txt",
+    "castle-keep/NOTICE.md",
 ];
 
 pub(super) fn source_fingerprint() -> String {
@@ -232,6 +243,50 @@ fn bytes(path: &str) -> Option<(&'static str, &'static [u8])> {
         "field-notes/NOTICE.md" => (
             "text/plain; charset=utf-8",
             include_bytes!("../../web/themes/field-notes/NOTICE.md").as_slice(),
+        ),
+        "castle-keep.css" => (
+            "text/css",
+            include_bytes!("../../web/themes/castle-keep.css").as_slice(),
+        ),
+        "castle-keep/medievalsharp-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/castle-keep/medievalsharp-latin.woff2").as_slice(),
+        ),
+        "castle-keep/nunito-400-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/castle-keep/nunito-400-latin.woff2").as_slice(),
+        ),
+        "castle-keep/nunito-700-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/castle-keep/nunito-700-latin.woff2").as_slice(),
+        ),
+        "castle-keep/stone.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../web/themes/castle-keep/stone.svg").as_slice(),
+        ),
+        "castle-keep/grass.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../web/themes/castle-keep/grass.svg").as_slice(),
+        ),
+        "castle-keep/steel.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../web/themes/castle-keep/steel.svg").as_slice(),
+        ),
+        "castle-keep/parchment.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../web/themes/castle-keep/parchment.svg").as_slice(),
+        ),
+        "castle-keep/OFL-medievalsharp.txt" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/castle-keep/OFL-medievalsharp.txt").as_slice(),
+        ),
+        "castle-keep/OFL-nunito.txt" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/castle-keep/OFL-nunito.txt").as_slice(),
+        ),
+        "castle-keep/NOTICE.md" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/castle-keep/NOTICE.md").as_slice(),
         ),
         _ => return None,
     })

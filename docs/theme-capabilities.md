@@ -2,7 +2,7 @@
 
 Audience: Infuser developers.
 
-Funny Pages and Field Notes are previews. Cartridge Club is stable. Nightglass is the default. A
+Funny Pages, Field Notes, and Castle Keep are previews. Cartridge Club is stable. Nightglass is the default. A
 theme is still one presentation of the shared Library DOM and script. This
 page is what shipped.
 
@@ -11,7 +11,7 @@ page is what shipped.
 `web/themes.js` sets `data-theme` and, once styles have loaded, copies
 `--browser-chrome` onto `<meta name="theme-color">`. Nightglass sets that
 token to `#0c1017`, which is the value already in `web/index.html`. Cartridge
-Club sets `#14071f`. Funny Pages sets `#f4ecda`. Field Notes sets `#f6f0e4`. The script does not load
+Club sets `#14071f`. Funny Pages sets `#f4ecda`. Field Notes sets `#f6f0e4`. Castle Keep sets `#b7a78c`. The script does not load
 behavior, sound, or markup.
 
 `web/index.html` and `web/profiles.html` load `nightglass.css`, then
@@ -26,7 +26,7 @@ The server serves theme files from one route, `/assets/themes/{*path}`.
 The handler in `src/portal/themes.rs` allows only an exact match from its
 list: the stylesheets, Cartridge Club's Lilita One and Fredoka subsets,
 Funny Pages' Bangers and Comic Neue subsets, Field Notes' Newsreader and
-Caveat subsets, each theme's textures, the SIL
+Caveat subsets, Castle Keep's MedievalSharp and Nunito subsets, each theme's textures, the SIL
 Open Font License files, and each `NOTICE.md`.
 A path with `..`, a backslash, an extra slash, or an extension outside
 css, woff2, svg, webp, png, txt, and md is rejected. Image, font, and text
@@ -89,7 +89,18 @@ the title, tags, and Play control sit in the second. The row stays
 horizontal at 360px, with a narrower plate. The header stays the shared
 top bar. Recently stays the shared dropdown.
 
-`@font-face` for Bangers, Comic Neue, Newsreader, and Caveat is global by
+Castle Keep (`[data-theme="castle-keep"]`) is a material preview. It does not
+move the header, the card grid, Recently, or the chat dock. The page is a
+stone wall with a turf baseline, banners for the tag filters, a shield for
+the tag overflow control, and steel for Play and the other forged controls.
+Crimson is the heart accent on selected tags, reactions, and your own chat
+note. `--browser-chrome` is `#b7a78c`. At 520px and below, filters, search,
+and Add a game stack, which matches DOM order. Coarse pointers get 44px
+targets on those controls and on Play. `forced-colors: active` drops the
+theme's images, shadows, clip paths, and custom fonts. The card lift is only
+under `prefers-reduced-motion: no-preference`.
+
+`@font-face` for Bangers, Comic Neue, Newsreader, Caveat, MedievalSharp, and Nunito is global by
 CSS rules. Nightglass and Cartridge Club do not name those families. `forced-colors: active`
 drops the theme's images, shadows, and custom fonts. The hover nudge is only under `prefers-reduced-motion:
 no-preference`. At 360px and below, filters, search, and Add a game stack,

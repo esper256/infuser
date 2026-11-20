@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="92" viewBox="0 0 160 92" shape-rendering="geometricPrecision">
+  <rect width="160" height="92" fill="#8d7f6b"/>
+  <g>
+    <rect x="3" y="3" width="74" height="40" rx="1.5" fill="#d9cbb4"/>
+    <rect x="3" y="3" width="74" height="5" rx="1.5" fill="#efe4d2" opacity=".85"/>
+    <rect x="3" y="36" width="74" height="7" fill="#b5a58d"/>
+    <path d="M14 16h28M18 24h18" stroke="#6f6252" stroke-opacity=".28" stroke-width="1"/>
+  </g>
+  <g>
+    <rect x="83" y="3" width="74" height="40" rx="1.5" fill="#c9b89e"/>
+    <rect x="83" y="3" width="74" height="5" rx="1.5" fill="#e7d9c4" opacity=".8"/>
+    <rect x="83" y="36" width="74" height="7" fill="#a8947c"/>
+    <path d="M96 18h22M100 27h34" stroke="#6f6252" stroke-opacity=".25" stroke-width="1"/>
+  </g>
+  <g>
+    <rect x="3" y="49" width="34" height="40" rx="1.5" fill="#cfc1a8"/>
+    <rect x="3" y="49" width="34" height="5" fill="#eadfcb" opacity=".8"/>
+    <rect x="3" y="82" width="34" height="7" fill="#aa987f"/>
+  </g>
+  <g>
+    <rect x="43" y="49" width="74" height="40" rx="1.5" fill="#e2d3ba"/>
+    <rect x="43" y="49" width="74" height="5" fill="#f3e8d6" opacity=".85"/>
+    <rect x="43" y="82" width="74" height="7" fill="#b7a58c"/>
+    <path d="M58 64h40M64 73h18" stroke="#6f6252" stroke-opacity=".22" stroke-width="1"/>
+  </g>
+  <g>
+    <rect x="123" y="49" width="34" height="40" rx="1.5" fill="#c4b396"/>
+    <rect x="123" y="49" width="34" height="5" fill="#e6d8c2" opacity=".8"/>
+    <rect x="123" y="82" width="34" height="7" fill="#9e8c74"/>
+  </g>
+</svg>
