@@ -110,6 +110,16 @@ const AVATARS: &[Avatar] = &[
     avatar!("clockwork-owl", "Clockwork Owl"),
     avatar!("circuit-crane", "Circuit Crane"),
     avatar!("signal-kettle", "Signal Kettle"),
+    avatar!("volt-ninja", "Volt Ninja"),
+    avatar!("skate-bones", "Skate Bones"),
+    avatar!("rust-sentinel", "Rust Sentinel"),
+    avatar!("magma-golem", "Magma Golem"),
+    avatar!("shadow-ranger", "Shadow Ranger"),
+    avatar!("oni-ronin", "Oni Ronin"),
+    avatar!("titan-mech", "Titan Mech"),
+    avatar!("night-strike", "Night Strike"),
+    avatar!("glitch-mask", "Glitch Mask"),
+    avatar!("venom-scorpion", "Venom Scorpion"),
     // Operator-assigned. Kept out of the picker catalog below.
     avatar!("origami-unicorn", "Origami Unicorn", true),
 ];

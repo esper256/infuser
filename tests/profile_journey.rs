@@ -271,7 +271,7 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .await?;
     assert_eq!(again, json!({"show":false}));
     let catalog = before["avatars"].as_array().unwrap();
-    assert_eq!(catalog.len(), 85);
+    assert_eq!(catalog.len(), 95);
     let portraits = before["portraits"].as_array().unwrap();
     assert_eq!(
         portraits,
@@ -287,6 +287,16 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         ("clockwork-owl", "Clockwork Owl"),
         ("circuit-crane", "Circuit Crane"),
         ("signal-kettle", "Signal Kettle"),
+        ("volt-ninja", "Volt Ninja"),
+        ("skate-bones", "Skate Bones"),
+        ("rust-sentinel", "Rust Sentinel"),
+        ("magma-golem", "Magma Golem"),
+        ("shadow-ranger", "Shadow Ranger"),
+        ("oni-ronin", "Oni Ronin"),
+        ("titan-mech", "Titan Mech"),
+        ("night-strike", "Night Strike"),
+        ("glitch-mask", "Glitch Mask"),
+        ("venom-scorpion", "Venom Scorpion"),
     ] {
         assert!(
             catalog
