@@ -14,13 +14,18 @@ try {
  await page.evaluate(async()=>{
   const {initServerUpdates,humanWait}=await import('/server-updates.js');
   window.humanWait=humanWait;
-  window.state={configured:true,current_build:'a'.repeat(40),current_built_at:Date.now()/1000-172800,release_built_at:Date.now()/1000-7200,publishing:true,available:true,available_since:Date.now()/1000-3720,checked_at:Date.now()/1000,report:{release:'b'.repeat(40),phase:'waiting'},activity:[
+  window.state={configured:true,current_build:'a'.repeat(40),current_built_at:Date.now()/1000-172800,release_built_at:Date.now()/1000-7200,publishing:true,available:true,available_since:Date.now()/1000-3720,checked_at:Date.now()/1000,report:{release:'b'.repeat(40),phase:'waiting'},rollback_notice:{release:'d'.repeat(40),at:Math.floor(Date.now()/1000),reason:'candidate failed its version-aware health check'},outcomes:[{release:'d'.repeat(40),at:Math.floor(Date.now()/1000),result:'rolled_back',reason:'candidate failed its version-aware health check'},{release:'a'.repeat(40),at:Math.floor(Date.now()/1000)-3600,result:'activated',reason:''}],activity:[
     {holds:true,kind:'publishing',summary:'Receiving “Rocket Game” from an agent, started 3 min ago.',effect:'Updating now loses this publish. The agent has to send the game again.'},
     {holds:false,kind:'playing',summary:'Alex has “Pond” open in the browser.',effect:'The game keeps running. The open tab checks in regularly, and that check-in does not hold the update.'}
   ]};
   window.posts=[];
   const api=async(path,options={})=>{
    if(window.offline)throw Error('offline');
+   if(options.method==='POST' && path==='/api/operator/update/notice'){
+    const body=JSON.parse(options.body);
+    if(window.state.rollback_notice?.release===body.release)window.state.rollback_notice=null;
+    return {ok:true};
+   }
    if(options.method==='POST'){
     window.posts.push(JSON.parse(options.body));
     await new Promise(r=>setTimeout(r,50));
@@ -31,10 +36,15 @@ try {
   const panel=document.querySelector('.admin-panel');
   initServerUpdates({panel,api,me:{operator:false,admin:true}});
   if(document.querySelector('#server-update'))throw Error('Group admin got server controls');
+  if(document.querySelector('#rollback-notice'))throw Error('Group admin got the rollback notice');
   window.refresh=initServerUpdates({panel,api,me:{operator:true}});
   document.querySelector('#admin').showModal();
  });
  await page.getByRole('heading',{name:'Server updates'}).waitFor();
+ await page.getByText('Rolled back dddddddddddd. candidate failed its version-aware health check',{exact:true}).waitFor();
+ await page.getByRole('heading',{name:'Recent updates'}).waitFor();
+ assert.equal(await page.locator('#rollback-notice').count(),1);
+ assert.equal(await page.locator('#admin #rollback-notice').count(),1);
  assert.equal(await page.locator('#profile #server-update').count(),0);
  assert.equal(await page.locator('#admin #server-update').count(),1);
  await page.getByText('Update waiting 1 h 2 min',{exact:true}).waitFor();
@@ -110,6 +120,11 @@ try {
  await page.evaluate(async()=>{state.changelog=null;state.configured=false;state.available=false;state.checked_at=0;await refresh();});
  assert(await page.getByText('Not configured',{exact:true}).isVisible());
  assert(await page.locator('#server-update').isVisible());
+ assert(await page.locator('#rollback-notice').isVisible());
+ await page.getByRole('button',{name:'Dismiss',exact:true}).click();
+ await page.locator('#rollback-notice').waitFor({state:'hidden'});
+ assert(await page.getByRole('heading',{name:'Recent updates'}).isVisible());
+ assert(await page.getByText('Rolled back dddddddddddd',{exact:false}).isVisible());
  assert.equal(await page.evaluate(()=>humanWait(100,100+90060)),'1 d 1 h');
  console.log('Passed: build IDs/ages/dates, publishing priority across updater states, both themes at 320/390/1280, zero unchanged-refresh mutations, operator-only control, confirmation, single POST, supersession, stale/offline/failure and legacy metadata states.');
 } finally {await browser.close();}

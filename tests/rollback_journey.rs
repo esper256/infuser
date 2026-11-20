@@ -85,6 +85,17 @@ impl Service for Host {
         let path = fs::read_link(self.install.join("current"))?;
         Ok(path.file_name().unwrap() == commit && commit != self.bad)
     }
+    async fn arm_probation(&self, release: &str) -> Result<()> {
+        self.events.lock().unwrap().push(format!("arm:{release}"));
+        infuser::probation::arm(&self.platform, release)
+    }
+    async fn disarm_probation(&self) -> Result<()> {
+        self.events.lock().unwrap().push("disarm".into());
+        infuser::probation::disarm(&self.platform)
+    }
+    async fn probation_held(&self, release: &str) -> Result<bool> {
+        Ok(infuser::probation::holds_release(&self.platform, release))
+    }
 }
 
 struct Layout {
@@ -210,12 +221,30 @@ async fn failed_activation_restores_the_snapshot_taken_before_the_switch() -> Re
     assert!(error.to_string().contains("rolled back"));
     let events = host.events.lock().unwrap().join(" ");
     let preserve_good = events.find(&format!("preserve:{good}")).unwrap();
+    let arm_bad = events.find(&format!("arm:{bad}")).unwrap();
     let restart_bad = events.find(&format!("restart:{bad}")).unwrap();
-    let stop = events.find("stop").unwrap();
     let restore_good = events.find(&format!("restore:{good}")).unwrap();
     let restart_good = events.rfind(&format!("restart:{good}")).unwrap();
-    assert!(preserve_good < restart_bad && restart_bad < stop && stop < restore_good);
-    assert!(restore_good < restart_good);
+    assert!(preserve_good < arm_bad && arm_bad < restart_bad);
+    assert!(restart_bad < restore_good && restore_good < restart_good);
+    assert!(
+        events[restart_bad..restore_good].contains("stop"),
+        "{events}"
+    );
+    assert!(
+        !infuser::probation::holds_release(&layout.platform, &bad),
+        "rolled-back candidate must not stay in probation"
+    );
+    let outcomes: serde_json::Value =
+        serde_json::from_slice(&fs::read(layout.platform.join("deploy-outcomes.json"))?)?;
+    assert_eq!(outcomes["outcomes"][0]["release"], bad);
+    assert_eq!(outcomes["outcomes"][0]["result"], "rolled_back");
+    assert_eq!(
+        outcomes["outcomes"][0]["reason"],
+        infuser::probation::HEALTH_FAILURE
+    );
+    assert_eq!(outcomes["outcomes"][1]["release"], good);
+    assert_eq!(outcomes["outcomes"][1]["result"], "activated");
     assert_eq!(
         fs::read_link(layout.install.join("current"))?
             .file_name()
@@ -269,7 +298,9 @@ async fn snapshot_failure_leaves_the_running_release_in_place() -> Result<()> {
             .unwrap(),
         initial.as_str()
     );
-    assert!(host.events.lock().unwrap().is_empty());
+    let events = host.events.lock().unwrap().join(" ");
+    assert_eq!(events, format!("stop restart:{initial}"));
+    assert!(!layout.install.join("previous").exists());
     Ok(())
 }
 
@@ -384,6 +415,14 @@ async fn operator_rollback_restores_the_previous_release_and_database() -> Resul
     assert_eq!(
         fs::read_to_string(layout.updater.join("failed-release"))?,
         good
+    );
+    let outcomes: serde_json::Value =
+        serde_json::from_slice(&fs::read(layout.platform.join("deploy-outcomes.json"))?)?;
+    assert_eq!(outcomes["outcomes"][0]["release"], good);
+    assert_eq!(outcomes["outcomes"][0]["result"], "rolled_back");
+    assert_eq!(
+        outcomes["outcomes"][0]["reason"],
+        infuser::probation::OPERATOR_RESTORE
     );
     let error = updater::rollback(&layout.config, &operator)
         .await

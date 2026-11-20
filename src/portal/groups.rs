@@ -80,6 +80,7 @@ pub(super) fn routes() -> Router<Platform> {
             "/api/operator/update",
             get(update_status).post(authorize_update),
         )
+        .route("/api/operator/update/notice", post(dismiss_notice))
         .layer(DefaultBodyLimit::max(4096))
 }
 async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -107,6 +108,7 @@ async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
         reasons.insert(0, "Waiting for a fresh update check".into());
     }
     let (family, internal) = crate::changelog::notes();
+    let (notice, outcomes) = crate::deploy_outcomes::view(&p.config().controller.state_dir);
     Ok(reply(
         json!({"configured":record.report.is_some(),"current_build":crate::BUILD_SHA,"current_built_at":crate::build_timestamp(),
         "release_built_at":record.release_built_at,"publishing":publishing,
@@ -114,7 +116,9 @@ async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
         "report":record.report,"stale":stale,"reasons":reasons,"activity":activity,
         "host":crate::update_admission::host_panel(&p, &record)?,
         "authorized_until":record.grant.filter(|g|g.expires>now() && g.current_build==crate::BUILD_SHA).map(|g|g.expires),
-        "changelog":{"family":family,"internal":internal}}),
+        "changelog":{"family":family,"internal":internal},
+        "rollback_notice":notice.as_ref().map(|item| json!({"release":item.release,"at":item.at,"reason":item.reason})),
+        "outcomes":outcomes.iter().map(|item| json!({"release":item.release,"at":item.at,"result":item.result,"reason":item.reason})).collect::<Vec<_>>()}),
     ))
 }
 #[derive(Deserialize)]
@@ -134,6 +138,27 @@ async fn authorize_update(
         .authorize(&body.request_id, &body.current_build, &actor)?;
     tracing::info!(actor=%actor, "operator authorized one deployment interruption");
     Ok(reply(json!({"ok":true})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DismissNotice {
+    release: String,
+}
+async fn dismiss_notice(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<DismissNotice>,
+) -> Answer {
+    p.operator(&h, true).await?;
+    if let Err(error) =
+        crate::deploy_outcomes::dismiss(&p.config().controller.state_dir, &body.release)
+    {
+        if error.to_string().contains("no rollback notice") {
+            return Err(fault(404, "That rollback notice is not available.").into());
+        }
+        return Err(fault(400, "Could not dismiss the notice.").into());
+    }
+    Ok(reply(json!({"ok": true})))
 }
 async fn health(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.operator(&h, false).await?;

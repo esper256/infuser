@@ -32,7 +32,10 @@ export function initServerUpdates({panel,api,me}) {
   const confirm=node('div');confirm.className='update-confirm';confirm.hidden=true;
   const actions=node('div');actions.className='dialog-actions';actions.append(cancel,action);
   const note=node('p','The updater rechecks the latest release before restarting, so a newer build may replace the one shown.');note.className='update-caption';
-  confirm.append(warning,actions);section.append(header,builds,activityList,hostBox,status,open,confirm,note,message);
+  const rollback=node('div');rollback.id='rollback-notice';rollback.className='rollback-notice';rollback.hidden=true;rollback.setAttribute('role','status');
+  const rollbackText=node('p'),dismiss=node('button','Dismiss');dismiss.type='button';rollback.append(rollbackText,dismiss);
+  const outcomes=node('div');outcomes.className='update-outcomes';outcomes.hidden=true;
+  confirm.append(warning,actions);section.append(rollback,outcomes,header,builds,activityList,hostBox,status,open,confirm,note,message);
   let state,busy=false,submitting=false,requestId,reachable=true;
   const set=(object,key,value)=>{if(object[key]!==value)object[key]=value;};
   const text=(element,value)=>set(element,'textContent',value);
@@ -71,6 +74,30 @@ export function initServerUpdates({panel,api,me}) {
   function render(){
     set(section,'hidden',!state);
     if(!state)return;
+    const notice=state.rollback_notice||null;
+    const noticeKey=notice?notice.release+'|'+notice.reason+'|'+notice.at:'';
+    if(rollback.dataset.notice!==noticeKey){
+      rollback.dataset.notice=noticeKey;
+      text(rollbackText,notice?'Rolled back '+notice.release.slice(0,12)+'. '+notice.reason:'');
+    }
+    set(rollback,'hidden',!notice);
+    const history=Array.isArray(state.outcomes)?state.outcomes:[];
+    const historyKey=JSON.stringify(history);
+    if(outcomes.dataset.outcomes!==historyKey){
+      outcomes.dataset.outcomes=historyKey;
+      outcomes.replaceChildren();
+      if(history.length){
+        outcomes.append(node('h4','Recent updates'));
+        const list=node('ul');
+        for(const item of history){
+          const label=item.result==='rolled_back'?'Rolled back':item.result==='activated'?'Activated':'Kept';
+          const when=item.at?' · '+humanWait(item.at)+' ago':'';
+          list.append(node('li',label+' '+(item.release||'').slice(0,12)+(item.reason?' · '+item.reason:'')+when));
+        }
+        outcomes.append(list);
+      }
+    }
+    set(outcomes,'hidden',!history.length);
     const phase=state.report?.phase;
     const phases={checking:'Checking for the latest release',downloading:'Downloading the latest release',activating:'Restarting into the update',failed:'The updater could not verify or install this release. Waiting for the next check.'};
     const stale=state.stale||!state.checked_at||Date.now()/1000-state.checked_at>=180;
@@ -135,6 +162,16 @@ export function initServerUpdates({panel,api,me}) {
     catch{reachable=false;render();if(dialog?.open){message.textContent='Infuser is restarting or cannot be reached. Checking again shortly.';}}
     finally{busy=false;}
   }
+  dismiss.onclick=async()=>{
+    if(!state?.rollback_notice||dismiss.disabled)return;
+    dismiss.disabled=true;
+    try{
+      await api('/api/operator/update/notice',{method:'POST',body:JSON.stringify({release:state.rollback_notice.release})});
+      state.rollback_notice=null;
+      message.textContent='';
+    }catch(error){message.textContent=error.message||'Could not dismiss the notice.';}
+    finally{dismiss.disabled=false;render();}
+  };
   open.onclick=()=>{requestId=crypto.randomUUID().replaceAll('-','');message.textContent='';confirm.hidden=false;open.hidden=true;refresh();};
   cancel.onclick=()=>{confirm.hidden=true;open.hidden=false;open.focus();};
   action.onclick=async()=>{

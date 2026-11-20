@@ -27,12 +27,18 @@ fn authorized(app: &App, headers: &HeaderMap) -> bool {
     bool::from(app.token.ct_eq(&digest))
 }
 pub fn routes(platform: Platform, token: &str) -> Router {
+    let probation = platform.controller.probation.clone();
     Router::new()
         .route("/v1/maintenance", post(begin).delete(end))
         .route("/v1/operations", get(status))
         .route("/v1/deployment", post(deployment_report))
         .route("/v1/deployment/admit", post(deployment_admit))
+        .route("/v1/deployment/promote", post(promote))
         .layer(DefaultBodyLimit::max(4096))
+        .layer(axum::middleware::from_fn_with_state(
+            probation,
+            crate::probation::guard,
+        ))
         .with_state(App {
             platform,
             token: Sha256::digest(token.as_bytes()).into(),
@@ -185,6 +191,36 @@ async fn deployment_admit(
             )
         }
     }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Promote {
+    release: String,
+}
+async fn promote(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(body): Json<Promote>,
+) -> Response {
+    if !authorized(&app, &headers) {
+        return error(StatusCode::UNAUTHORIZED, "control token required");
+    }
+    if let Err(refusal) = app.platform.controller.probation.promote(
+        &app.platform.controller.config.controller.state_dir,
+        &body.release,
+    ) {
+        tracing::warn!(error = %refusal, "promotion refused");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "promotion does not match this build",
+        );
+    }
+    Json(json!({
+        "ok": true,
+        "build": crate::BUILD_SHA,
+        "probation": !app.platform.controller.probation.accepting(),
+    }))
+    .into_response()
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

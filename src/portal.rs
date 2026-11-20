@@ -682,6 +682,10 @@ pub fn router(platform: Platform) -> Router {
             platform.controller.maintenance.clone(),
             crate::maintenance::admission,
         ))
+        .layer(axum::middleware::from_fn_with_state(
+            platform.controller.probation.clone(),
+            crate::probation::guard,
+        ))
         .with_state(platform)
 }
 async fn session_auth(

@@ -149,6 +149,63 @@ pub trait Service: Send + Sync {
     }
     async fn restart(&self) -> Result<()>;
     async fn healthy(&self, commit: &str) -> Result<bool>;
+    /// Write the marker the next process reads before it accepts user writes.
+    async fn arm_probation(&self, _release: &str) -> Result<()> {
+        Ok(())
+    }
+    async fn disarm_probation(&self) -> Result<()> {
+        Ok(())
+    }
+    /// The candidate marker is still in place, so that process must still be
+    /// refusing user writes. Missing or unreadable means do not restore.
+    async fn probation_held(&self, _release: &str) -> Result<bool> {
+        Ok(true)
+    }
+    async fn trial(&self, commit: &str) -> Result<Trial> {
+        Ok(if self.healthy(commit).await? {
+            Trial::OnProbation
+        } else {
+            Trial::Unreachable
+        })
+    }
+    async fn promote(&self, _release: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Trial {
+    /// This build is up and still refusing user writes.
+    OnProbation,
+    /// This build is up and already accepting user writes.
+    ServingWrites,
+    /// The build did not answer the version-aware health check.
+    Unreachable,
+}
+
+#[derive(Debug)]
+struct ServingWrites;
+
+impl std::fmt::Display for ServingWrites {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "candidate accepted writes before promotion; database snapshot was not restored",
+        )
+    }
+}
+
+impl std::error::Error for ServingWrites {}
+
+fn classify_health(value: &serde_json::Value, commit: &str) -> Option<Trial> {
+    if value["status"] == "ok" && value["build"] == commit {
+        Some(if value["probation"] == true {
+            Trial::OnProbation
+        } else {
+            Trial::ServingWrites
+        })
+    } else {
+        None
+    }
 }
 pub enum Readiness {
     Ready,
@@ -267,19 +324,49 @@ impl Service for Systemd {
         systemctl(&self.config, "restart").await
     }
     async fn healthy(&self, commit: &str) -> Result<bool> {
+        Ok(self.poll_health(commit).await?.is_some())
+    }
+    async fn arm_probation(&self, release: &str) -> Result<()> {
+        let state_dir = platform_state_dir(&self.config.controller_config)?;
+        crate::probation::arm(&state_dir, release)
+    }
+    async fn disarm_probation(&self) -> Result<()> {
+        let state_dir = platform_state_dir(&self.config.controller_config)?;
+        crate::probation::disarm(&state_dir)
+    }
+    async fn probation_held(&self, release: &str) -> Result<bool> {
+        let state_dir = platform_state_dir(&self.config.controller_config)?;
+        Ok(crate::probation::holds_release(&state_dir, release))
+    }
+    async fn trial(&self, commit: &str) -> Result<Trial> {
+        Ok(self
+            .poll_health(commit)
+            .await?
+            .unwrap_or(Trial::Unreachable))
+    }
+    async fn promote(&self, release: &str) -> Result<()> {
+        crate::maintenance::Client::from_config_file(&self.config.controller_config)?
+            .promote(release)
+            .await
+    }
+}
+
+impl Systemd {
+    /// The same 30 second version check the updater already used. The first
+    /// matching answer is enough; this does not add another wait.
+    async fn poll_health(&self, commit: &str) -> Result<Option<Trial>> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         while tokio::time::Instant::now() < deadline {
             if let Ok(response) = self.http.get(&self.config.health_url).send().await
                 && response.status().is_success()
                 && let Ok(value) = response.json::<serde_json::Value>().await
-                && value["status"] == "ok"
-                && value["build"] == commit
+                && let Some(trial) = classify_health(&value, commit)
             {
-                return Ok(true);
+                return Ok(Some(trial));
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        Ok(false)
+        Ok(None)
     }
 }
 
@@ -346,6 +433,95 @@ async fn restore_previous(
         }
         return Err(error.context(blocked));
     }
+    Ok(())
+}
+
+fn note_outcome(
+    config: &Settings,
+    release: &str,
+    result: crate::deploy_outcomes::Kind,
+    reason: &str,
+) {
+    let Ok(state_dir) = platform_state_dir(&config.controller_config) else {
+        tracing::warn!(
+            "deploy outcome was not recorded; controller state directory is unavailable"
+        );
+        return;
+    };
+    if let Err(error) = crate::deploy_outcomes::record(
+        &state_dir,
+        crate::deploy_outcomes::Outcome {
+            release: release.to_owned(),
+            at: crate::controller::now(),
+            result,
+            reason: reason.to_owned(),
+        },
+    ) {
+        tracing::warn!(%error, "deploy outcome was not recorded");
+    }
+}
+
+fn finish_activation(
+    config: &Settings,
+    release: &str,
+    failed_file: &Path,
+    pending_file: &Path,
+) -> Result<()> {
+    if failed_file.exists() {
+        fs::remove_file(failed_file)?;
+    }
+    fs::remove_file(pending_file)?;
+    note_outcome(config, release, crate::deploy_outcomes::Kind::Activated, "");
+    Ok(())
+}
+
+/// Restore the previous release only while the candidate is still refusing
+/// user writes. A missing marker means promotion may already have accepted
+/// some, so the snapshot stays unused.
+async fn roll_back(
+    config: &Settings,
+    service: &dyn Service,
+    previous_dir: &Path,
+    previous_commit: &str,
+    candidate: &str,
+    blocked: &str,
+) -> Result<()> {
+    if !service.probation_held(candidate).await? {
+        note_outcome(
+            config,
+            candidate,
+            crate::deploy_outcomes::Kind::Kept,
+            "candidate accepted writes before promotion; database snapshot was not restored",
+        );
+        let _ = fs::remove_file(config.state_dir.join("pending.json"));
+        bail!(
+            "release {candidate} was left in place because its trial was no longer holding writes; database snapshot was not restored"
+        );
+    }
+    restore_previous(service, previous_dir, previous_commit, blocked).await?;
+    atomic_link(previous_dir, &config.install_dir.join("current"))?;
+    if let Err(error) = service.disarm_probation().await {
+        tracing::warn!(%error, "probation marker was not cleared");
+    }
+    service
+        .restart()
+        .await
+        .context("candidate failed and the old service could not restart")?;
+    ensure!(
+        service.healthy(&build_id(previous_dir)?).await?,
+        "candidate failed and rollback health verification also failed"
+    );
+    note_outcome(
+        config,
+        candidate,
+        crate::deploy_outcomes::Kind::RolledBack,
+        crate::probation::HEALTH_FAILURE,
+    );
+    write_atomic(
+        &config.state_dir.join("failed-release"),
+        candidate.as_bytes(),
+    )?;
+    fs::remove_file(config.state_dir.join("pending.json"))?;
     Ok(())
 }
 
@@ -864,11 +1040,22 @@ pub async fn rollback(config: &Settings, service: &dyn Service) -> Result<String
     if pending_file.exists() {
         fs::remove_file(&pending_file)?;
     }
+    if let Err(error) = service.disarm_probation().await {
+        tracing::warn!(%error, "probation marker was not cleared");
+    }
     service.restart().await?;
     ensure!(
         service.healthy(&build_id(&target)?).await?,
         "restored {target_name} but its health check failed; inspect infuser.service"
     );
+    if hex(&abandon, 40) {
+        note_outcome(
+            config,
+            &abandon,
+            crate::deploy_outcomes::Kind::RolledBack,
+            crate::probation::OPERATOR_RESTORE,
+        );
+    }
     Ok(format!(
         "Restored {target_name}; {abandon} will not be activated again"
     ))
@@ -909,22 +1096,40 @@ pub async fn update(
             active == candidate || active == old,
             "current changed outside the interrupted update; inspect pending.json"
         );
-        if active == candidate && service.healthy(&pending.commit).await? {
-            fs::remove_file(&pending_file)?;
-            return Ok(format!(
-                "Recovered successful activation of {}",
-                pending.commit
-            ));
+        if active == candidate {
+            match service.trial(&pending.commit).await? {
+                Trial::OnProbation => {
+                    if service.promote(&pending.commit).await.is_err() {
+                        return Ok(format!(
+                            "Release {} passed its health check and is holding writes until promotion finishes",
+                            pending.commit
+                        ));
+                    }
+                    finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
+                    return Ok(format!(
+                        "Recovered successful activation of {}",
+                        pending.commit
+                    ));
+                }
+                Trial::ServingWrites => {
+                    finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
+                    return Ok(format!(
+                        "Recovered successful activation of {}",
+                        pending.commit
+                    ));
+                }
+                Trial::Unreachable => {}
+            }
         }
-        restore_previous(service, &old, &pending.previous, "Interrupted update cannot roll back across the identity genesis boundary; current selection and pending recovery record retained").await?;
-        atomic_link(&old, &current)?;
-        service.restart().await?;
-        ensure!(
-            service.healthy(&build_id(&old)?).await?,
-            "interrupted update rollback is not healthy"
-        );
-        write_atomic(&failed_file, pending.commit.as_bytes())?;
-        fs::remove_file(&pending_file)?;
+        roll_back(
+            config,
+            service,
+            &old,
+            &pending.previous,
+            &pending.commit,
+            "Interrupted update cannot roll back across the identity genesis boundary; current selection and pending recovery record retained",
+        )
+        .await?;
         return Ok(format!(
             "Recovered interrupted update {}; restored previous release",
             pending.commit
@@ -1134,7 +1339,14 @@ pub async fn update(
             maintenance_blocked: false,
         })
         .await;
+    let stopped = service
+        .stop()
+        .await
+        .context("could not stop the current release before its snapshot")?;
     if let Err(error) = service.preserve_state(&previous_commit).await {
+        if stopped {
+            let _ = service.restart().await;
+        }
         if error.is::<crate::rollback::DiskLimit>() {
             return Ok(
                 "Not enough free disk for a pre-update snapshot; current release left unchanged"
@@ -1142,6 +1354,14 @@ pub async fn update(
             );
         }
         return Err(error.context("pre-update database snapshot failed; current version unchanged"));
+    }
+    if let Err(error) = service.arm_probation(&release.commit).await {
+        if stopped {
+            let _ = service.restart().await;
+        }
+        return Err(
+            error.context("could not hold user writes for the trial; current version unchanged")
+        );
     }
     let _ = fs::remove_file(config.state_dir.join("deferred-release"));
     atomic_link(&previous_dir, &config.install_dir.join("previous"))?;
@@ -1155,35 +1375,54 @@ pub async fn update(
     atomic_link(&candidate_dir, &current)?;
     let activated = async {
         service.restart().await?;
-        ensure!(
-            service.healthy(&release.commit).await?,
-            "candidate failed its version-aware health check"
-        );
-        Ok::<(), anyhow::Error>(())
+        match service.trial(&release.commit).await? {
+            Trial::OnProbation => {
+                if let Err(error) = service.promote(&release.commit).await {
+                    tracing::error!(%error, "health check passed; promotion remains pending");
+                    return Ok(false);
+                }
+                Ok(true)
+            }
+            Trial::ServingWrites => Err(ServingWrites.into()),
+            Trial::Unreachable => bail!("{}", crate::probation::HEALTH_FAILURE),
+        }
     }
     .await;
-    if let Err(error) = activated {
-        restore_previous(service, &previous_dir, &previous_commit, "Activation failed and the previous release cannot read current state; rollback blocked, current selection and pending recovery record retained").await?;
-        atomic_link(&previous_dir, &current)?;
-        service
-            .restart()
-            .await
-            .context("candidate failed and the old service could not restart")?;
-        ensure!(
-            service.healthy(&build_id(&previous_dir)?).await?,
-            "candidate failed and rollback health verification also failed"
-        );
-        write_atomic(&failed_file, release.commit.as_bytes())?;
-        fs::remove_file(&pending_file)?;
-        bail!(
-            "release {} failed and was rolled back: {error}",
-            release.commit
-        );
+    match activated {
+        Ok(false) => {
+            return Ok(format!(
+                "Release {} passed its health check and is holding writes until promotion finishes",
+                release.commit
+            ));
+        }
+        Err(error) if error.is::<ServingWrites>() => {
+            note_outcome(
+                config,
+                &release.commit,
+                crate::deploy_outcomes::Kind::Kept,
+                &error.to_string(),
+            );
+            let _ = fs::remove_file(&pending_file);
+            bail!("release {} was left in place: {error}", release.commit);
+        }
+        Err(error) => {
+            roll_back(
+                config,
+                service,
+                &previous_dir,
+                &previous_commit,
+                &release.commit,
+                "Activation failed and the previous release cannot read current state; rollback blocked, current selection and pending recovery record retained",
+            )
+            .await?;
+            bail!(
+                "release {} failed and was rolled back: {error}",
+                release.commit
+            );
+        }
+        Ok(true) => {}
     }
-    if failed_file.exists() {
-        fs::remove_file(failed_file)?;
-    }
-    fs::remove_file(&pending_file)?;
+    finish_activation(config, &release.commit, &failed_file, &pending_file)?;
     prune_releases(config, &release.commit)?;
     service
         .report(Report {
@@ -1194,6 +1433,77 @@ pub async fn update(
         })
         .await;
     Ok(format!("Activated {}", release.commit))
+}
+
+#[cfg(test)]
+mod trial_tests {
+    use super::*;
+    use std::{path::PathBuf, sync::Mutex, time::Duration};
+
+    #[test]
+    fn health_json_distinguishes_a_held_candidate_from_one_accepting_writes() {
+        let commit = "a".repeat(40);
+        assert_eq!(
+            classify_health(
+                &serde_json::json!({"status":"ok","build":commit,"probation":true}),
+                &commit
+            ),
+            Some(Trial::OnProbation)
+        );
+        assert_eq!(
+            classify_health(&serde_json::json!({"status":"ok","build":commit}), &commit),
+            Some(Trial::ServingWrites)
+        );
+        assert_eq!(
+            classify_health(
+                &serde_json::json!({"status":"ok","build":"b".repeat(40),"probation":true}),
+                &commit
+            ),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn trial_returns_on_the_first_matching_health_response() -> Result<()> {
+        let commit = "b".repeat(40);
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = hits.clone();
+        let answer = commit.clone();
+        let app = axum::Router::new().route(
+            "/healthz",
+            axum::routing::get(move || {
+                let seen = seen.clone();
+                let answer = answer.clone();
+                async move {
+                    seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    axum::Json(serde_json::json!({"status":"ok","build":answer,"probation":true}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let service = Systemd {
+            config: Settings {
+                repository: "example/infuser".into(),
+                install_dir: PathBuf::from("/opt/infuser"),
+                state_dir: PathBuf::from("/var/lib/infuser-updater"),
+                controller_config: PathBuf::from("/etc/infuser/infuser.toml"),
+                service: "infuser.service".into(),
+                health_url: format!("http://{address}/healthz"),
+            },
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(2))
+                .build()?,
+            force: false,
+            activation_lock: Mutex::new(None),
+            host_steps: Mutex::new(None),
+        };
+        assert_eq!(service.trial(&commit).await?, Trial::OnProbation);
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+        server.abort();
+        Ok(())
+    }
 }
 
 // Metadata is optional for old binaries and must never prevent an update.

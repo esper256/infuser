@@ -301,6 +301,29 @@ impl Client {
         response.error_for_status()?;
         Ok(UpdateGate::Open)
     }
+    /// One request. A lost response leaves the candidate holding writes; the
+    /// next update check promotes it. This does not try again itself.
+    pub async fn promote(&self, release: &str) -> Result<()> {
+        let response = self
+            .http
+            .post(
+                self.url
+                    .replace("/v1/maintenance", "/v1/deployment/promote"),
+            )
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({"release": release}))
+            .send()
+            .await?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        ensure!(status.is_success(), "promotion was refused: {body}");
+        let value: serde_json::Value = serde_json::from_str(&body)?;
+        ensure!(
+            value["build"] == release && value["probation"] == false,
+            "promotion did not take effect"
+        );
+        Ok(())
+    }
     pub fn new(config: &crate::config::Config) -> Result<Self> {
         Self::connect(config.controller.api_port, &config.controller.token_file)
     }
