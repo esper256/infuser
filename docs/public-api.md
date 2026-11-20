@@ -84,8 +84,8 @@ Drafts can be resumed by checking the file inventory. Published files are immuta
 No arbitrary remote URLs are fetched and no build scripts execute on the host.
 
 Optional card art uses the ordinary file upload at `infuser-art/card-hero.webp`.
-`capabilities.card_art` advertises `path`, `width`, `height`, `max_bytes`, and
-`format`. See the [card art guide](card-art-guide.md) for the image constraints;
+`capabilities.card_art` advertises `path`, `width`, `height`, `max_bytes`,
+`format`, and `derivatives` (the smaller widths a cover URL can serve). See the [card art guide](card-art-guide.md) for the image constraints;
 invalid images return 422. Bundled art belongs to the immutable build and activates
 with it. For artwork, title, or description changes, use the [metadata API](game-metadata.md),
 advertised by `capabilities.game_metadata.version = 1`. The metadata response
@@ -174,10 +174,15 @@ be used as a player login.
   Its mixed display order is stable across sessions; new pictures slot in without
   changing existing pictures' relative order. Clients should preserve this order.
   Library games include `description` (nullable plain text) and `card_art_url`
-  (null for the fallback). Use the returned cover URL as-is: its revision can be
-  a build ID or override content hash. Images require membership and use private
-  revalidation caching. Hidden images require admin membership; inactive or
-  replaced image URLs return 404.
+  (null for the fallback). Use the returned cover URL as-is. An override URL's
+  last segment is the content hash. A build cover's URL adds that file's content
+  hash after the build id, because a deleted build id can be reused. Those
+  content-addressed URLs are `private, max-age=31536000, immutable`. A legacy
+  build URL without the hash still works and keeps revalidating. `?w=384`,
+  `?w=640`, or `?w=768` returns a smaller WebP of the same image; any other `w`
+  is 400. The stored master stays 1024 and is not rewritten. Images require
+  membership. Hidden images require admin membership; inactive or replaced image
+  URLs return 404.
 - `GET /api/profile` — returns `{"users":[{"name":"Alex","avatar":"circuit-fox"}]}`
   for profile-picker usage badges. Requires active membership; includes enabled
   accounts in the current group, including offline accounts, with a selected

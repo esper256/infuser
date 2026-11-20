@@ -599,6 +599,10 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/my-games/{app}/setup",post(renew_setup))
         .route("/api/apps/{app}/launch", post(launch))
         .route("/api/apps/{app}/card-art/{build}", get(card_art::image))
+        .route(
+            "/api/apps/{app}/card-art/{build}/{digest}",
+            get(card_art::addressed),
+        )
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/updates/{publication}/reaction", put(update_reactions::set))
         .route("/api/platform-updates/{batch}/reaction", put(platform_updates::set))

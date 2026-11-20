@@ -143,6 +143,19 @@ async function refresh(afterWrite = false) {
   } catch (error) { showError(error); } finally { refreshing = false; if (refreshQueued) { refreshQueued = false; await refresh(); } }
 }
 function gameArtSource(game){return game.card_art_url||(game.card_art_pending?'/assets/card-generating.webp':null);}
+// The stored cover is 1024. Ask for the slot that matches the card, and keep the
+// master URL in src so a refresh can recognize the same image.
+const cardSizes='(max-width: 650px) calc(100vw - 36px), (max-width: 1000px) calc((min(100vw, 1600px) - 72px - 22px) / 2), calc((min(100vw, 1600px) - 72px - 44px) / 3)';
+const detailSizes='(max-width: 700px) calc(100vw - 20px), 640px';
+function artVariant(url,width){const next=new URL(url,location.origin);next.searchParams.set('w',String(width));return next.pathname+next.search;}
+function paintCover(image,url,{sizes,eager}){
+  image.alt='';image.decoding='async';
+  if(url.includes('/card-art/')){image.sizes=sizes;image.srcset=[1024,768,640,384].map(width=>width===1024?url+' 1024w':artVariant(url,width)+' '+width+'w').join(', ');}
+  image.loading=eager?'eager':'lazy';
+  if(eager)image.fetchPriority='high';
+  image.src=url;
+}
+function eagerCardCount(){return matchMedia('(max-width:650px)').matches?1:matchMedia('(max-width:1000px)').matches?2:3;}
 function describeArt(art,game){
   if(game.card_art_pending&&!game.card_art_url){art.removeAttribute('aria-hidden');art.setAttribute('role','img');art.setAttribute('aria-label','Artwork being generated');}
   else{art.setAttribute('aria-hidden','true');art.removeAttribute('role');art.removeAttribute('aria-label');}
@@ -260,6 +273,7 @@ function renderGames() {
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
   setText($('game-count'),(visible===total?visible:visible+' / '+total)+' games');
   if(library.apps.length&&!matching.length)nextCards.push(emptyState('No matches','Try another tag or clear your search.'));
+  let eagerCards=eagerCardCount();
   for(const incoming of matching) {
     const card = previousCards.get(incoming.id) || el('article',undefined,'game');
     let state=cardStates.get(card);
@@ -298,7 +312,7 @@ function renderGames() {
     const artSource=gameArtSource(game);let art=card.querySelector('.game-art');
     if(!art || art.querySelector('img')?.getAttribute('src') !== (artSource || undefined)) {
       const replacement=el('div',undefined,'game-art game-mark');replacement.setAttribute('aria-hidden','true');
-      if(artSource){const image=el('img');image.alt='';image.loading='lazy';image.decoding='async';image.onload=()=>replacement.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=artSource;replacement.append(image);}
+      if(artSource){const eager=!game.preview&&eagerCards>0;if(eager)eagerCards--;const image=el('img');image.onload=()=>replacement.classList.add('has-game-art');image.onerror=()=>image.remove();paintCover(image,artSource,{sizes:cardSizes,eager});replacement.append(image);}
       if(art)art.replaceWith(replacement);else card.append(replacement);
       art=replacement;
     }
@@ -398,7 +412,7 @@ function renderGameDetail(){
   const artSource=gameArtSource(game);let art=content.querySelector('.detail-art');
   if(!art||art.querySelector('img')?.getAttribute('src')!==(artSource||undefined)){
     art=el('div',undefined,'game-art detail-art');art.setAttribute('aria-hidden','true');
-    if(artSource){const image=el('img');image.alt='';image.decoding='async';image.onload=()=>art.classList.add('has-game-art');image.onerror=()=>image.remove();image.src=artSource;art.append(image);}
+    if(artSource){const image=el('img');image.onload=()=>art.classList.add('has-game-art');image.onerror=()=>image.remove();paintCover(image,artSource,{sizes:detailSizes,eager:true});art.append(image);}
   }
   describeArt(art,game);
   const title=el('h2',game.title);title.id='game-detail-title';
