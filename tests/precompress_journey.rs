@@ -129,10 +129,23 @@ fn opening_the_server_compresses_an_already_published_build() -> Result<()> {
         }),
     )?);
     let opened = portal::Platform::open(controller)?;
+    assert!(
+        !build.join("index.wasm.br").exists(),
+        "opening the server must not compress before it can answer health checks"
+    );
+    opened.precompress_ready()?;
     let brotli = fs::read(build.join("index.wasm.br"))?;
     assert_eq!(decode_brotli(&brotli), wasm);
     let gzip = fs::read(build.join("index.wasm.gz"))?;
     assert_eq!(decode_gzip(&gzip), wasm);
+    let brotli_modified = fs::metadata(build.join("index.wasm.br"))?.modified()?;
+    fs::remove_file(state.join("precompress/pond/one.json"))?;
+    opened.precompress_ready()?;
+    assert_eq!(fs::read(build.join("index.wasm.br"))?, brotli);
+    assert_eq!(
+        fs::metadata(build.join("index.wasm.br"))?.modified()?,
+        brotli_modified
+    );
     assert!(
         !opened.db.catalog()?.builds["pond/one"]
             .files
@@ -526,5 +539,90 @@ async fn publish_negotiates_precompressed_files_and_keeps_other_games() -> Resul
     assert_eq!(decode_gzip(&restored.bytes().await?), wasm);
     backfill.precompress_ready()?;
     assert_eq!(fs::read(content.join("index.wasm.br"))?, brotli_body);
+    Ok(())
+}
+
+#[tokio::test]
+async fn health_answers_while_existing_builds_are_still_compressing() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let state = dir.path().join("state");
+    let wasm = wasm_module(16 * 1024);
+    let build = state.join("content/pond/one");
+    fs::create_dir_all(&build)?;
+    fs::write(build.join("index.wasm"), &wasm)?;
+    {
+        let db = platform::Database::open(&state)?;
+        db.edit(|data| {
+            data.builds.insert(
+                "pond/one".into(),
+                serde_json::from_value(json!({
+                    "manifest": {"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo"],"solo_runtime":"client_only"},
+                    "server": null,
+                    "spa": false,
+                    "cross_origin_isolation": false,
+                    "ready": true,
+                    "created": 1,
+                    "files": {"index.wasm": wasm.len()}
+                }))?,
+            );
+            data.apps.insert(
+                "pond".into(),
+                serde_json::from_value(json!({"build":"one","updated":1,"listed":false}))?,
+            );
+            Ok(())
+        })?;
+    }
+    let cfg: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}\ndisk_reserve_mb=64",
+        state.display().to_string()
+    ))?;
+    let controller = Arc::new(Controller::open(
+        cfg.clone(),
+        Arc::new(Docker {
+            settings: cfg.controller.clone(),
+        }),
+    )?);
+    let platform = portal::Platform::open(controller)?;
+    assert!(!build.join("index.wasm.br").exists());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}/healthz", listener.local_addr()?);
+    let app = infuser::api::router(
+        platform.controller.clone(),
+        "health-check-token-health-check-token",
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let worker = platform.clone();
+    let thread = std::thread::Builder::new()
+        .name("precompress-test".into())
+        .spawn(move || {
+            worker
+                .precompress_ready_with(|_| {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                })
+                .unwrap();
+        })?;
+    // The server is already running. This returns only once the backfill
+    // thread is inside a file and waiting to be released.
+    tokio::task::spawn_blocking(move || entered_rx.recv())
+        .await?
+        .unwrap();
+    let response = reqwest::Client::new().get(&url).send().await?;
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await?;
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["build"], infuser::BUILD_SHA);
+    assert!(
+        !build.join("index.wasm.br").exists(),
+        "health answered before the backfill wrote a sibling"
+    );
+    release_tx.send(()).unwrap();
+    thread.join().unwrap();
+    assert_eq!(decode_brotli(&fs::read(build.join("index.wasm.br"))?), wasm);
+    server.abort();
     Ok(())
 }

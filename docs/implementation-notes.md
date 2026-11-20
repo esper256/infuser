@@ -55,9 +55,14 @@ cleanup run separately, so one slow Docker operation cannot hold up either loop.
 ## Precompressed web files
 
 Publish writes `.br` and `.gz` siblings for large `.wasm`, JavaScript, text, and
-`.pck` files before the build becomes current. Startup does the same pass for
-ready builds that do not have them yet. A repeat pass keeps an existing sibling
-when the source length and modification time are unchanged. The record lives
+`.pck` files before the build becomes current. Startup runs that same pass
+after the API is already listening, on one background thread, one file at a
+time. `/healthz` does not wait for it. The thread lowers its own scheduling
+priority and is not a Tokio worker, so accepting health checks stays on the
+async runtime. A repeat pass keeps an existing sibling when the source length
+and modification time are unchanged. A sibling left on disk without that record,
+which is what a start killed during the pass leaves behind, is kept when it
+decodes to the source instead of being compressed again. The record lives
 under `precompress/` in the state directory, outside the files players can
 request. Siblings are not catalog entries, so they do not count toward the
 content budget or the 256 MiB upload limit, and a direct request for the
