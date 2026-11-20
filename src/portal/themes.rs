@@ -40,7 +40,6 @@ const FILES: &[&str] = &[
     "castle-keep/nunito-400-latin.woff2",
     "castle-keep/nunito-700-latin.woff2",
     "castle-keep/stone.svg",
-    "castle-keep/battlement.svg",
     "castle-keep/grass.svg",
     "castle-keep/oak.svg",
     "castle-keep/runes.svg",
@@ -266,10 +265,6 @@ fn bytes(path: &str) -> Option<(&'static str, &'static [u8])> {
         "castle-keep/stone.svg" => (
             "image/svg+xml",
             include_bytes!("../../web/themes/castle-keep/stone.svg").as_slice(),
-        ),
-        "castle-keep/battlement.svg" => (
-            "image/svg+xml",
-            include_bytes!("../../web/themes/castle-keep/battlement.svg").as_slice(),
         ),
         "castle-keep/grass.svg" => (
             "image/svg+xml",
