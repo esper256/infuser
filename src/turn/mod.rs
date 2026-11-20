@@ -17,7 +17,7 @@ mod tcp;
 
 pub use auth::credential;
 pub use book::Snapshot;
-pub use ipc::{remote_admit, serve as serve_bridge};
+pub use ipc::{Admission, Admitted, serve as serve_bridge};
 pub use label::{Memory, Participant, Query, Seat, View};
 pub use metrics::ClientPath;
 pub use server::{Params, listen_shape, restart_needed, run, start};

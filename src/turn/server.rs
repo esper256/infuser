@@ -5,7 +5,7 @@ use crate::{
     turn::{
         auth::RestAuth,
         book::{Book, Snapshot},
-        ipc::Gate,
+        ipc::Admission,
         listen::UdpListener,
         metrics::RelayMetrics,
         relay::{Generator, Pool},
@@ -35,14 +35,16 @@ pub struct Params {
     pub relay_end: u16,
     pub udp: bool,
     pub tcp: bool,
-    pub admit: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    pub admit: Arc<Admission>,
     pub metrics_path: Option<std::path::PathBuf>,
     pub socket: Option<std::path::PathBuf>,
 }
 
+pub const OTHER_ENGINE_EXIT: i32 = 78;
+
 pub struct Running {
     pub port: u16,
-    server: Server,
+    server: Arc<Server>,
     book: Arc<Book>,
     metrics: Arc<RelayMetrics>,
 }
@@ -75,12 +77,18 @@ pub async fn start(params: Params) -> Result<Running> {
     let metrics = Arc::new(RelayMetrics::new());
     let book = Arc::new(Book::new(Arc::clone(&metrics), params.metrics_path.clone()));
     if let Some(path) = params.socket.clone() {
-        let gate = Gate::connect(path);
-        let watched = Arc::clone(&book);
-        book.watch(Arc::new(move || gate.publish(watched.snapshot())));
+        crate::turn::ipc::link(path, Arc::clone(&params.admit), Arc::clone(&book));
     }
-    let admit = params.admit.clone();
-    let auth = Arc::new(RestAuth::new(params.secret.clone(), admit));
+    turn::server::set_nonce_key(&params.secret);
+    crate::turn::deny::install(
+        std::net::IpAddr::V4(params.public_ip),
+        params.relay_start,
+        params.relay_end,
+    );
+    let auth = Arc::new(RestAuth::new(
+        params.secret.clone(),
+        Arc::clone(&params.admit),
+    ));
     let pool = Arc::new(Pool::new(
         params.listen_ip,
         params.public_ip,
@@ -101,6 +109,7 @@ pub async fn start(params: Params) -> Result<Running> {
             relay_addr_generator: Box::new(generator),
         });
     }
+    let mut finished = None;
     if params.tcp {
         let pending = Arc::new(Mutex::new(None));
         let tcp = TcpTurn::bind(
@@ -111,6 +120,7 @@ pub async fn start(params: Params) -> Result<Running> {
         )
         .await?;
         port = tcp.port();
+        finished = tcp.take_finished();
         configs.push(ConnConfig {
             conn: Arc::new(tcp),
             relay_addr_generator: Box::new(Generator::new(pool, pending)),
@@ -125,6 +135,15 @@ pub async fn start(params: Params) -> Result<Running> {
     })
     .await
     .map_err(|error| anyhow::anyhow!(error))?;
+    let server = Arc::new(server);
+    if let Some(mut finished) = finished {
+        let server = Arc::clone(&server);
+        tokio::spawn(async move {
+            while let Some(addr) = finished.recv().await {
+                let _ = server.delete_allocations_from(addr).await;
+            }
+        });
+    }
     Ok(Running {
         port,
         server,
@@ -141,7 +160,10 @@ pub async fn run(config: &Path) -> Result<()> {
         .as_ref()
         .context("embedded TURN is not configured")?;
     if turn.engine != TurnEngine::Embedded {
-        bail!("controller.turn.engine is not embedded; the coturn container keeps these ports");
+        tracing::error!(
+            "controller.turn.engine is not embedded; the coturn container keeps these ports"
+        );
+        std::process::exit(OTHER_ENGINE_EXIT);
     }
     let secret = std::fs::read_to_string(&turn.secret_file)?;
     let secret = secret.trim().as_bytes().to_vec();
@@ -150,11 +172,7 @@ pub async fn run(config: &Path) -> Result<()> {
         .socket
         .clone()
         .unwrap_or_else(|| loaded.controller.state_dir.join("turn.sock"));
-    let gate = Arc::new(Gate::connect(socket.clone()));
-    let admit = {
-        let gate = Arc::clone(&gate);
-        Arc::new(move |peer: &str| gate.admit(peer)) as Arc<dyn Fn(&str) -> bool + Send + Sync>
-    };
+    let admit = Admission::new();
     let metrics_path = loaded.controller.state_dir.join("turn-relay.prom");
     let running = start(Params {
         secret,
@@ -228,6 +246,13 @@ mod tests {
     use util::Conn;
 
     #[test]
+    fn the_unit_does_not_restart_when_this_is_not_the_embedded_engine() {
+        let unit = include_str!("../../deploy/infuser-turn.service");
+        assert!(unit.contains("RestartPreventExitStatus=78"));
+        assert_eq!(OTHER_ENGINE_EXIT, 78);
+    }
+
+    #[test]
     fn fingerprint_changes_are_the_only_relay_restarts() {
         assert!(!restart_needed(Some("a"), Some("a"), true));
         assert!(restart_needed(Some("a"), Some("b"), true));
@@ -249,7 +274,11 @@ mod tests {
             relay_end: 34_220,
             udp: true,
             tcp: true,
-            admit: Arc::new(|peer| peer == "alpha" || peer == "beta"),
+            admit: {
+                let admitted = Admission::new();
+                admitted.replace(["alpha".into(), "beta".into()].into());
+                admitted
+            },
             metrics_path: None,
             socket: None,
         })

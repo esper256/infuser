@@ -7,20 +7,27 @@ use crate::{
     turn::{
         auth::peer_from_username,
         book::Book,
+        bucket::Bucket,
         stun::{self, BINDING_REQUEST},
     },
 };
 use async_trait::async_trait;
 use std::{
-    net::SocketAddr,
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
 };
 use tokio::net::UdpSocket;
+
+const UNAUTH_PER_SECOND: f64 = 20.0;
+const UNAUTH_SOURCES: usize = 4096;
+const INTEGRITY: u16 = 0x0008;
 
 pub struct UdpListener {
     inner: UdpSocket,
     pending: Arc<Mutex<Option<String>>>,
     book: Arc<Book>,
+    sources: SourceLimit,
 }
 
 impl UdpListener {
@@ -29,6 +36,7 @@ impl UdpListener {
             inner,
             pending,
             book,
+            sources: SourceLimit::new(UNAUTH_SOURCES),
         }
     }
 
@@ -51,15 +59,19 @@ impl util::Conn for UdpListener {
     }
 
     async fn recv(&self, buf: &mut [u8]) -> util::Result<usize> {
-        let size = self.inner.recv(buf).await?;
-        self.observe(&buf[..size], self.inner.local_addr()?);
+        let (size, _) = self.recv_from(buf).await?;
         Ok(size)
     }
 
     async fn recv_from(&self, buf: &mut [u8]) -> util::Result<(usize, SocketAddr)> {
-        let (size, addr) = self.inner.recv_from(buf).await?;
-        self.observe(&buf[..size], addr);
-        Ok((size, addr))
+        loop {
+            let (size, addr) = self.inner.recv_from(buf).await?;
+            if unauthenticated(&buf[..size]) && !self.sources.allow(addr.ip()) {
+                continue;
+            }
+            self.observe(&buf[..size], addr);
+            return Ok((size, addr));
+        }
     }
 
     async fn send(&self, buf: &[u8]) -> util::Result<usize> {
@@ -84,5 +96,76 @@ impl util::Conn for UdpListener {
 
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
         self
+    }
+}
+
+fn unauthenticated(packet: &[u8]) -> bool {
+    stun::parse(packet).is_some() && !has_integrity(packet)
+}
+
+fn has_integrity(packet: &[u8]) -> bool {
+    let Some(stun) = stun::parse(packet) else {
+        return false;
+    };
+    let _ = stun;
+    let length = u16::from_be_bytes([packet[2], packet[3]]) as usize;
+    let mut attributes = &packet[20..20 + length];
+    while attributes.len() >= 4 {
+        let kind = u16::from_be_bytes([attributes[0], attributes[1]]);
+        let size = u16::from_be_bytes([attributes[2], attributes[3]]) as usize;
+        let padded = size.saturating_add(3) & !3;
+        if attributes.len() < 4 + padded {
+            return false;
+        }
+        if kind == INTEGRITY {
+            return true;
+        }
+        attributes = &attributes[4 + padded..];
+    }
+    false
+}
+
+struct SourceLimit {
+    cap: usize,
+    buckets: Mutex<HashMap<IpAddr, Bucket>>,
+}
+
+impl SourceLimit {
+    fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            buckets: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn allow(&self, ip: IpAddr) -> bool {
+        let mut buckets = self.buckets.lock().unwrap();
+        if let Some(bucket) = buckets.get(&ip) {
+            return bucket.allow(1);
+        }
+        if buckets.len() >= self.cap {
+            return false;
+        }
+        let bucket = Bucket::new(UNAUTH_PER_SECOND, UNAUTH_PER_SECOND);
+        let allowed = bucket.allow(1);
+        buckets.insert(ip, bucket);
+        allowed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unauthenticated_sources_stop_at_the_cap() {
+        let limit = SourceLimit::new(2);
+        let a = IpAddr::from([203, 0, 113, 1]);
+        let b = IpAddr::from([203, 0, 113, 2]);
+        let c = IpAddr::from([203, 0, 113, 3]);
+        assert!(limit.allow(a));
+        assert!(limit.allow(b));
+        assert!(!limit.allow(c));
+        assert_eq!(limit.buckets.lock().unwrap().len(), 2);
     }
 }

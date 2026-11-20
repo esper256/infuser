@@ -2,7 +2,7 @@
 //! and the username is `{expires}:{peer}`. The server returns the long-term
 //! key MD5(username:realm:password), which is what MESSAGE-INTEGRITY checks.
 
-use crate::controller::now;
+use crate::{controller::now, turn::ipc::Admission};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
@@ -36,12 +36,12 @@ pub fn peer_id(peer: &str) -> bool {
 
 pub struct RestAuth {
     secret: Vec<u8>,
-    admit: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    admit: Arc<Admission>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
 impl RestAuth {
-    pub fn new(secret: Vec<u8>, admit: Arc<dyn Fn(&str) -> bool + Send + Sync>) -> Self {
+    pub fn new(secret: Vec<u8>, admit: Arc<Admission>) -> Self {
         Self {
             secret,
             admit,
@@ -66,7 +66,7 @@ impl turn::auth::AuthHandler for RestAuth {
         let Some(peer) = peer_from_username(username, (self.clock)()) else {
             return Err(Error::ErrFakeErr);
         };
-        if !(self.admit)(peer) {
+        if !self.admit.allows(peer) {
             return Err(Error::ErrFakeErr);
         }
         let password = credential(&self.secret, username);
@@ -91,8 +91,9 @@ mod tests {
 
     #[test]
     fn expired_malformed_and_unadmitted_peers_get_no_key() {
-        let auth =
-            RestAuth::new(SECRET.to_vec(), Arc::new(|peer| peer == "peer-123")).with_clock(|| 1000);
+        let admitted = Admission::new();
+        admitted.replace(["peer-123".into()].into());
+        let auth = RestAuth::new(SECRET.to_vec(), admitted).with_clock(|| 1000);
         let realm = "games.example.com";
         let key = auth
             .auth_handle("4600:peer-123", realm, "127.0.0.1:1".parse().unwrap())

@@ -1,4 +1,5 @@
-//! Per-allocation token bucket. coturn max-bps is 524288 and bps-capacity is 8388608.
+//! Token buckets. Each allocation may burst about one second at coturn's
+//! max-bps (524288). The 8 MiB/s capacity is one server-wide bucket.
 
 use std::{
     sync::Mutex,
@@ -6,7 +7,7 @@ use std::{
 };
 
 pub const MAX_BYTES_PER_SECOND: f64 = 524_288.0;
-pub const BURST_BYTES: f64 = 8_388_608.0;
+pub const GLOBAL_BYTES_PER_SECOND: f64 = 8_388_608.0;
 
 pub struct Bucket {
     rate: f64,
@@ -24,7 +25,16 @@ impl Bucket {
     }
 
     pub fn game() -> Self {
-        Self::new(MAX_BYTES_PER_SECOND, BURST_BYTES)
+        Self::new(MAX_BYTES_PER_SECOND, MAX_BYTES_PER_SECOND)
+    }
+
+    pub fn global() -> Self {
+        Self::new(GLOBAL_BYTES_PER_SECOND, GLOBAL_BYTES_PER_SECOND)
+    }
+
+    pub fn refund(&self, bytes: usize) {
+        let mut state = self.state.lock().unwrap();
+        state.0 = (state.0 + bytes as f64).min(self.capacity);
     }
 
     pub fn allow(&self, bytes: usize) -> bool {
@@ -57,5 +67,17 @@ mod tests {
         let bucket = Bucket::new(0.0, 10.0);
         assert!(bucket.allow(10));
         assert!(!bucket.allow(1));
+    }
+
+    #[test]
+    fn an_allocation_bursts_one_second_and_the_server_bucket_is_eight_mib() {
+        let game = Bucket::game();
+        assert!(game.allow(MAX_BYTES_PER_SECOND as usize));
+        assert!(!game.allow(1));
+        let global = Bucket::global();
+        assert!(global.allow(GLOBAL_BYTES_PER_SECOND as usize));
+        assert!(!global.allow(1));
+        global.refund(1);
+        assert!(global.allow(1));
     }
 }

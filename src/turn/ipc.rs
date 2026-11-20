@@ -1,267 +1,363 @@
-//! Unix-socket conversation between the long-lived relay and the daemon.
-//! The relay asks whether a peer is still admitted and pushes its view.
-//! A missing daemon rejects new allocations and leaves existing ones alone.
+//! The controller pushes the admitted-peer set. The relay checks that set in
+//! memory. Snapshots go the other way: a full one when the socket connects, and
+//! another on the export interval. Nothing on this socket runs inside the
+//! packet read loop.
 
-use crate::turn::book::Snapshot;
+use crate::turn::book::{Book, PeerTraffic, Snapshot};
 use serde::{Deserialize, Serialize};
 use std::{
-    io::{Read, Write},
-    os::unix::fs::PermissionsExt,
+    collections::BTreeSet,
+    net::IpAddr,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
+    sync::watch,
+    time::{Interval, MissedTickBehavior},
 };
 
-#[derive(Serialize, Deserialize)]
-struct Traffic {
-    peer: String,
-    packets: u64,
-    bytes_in: u64,
-    bytes_out: u64,
+pub const VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Admitted {
+    pub ids: BTreeSet<String>,
+    pub ips: BTreeSet<IpAddr>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct ViewBody {
-    bindings: Vec<String>,
-    allocations: Vec<Traffic>,
+/// Local copy of the daemon's admitted peers. `allows` only reads this set.
+#[derive(Default)]
+pub struct Admission {
+    ids: Mutex<BTreeSet<String>>,
 }
 
-#[derive(Serialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-enum Outbound<'a> {
-    Admit {
-        peer: &'a str,
-    },
-    View {
-        bindings: Vec<String>,
-        allocations: Vec<Traffic>,
-    },
-}
-
-#[derive(Deserialize)]
-struct Reply {
-    ok: bool,
-}
-
-enum Job {
-    Admit {
-        peer: String,
-        reply: mpsc::Sender<bool>,
-    },
-    View(Snapshot),
-}
-
-pub fn remote_admit(path: PathBuf) -> Arc<dyn Fn(&str) -> bool + Send + Sync> {
-    let gate = Gate::connect(path);
-    Arc::new(move |peer| gate.admit(peer))
-}
-
-pub struct Gate {
-    tx: mpsc::SyncSender<Job>,
-}
-
-impl Gate {
-    pub fn connect(path: PathBuf) -> Self {
-        let (tx, rx) = mpsc::sync_channel(16);
-        std::thread::Builder::new()
-            .name("infuser-turn-ipc".into())
-            .spawn(move || pump(path, rx))
-            .expect("turn ipc thread");
-        Self { tx }
+impl Admission {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
     }
 
-    pub fn admit(&self, peer: &str) -> bool {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        if self
-            .tx
-            .send(Job::Admit {
-                peer: peer.to_owned(),
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            return false;
-        }
-        // Admission runs on the relay's async worker. In the browser fixture the
-        // daemon is the same runtime, so a plain block would leave nobody to
-        // answer and every overlapping allocate would be rejected.
-        let wait = move || reply_rx.recv().unwrap_or(false);
-        match tokio::runtime::Handle::try_current() {
-            Ok(_) => tokio::task::block_in_place(wait),
-            Err(_) => wait(),
-        }
+    pub fn allows(&self, peer: &str) -> bool {
+        self.ids.lock().unwrap().contains(peer)
     }
 
-    pub fn publish(&self, snapshot: Snapshot) {
-        let _ = self.tx.try_send(Job::View(snapshot));
+    pub fn replace(&self, ids: BTreeSet<String>) {
+        *self.ids.lock().unwrap() = ids;
     }
 }
 
-fn pump(path: PathBuf, rx: mpsc::Receiver<Job>) {
-    let mut stream = connect(&path);
-    while let Ok(job) = rx.recv() {
-        if stream.is_none() {
-            stream = connect(&path);
-        }
-        if !exchange(stream.as_mut(), &job) {
-            stream = connect(&path);
-            if !exchange(stream.as_mut(), &job) {
-                stream = None;
-                if let Job::Admit { reply, .. } = job {
-                    let _ = reply.send(false);
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Message {
+    v: u32,
+    op: String,
+    #[serde(default)]
+    ids: BTreeSet<String>,
+    #[serde(default)]
+    ips: BTreeSet<IpAddr>,
+    #[serde(default)]
+    bindings: Vec<IpAddr>,
+    #[serde(default)]
+    allocations: Vec<PeerTraffic>,
+}
+
+fn line(message: &Message) -> String {
+    let mut encoded = serde_json::to_string(message).expect("ipc message");
+    encoded.push('\n');
+    encoded
+}
+
+/// Relay side. One attempt when the interval comes around; the read loop
+/// applies a pushed set as soon as it arrives.
+pub fn link(path: PathBuf, admitted: Arc<Admission>, book: Arc<Book>) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        interval.tick().await;
+        loop {
+            match UnixStream::connect(&path).await {
+                Ok(stream) => {
+                    if drive_relay(stream, &mut interval, &admitted, &book)
+                        .await
+                        .is_err()
+                    {
+                        interval.tick().await;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "TURN relay IPC is down");
+                    interval.tick().await;
                 }
             }
         }
-    }
+    });
 }
 
-fn connect(path: &Path) -> Option<std::os::unix::net::UnixStream> {
-    std::os::unix::net::UnixStream::connect(path).ok()
-}
-
-/// True when the daemon answered. Admission itself may still be false.
-fn exchange(stream: Option<&mut std::os::unix::net::UnixStream>, job: &Job) -> bool {
-    let Some(stream) = stream else {
-        return false;
-    };
-    let encoded = match job {
-        Job::Admit { peer, .. } => serde_json::to_vec(&Outbound::Admit { peer }).ok(),
-        Job::View(snapshot) => serde_json::to_vec(&Outbound::View {
-            bindings: snapshot.bindings.iter().map(ToString::to_string).collect(),
-            allocations: snapshot
-                .peers
-                .iter()
-                .map(|peer| Traffic {
-                    peer: peer.peer.clone(),
-                    packets: peer.packets,
-                    bytes_in: peer.bytes_in,
-                    bytes_out: peer.bytes_out,
-                })
-                .collect(),
-        })
-        .ok(),
-    };
-    let Some(mut body) = encoded else {
-        return false;
-    };
-    body.push(b'\n');
-    if stream.write_all(&body).is_err() {
-        return false;
+async fn drive_relay(
+    stream: UnixStream,
+    interval: &mut Interval,
+    admitted: &Admission,
+    book: &Book,
+) -> Result<(), ()> {
+    let (read, mut write) = stream.into_split();
+    let mut lines = BufReader::new(read).lines();
+    send(
+        &mut write,
+        &Message {
+            v: VERSION,
+            op: "hello".into(),
+            ..empty()
+        },
+    )
+    .await?;
+    let hello = lines.next_line().await.map_err(|_| ())?.ok_or(())?;
+    if apply_peers(&hello, admitted, book).is_err() {
+        return Err(());
     }
-    let Ok(line) = read_line(stream) else {
-        return false;
-    };
-    let ok = serde_json::from_str::<Reply>(line.trim()).is_ok_and(|reply| reply.ok);
-    if let Job::Admit { reply, .. } = job {
-        let _ = reply.send(ok);
-    }
-    true
-}
-
-fn read_line(stream: &mut std::os::unix::net::UnixStream) -> std::io::Result<String> {
-    let mut line = Vec::new();
-    let mut byte = [0u8; 1];
+    // A reconnect starts with the whole snapshot, not a delta.
+    write_snapshot(&mut write, book).await?;
     loop {
-        if stream.read(&mut byte)? == 0 {
-            break;
+        tokio::select! {
+            incoming = lines.next_line() => {
+                match incoming {
+                    Ok(Some(incoming)) => {
+                        if apply_peers(&incoming, admitted, book).is_err() {
+                            return Err(());
+                        }
+                    }
+                    _ => return Err(()),
+                }
+            }
+            _ = interval.tick() => write_snapshot(&mut write, book).await?,
         }
-        if byte[0] == b'\n' {
-            break;
-        }
-        if line.len() == 65_536 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "turn ipc line",
-            ));
-        }
-        line.push(byte[0]);
     }
-    String::from_utf8(line)
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "turn ipc"))
 }
 
+fn apply_peers(text: &str, admitted: &Admission, book: &Book) -> Result<(), ()> {
+    let message: Message = match serde_json::from_str(text) {
+        Ok(message) => message,
+        Err(error) => {
+            tracing::error!(%error, "TURN IPC message was not understood");
+            admitted.replace(BTreeSet::new());
+            book.allow(BTreeSet::new());
+            return Err(());
+        }
+    };
+    if message.v != VERSION || message.op != "peers" {
+        tracing::error!(v = message.v, op = %message.op, "TURN IPC version mismatch");
+        admitted.replace(BTreeSet::new());
+        book.allow(BTreeSet::new());
+        return Err(());
+    }
+    admitted.replace(message.ids);
+    book.allow(message.ips);
+    Ok(())
+}
+
+async fn write_snapshot(
+    write: &mut tokio::net::unix::OwnedWriteHalf,
+    book: &Book,
+) -> Result<(), ()> {
+    let snapshot = book.export();
+    send(
+        write,
+        &Message {
+            v: VERSION,
+            op: "view".into(),
+            bindings: snapshot.bindings,
+            allocations: snapshot.peers,
+            ..empty()
+        },
+    )
+    .await
+}
+
+fn empty() -> Message {
+    Message {
+        v: VERSION,
+        op: String::new(),
+        ids: BTreeSet::new(),
+        ips: BTreeSet::new(),
+        bindings: Vec::new(),
+        allocations: Vec::new(),
+    }
+}
+
+/// Daemon side. Sends the full admitted set on connect and whenever it changes.
 pub fn serve(
     path: &Path,
-    admitted: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    roster: watch::Receiver<Admitted>,
     view: Arc<Mutex<Option<Snapshot>>>,
-) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+) -> std::io::Result<()> {
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
     }
-    let _ = std::fs::remove_file(path);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
     let listener = std::os::unix::net::UnixListener::bind(path)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     listener.set_nonblocking(true)?;
     let listener = UnixListener::from_std(listener)?;
+    let _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600));
     tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
                 break;
             };
-            let admitted = Arc::clone(&admitted);
+            let roster = roster.clone();
             let view = Arc::clone(&view);
             tokio::spawn(async move {
-                let _ = session(stream, admitted, view).await;
+                let _ = drive_daemon(stream, roster, view).await;
             });
         }
     });
     Ok(())
 }
 
-async fn session(
+async fn drive_daemon(
     stream: UnixStream,
-    admitted: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    mut roster: watch::Receiver<Admitted>,
     view: Arc<Mutex<Option<Snapshot>>>,
-) -> std::io::Result<()> {
+) -> Result<(), ()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
-    while let Some(line) = lines.next_line().await? {
-        let response = answer(&line, &admitted, &view);
-        write.write_all(response.as_bytes()).await?;
-        write.write_all(b"\n").await?;
+    let hello = lines.next_line().await.map_err(|_| ())?.ok_or(())?;
+    let hello: Message = serde_json::from_str(&hello).map_err(|error| {
+        tracing::error!(%error, "TURN IPC hello was not understood");
+    })?;
+    if hello.v != VERSION || hello.op != "hello" {
+        tracing::error!(v = hello.v, op = %hello.op, "TURN IPC version mismatch");
+        return Err(());
     }
+    let current = roster.borrow_and_update().clone();
+    write_peers(&mut write, &current).await?;
+    loop {
+        tokio::select! {
+            incoming = lines.next_line() => {
+                match incoming {
+                    Ok(Some(incoming)) => {
+                        if store_view(&incoming, &view).is_err() {
+                            return Err(());
+                        }
+                    }
+                    _ => return Err(()),
+                }
+            }
+            changed = roster.changed() => {
+                if changed.is_err() {
+                    return Err(());
+                }
+                let current = roster.borrow_and_update().clone();
+                write_peers(&mut write, &current).await?;
+            }
+        }
+    }
+}
+
+async fn write_peers(
+    write: &mut tokio::net::unix::OwnedWriteHalf,
+    admitted: &Admitted,
+) -> Result<(), ()> {
+    send(
+        write,
+        &Message {
+            v: VERSION,
+            op: "peers".into(),
+            ids: admitted.ids.clone(),
+            ips: admitted.ips.clone(),
+            ..empty()
+        },
+    )
+    .await
+}
+
+async fn send(write: &mut tokio::net::unix::OwnedWriteHalf, message: &Message) -> Result<(), ()> {
+    let encoded = line(message);
+    write.write_all(encoded.as_bytes()).await.map_err(|_| ())
+}
+
+fn store_view(text: &str, view: &Mutex<Option<Snapshot>>) -> Result<(), ()> {
+    let message: Message = match serde_json::from_str(text) {
+        Ok(message) => message,
+        Err(error) => {
+            tracing::error!(%error, "TURN IPC snapshot was not understood");
+            return Err(());
+        }
+    };
+    if message.v != VERSION || message.op != "view" {
+        tracing::error!(v = message.v, op = %message.op, "TURN IPC version mismatch");
+        return Err(());
+    }
+    *view.lock().unwrap() = Some(Snapshot {
+        bindings: message.bindings,
+        peers: message.allocations,
+    });
     Ok(())
 }
 
-fn answer(
-    line: &str,
-    admitted: &Arc<dyn Fn(&str) -> bool + Send + Sync>,
-    view: &Mutex<Option<Snapshot>>,
-) -> String {
-    let value: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
-    let ok = match value.get("op").and_then(|op| op.as_str()) {
-        Some("admit") => value
-            .get("peer")
-            .and_then(|peer| peer.as_str())
-            .is_some_and(|peer| admitted(peer)),
-        Some("view") => {
-            if let Ok(body) = serde_json::from_value::<ViewBody>(value) {
-                *view.lock().unwrap() = Some(Snapshot {
-                    bindings: body
-                        .bindings
-                        .iter()
-                        .filter_map(|ip| ip.parse().ok())
-                        .collect(),
-                    peers: body
-                        .allocations
-                        .into_iter()
-                        .map(|peer| crate::turn::book::PeerTraffic {
-                            peer: peer.peer,
-                            packets: peer.packets,
-                            bytes_in: peer.bytes_in,
-                            bytes_out: peer.bytes_out,
-                        })
-                        .collect(),
-                });
-                true
-            } else {
-                false
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::turn::metrics::RelayMetrics;
+
+    #[test]
+    fn a_version_mismatch_clears_the_admitted_set() {
+        let admitted = Admission::new();
+        admitted.replace(["alpha".into()].into());
+        let metrics = Arc::new(RelayMetrics::new());
+        let book = Arc::new(Book::new(metrics, None));
+        book.allow(["203.0.113.8".parse().unwrap()].into());
+        let stale = r#"{"v":2,"op":"peers","ids":["alpha"],"ips":["203.0.113.8"]}"#;
+        assert!(apply_peers(stale, &admitted, &book).is_err());
+        assert!(!admitted.allows("alpha"));
+        assert!(book.snapshot().bindings.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reconnect_delivers_the_snapshot_and_the_admitted_set() {
+        let admitted = Admission::new();
+        let metrics = Arc::new(RelayMetrics::new());
+        let book = Arc::new(Book::new(Arc::clone(&metrics), None));
+        book.allow(["203.0.113.8".parse().unwrap()].into());
+        book.note_binding("203.0.113.8".parse().unwrap());
+        let id = book.open("alpha".into());
+        book.packet(id, 4, true);
+        let (daemon_stream, relay_stream) = UnixStream::pair().unwrap();
+        let (tx, rx) = watch::channel(Admitted {
+            ids: ["alpha".into()].into(),
+            ips: ["203.0.113.8".parse().unwrap()].into(),
+        });
+        let view = Arc::new(Mutex::new(None));
+        let stored = Arc::clone(&view);
+        let daemon = tokio::spawn(drive_daemon(daemon_stream, rx, stored));
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        interval.tick().await;
+        let admitted_relay = Arc::clone(&admitted);
+        let book_relay = Arc::clone(&book);
+        let relay = tokio::spawn(async move {
+            drive_relay(relay_stream, &mut interval, &admitted_relay, &book_relay).await
+        });
+        let snapshot = wait_view(&view).await;
+        assert_eq!(
+            snapshot.bindings,
+            vec!["203.0.113.8".parse::<IpAddr>().unwrap()]
+        );
+        assert_eq!(snapshot.peers.len(), 1);
+        assert_eq!(snapshot.peers[0].packets, 1);
+        assert!(admitted.allows("alpha"));
+        drop(tx);
+        relay.abort();
+        daemon.abort();
+    }
+
+    async fn wait_view(view: &Mutex<Option<Snapshot>>) -> Snapshot {
+        for _ in 0..10_000 {
+            if let Some(snapshot) = view.lock().unwrap().clone() {
+                return snapshot;
             }
+            tokio::task::yield_now().await;
         }
-        _ => false,
-    };
-    format!(r#"{{"ok":{ok}}}"#)
+        panic!("relay snapshot was not delivered");
+    }
 }

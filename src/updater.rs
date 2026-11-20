@@ -368,8 +368,13 @@ impl Service for Systemd {
             return Ok(false);
         }
         let next = turn_fingerprint(current).await;
-        let previous = turn_fingerprint(previous).await;
-        if !crate::turn::restart_needed(previous.as_deref(), next.as_deref(), true) {
+        let state = platform_state_dir(&self.config.controller_config)?;
+        let running = std::fs::read_to_string(state.join("turn.fingerprint"))
+            .ok()
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty());
+        let _ = previous;
+        if !crate::turn::restart_needed(running.as_deref(), next.as_deref(), true) {
             return Ok(false);
         }
         let listed = tokio::time::timeout(
@@ -451,10 +456,7 @@ async fn turn_note(config: &Settings, service: &dyn Service) -> String {
     match service.sync_turn(&previous, &current).await {
         Ok(true) => " The relay restarted because its code changed.".into(),
         Ok(false) => String::new(),
-        Err(error) => {
-            tracing::error!(%error, "embedded relay was not restarted");
-            String::new()
-        }
+        Err(error) => format!(" The relay did not restart: {error}."),
     }
 }
 

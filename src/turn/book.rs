@@ -4,18 +4,18 @@ use crate::turn::{
     label::{Allocation, View},
     metrics::SharedRelay,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::IpAddr,
     path::PathBuf,
     sync::{
-        Arc, Mutex,
+        Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerTraffic {
     pub peer: String,
     pub packets: u64,
@@ -47,36 +47,36 @@ impl Snapshot {
 
 pub struct Book {
     bindings: Mutex<BTreeSet<IpAddr>>,
+    allowed: Mutex<BTreeSet<IpAddr>>,
     peers: Mutex<BTreeMap<u64, PeerTraffic>>,
     next: AtomicU64,
     metrics: SharedRelay,
     metrics_path: Option<PathBuf>,
-    on_change: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl Book {
     pub fn new(metrics: SharedRelay, metrics_path: Option<PathBuf>) -> Self {
         Self {
             bindings: Mutex::new(BTreeSet::new()),
+            allowed: Mutex::new(BTreeSet::new()),
             peers: Mutex::new(BTreeMap::new()),
             next: AtomicU64::new(1),
             metrics,
             metrics_path,
-            on_change: Mutex::new(None),
         }
     }
 
-    pub fn watch(&self, hook: Arc<dyn Fn() + Send + Sync>) {
-        *self.on_change.lock().unwrap() = Some(hook);
+    /// Bindings outside this set are ignored, and ones that leave it are dropped.
+    pub fn allow(&self, ips: BTreeSet<IpAddr>) {
+        *self.allowed.lock().unwrap() = ips.clone();
+        self.bindings.lock().unwrap().retain(|ip| ips.contains(ip));
     }
 
     pub fn note_binding(&self, ip: IpAddr) {
-        let mut bindings = self.bindings.lock().unwrap();
-        if !bindings.insert(ip) {
+        if !self.allowed.lock().unwrap().contains(&ip) {
             return;
         }
-        drop(bindings);
-        self.changed();
+        self.bindings.lock().unwrap().insert(ip);
     }
 
     pub fn open(&self, peer: String) -> u64 {
@@ -90,25 +90,19 @@ impl Book {
                 bytes_out: 0,
             },
         );
-        self.recount();
-        self.changed();
         id
     }
 
     pub fn close(&self, id: u64) {
-        if self.peers.lock().unwrap().remove(&id).is_none() {
-            return;
-        }
-        self.recount();
-        self.changed();
+        self.peers.lock().unwrap().remove(&id);
     }
 
+    /// Application traffic only. The caller does not pass STUN.
     pub fn packet(&self, id: u64, bytes: u64, incoming: bool) {
         let mut peers = self.peers.lock().unwrap();
         let Some(peer) = peers.get_mut(&id) else {
             return;
         };
-        let first = peer.packets == 0;
         peer.packets += 1;
         if incoming {
             peer.bytes_in += bytes;
@@ -119,14 +113,6 @@ impl Book {
             self.metrics.bytes_out.fetch_add(bytes, Ordering::Relaxed);
             self.metrics.packets_out.fetch_add(1, Ordering::Relaxed);
         }
-        let publish = first || peer.packets.is_multiple_of(32);
-        drop(peers);
-        if first {
-            self.recount();
-        }
-        if publish {
-            self.changed();
-        }
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -136,20 +122,57 @@ impl Book {
         }
     }
 
-    fn recount(&self) {
-        let peers = self.peers.lock().unwrap();
-        let active = peers.values().filter(|peer| peer.packets > 0).count() as u64;
-        let idle = peers.len() as u64 - active;
+    /// Interval snapshot. Packet counters reset so a quiet interval is not Relayed.
+    pub fn export(&self) -> Snapshot {
+        let bindings = self.bindings.lock().unwrap().iter().copied().collect();
+        let mut peers = self.peers.lock().unwrap();
+        let listed: Vec<_> = peers.values().cloned().collect();
+        let active = listed.iter().filter(|peer| peer.packets > 0).count() as u64;
+        let idle = listed.len() as u64 - active;
         self.metrics.active.store(active, Ordering::Relaxed);
         self.metrics.idle.store(idle, Ordering::Relaxed);
-    }
-
-    fn changed(&self) {
+        for peer in peers.values_mut() {
+            peer.packets = 0;
+            peer.bytes_in = 0;
+            peer.bytes_out = 0;
+        }
+        drop(peers);
         if let Some(path) = &self.metrics_path {
             self.metrics.publish(path);
         }
-        if let Some(hook) = self.on_change.lock().unwrap().clone() {
-            hook();
+        Snapshot {
+            bindings,
+            peers: listed,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::turn::metrics::RelayMetrics;
+    use std::{net::Ipv4Addr, sync::Arc};
+
+    #[test]
+    fn spoofed_bindings_do_not_grow_and_a_quiet_interval_drops_relayed() {
+        let book = Book::new(Arc::new(RelayMetrics::new()), None);
+        let allowed = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 8));
+        let spoofed = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9));
+        book.allow([allowed].into());
+        book.note_binding(allowed);
+        for host in 1..200 {
+            book.note_binding(IpAddr::V4(Ipv4Addr::new(198, 51, 100, host)));
+        }
+        book.note_binding(spoofed);
+        assert_eq!(book.snapshot().bindings, vec![allowed]);
+        book.allow(BTreeSet::new());
+        assert!(book.snapshot().bindings.is_empty());
+        book.allow([allowed].into());
+        let id = book.open("alpha".into());
+        book.packet(id, 8, true);
+        let carrying = book.export();
+        assert_eq!(carrying.peers[0].packets, 1);
+        let quiet = book.export();
+        assert_eq!(quiet.peers[0].packets, 0);
     }
 }

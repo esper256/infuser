@@ -238,18 +238,17 @@ try{
   document.getElementById('library').href=session.library_url;
   document.getElementById('guest').hidden=!session.guest;
   const pathLabel=document.getElementById('path');
-  async function refreshPath(){
-    try{
-      const response=await fetch('/_infuser/network-path',{credentials:'same-origin'});
-      if(!response.ok){pathLabel.hidden=true;return;}
-      const body=await response.json();
-      const label=typeof body.label==='string'?body.label:'';
-      pathLabel.hidden=!label;
-      pathLabel.textContent=label;
-    }catch{pathLabel.hidden=true;}
-  }
-  refreshPath();
-  setInterval(refreshPath,5000);
+  const showPath=label=>{
+    const text=typeof label==='string'?label:'';
+    pathLabel.hidden=!text;
+    pathLabel.textContent=text;
+  };
+  showPath(session.network_path);
+  const gameFrame=document.getElementById('game');
+  addEventListener('message',event=>{
+    if(event.origin!==location.origin||event.source!==gameFrame.contentWindow)return;
+    if(event.data&&event.data.type==='infuser-path')showPath(event.data.label);
+  });
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
   if(!session.guest){

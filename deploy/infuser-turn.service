@@ -12,6 +12,7 @@ StateDirectoryMode=0700
 ExecStart=/opt/infuser/current/infuser turn /etc/infuser/infuser.toml
 Restart=on-failure
 RestartSec=3
+RestartPreventExitStatus=78
 UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict

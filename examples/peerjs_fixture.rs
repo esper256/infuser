@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
         relay_end: 18899,
         udp: true,
         tcp: true,
-        admit: infuser::turn::remote_admit(turn_socket.clone()),
+        admit: infuser::turn::Admission::new(),
         metrics_path: None,
         socket: Some(turn_socket),
     })

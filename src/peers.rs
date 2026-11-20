@@ -396,6 +396,40 @@ impl Rooms {
         reap(&mut rooms, time);
         rooms.values().any(|room| room.peers.contains_key(peer))
     }
+    pub fn admitted_roster(&self, time: u64) -> (BTreeSet<String>, BTreeSet<IpAddr>) {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let mut ids = BTreeSet::new();
+        let mut ips = BTreeSet::new();
+        for room in rooms.values() {
+            for (id, peer) in &room.peers {
+                ids.insert(id.clone());
+                if let Some(address) = peer.address {
+                    ips.insert(address);
+                }
+            }
+        }
+        (ids, ips)
+    }
+    pub fn roster_for_apps(
+        &self,
+        apps: &BTreeSet<String>,
+        time: u64,
+    ) -> (BTreeSet<String>, BTreeSet<IpAddr>) {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let mut ids = BTreeSet::new();
+        let mut ips = BTreeSet::new();
+        for room in rooms.values().filter(|room| apps.contains(&room.app)) {
+            for (id, peer) in &room.peers {
+                ids.insert(id.clone());
+                if let Some(address) = peer.address {
+                    ips.insert(address);
+                }
+            }
+        }
+        (ids, ips)
+    }
     pub fn note_address(&self, app: &str, peer: &str, launch: &str, address: IpAddr, time: u64) {
         let mut rooms = self.rooms.lock().unwrap();
         reap(&mut rooms, time);

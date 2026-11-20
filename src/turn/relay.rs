@@ -32,6 +32,7 @@ pub struct Pool {
     quotas: Quotas,
     book: Arc<Book>,
     metrics: SharedRelay,
+    global: Arc<Bucket>,
 }
 
 impl Pool {
@@ -52,6 +53,7 @@ impl Pool {
             quotas: Quotas::new(),
             book,
             metrics,
+            global: Arc::new(Bucket::global()),
         }
     }
 }
@@ -152,10 +154,13 @@ impl Direction {
 pub struct Meter {
     inner: UdpSocket,
     public_ip: IpAddr,
+    relay_start: u16,
+    relay_end: u16,
     hold: Hold,
     id: u64,
     book: Arc<Book>,
     bucket: Bucket,
+    global: Arc<Bucket>,
     metrics: SharedRelay,
     outbound: Direction,
     inbound: Direction,
@@ -181,6 +186,11 @@ impl Meter {
                 metrics.peer_leg.observe(rtt);
             }
         }
+        // RFC 7983: a first byte of 0-3 is STUN. Relayed and stall counts are
+        // application traffic, so a consent check does not light the label.
+        if packet.first().is_some_and(|byte| *byte < 4) {
+            return;
+        }
         let direction = if outbound {
             &self.outbound
         } else {
@@ -188,6 +198,21 @@ impl Meter {
         };
         direction.arrive(metrics, &self.stalls);
         self.book.packet(self.id, packet.len() as u64, !outbound);
+    }
+
+    fn allowed(&self, addr: SocketAddr) -> bool {
+        !denied(addr, self.public_ip, self.relay_start, self.relay_end)
+    }
+
+    fn budget(&self, bytes: usize) -> bool {
+        if !self.global.allow(bytes) {
+            return false;
+        }
+        if self.bucket.allow(bytes) {
+            return true;
+        }
+        self.global.refund(bytes);
+        false
     }
 }
 
@@ -236,6 +261,8 @@ impl RelayAddressGenerator for Generator {
         let meter = Meter {
             inner: socket,
             public_ip: self.pool.public_ip,
+            relay_start: self.pool.min_port,
+            relay_end: self.pool.max_port,
             hold: Hold {
                 pool: Arc::clone(&self.pool),
                 port,
@@ -245,6 +272,7 @@ impl RelayAddressGenerator for Generator {
             id,
             book: Arc::clone(&self.pool.book),
             bucket: Bucket::game(),
+            global: Arc::clone(&self.pool.global),
             metrics: Arc::clone(&self.pool.metrics),
             outbound: Direction::new(),
             inbound: Direction::new(),
@@ -302,11 +330,11 @@ impl util::Conn for Meter {
     async fn recv_from(&self, buf: &mut [u8]) -> util::Result<(usize, SocketAddr)> {
         loop {
             let (size, addr) = self.inner.recv_from(buf).await?;
-            if denied(addr.ip(), self.public_ip) {
+            if !self.allowed(addr) {
                 self.metrics.denied.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
-            if !self.bucket.allow(size) {
+            if !self.budget(size) {
                 continue;
             }
             self.observe(&buf[..size], false);
@@ -319,13 +347,13 @@ impl util::Conn for Meter {
     }
 
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> util::Result<usize> {
-        if denied(target.ip(), self.public_ip) {
+        if !self.allowed(target) {
             self.metrics.denied.fetch_add(1, Ordering::Relaxed);
             return Err(
                 std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied peer").into(),
             );
         }
-        if !self.bucket.allow(buf.len()) {
+        if !self.budget(buf.len()) {
             return Ok(buf.len());
         }
         let sent = self.inner.send_to(buf, target).await?;
@@ -379,7 +407,9 @@ mod tests {
         let generator = Generator::new(pool, Arc::new(Mutex::new(Some("peer-a".into()))));
         let (conn, relay_addr) = generator.allocate_conn(true, 0).await.unwrap();
         assert_eq!(relay_addr.ip(), IpAddr::V4(Ipv4Addr::LOCALHOST));
-        let peer = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let peer = UdpSocket::bind((Ipv4Addr::LOCALHOST, 33_108))
+            .await
+            .unwrap();
         let transaction = [7u8; 12];
         conn.send_to(
             &binding(BINDING_REQUEST, &transaction),

@@ -151,6 +151,7 @@ pub struct Platform {
     turn_view: Arc<Mutex<Option<crate::turn::Snapshot>>>,
     client_metrics: Arc<crate::turn::ClientPath>,
     turn_bridge: Arc<std::sync::atomic::AtomicBool>,
+    admission: Arc<Mutex<Option<tokio::sync::watch::Sender<crate::turn::Admitted>>>>,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -240,6 +241,7 @@ impl Platform {
             turn_view: Default::default(),
             client_metrics: Arc::new(crate::turn::ClientPath::new()),
             turn_bridge: Default::default(),
+            admission: Default::default(),
         };
         platform.reconcile_publications()?;
         platform.controller.deployment.observe_boot()?;
@@ -252,23 +254,120 @@ impl Platform {
         let Some(turn) = &self.config().controller.turn else {
             return Ok(());
         };
-        if turn.engine != crate::config::TurnEngine::Embedded
-            || self
-                .turn_bridge
-                .swap(true, std::sync::atomic::Ordering::Relaxed)
+        if self
+            .turn_bridge
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
         {
             return Ok(());
         }
+        let metrics = Arc::clone(&self.client_metrics);
+        let metrics_path = crate::turn::client_metrics_path(&self.config().controller.state_dir);
+        let publisher = self.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                metrics.publish(&metrics_path);
+                publisher.publish_admission();
+            }
+        });
+        if turn.engine != crate::config::TurnEngine::Embedded {
+            return Ok(());
+        }
+        let (sender, roster) = tokio::sync::watch::channel(crate::turn::Admitted::default());
+        *self.admission.lock().unwrap() = Some(sender);
+        self.publish_admission();
         let path = turn
             .socket
             .clone()
             .unwrap_or_else(|| self.config().controller.state_dir.join("turn.sock"));
-        let rooms = Arc::clone(&self.peers);
-        crate::turn::serve_bridge(
-            &path,
-            Arc::new(move |peer| rooms.admitted(peer, now())),
-            Arc::clone(&self.turn_view),
-        )
+        crate::turn::serve_bridge(&path, roster, Arc::clone(&self.turn_view))?;
+        Ok(())
+    }
+    pub fn publish_admission(&self) {
+        let Some(sender) = self.admission.lock().unwrap().clone() else {
+            return;
+        };
+        let (ids, ips) = self.peers.admitted_roster(now());
+        let next = crate::turn::Admitted { ids, ips };
+        let _ = sender.send_if_modified(|current| {
+            if *current == next {
+                false
+            } else {
+                *current = next;
+                true
+            }
+        });
+    }
+    /// Records the same connection and report a dedicated session produces, so
+    /// the header can say Server without starting a game container.
+    pub fn note_connected_session(&self, launch_id: &str, app_id: &str) {
+        let time = now();
+        let identity = crate::connections::Identity {
+            deployment_id: None,
+            iss: self.domain().into(),
+            aud: self.domain().into(),
+            iat: time,
+            exp: time + 120,
+            group_id: "group".into(),
+            app_id: app_id.into(),
+            build_id: "test".into(),
+            instance_id: "instance".into(),
+            launch_id: launch_id.into(),
+            connection_id: "connection".into(),
+            player_id: "player".into(),
+            name: "Guest".into(),
+            guest: true,
+            request: Default::default(),
+        };
+        let runtime = identity.runtime_id().to_owned();
+        let app = identity.app_id.clone();
+        let build = identity.build_id.clone();
+        let instance = identity.instance_id.clone();
+        let group = identity.group_id.clone();
+        self.connections.lock().unwrap().0.insert(
+            format!("attempt-{launch_id}"),
+            crate::connections::Attempt {
+                identity,
+                lease_id: "lease".into(),
+                state: crate::connections::State::Connected,
+                error: None,
+                updated: time,
+                session: None,
+                admission: Some("accepted".into()),
+            },
+        );
+        let mut sessions = std::collections::BTreeMap::new();
+        sessions.insert(
+            "0123456789abcdef0123456789abcdef".into(),
+            crate::dedicated::Session {
+                id: "0123456789abcdef0123456789abcdef".into(),
+                label: "Play".into(),
+                activity: crate::dedicated::Activity::Solo,
+                joinable: false,
+                max_players: 1,
+                connections: vec!["connection".into()],
+            },
+        );
+        self.dedicated.lock().unwrap().0.insert(
+            runtime,
+            crate::dedicated::Report {
+                scope: crate::dedicated::Scope {
+                    deployment_id: None,
+                    app_id: app,
+                    build_id: build,
+                    instance_id: instance,
+                    group_id: group,
+                    exp: time + 120,
+                },
+                seq: 1,
+                seen: time,
+                sessions,
+                retired: Default::default(),
+            },
+        );
     }
     fn network_label(&self, launch_id: &str, launch: &Launch) -> Option<String> {
         let embedded = self
@@ -1403,7 +1502,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         d.player_id(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"network_path":p.network_label(&id,&l),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn network_path(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1418,6 +1517,7 @@ fn client_ip(h: &HeaderMap) -> Option<IpAddr> {
 fn remember_peer(p: &Platform, h: &HeaderMap, app: &str, peer: &str, launch: &str) {
     if let Some(ip) = client_ip(h) {
         p.peers.note_address(app, peer, launch, ip, now());
+        p.publish_admission();
     }
 }
 fn on_dedicated_server(p: &Platform, launch_id: &str) -> bool {
@@ -1586,6 +1686,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
     } else {
         "all"
     });
+    p.publish_admission();
     Ok(reply(result))
 }
 #[derive(Deserialize, Default)]
@@ -1608,13 +1709,13 @@ async fn peer_poll(
         fault(403, "poll from the game origin")
     );
     remember_peer(&p, &h, launch.runtime_id(), &peer, &id);
-    Ok(reply(p.peers.poll(
-        launch.runtime_id(),
-        &peer,
-        &id,
-        cursor.after,
-        now(),
-    )?))
+    let mut body = p
+        .peers
+        .poll(launch.runtime_id(), &peer, &id, cursor.after, now())?;
+    if let Some(label) = p.network_label(&id, &launch) {
+        body["network_path"] = label.into();
+    }
+    Ok(reply(body))
 }
 async fn peer_signal(
     State(p): State<Platform>,
@@ -1633,6 +1734,7 @@ async fn peer_leave(State(p): State<Platform>, Path(peer): Path<String>, h: Head
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
     p.peers.leave(launch.runtime_id(), &peer, &id, now())?;
+    p.publish_admission();
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_ice(State(p): State<Platform>, Path(peer): Path<String>, h: HeaderMap) -> Answer {
@@ -1665,13 +1767,10 @@ async fn peer_health(
                 p.client_metrics.observe(
                     connection.get("local").and_then(|value| value.as_str()),
                     connection.get("remote").and_then(|value| value.as_str()),
-                    ms,
+                    ms.min(60_000),
                 );
             }
         }
-        p.client_metrics.publish(&crate::turn::client_metrics_path(
-            &p.config().controller.state_dir,
-        ));
     }
     remember_peer(&p, &h, launch.runtime_id(), &peer, &id);
     p.peers
@@ -1683,7 +1782,16 @@ async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (group, _) = p.group_view(&h, &email)?;
     let data = p.db.catalog()?;
     let mut report = p.peers.diagnostics(now());
-    if let Some(relay) = p.turn_view.lock().unwrap().clone() {
+    if let Some(mut relay) = p.turn_view.lock().unwrap().clone() {
+        let apps = data
+            .apps
+            .keys()
+            .filter(|app| data.deployment_group(app) == group)
+            .cloned()
+            .collect();
+        let (ids, ips) = p.peers.roster_for_apps(&apps, now());
+        relay.peers.retain(|peer| ids.contains(&peer.peer));
+        relay.bindings.retain(|ip| ips.contains(ip));
         report["relay"] = serde_json::to_value(&relay).unwrap_or(Value::Null);
     }
     if let Some(sessions) = report["sessions"].as_array_mut() {

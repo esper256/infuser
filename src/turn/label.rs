@@ -339,4 +339,49 @@ mod tests {
             Some("2 STUN")
         );
     }
+
+    #[test]
+    fn a_dormant_allocation_is_not_relayed_and_a_quiet_snapshot_drops_it() {
+        let memory = Memory::default();
+        let room = seat("member", false, vec![peer("member", Some("203.0.113.4"))]);
+        let stun_only = View {
+            bindings: vec!["203.0.113.4".parse().unwrap()],
+            allocations: vec![Allocation {
+                peer: "member".into(),
+                packets: 0,
+            }],
+        };
+        assert_eq!(
+            memory
+                .label(&query(false, true, Some(room.clone()), Some(stun_only)))
+                .as_deref(),
+            Some("STUN")
+        );
+        let carrying = View {
+            bindings: vec!["203.0.113.4".parse().unwrap()],
+            allocations: vec![Allocation {
+                peer: "member".into(),
+                packets: 3,
+            }],
+        };
+        assert_eq!(
+            memory
+                .label(&query(false, true, Some(room.clone()), Some(carrying)))
+                .as_deref(),
+            Some("Relayed")
+        );
+        let quiet = View {
+            bindings: vec!["203.0.113.4".parse().unwrap()],
+            allocations: vec![Allocation {
+                peer: "member".into(),
+                packets: 0,
+            }],
+        };
+        assert_eq!(
+            memory
+                .label(&query(false, true, Some(room), Some(quiet)))
+                .as_deref(),
+            Some("STUN")
+        );
+    }
 }
