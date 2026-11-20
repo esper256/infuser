@@ -550,12 +550,25 @@ form.admin-region-body { margin: 0; }
 .chat-empty { color: var(--quiet); font-size: 14px; text-align: center; margin: 30px 0; }
 .chat-message { display: flex; align-items: flex-end; gap: 12px; margin: 0 0 18px; }
 .chat-message:last-child { margin-bottom: 0; }
-.chat-message:has(.chat-reads) { position: relative; }
-.chat-reads { position: absolute; z-index: 2; right: 0; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
-.chat-message.own .chat-reads { right: auto; left: 0; flex-direction: row-reverse; }
+/* Marks are a second row under the bubble. The row exists only when someone stopped here,
+   and the gap clears a 3px drop shadow plus the mark's ring. */
+.chat-message:has(.chat-reads) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 8px;
+  align-items: end;
+  justify-items: start;
+}
+.chat-message:has(.chat-reads) .chat-portrait { grid-column: 1; grid-row: 1; }
+.chat-message:has(.chat-reads) .chat-bubble { grid-column: 2; grid-row: 1; max-width: 100%; }
+.chat-reads { grid-column: 2; grid-row: 2; display: flex; align-items: center; width: max-content; margin: 0; }
+.chat-message.own:has(.chat-reads) { grid-template-columns: minmax(0, 1fr) auto; }
+.chat-message.own:has(.chat-reads) .chat-portrait { grid-column: 2; }
+.chat-message.own:has(.chat-reads) .chat-bubble,
+.chat-message.own:has(.chat-reads) .chat-reads { grid-column: 1; justify-self: end; }
 .chat-read { display: block; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px var(--page); }
 .chat-reads .chat-read + .chat-read { margin-left: -6px; }
-.chat-message.own .chat-reads .chat-read + .chat-read { margin-left: 0; margin-right: -6px; }
 .chat-read .avatar { width: 18px; height: 18px; font-size: 8px; border: 0; box-shadow: none; }
 .chat-message .chat-portrait { flex: none; width: 36px; height: 36px; min-width: 36px; border: 2px solid var(--line); box-shadow: 0 3px 0 #0004; font-size: 12px; }
 .chat-bubble { --bubble: var(--surface); position: relative; min-width: 0; max-width: calc(100% - 48px); padding: 10px 13px 12px; border: 1px solid var(--line); border-radius: 17px 17px 17px 5px; background: var(--bubble); color: var(--ink); box-shadow: 0 3px 0 #0004; }

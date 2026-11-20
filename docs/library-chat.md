@@ -55,8 +55,8 @@ packing against the left edge. Scrolling also prepares nearby upcoming speakers
 in the direction you're reading, using spare places without displacing visible
 speakers. Your own profile control stays in place.
 
-A small copy of someone's profile picture sits on the last message they have
-actually seen. It moves only forward, and it stays put across reloads and
+A small copy of someone's profile picture sits in a row under the last message
+they have actually seen, clear of the bubble. It moves only forward, and it stays put across reloads and
 their other devices. Several people who stopped on the same message overlap
 in a short row. Point at a picture, or reach it with a screen reader, to hear
 that person's name. Your own picture is not shown on this device: the mark is
