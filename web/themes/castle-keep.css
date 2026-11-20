@@ -1,0 +1,896 @@
+/* Preview presentation. Every painted rule is scoped to
+ * [data-theme="castle-keep"]. @font-face is global by CSS rules; the other
+ * themes do not use these family names. Fonts and textures are served from
+ * /assets/themes/castle-keep/ with their SIL Open Font License notices.
+ *
+ * The Library stays the shared card grid and top bar. Night granite, torchlight,
+ * and iron-bound oak plaques hung on the wall. Crimson and royal blue are the
+ * heraldry. A heart still marks what is chosen.
+ */
+
+@font-face {
+  font-family: MedievalSharp;
+  src: url("/assets/themes/castle-keep/medievalsharp-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Nunito;
+  src: url("/assets/themes/castle-keep/nunito-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Nunito;
+  src: url("/assets/themes/castle-keep/nunito-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root[data-theme="castle-keep"] {
+  color-scheme: dark;
+  --page: #141c26;
+  --field: #101820;
+  --panel: #1a2430;
+  --card-dock: transparent;
+  --detail-panel: #1a2430;
+  --feedback-bubble: #f6edd8;
+  --button-ink: #fff6ee;
+  --ink: #e8e2d4;
+  --quiet: #a9b4be;
+  --accent: #c4324a;
+  --accent-hover: #e0455c;
+  --accent-pressed: #8e1730;
+  --green: #2f8f4e;
+  --warm: #e7b15a;
+  --line: #3d4c5c;
+  --surface: #243140;
+  --glass: #1a2430;
+  --focus: #9ad7ff;
+  --presence-online: #3dce73;
+  --browser-chrome: #10161e;
+  --game-ratio: 1.08;
+  --heart: #c4324a;
+  --gold: #e2c074;
+  --royal: #1e4f9a;
+  --manuscript: #f6edd8;
+  --manuscript-ink: #1c140e;
+  --steel-ink: #f6f1e6;
+  --steel-face: linear-gradient(165deg, #f4f7f8 0%, #b7c3cc 7%, #5c6974 26%, #2a333c 58%, #12181e 80%, #8b98a4 100%);
+  --steel-hot: linear-gradient(165deg, #fff 0%, #d5dee6 8%, #7d8b98 30%, #3a4550 60%, #1c242c 82%, #c5d0d8 100%);
+  --iron: #0e141a;
+  --mortar: #10161e;
+  --pennant: polygon(0 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 0 100%);
+  --heart-red: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath fill='%239d1c32' d='M16 27.2C8.2 21.6 2 16.8 2 10.6 2 6.6 5 3.8 8.8 3.8c2.2 0 4.2 1 5.6 2.7L16 8.4l1.6-1.9c1.4-1.7 3.4-2.7 5.6-2.7 3.8 0 6.8 2.8 6.8 6.8 0 6.2-6.2 11-14 16.6z'/%3E%3C/svg%3E");
+  --heart-cream: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath fill='%23fff6ee' d='M16 27.2C8.2 21.6 2 16.8 2 10.6 2 6.6 5 3.8 8.8 3.8c2.2 0 4.2 1 5.6 2.7L16 8.4l1.6-1.9c1.4-1.7 3.4-2.7 5.6-2.7 3.8 0 6.8 2.8 6.8 6.8 0 6.2-6.2 11-14 16.6z'/%3E%3C/svg%3E");
+  --rivet: radial-gradient(circle at 8px 8px, #fff 0 1.6px, #5c656c 2.1px 3.4px, transparent 3.8px),
+    radial-gradient(circle at calc(100% - 8px) 8px, #fff 0 1.6px, #5c656c 2.1px 3.4px, transparent 3.8px),
+    radial-gradient(circle at 8px calc(100% - 8px), #fff 0 1.6px, #5c656c 2.1px 3.4px, transparent 3.8px),
+    radial-gradient(circle at calc(100% - 8px) calc(100% - 8px), #fff 0 1.6px, #5c656c 2.1px 3.4px, transparent 3.8px);
+}
+
+[data-theme="castle-keep"] body {
+  background-color: #141c26;
+  background-image:
+    radial-gradient(ellipse at 14% 0%, #ffb15a55, transparent 36%),
+    radial-gradient(ellipse at 84% 20%, #ff7a2a24, transparent 32%),
+    url("/assets/themes/castle-keep/grass.svg"),
+    radial-gradient(ellipse at 50% 68%, transparent 8%, #05080ccc 76%),
+    url("/assets/themes/castle-keep/stone.svg");
+  background-repeat: no-repeat, no-repeat, repeat-x, no-repeat, repeat;
+  background-position: center top, center top, center bottom, center, center top;
+  background-size: auto, auto, auto 84px, auto, 280px 154px;
+  background-attachment: fixed, fixed, fixed, fixed, fixed;
+  color: var(--ink);
+  font-family: Nunito, "Segoe UI", system-ui, sans-serif;
+}
+
+[data-theme="castle-keep"] ::selection { background: #8e1730; color: #fff6ee; }
+
+[data-theme="castle-keep"] body:has(#welcome:not([hidden])) {
+  color-scheme: dark;
+  background: #060b12;
+  color: #edf4ef;
+}
+
+[data-theme="castle-keep"] h1,
+[data-theme="castle-keep"] h2,
+[data-theme="castle-keep"] .game-open,
+[data-theme="castle-keep"] #activity h2,
+[data-theme="castle-keep"] dialog h2,
+[data-theme="castle-keep"] .profile-chooser h1 {
+  font-family: MedievalSharp, Palatino, "Palatino Linotype", serif;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+/* Straight capstone. One coping course, with no merlons. */
+[data-theme="castle-keep"] header {
+  padding-top: 14px;
+  padding-bottom: 18px;
+  border-bottom: 0;
+  background-color: #1a2430;
+  background-image:
+    linear-gradient(#e7eef5, #e7eef5),
+    linear-gradient(#6a8094, #243444),
+    radial-gradient(ellipse at 18% 0%, #ffb15a66, transparent 46%),
+    url("/assets/themes/castle-keep/stone.svg");
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+  background-position: left bottom, left bottom, center top, center top;
+  background-size: 100% 4px, 100% 12px, auto, 280px 154px;
+  color: var(--ink);
+}
+[data-theme="castle-keep"] .brand-wordmark {
+  background: #0e141a;
+  padding: 5px 8px 6px;
+  border-radius: 6px;
+  border: 2px solid var(--gold);
+  box-shadow: inset 0 0 0 1px #5c4010, 0 3px 0 #07090c, 0 0 12px #ff9a3c44;
+}
+[data-theme="castle-keep"] #recent-menu #recent-toggle {
+  background: #0e141a;
+  border: 2px solid var(--gold);
+  box-shadow: inset 0 0 0 1px #5c4010, 0 3px 0 #07090c;
+}
+[data-theme="castle-keep"] .presence-self .profile-menu > summary {
+  border: 2px solid var(--gold);
+  background:
+    var(--rivet),
+    var(--steel-face);
+  background-color: #2a333c;
+  box-shadow: 0 3px 0 #07090c, 0 0 10px #ff9a3c33;
+}
+[data-theme="castle-keep"] .presence-name,
+[data-theme="castle-keep"] .presence-more {
+  background: var(--field);
+  color: var(--ink);
+  border: 2px solid var(--mortar);
+  box-shadow: 0 3px 0 var(--mortar);
+}
+[data-theme="castle-keep"] .friends,
+[data-theme="castle-keep"] .friends strong { color: var(--ink); }
+[data-theme="castle-keep"] .live-dot { background: var(--presence-online); box-shadow: 0 0 0 2px #10161e, 0 0 8px #3dce7388; }
+
+/* Forged controls. Cloth banners and quiet menu rows opt out below. */
+[data-theme="castle-keep"] button,
+[data-theme="castle-keep"] .play-menu summary,
+[data-theme="castle-keep"] .header-menu > summary {
+  border: 2px solid var(--iron);
+  border-radius: 8px;
+  background-image: var(--steel-face);
+  background-color: #d5dce1;
+  color: var(--steel-ink);
+  box-shadow: inset 0 1px 0 #ffffff88, inset 0 -3px 0 #000, 0 3px 0 #07090c, 0 0 0 1px #c6a15a55;
+  text-shadow: 0 1px 0 #000000aa;
+}
+[data-theme="castle-keep"] button:hover,
+[data-theme="castle-keep"] .play-menu summary:hover,
+[data-theme="castle-keep"] .header-menu > summary:hover {
+  background-image: var(--steel-hot);
+  background-color: #eef3f6;
+  border-color: var(--iron);
+  color: var(--steel-ink);
+}
+[data-theme="castle-keep"] button:active:not(:disabled),
+[data-theme="castle-keep"] .play-menu summary:active {
+  background-image: linear-gradient(180deg, #9aa3ab, #d7dee3);
+  box-shadow: inset 0 2px 3px #00000040;
+}
+[data-theme="castle-keep"] .actions > button {
+  border-radius: 8px 0 0 8px;
+  border-right: 0;
+  background-image: var(--rivet), var(--steel-face);
+  padding-inline: 16px;
+}
+[data-theme="castle-keep"] .play-menu summary {
+  border-radius: 0 8px 8px 0;
+  border-left: 1px solid #5c656c;
+  box-shadow: inset 0 1px 0 #ffffff66, inset 0 -3px 0 #000, 0 3px 0 #07090c;
+}
+[data-theme="castle-keep"] .play-menu-items {
+  border: 2px solid var(--gold);
+  border-radius: 8px;
+  background: var(--manuscript) url("/assets/themes/castle-keep/parchment.svg");
+  color: var(--manuscript-ink);
+  box-shadow: 0 8px 0 #07090c;
+}
+[data-theme="castle-keep"] .play-menu-items button,
+[data-theme="castle-keep"] .play-menu-items button:hover {
+  background: transparent;
+  color: var(--manuscript-ink);
+  border-color: transparent;
+  box-shadow: none;
+  text-shadow: none;
+}
+[data-theme="castle-keep"] .play-menu-items button:hover { background: #f8d5db; color: var(--manuscript-ink); }
+
+[data-theme="castle-keep"] .game-open,
+[data-theme="castle-keep"] .game-open:hover,
+[data-theme="castle-keep"] .game-open:active:not(:disabled),
+[data-theme="castle-keep"] .game-buzz,
+[data-theme="castle-keep"] .game-buzz:hover,
+[data-theme="castle-keep"] .game-buzz:active:not(:disabled),
+[data-theme="castle-keep"] .text-button,
+[data-theme="castle-keep"] .text-button:hover,
+[data-theme="castle-keep"] .account-menu > button,
+[data-theme="castle-keep"] .account-menu > a,
+[data-theme="castle-keep"] button.feed-row,
+[data-theme="castle-keep"] button.feed-row:hover,
+[data-theme="castle-keep"] .chat-remove,
+[data-theme="castle-keep"] .chat-remove:hover,
+[data-theme="castle-keep"] #chat-emoji-toggle,
+[data-theme="castle-keep"] #chat-emoji-toggle:hover,
+[data-theme="castle-keep"] .chat-emoji-heading button,
+[data-theme="castle-keep"] #chat-actions button,
+[data-theme="castle-keep"] .attachment-tabs button,
+[data-theme="castle-keep"] .feed-reaction-picker button,
+[data-theme="castle-keep"] .game-admin-items > button,
+[data-theme="castle-keep"] .game-live-menu button {
+  background-image: none;
+  text-shadow: none;
+}
+[data-theme="castle-keep"] .game-open,
+[data-theme="castle-keep"] .game-open:active:not(:disabled) {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  color: var(--ink);
+}
+[data-theme="castle-keep"] .game-open:hover { background: none; color: var(--heart); }
+[data-theme="castle-keep"] .game-buzz,
+[data-theme="castle-keep"] .game-buzz:hover,
+[data-theme="castle-keep"] .game-buzz:active:not(:disabled) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+[data-theme="castle-keep"] .text-button { background: transparent; border: 0; box-shadow: none; color: var(--heart); }
+[data-theme="castle-keep"] .text-button:hover { background: transparent; color: var(--accent-pressed); }
+
+[data-theme="castle-keep"] .close,
+[data-theme="castle-keep"] #close-game-detail {
+  border-radius: 50%;
+  background-image: var(--rivet), var(--steel-face);
+  color: var(--steel-ink);
+  border: 2px solid var(--iron);
+}
+[data-theme="castle-keep"] .close:hover,
+[data-theme="castle-keep"] #close-game-detail:hover { color: var(--steel-ink); background-image: var(--rivet), var(--steel-hot); }
+
+[data-theme="castle-keep"] .secondary,
+[data-theme="castle-keep"] .secondary:hover {
+  background-image: none;
+  background-color: #4e575e;
+  color: #f6ead2;
+  border-color: var(--mortar);
+  text-shadow: none;
+}
+[data-theme="castle-keep"] .secondary:hover { background-color: #3c444a; }
+
+[data-theme="castle-keep"] input,
+[data-theme="castle-keep"] textarea,
+[data-theme="castle-keep"] select {
+  background: var(--manuscript);
+  color: var(--manuscript-ink);
+  border: 2px solid var(--gold);
+  box-shadow: inset 0 2px 0 #00000022;
+}
+[data-theme="castle-keep"] input::placeholder,
+[data-theme="castle-keep"] textarea::placeholder { color: #7a6b58; }
+[data-theme="castle-keep"] input:hover,
+[data-theme="castle-keep"] input:focus,
+[data-theme="castle-keep"] textarea:hover,
+[data-theme="castle-keep"] textarea:focus { border-color: var(--heart); }
+[data-theme="castle-keep"] label { color: var(--ink); }
+
+/* Blackened iron beam. Pennants hang from it; the wall stays granite. */
+[data-theme="castle-keep"] .library-toolbar {
+  padding: 12px;
+  border: 2px solid var(--gold);
+  border-radius: 8px;
+  background-color: #1a222c;
+  background-image:
+    radial-gradient(ellipse at 0% 0%, #ff9a3c33, transparent 40%),
+    linear-gradient(180deg, #3a4654, #141b24 70%);
+  box-shadow: inset 0 1px 0 #ffffff22, 0 8px 0 #07090c, 0 0 24px #ff8a2a22;
+}
+/* Compact plaques. Same padding and height as the shared tags; the brass is paint only. */
+[data-theme="castle-keep"] .tag-filter,
+[data-theme="castle-keep"] .game-tags .tag-chip,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip,
+[data-theme="castle-keep"] .tag-more,
+[data-theme="castle-keep"] .edit-tags {
+  border-color: #5c4010;
+  font-family: initial;
+  background-color: #c6a15a;
+  background-image: linear-gradient(180deg, #f8e7b0, #d7a84a 46%, #8a6420);
+  color: var(--manuscript-ink);
+  box-shadow: inset 0 1px 0 #fff6cc, inset 0 -1px 0 #5c4010;
+  text-shadow: none;
+}
+[data-theme="castle-keep"] .tag-filter:hover,
+[data-theme="castle-keep"] .game-tags .tag-chip:hover,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip:hover,
+[data-theme="castle-keep"] .tag-more:hover,
+[data-theme="castle-keep"] .edit-tags:hover {
+  background-image: linear-gradient(180deg, #fff3c4, #e2c074 46%, #a07830);
+  color: var(--manuscript-ink);
+}
+[data-theme="castle-keep"] .tag-filter.selected,
+[data-theme="castle-keep"] .tag-filter.selected:hover,
+[data-theme="castle-keep"] .game-tags .tag-chip.selected,
+[data-theme="castle-keep"] .game-tags .tag-chip.selected:hover,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip.selected,
+[data-theme="castle-keep"] .tag-overflow-panel .tag-chip.selected:hover,
+[data-theme="castle-keep"] .tag-more.selected,
+[data-theme="castle-keep"] .tag-more.selected:hover {
+  border-color: #4a1018;
+  background-color: var(--heart);
+  background-image: var(--heart-cream), linear-gradient(180deg, #e2556c, #8e162b);
+  background-repeat: no-repeat;
+  background-position: right 1px center, center;
+  background-size: 6px 6px, auto;
+  color: #fff6ee;
+}
+[data-theme="castle-keep"] .tag-filter:focus-visible,
+[data-theme="castle-keep"] .tag-chip:focus-visible,
+[data-theme="castle-keep"] .tag-more:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+[data-theme="castle-keep"] .tag-overflow-panel {
+  border: 3px solid var(--gold);
+  border-radius: 12px 12px 46px 46px;
+  padding: 28px 14px 18px;
+  background-color: #1a2430;
+  background-image: linear-gradient(180deg, #243140, #121820);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 3px var(--heart), 0 12px 0 #07090c, 0 0 24px #7ec8ff22;
+}
+[data-theme="castle-keep"] .tag-overflow-panel::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 16px;
+  height: 14px;
+  transform: translateX(-50%);
+  background: var(--heart-red) center / contain no-repeat;
+  pointer-events: none;
+}
+[data-theme="castle-keep"] #game-count {
+  margin-left: 4px;
+  padding: 6px 10px;
+  border: 2px solid var(--gold);
+  border-radius: 999px;
+  background: #10161e;
+  color: var(--gold);
+  font-weight: 700;
+}
+[data-theme="castle-keep"] .search-label input {
+  background: var(--manuscript);
+  color: var(--manuscript-ink);
+  border-color: var(--gold);
+}
+[data-theme="castle-keep"] .search-options {
+  border: 2px solid var(--gold);
+  background: #1a2430;
+  color: var(--ink);
+  box-shadow: 0 8px 0 #07090c;
+}
+[data-theme="castle-keep"] .add-game,
+[data-theme="castle-keep"] .add-game:hover,
+[data-theme="castle-keep"] .add-game:active:not(:disabled) {
+  clip-path: var(--pennant);
+  border: 0;
+  border-radius: 0;
+  padding-right: 28px;
+  background-color: var(--heart);
+  background-image: linear-gradient(#c4374c, #8e162b);
+  color: #fff6ee;
+  text-shadow: none;
+  box-shadow: none;
+}
+[data-theme="castle-keep"] .add-game:focus-visible { clip-path: none; }
+
+/* Iron-bound oak, hung on the granite. The cover is a painting, not more stone.
+   It stays in the column so the brass plate sits under it, and a wrapped
+   reaction row (a later layout) still lands on the wood. */
+[data-theme="castle-keep"] .game:not(.hidden-game) {
+  --card-padding: 14px;
+  gap: 10px;
+  padding: 12px 12px 14px;
+  border: 3px solid #0e0a08;
+  border-radius: 6px;
+  background-color: #2a1a12;
+  background-image: url("/assets/themes/castle-keep/oak.svg");
+  background-size: 120px 80px;
+  background-attachment: scroll;
+  color: #f3e6c4;
+  box-shadow:
+    inset 0 0 0 2px var(--gold),
+    inset 8px 0 0 #1a120c,
+    inset -8px 0 0 #1a120c,
+    0 10px 0 #07090c,
+    0 18px 28px #000a;
+}
+[data-theme="castle-keep"] .game:not(.hidden-game) > .game-meta { order: 1; position: relative; z-index: 2; }
+[data-theme="castle-keep"] .game:not(.hidden-game) > .game-bottom {
+  order: 3;
+  margin-top: 0;
+  position: relative;
+  z-index: 2;
+  flex-wrap: wrap-reverse;
+  align-items: flex-start;
+  gap: 4px 6px;
+}
+[data-theme="castle-keep"] .game:not(.hidden-game)::before {
+  inset: auto;
+  top: -10px;
+  left: 50%;
+  z-index: 4;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e7eef2, #5c6974 40%, #12181e 72%);
+  box-shadow: 0 3px 0 #07090c, 0 0 0 2px var(--gold);
+}
+[data-theme="castle-keep"] .game:not(.hidden-game) > .game-art {
+  order: 2;
+  position: relative;
+  z-index: 0;
+  inset: auto;
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: auto;
+  min-height: 0;
+  height: auto;
+  margin: 0 6px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 3px var(--gold), 0 0 0 6px #0e0a08, inset 0 10px 18px #00000088;
+}
+[data-theme="castle-keep"] .game:not(.hidden-game) > .game-art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+[data-theme="castle-keep"] .game:not(.hidden-game) .game-buzz {
+  margin-left: 4px;
+  margin-bottom: 2px;
+}
+[data-theme="castle-keep"] .game-art:not(:has(img))::before {
+  border-color: #f0cb84;
+  border-right-color: var(--heart);
+  border-bottom-color: #1e4d8c;
+}
+[data-theme="castle-keep"] .game-art:not(:has(img))::after {
+  border-color: #2f7a34;
+  border-top-color: #f6ead2;
+  border-right-color: #d7dee3;
+  border-bottom-color: var(--heart);
+}
+[data-theme="castle-keep"] .game:not(.hidden-game) .game-heading {
+  border: 2px solid #5c4010;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #f8e7b0, #d7a84a 46%, #8a6420);
+  color: var(--manuscript-ink);
+  box-shadow: inset 0 1px 0 #fff6cc, 0 3px 0 #07090c;
+  backdrop-filter: none;
+}
+[data-theme="castle-keep"] .game-open,
+[data-theme="castle-keep"] .game-open:active:not(:disabled) { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .game-open:hover { color: var(--heart); }
+[data-theme="castle-keep"] .game h2 { font-size: clamp(20px, 4.8cqw, 28px); line-height: 1.2; }
+[data-theme="castle-keep"] .game .creator .avatar,
+[data-theme="castle-keep"] .avatar { border-color: var(--gold); }
+[data-theme="castle-keep"] .game-buzz span {
+  background: radial-gradient(circle, #f6edd8 0 58%, #c4324a88 62%, transparent 68%);
+  border-radius: 50%;
+}
+[data-theme="castle-keep"] .game-visibility,
+[data-theme="castle-keep"] .game-meta .quiet {
+  background: #120c08cc;
+  color: #f3e6c4;
+  border: 1px solid var(--gold);
+}
+[data-theme="castle-keep"] .empty,
+[data-theme="castle-keep"] .loading {
+  background: #1a2430;
+  color: var(--ink);
+  border: 2px solid var(--gold);
+  box-shadow: 0 6px 0 #07090c;
+}
+[data-theme="castle-keep"] .empty p,
+[data-theme="castle-keep"] .loading { color: var(--quiet); }
+[data-theme="castle-keep"] #hidden-games { border-top: 3px solid var(--mortar); }
+[data-theme="castle-keep"] #hidden-games > summary { color: var(--ink); }
+[data-theme="castle-keep"] #hidden-game-count { background: var(--field); color: var(--ink); border: 2px solid var(--mortar); }
+[data-theme="castle-keep"] #hidden-game-list .hidden-game {
+  border: 3px solid #0e0a08;
+  border-radius: 6px;
+  background-color: #2a1a12;
+  background-image: url("/assets/themes/castle-keep/oak.svg");
+  background-size: 120px 80px;
+  color: #f3e6c4;
+  box-shadow: inset 0 0 0 2px var(--gold), 0 6px 0 #07090c;
+}
+[data-theme="castle-keep"] .hidden-game .game-heading {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  [data-theme="castle-keep"] .game:not(.hidden-game):hover { transform: translateY(-6px); }
+}
+@media (hover: hover) {
+  [data-theme="castle-keep"] .game:not(.hidden-game):hover {
+    border-color: var(--gold);
+    box-shadow:
+      inset 0 0 0 2px var(--gold),
+      inset 8px 0 0 #1a120c,
+      inset -8px 0 0 #1a120c,
+      0 14px 0 #07090c,
+      0 0 22px #ff9a3c33;
+  }
+}
+
+/* Open a plaque and the page is night steel, with the story on illuminated parchment. */
+[data-theme="castle-keep"] dialog {
+  border: 6px solid #2a333c;
+  border-radius: 10px;
+  background-color: #1a2430;
+  background-image: radial-gradient(ellipse at 0% 0%, #ff9a3c22, transparent 36%);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--gold), 0 18px 0 #07090c, 0 28px 50px #000c;
+}
+[data-theme="castle-keep"] dialog::backdrop { background: #07090ce0; backdrop-filter: none; }
+[data-theme="castle-keep"] #game-detail {
+  background-color: #1a2430;
+  background-image: radial-gradient(ellipse at 100% 0%, #7ec8ff18, transparent 32%);
+}
+[data-theme="castle-keep"] .detail-art.game-art { box-shadow: inset 0 0 0 8px #0e0a08, inset 0 0 0 11px var(--gold); }
+[data-theme="castle-keep"] .detail-info h2 { color: var(--gold); font-size: clamp(30px, 4vw, 44px); text-shadow: 0 0 12px #ff9a3c44; }
+[data-theme="castle-keep"] .game-description {
+  padding: 12px 14px;
+  border: 2px solid var(--gold);
+  border-radius: 4px;
+  background: var(--manuscript) url("/assets/themes/castle-keep/parchment.svg");
+  color: var(--manuscript-ink);
+}
+[data-theme="castle-keep"] .detail-tags .tag-chip,
+[data-theme="castle-keep"] .detail-tags .tag-chip:hover {
+  clip-path: none;
+  padding: 4px 2px;
+  background: none;
+  color: var(--gold);
+}
+[data-theme="castle-keep"] .detail-tags .tag-chip:hover { color: var(--heart); }
+[data-theme="castle-keep"] .feedback-bubble {
+  background-color: var(--manuscript);
+  background-image: url("/assets/themes/castle-keep/parchment.svg");
+  border: 2px solid var(--gold);
+  border-radius: 6px 16px 16px 16px;
+  color: var(--manuscript-ink);
+  box-shadow: 0 3px 0 #07090c;
+}
+[data-theme="castle-keep"] .feedback-bubble::before { background: var(--manuscript); border-color: var(--gold); }
+[data-theme="castle-keep"] .reaction-choice {
+  border-radius: 10px 10px 18px 18px;
+  background-color: #121820;
+  border: 2px solid #3d4c5c;
+  color: var(--ink);
+}
+[data-theme="castle-keep"] .reaction-choice[aria-pressed="true"] {
+  border-color: var(--heart);
+  background-color: #f8d5db;
+  background-image: var(--heart-red);
+  background-repeat: no-repeat;
+  background-position: 6px calc(100% - 6px);
+  background-size: 14px 12px;
+  box-shadow: inset 0 0 0 2px var(--heart);
+}
+[data-theme="castle-keep"] .reaction-count { background: #10161e; color: var(--gold); border-color: var(--gold); }
+[data-theme="castle-keep"] #emoji span { background: #121820; border: 2px solid #3d4c5c; color: var(--ink); }
+[data-theme="castle-keep"] #emoji input:checked + span {
+  background-color: #f8d5db;
+  background-image: var(--heart-red);
+  background-repeat: no-repeat;
+  background-position: 8px 8px;
+  background-size: 14px 12px;
+  border-color: var(--heart);
+}
+[data-theme="castle-keep"] .profile-tile { background: #121820; border-color: #3d4c5c; color: var(--ink); }
+[data-theme="castle-keep"] .profile-option:hover .profile-tile { background: #243140; }
+[data-theme="castle-keep"] .profile-option input:checked + .profile-tile {
+  border-color: var(--heart);
+  background: #f8d5db;
+}
+[data-theme="castle-keep"] #profile-error { color: var(--heart); }
+[data-theme="castle-keep"] .prompt-card,
+[data-theme="castle-keep"] .prompt-card textarea {
+  background: var(--manuscript);
+  color: var(--manuscript-ink);
+  border-color: var(--gold);
+}
+[data-theme="castle-keep"] .prompt-card textarea { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+[data-theme="castle-keep"] .setup-note,
+[data-theme="castle-keep"] .saved-hint,
+[data-theme="castle-keep"] #tag-selection-count { color: var(--quiet); }
+
+/* Recently and the profile menu are dark iron, edged in gold. */
+[data-theme="castle-keep"] #activity.recent-panel,
+[data-theme="castle-keep"] .account-menu {
+  border: 3px solid var(--gold);
+  border-radius: 10px;
+  background-color: #1a2430;
+  background-image: linear-gradient(180deg, #243140, #121820);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px #8e1730, 0 12px 0 #07090c, 0 0 20px #ff9a3c22;
+}
+[data-theme="castle-keep"] #activity h2 { font-size: 28px; color: var(--gold); }
+[data-theme="castle-keep"] .feed-row,
+[data-theme="castle-keep"] .feed-entry:nth-child(3n+2) > .feed-row,
+[data-theme="castle-keep"] .feed-row:nth-child(2n),
+[data-theme="castle-keep"] .feed-row:nth-child(3n+2),
+[data-theme="castle-keep"] button.feed-row,
+[data-theme="castle-keep"] button.feed-row:hover {
+  background-color: #121820;
+  background-image: none;
+  border: 2px solid #3d4c5c;
+  border-radius: 8px 14px 14px 8px;
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--heart);
+}
+[data-theme="castle-keep"] .feed-row small,
+[data-theme="castle-keep"] .feed-row p { color: var(--quiet); }
+[data-theme="castle-keep"] .feed-platform { box-shadow: inset 4px 0 0 var(--heart); }
+[data-theme="castle-keep"] .feed-platform-badge { color: var(--heart); }
+[data-theme="castle-keep"] .feed-react-toggle:not(:has(.feed-react-outline)) {
+  border-color: var(--heart);
+  box-shadow: 0 0 0 2px #f4c3cb;
+  background: #fffaf1;
+}
+[data-theme="castle-keep"] .account-menu > button,
+[data-theme="castle-keep"] .account-menu > a {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--ink);
+}
+[data-theme="castle-keep"] .account-menu > button:hover,
+[data-theme="castle-keep"] .account-menu > a:hover { background: #8e1730; color: #fff6ee; }
+[data-theme="castle-keep"] .account-menu label { color: var(--gold); font-weight: 700; }
+[data-theme="castle-keep"] .account-menu select {
+  background-color: var(--manuscript);
+  color: var(--manuscript-ink);
+  border-color: var(--gold);
+}
+[data-theme="castle-keep"] #notice {
+  background: #1a2430;
+  color: var(--ink);
+  border: 2px solid var(--gold);
+  box-shadow: 0 6px 0 #07090c;
+}
+[data-theme="castle-keep"] .game-live-menu,
+[data-theme="castle-keep"] .game-admin-items,
+[data-theme="castle-keep"] #chat-actions,
+[data-theme="castle-keep"] .feed-reaction-picker {
+  background: #1a2430;
+  color: var(--ink);
+  border: 2px solid var(--gold);
+  box-shadow: 0 8px 0 #07090c;
+}
+[data-theme="castle-keep"] .game-admin-items > button,
+[data-theme="castle-keep"] #chat-actions button {
+  background: transparent;
+  color: var(--ink);
+  border-color: transparent;
+  box-shadow: none;
+}
+[data-theme="castle-keep"] .game-admin-items > button:hover,
+[data-theme="castle-keep"] #chat-actions button:hover { background: #f8d5db; }
+[data-theme="castle-keep"] #chat-actions #chat-delete { color: var(--heart); }
+
+/* Chat is a window in the wall: parchment letters, a steel note of your own. */
+[data-theme="castle-keep"] #chat-toggle,
+[data-theme="castle-keep"] #voice-toggle {
+  background-image: var(--steel-face);
+  background-color: #d5dce1;
+  color: var(--steel-ink);
+  border: 2px solid var(--iron);
+  box-shadow: inset 0 1px 0 #fff, 0 3px 0 var(--mortar);
+}
+[data-theme="castle-keep"] #chat-toggle[aria-expanded="true"],
+[data-theme="castle-keep"] #chat-toggle:hover,
+[data-theme="castle-keep"] #voice-toggle:hover { background-image: var(--steel-hot); color: var(--steel-ink); }
+[data-theme="castle-keep"] #chat-unread { color: #fff6ee; border-color: var(--mortar); }
+[data-theme="castle-keep"] #chat-panel {
+  border: 4px solid #2a333c;
+  border-radius: 12px;
+  background-color: #121820;
+  background-image: radial-gradient(ellipse at 50% 0%, #ff9a3c22, transparent 40%);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--gold), 0 12px 0 #07090c, 0 22px 40px #000a;
+}
+[data-theme="castle-keep"] .chat-bubble {
+  --bubble: #f6edd8;
+  background-color: var(--bubble);
+  background-image: url("/assets/themes/castle-keep/parchment.svg");
+  color: var(--manuscript-ink);
+  border: 2px solid var(--gold);
+  border-radius: 4px 16px 16px 16px;
+  box-shadow: 0 3px 0 #07090c;
+}
+[data-theme="castle-keep"] .chat-bubble::before { background: var(--bubble); border-color: var(--gold); }
+[data-theme="castle-keep"] .own .chat-bubble {
+  --bubble: #2a333c;
+  background-color: #2a333c;
+  background-image: linear-gradient(180deg, #3c4754, #2a333c 48%, #232b33);
+  color: var(--steel-ink);
+  border: 2px solid var(--gold);
+  border-radius: 16px 16px 8px 16px;
+  box-shadow: inset 0 1px 0 #ffffff22, 0 3px 0 #07090c;
+}
+[data-theme="castle-keep"] .own .chat-bubble::before { background: #2e3844; border-color: var(--gold); }
+[data-theme="castle-keep"] .chat-meta,
+[data-theme="castle-keep"] .chat-meta time { color: #5c4632; }
+[data-theme="castle-keep"] .chat-meta strong { color: var(--heart); }
+[data-theme="castle-keep"] .own .chat-meta,
+[data-theme="castle-keep"] .own .chat-meta time { color: #d5dde4; }
+[data-theme="castle-keep"] .own .chat-meta strong { color: var(--gold); }
+[data-theme="castle-keep"] #chat-emoji-toggle,
+[data-theme="castle-keep"] #chat-emoji-toggle:hover {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 2px solid var(--iron);
+  border-radius: 10px;
+  background-color: #d5dce1;
+  background-image: var(--steel-face);
+  color: var(--steel-ink);
+  box-shadow: inset 0 1px 0 #fff;
+}
+[data-theme="castle-keep"] #chat-emoji-toggle:hover { background-image: var(--steel-hot); }
+[data-theme="castle-keep"] #chat-emoji-toggle svg { display: none; }
+[data-theme="castle-keep"] #chat-emoji-toggle::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='8.2' fill='none' stroke='black' stroke-width='1.8'/%3E%3Ccircle cx='9' cy='10' r='1.15' fill='black'/%3E%3Ccircle cx='15' cy='10' r='1.15' fill='black'/%3E%3Cpath d='M8.2 14.2a4.2 3.1 0 0 0 7.6 0' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+[data-theme="castle-keep"] #chat-close {
+  background: #121820;
+  color: var(--ink);
+  border: 2px solid var(--gold);
+}
+[data-theme="castle-keep"] .chat-message .chat-portrait {
+  border: 2px solid var(--mortar);
+  box-shadow: 0 3px 0 var(--mortar);
+}
+[data-theme="castle-keep"] .chat-read { box-shadow: 0 0 0 2px #121820; }
+[data-theme="castle-keep"] .chat-pointer { border-bottom-color: var(--gold); }
+[data-theme="castle-keep"] .chat-pointer::after { border-bottom-color: #121820; }
+[data-theme="castle-keep"] .chat-compose-row { background: #10161e; border-top: 3px solid var(--gold); }
+[data-theme="castle-keep"] #chat-input-scroll { background: var(--manuscript); border: 2px solid var(--gold); }
+[data-theme="castle-keep"] #chat-input-scroll:hover,
+[data-theme="castle-keep"] #chat-input-scroll:focus-within { border-color: var(--heart); }
+[data-theme="castle-keep"] #chat-text { background: transparent; color: var(--manuscript-ink); }
+[data-theme="castle-keep"] #chat-send {
+  background-image: var(--steel-face);
+  color: var(--steel-ink);
+  border: 2px solid var(--iron);
+}
+[data-theme="castle-keep"] #chat-emoji-panel { background: var(--field); border: 3px solid var(--mortar); }
+[data-theme="castle-keep"] #chat-empty,
+[data-theme="castle-keep"] .chat-empty { color: var(--quiet); }
+
+/* Admin tools are a chamber in the same keep. */
+[data-theme="castle-keep"] #admin {
+  background-color: #141c26;
+  background-image: url("/assets/themes/castle-keep/stone.svg");
+  background-size: 160px 92px;
+  color: var(--ink);
+  border-color: var(--gold);
+}
+[data-theme="castle-keep"] #admin > .panel-heading {
+  background: #0e141a;
+  color: var(--gold);
+  border-bottom: 5px solid var(--heart);
+}
+[data-theme="castle-keep"] #admin-title { color: var(--gold); }
+[data-theme="castle-keep"] #admin-status { background: var(--manuscript); color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .admin-region {
+  background: var(--manuscript) url("/assets/themes/castle-keep/parchment.svg");
+  color: var(--manuscript-ink);
+  border: 3px solid var(--gold);
+  box-shadow: 0 4px 0 #07090c;
+}
+[data-theme="castle-keep"] .admin-region > summary { color: var(--manuscript-ink); font-size: 18px; }
+[data-theme="castle-keep"] .admin-region > summary:hover { background: #f8e0a8; }
+[data-theme="castle-keep"] .admin-region label,
+[data-theme="castle-keep"] .admin-region .quiet { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .admin h3,
+[data-theme="castle-keep"] #members > div,
+[data-theme="castle-keep"] #credentials > div,
+[data-theme="castle-keep"] #admin-games .admin-game { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] #members > div,
+[data-theme="castle-keep"] #credentials > div,
+[data-theme="castle-keep"] #admin-games .admin-game { border-bottom-color: #c9b48a; }
+[data-theme="castle-keep"] .admin button.danger,
+[data-theme="castle-keep"] .admin button.danger:hover {
+  background-image: none;
+  background-color: var(--heart);
+  color: #fff6ee;
+  border-color: var(--mortar);
+  text-shadow: none;
+}
+[data-theme="castle-keep"] .admin button.danger:hover { background-color: var(--accent-hover); }
+
+[data-theme="castle-keep"] .profile-chooser { color: var(--ink); }
+[data-theme="castle-keep"] .profile-choice {
+  background-color: #2a1a12;
+  background-image: url("/assets/themes/castle-keep/oak.svg");
+  border: 3px solid var(--gold);
+  color: #f3e6c4;
+  box-shadow: 0 6px 0 #07090c;
+}
+[data-theme="castle-keep"] .profile-choice:hover,
+[data-theme="castle-keep"] .profile-choice:active:not(:disabled) {
+  background-color: #3a2618;
+  border-color: var(--heart);
+}
+[data-theme="castle-keep"] .chooser-brand { color: var(--ink); }
+
+@media (max-width: 520px) {
+  [data-theme="castle-keep"] .library-toolbar { grid-template-columns: minmax(0, 1fr); }
+  [data-theme="castle-keep"] .library-toolbar .tag-filters { grid-area: 1 / 1; }
+  [data-theme="castle-keep"] .library-toolbar .search-label { grid-area: 2 / 1; max-width: none; }
+  [data-theme="castle-keep"] .library-toolbar .add-game { grid-area: 3 / 1; justify-self: stretch; }
+}
+@media (pointer: coarse) {
+  [data-theme="castle-keep"] .library-toolbar .search-label input,
+  [data-theme="castle-keep"] .add-game,
+  [data-theme="castle-keep"] .actions > button,
+  [data-theme="castle-keep"] .play-menu summary,
+  [data-theme="castle-keep"] .account-menu > button,
+  [data-theme="castle-keep"] .account-menu > a,
+  [data-theme="castle-keep"] .play-menu-items button {
+    min-height: 44px;
+  }
+  [data-theme="castle-keep"] .play-menu summary { width: 44px; }
+}
+
+@media (forced-colors: active) {
+  [data-theme="castle-keep"] body,
+  [data-theme="castle-keep"] header,
+  [data-theme="castle-keep"] .library-toolbar,
+  [data-theme="castle-keep"] .game,
+  [data-theme="castle-keep"] .game-art,
+  [data-theme="castle-keep"] .game-heading,
+  [data-theme="castle-keep"] dialog,
+  [data-theme="castle-keep"] #activity.recent-panel,
+  [data-theme="castle-keep"] .account-menu,
+  [data-theme="castle-keep"] .feed-row,
+  [data-theme="castle-keep"] .feedback-bubble,
+  [data-theme="castle-keep"] .chat-bubble,
+  [data-theme="castle-keep"] .tag-overflow-panel,
+  [data-theme="castle-keep"] button,
+  [data-theme="castle-keep"] input,
+  [data-theme="castle-keep"] .brand-wordmark {
+    background-image: none;
+    box-shadow: none;
+    text-shadow: none;
+    clip-path: none;
+    font-family: inherit;
+    forced-color-adjust: auto;
+  }
+  [data-theme="castle-keep"] .tag-overflow-panel::before,
+  [data-theme="castle-keep"] .own .chat-bubble::after { content: none; }
+}

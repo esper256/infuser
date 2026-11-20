@@ -141,6 +141,40 @@ test('field notes rules are scoped to that theme',()=>{
   }
   walk(css);
 });
+test('castle keep is a preview and every rule is scoped',()=>{
+  const html=readFileSync(new URL('../web/index.html',import.meta.url),'utf8');
+  const profiles=readFileSync(new URL('../web/profiles.html',import.meta.url),'utf8');
+  const css=readFileSync(new URL('../web/themes/castle-keep.css',import.meta.url),'utf8').replace(/\/\*[\s\S]*?\*\//g,'');
+  for(const page of [html,profiles]) assert.equal(page.includes('castle-keep.css'),false);
+  assert.equal(boot('castle-keep').themes.current,'castle-keep');
+  assert.equal(boot().themes.catalog.find(t=>t.id==='castle-keep').status,'preview');
+  assert.equal(boot().themes.defaultId,'nightglass');
+  function walk(sheet){
+    let i=0;
+    while(i<sheet.length){
+      const start=i;
+      while(i<sheet.length&&sheet[i]!=='{')i++;
+      const prelude=sheet.slice(start,i).trim();
+      if(i>=sheet.length)break;
+      i++;
+      const innerStart=i;
+      let depth=1;
+      while(i<sheet.length&&depth){
+        if(sheet[i]==='{')depth++;
+        else if(sheet[i]==='}')depth--;
+        if(depth)i++;
+      }
+      const inner=sheet.slice(innerStart,i);
+      i++;
+      if(!prelude)continue;
+      if(/^@(media|container|supports|layer)\b/.test(prelude))walk(inner);
+      else if(/^@font-face\b/.test(prelude))continue;
+      else if(prelude.startsWith('@'))assert.fail('unexpected at-rule '+prelude);
+      else assert.ok(prelude.includes('[data-theme="castle-keep"]'),prelude);
+    }
+  }
+  walk(css);
+});
 test('selection persists and other tabs can change or clear it',async()=>{
   const {themes,values,storage,load}=boot();
   const pending=themes.select('cartridge-club');
@@ -190,6 +224,7 @@ test('a nightglass load requests no other theme css and switching loads that she
     assert.equal(page.includes('cartridge-club.css'),false);
     assert.equal(page.includes('funny-pages.css'),false);
     assert.equal(page.includes('field-notes.css'),false);
+    assert.equal(page.includes('castle-keep.css'),false);
     assert.ok(page.includes('/assets/themes/nightglass.css'));
   }
   assert.match(worker,/request\.mode!=='navigate'/);
@@ -204,7 +239,7 @@ test('a nightglass load requests no other theme css and switching loads that she
   assert.match(saved.written[0],/href="\/assets\/themes\/funny-pages\.css"/);
   assert.match(saved.written[0],/data-infuser-theme="funny-pages"/);
   assert.match(saved.written[0],/blocking="render"/);
-  assert.doesNotMatch(saved.written[0],/cartridge-club|field-notes|nightglass/);
+  assert.doesNotMatch(saved.written[0],/cartridge-club|field-notes|nightglass|castle-keep/);
   const {themes,links,load,values}=boot();
   assert.equal(themes.current,'nightglass');
   const pending=themes.select('cartridge-club');
