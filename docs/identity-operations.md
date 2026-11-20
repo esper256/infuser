@@ -82,8 +82,12 @@ deletes unused links.
 
 Opening the URL does not sign anyone in. The page names the person and group
 and asks for **Continue**. Only that POST claims the invitation, sets the
-`__Host-infuser_member` cookie, and redirects to `/library`. A chat preview or
-a browser prefetch cannot burn the link or receive a session. The cookie is
+`__Host-infuser_member` cookie, and redirects to `/library`. The page is
+`no-referrer`, so the token is not put in a Referer. Chrome then sends
+`Origin: null` on the form POST, together with `Sec-Fetch-Site: same-origin`.
+Continue is accepted for that same-origin post, or for an `Origin` of this
+site. A cross-site form is not. A chat preview or a browser prefetch cannot
+burn the link or receive a session. The cookie is
 `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`, with no `Domain`
 attribute. The session lasts two hours. That is long enough to browse, launch
 a game, and look at a slow one, and much shorter than the seven-day Google

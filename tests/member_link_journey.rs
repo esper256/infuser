@@ -132,6 +132,24 @@ fn invite(db: &Database, group: &str, email: &str, name: &str) -> Result<()> {
     })
 }
 
+fn chrome_bin() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("INFUSER_CHROMIUM") {
+        return Some(path.into());
+    }
+    [
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+    ]
+    .into_iter()
+    .map(std::path::PathBuf::from)
+    .find(|path| path.is_file())
+}
+
+fn playwright_module() -> Option<std::path::PathBuf> {
+    std::env::var_os("INFUSER_PLAYWRIGHT").map(std::path::PathBuf::from)
+}
+
 fn token_of(link: &str) -> &str {
     link.rsplit_once('/').unwrap().1
 }
@@ -275,12 +293,42 @@ async fn link_is_single_use_expires_and_revokes() -> Result<()> {
             .contains("Unused links: 1")
     );
 
+    let cross_site = world
+        .http
+        .post(format!(
+            "{}/member-link/{}",
+            world.url,
+            token_of(&replacement)
+        ))
+        .header("host", HOST)
+        .header("origin", "https://evil.example")
+        .header("sec-fetch-site", "cross-site")
+        .send()
+        .await?;
+    assert_eq!(cross_site.status(), 403);
+    let stripped = world
+        .http
+        .post(format!(
+            "{}/member-link/{}",
+            world.url,
+            token_of(&replacement)
+        ))
+        .header("host", HOST)
+        .header("origin", "null")
+        .header("sec-fetch-site", "cross-site")
+        .send()
+        .await?;
+    assert_eq!(stripped.status(), 403);
+    assert!(
+        world
+            .db
+            .describe_member_link(GOB)?
+            .contains("Unused links: 1")
+    );
+
     let redeemed = open_link(&world, &replacement).await?;
     assert_eq!(redeemed.status(), 303);
-    assert_eq!(
-        redeemed.headers().get("location").unwrap(),
-        "https://games.example.com/library"
-    );
+    assert_eq!(redeemed.headers().get("location").unwrap(), "/library");
     assert_eq!(
         redeemed.headers().get("referrer-policy").unwrap(),
         "no-referrer"
@@ -915,6 +963,40 @@ async fn operator_admin_tools_record_the_creator_and_sign_out_ends_the_session()
         .send()
         .await?;
     assert_eq!(admin_revoke.status(), 403);
+    Ok(())
+}
+
+#[tokio::test]
+async fn browser_continue_signs_in_without_a_hand_set_origin() -> Result<()> {
+    let (Some(chrome), Some(playwright)) = (chrome_bin(), playwright_module()) else {
+        eprintln!(
+            "member-link browser test skipped: CI does not install Chrome or Playwright. Set INFUSER_CHROMIUM and INFUSER_PLAYWRIGHT to run it."
+        );
+        return Ok(());
+    };
+    let world = world().await?;
+    invite(&world.db, "home", GOB, "Gob")?;
+    let link = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
+    let path = format!("/member-link/{}", token_of(&link));
+    let url = world.url.clone();
+    let status = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("node")
+            .arg("tests/member_link_browser.mjs")
+            .arg(url)
+            .arg(path)
+            .env("INFUSER_CHROMIUM", chrome)
+            .env("INFUSER_PLAYWRIGHT", playwright)
+            .status()
+    })
+    .await??;
+    anyhow::ensure!(status.success(), "Chrome Continue did not sign in");
+    assert!(
+        world
+            .db
+            .describe_member_link(GOB)?
+            .contains("Unused links: 0")
+    );
+    assert!(world.db.describe_member_link(GOB)?.contains("Sessions: 1"));
     Ok(())
 }
 

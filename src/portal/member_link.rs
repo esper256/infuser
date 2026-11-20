@@ -31,8 +31,7 @@ pub(super) async fn redeem(
     if host(&h) != p.domain() || prefetch(&h) {
         return Err(fault(404, "not found").into());
     }
-    let origin = format!("https://{}", p.domain());
-    if h.get("origin").and_then(|value| value.to_str().ok()) != Some(origin.as_str()) {
+    if !continue_from_this_site(&h, p.domain()) {
         return Err(fault(403, "Open this link in Infuser and press Continue.").into());
     }
     let session = match p.db.redeem_member_link(&token)? {
@@ -53,7 +52,7 @@ pub(super) async fn redeem(
     headers.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
     headers.insert(
         header::LOCATION,
-        format!("https://{}/library", p.domain())
+        "/library"
             .parse()
             .map_err(|_| fault(500, "Could not start the session."))?,
     );
@@ -149,6 +148,26 @@ fn escape(value: &str) -> String {
             _ => c.to_string(),
         })
         .collect()
+}
+
+/// Chrome sends `Origin: null` on a form POST from a `no-referrer` document.
+/// That POST is still same-origin: `Sec-Fetch-Site` is a forbidden header, so
+/// a page on another site cannot claim `same-origin`. A real `Origin` for this
+/// site is also accepted. Anything else, including `Origin: null` from a
+/// cross-site form, does not redeem.
+fn continue_from_this_site(h: &HeaderMap, domain: &str) -> bool {
+    let origin = h.get(header::ORIGIN).and_then(|value| value.to_str().ok());
+    let site = h
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok());
+    if site.is_some_and(|site| site != "same-origin") {
+        return false;
+    }
+    match origin {
+        Some(origin) if origin == format!("https://{domain}") => true,
+        Some("null") => site == Some("same-origin"),
+        _ => false,
+    }
 }
 
 fn prefetch(h: &HeaderMap) -> bool {
