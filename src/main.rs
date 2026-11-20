@@ -219,10 +219,8 @@ async fn main() -> Result<()> {
             println!("Signed-out sessions and sign-in links removed for {names}.");
             return Ok(());
         }
-        println!(
-            "{}",
-            db.mint_member_link(&config.controller.domain, member)?
-        );
+        let (url, _) = db.mint_member_link(&config.controller.domain, member, "server operator")?;
+        println!("{url}");
         return Ok(());
     }
     if args.first().is_some_and(|s| s == "member") {

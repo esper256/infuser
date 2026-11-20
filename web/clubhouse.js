@@ -1080,10 +1080,51 @@ async function adminRefresh(){
     const updateLabel=()=>{label.textContent=`${m.name} · ${m.contact_email||email}${m.admin?' · admin':''}${m.enabled?'':' · disabled'}`;rename.setAttribute('aria-label','Rename '+m.name);};updateLabel();
     rename.type='button';rename.onclick=()=>openMemberRename(row,actions,email,m,updateLabel,rename);actions.append(rename);
     if(!m.admin){const toggle=el('button',m.enabled?'Disable':'Enable','secondary');toggle.onclick=async()=>{try{await api('/api/admin/members',{method:'POST',body:JSON.stringify({email,name:m.name,admin:m.admin,enabled:!m.enabled})});await adminRefresh();}catch(error){showError(error);}};actions.append(toggle);}
-    row.append(label,actions);$('members').append(row);
+    if(me.operator&&m.sign_in&&m.sign_in.kind!=='google'){
+      const mint=el('button','Sign-in link','secondary');mint.type='button';mint.setAttribute('aria-label','Sign-in link for '+m.name);
+      mint.onclick=async()=>{
+        mint.disabled=true;
+        try{
+          const minted=await api('/api/operator/members/'+encodeURIComponent(email)+'/sign-in-link',{method:'POST',body:'{}'});
+          showMemberLink(row,email,m,minted);
+        }catch(error){showError(error);mint.disabled=false;}
+      };
+      actions.append(mint);
+    }
+    row.append(label,actions);
+    if(me.operator&&m.sign_in){
+      const nodes=memberLinkLines(email,m.sign_in,null);
+      if(nodes.length){const panel=el('div',undefined,'member-link-panel');panel.append(...nodes);row.append(panel);}
+    }
+    $('members').append(row);
   }
   $('credentials').replaceChildren();for(const c of credentials.credentials){const row=el('div'),button=el('button','Revoke','secondary');row.append(el('span',c.label+' · '+c.app),button);button.onclick=async()=>{try{await api('/api/admin/credentials/'+c.id,{method:'DELETE'});await adminRefresh();}catch(error){showError(error);}};$('credentials').append(row);}
   await loadGameTools();
+}
+function memberLinkLines(email,info,minted){
+  const nodes=[];
+  if(minted){
+    const url=el('p',minted.url,'member-link-url');url.tabIndex=0;
+    const copy=el('button','Copy link','secondary');copy.type='button';
+    copy.onclick=async()=>{try{await navigator.clipboard.writeText(minted.url);copy.textContent='Copied';}catch{copy.textContent='Select the link above';}};
+    nodes.push(el('p','Shown once. Expires '+new Date(minted.expires_at*1000).toLocaleString()+'.','quiet'),url,copy);
+  }
+  for(const session of info.sessions||[])nodes.push(el('p','Signed in '+new Date(session.created*1000).toLocaleString()+' until '+new Date(session.expires*1000).toLocaleString()+'.','quiet'));
+  if((info.sessions||[]).length){
+    const revoke=el('button','Revoke','secondary');revoke.type='button';revoke.setAttribute('aria-label','Revoke sign-in links and sessions');
+    revoke.onclick=async()=>{try{await api('/api/operator/members/'+encodeURIComponent(email)+'/sign-in',{method:'DELETE'});notice('Signed out. Unused links were removed.');await adminRefresh();}catch(error){showError(error);}};
+    nodes.push(revoke);
+  }
+  const latest=(info.links||[])[0];
+  if(latest)nodes.push(el('p','Link from '+latest.created_by+' · '+(latest.redeemed?'used '+new Date(latest.redeemed*1000).toLocaleString():'not used yet')+'.','quiet'));
+  return nodes;
+}
+function showMemberLink(row,email,member,minted){
+  let panel=row.querySelector('.member-link-panel');
+  if(!panel){panel=el('div',undefined,'member-link-panel');row.append(panel);}
+  const info=member.sign_in||{sessions:[],links:[]};
+  const links=[{created:Math.floor(Date.now()/1000),created_by:me.name,expires:minted.expires_at,redeemed:null}];
+  panel.replaceChildren(...memberLinkLines(email,{...info,links},minted));
 }
 async function loadGameTools(){
   if(!me.admin||me.inspecting)return;
@@ -1202,7 +1243,7 @@ function setupAccount(){
   select.value=themes.current;select.onchange=()=>themes.select(select.value);
   window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
   label.append(select);
-  const out=el('a','Sign out');out.href='/oauth2/sign_out?rd=%2F';
+  const out=el('a','Sign out');out.className='sign-out';out.href='/sign-out';
   const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
   const reviewFeedback=initFeedback(feedback,()=>{menu.open=false;},api,me.admin&&!me.inspecting);
   panel.append(profile,label,feedback,...(reviewFeedback?[reviewFeedback]:[]));

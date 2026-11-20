@@ -65,12 +65,24 @@ async fn world() -> Result<World> {
             let seen = seen.clone();
             async move {
                 seen.fetch_add(1, Ordering::SeqCst);
-                if headers.get("cookie").and_then(|value| value.to_str().ok())
-                    == Some("member=google")
-                {
+                let header = headers
+                    .get("cookie")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("");
+                let member = header.split(';').find_map(|part| {
+                    let (name, value) = part.trim().split_once('=')?;
+                    (name == "member").then_some(value)
+                });
+                let identity = match member {
+                    Some("google") => Some((GOOGLE_PERSON, "google-subject")),
+                    Some("operator") => Some(("eric@example.test", "eric-subject")),
+                    Some("admin") => Some(("ada@example.test", "ada-subject")),
+                    _ => None,
+                };
+                if let Some((email, subject)) = identity {
                     let mut headers = HeaderMap::new();
-                    headers.insert("x-auth-request-email", GOOGLE_PERSON.parse().unwrap());
-                    headers.insert("x-auth-request-user", "google-subject".parse().unwrap());
+                    headers.insert("x-auth-request-email", email.parse().unwrap());
+                    headers.insert("x-auth-request-user", subject.parse().unwrap());
                     headers.insert(
                         "set-cookie",
                         "__Host-infuser_session=refreshed; Secure; HttpOnly; Path=/"
@@ -124,7 +136,7 @@ fn token_of(link: &str) -> &str {
     link.rsplit_once('/').unwrap().1
 }
 
-async fn open_link(
+async fn preview_link(
     world: &World,
     link: &str,
     extra: Option<(&str, &str)>,
@@ -137,6 +149,16 @@ async fn open_link(
         request = request.header(name, value);
     }
     Ok(request.send().await?)
+}
+
+async fn open_link(world: &World, link: &str) -> Result<reqwest::Response> {
+    Ok(world
+        .http
+        .post(format!("{}/member-link/{}", world.url, token_of(link)))
+        .header("host", HOST)
+        .header("origin", format!("https://{HOST}"))
+        .send()
+        .await?)
 }
 
 fn session_cookie(response: &reqwest::Response) -> String {
@@ -191,14 +213,14 @@ async fn me(world: &World, cookie: &str, profile: Option<&str>) -> Result<reqwes
 async fn link_is_single_use_expires_and_revokes() -> Result<()> {
     let world = world().await?;
     invite(&world.db, "home", GOB, "Gob")?;
-    let first = world.db.mint_member_link(HOST, GOB)?;
-    let replacement = world.db.mint_member_link(HOST, GOB)?;
+    let first = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
+    let replacement = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
     assert_ne!(first, replacement);
-    let replaced = open_link(&world, &first, None).await?;
+    let replaced = open_link(&world, &first).await?;
     assert_eq!(replaced.status(), 404);
     assert!(replaced.headers().get("set-cookie").is_none());
 
-    let prefetched = open_link(
+    let prefetched = preview_link(
         &world,
         &replacement,
         Some(("sec-purpose", "prefetch;anonymous-client-ip")),
@@ -231,7 +253,29 @@ async fn link_is_single_use_expires_and_revokes() -> Result<()> {
             .contains("Unused links: 1")
     );
 
-    let redeemed = open_link(&world, &replacement, None).await?;
+    let shown = preview_link(&world, &replacement, None).await?;
+    assert_eq!(shown.status(), 200);
+    let page = shown.text().await?;
+    assert!(page.contains("Gob in Home"));
+    assert!(page.contains("Continue"));
+    assert!(page.contains("no-referrer"));
+    assert!(!page.contains("set-cookie"));
+    assert!(
+        world
+            .db
+            .describe_member_link(GOB)?
+            .contains("Unused links: 1")
+    );
+    let previewed = preview_link(&world, &replacement, Some(("purpose", "preview"))).await?;
+    assert_eq!(previewed.status(), 404);
+    assert!(
+        world
+            .db
+            .describe_member_link(GOB)?
+            .contains("Unused links: 1")
+    );
+
+    let redeemed = open_link(&world, &replacement).await?;
     assert_eq!(redeemed.status(), 303);
     assert_eq!(
         redeemed.headers().get("location").unwrap(),
@@ -249,7 +293,7 @@ async fn link_is_single_use_expires_and_revokes() -> Result<()> {
         .json()
         .await?;
     assert_eq!(body["name"], "Gob");
-    let again = open_link(&world, &replacement, None).await?;
+    let again = open_link(&world, &replacement).await?;
     assert_eq!(again.status(), 404);
     let status = world.db.describe_member_link(GOB)?;
     assert!(status.contains("Sign-in: member link"));
@@ -261,15 +305,15 @@ async fn link_is_single_use_expires_and_revokes() -> Result<()> {
     assert_secret_absent(&world.db, world.root.path(), token_of(&replacement))?;
     assert_secret_absent(&world.db, world.root.path(), &session_token)?;
 
-    let expiring = world.db.mint_member_link(HOST, GOB)?;
+    let expiring = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
     world.db.connection.lock().unwrap().execute(
         "UPDATE member_links SET expires=0 WHERE token_hash=?1",
         params![hash(token_of(&expiring))],
     )?;
-    assert_eq!(open_link(&world, &expiring, None).await?.status(), 404);
+    assert_eq!(open_link(&world, &expiring).await?.status(), 404);
     assert_eq!(
         world.db.connection.lock().unwrap().query_row::<i64, _, _>(
-            "SELECT COUNT(*) FROM member_links",
+            "SELECT COUNT(*) FROM member_links WHERE redeemed IS NULL",
             [],
             |row| row.get(0)
         )?,
@@ -278,7 +322,7 @@ async fn link_is_single_use_expires_and_revokes() -> Result<()> {
     world.db.cleanup()?;
     assert_eq!(
         world.db.connection.lock().unwrap().query_row::<i64, _, _>(
-            "SELECT COUNT(*) FROM member_links",
+            "SELECT COUNT(*) FROM member_links WHERE redeemed IS NULL",
             [],
             |row| row.get(0)
         )?,
@@ -291,9 +335,9 @@ async fn link_is_single_use_expires_and_revokes() -> Result<()> {
     let cleared = world.db.describe_member_link(GOB)?;
     assert!(cleared.contains("Sessions: 0"));
     assert!(cleared.contains("Unused links: 0"));
-    let revoked = world.db.mint_member_link(HOST, GOB)?;
+    let revoked = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
     world.db.revoke_member_links(GOB)?;
-    assert_eq!(open_link(&world, &revoked, None).await?.status(), 404);
+    assert_eq!(open_link(&world, &revoked).await?.status(), 404);
     Ok(())
 }
 
@@ -303,7 +347,10 @@ async fn google_and_member_link_refuse_each_other() -> Result<()> {
     invite(&world.db, "home", KID, "Kid")?;
     invite(&world.db, "home", GOB, "Gob")?;
     world.db.google_account("kid-subject", KID)?;
-    let refused = world.db.mint_member_link(HOST, KID).unwrap_err();
+    let refused = world
+        .db
+        .mint_member_link(HOST, KID, "server operator")
+        .unwrap_err();
     assert!(refused.to_string().contains("Google"));
     assert_eq!(
         world.db.connection.lock().unwrap().query_row::<i64, _, _>(
@@ -331,6 +378,32 @@ async fn google_and_member_link_refuse_each_other() -> Result<()> {
         response.json::<Value>().await?["error"],
         "This sign-in link cannot be used for this account."
     );
+    assert_eq!(
+        world.db.connection.lock().unwrap().query_row::<i64, _, _>(
+            "SELECT COUNT(*) FROM member_links",
+            [],
+            |row| row.get(0),
+        )?,
+        1,
+        "looking at the link must not redeem it"
+    );
+    let consumed = world
+        .http
+        .post(format!("{}/member-link/{planted}", world.url))
+        .header("host", HOST)
+        .header("origin", format!("https://{HOST}"))
+        .send()
+        .await?;
+    assert_eq!(consumed.status(), 403);
+    assert!(consumed.headers().get("set-cookie").is_none());
+    assert_eq!(
+        world.db.connection.lock().unwrap().query_row::<i64, _, _>(
+            "SELECT COUNT(*) FROM member_links",
+            [],
+            |row| row.get(0),
+        )?,
+        0
+    );
     let after = world.db.read()?;
     assert!(
         after
@@ -355,8 +428,8 @@ async fn google_and_member_link_refuse_each_other() -> Result<()> {
         0
     );
 
-    let link = world.db.mint_member_link(HOST, GOB)?;
-    let cookie = session_cookie(&open_link(&world, &link, None).await?);
+    let link = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
+    let cookie = session_cookie(&open_link(&world, &link).await?);
     let me = me(&world, &cookie, None).await?.json::<Value>().await?;
     assert_eq!(me["name"], "Gob");
     let claimed = world.db.google_account("gob-subject", GOB).unwrap_err();
@@ -396,12 +469,12 @@ async fn link_claims_the_invited_group_and_profile() -> Result<()> {
     let away = world.db.read()?.group_member_key(GOB, "away")?.unwrap();
     let account = member_link::resolve(&world.db.read()?, GOB)?;
     assert_eq!(member_link::resolve(&world.db.read()?, &away)?, account);
-    let link = world.db.mint_member_link(HOST, &away)?;
+    let link = world.db.mint_member_link(HOST, &away, "server operator")?.0;
     let before = world.db.describe_member_link(&away)?;
     assert!(before.contains("Sign-in: invitation pending"));
     assert!(before.contains("Gob (home)"));
     assert!(before.contains(&format!("Away Gob (away) {away}")));
-    let cookie = session_cookie(&open_link(&world, &link, None).await?);
+    let cookie = session_cookie(&open_link(&world, &link).await?);
     let required = me(&world, &cookie, None).await?;
     assert_eq!(required.status(), 409);
     assert_eq!(required.headers()["x-infuser-profile-required"], "1");
@@ -506,8 +579,8 @@ async fn google_sign_in_is_unchanged_without_the_member_cookie() -> Result<()> {
     assert_eq!(google.json::<Value>().await?["name"], "Google Person");
     assert_eq!(world.hits.load(Ordering::SeqCst), 1);
 
-    let link = world.db.mint_member_link(HOST, GOB)?;
-    let cookie = session_cookie(&open_link(&world, &link, None).await?);
+    let link = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
+    let cookie = session_cookie(&open_link(&world, &link).await?);
     let member = me(&world, &cookie, None).await?;
     assert_eq!(member.status(), 200);
     assert!(member.headers().get("set-cookie").is_none());
@@ -561,8 +634,8 @@ async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
         );
         Ok(())
     })?;
-    let link = world.db.mint_member_link(HOST, GOB)?;
-    let cookie = session_cookie(&open_link(&world, &link, None).await?);
+    let link = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
+    let cookie = session_cookie(&open_link(&world, &link).await?);
     let api = |method: reqwest::Method, path: &str| {
         world
             .http
@@ -668,6 +741,180 @@ async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
         .send()
         .await?;
     assert_eq!(anonymous.status(), 401);
+    Ok(())
+}
+
+#[tokio::test]
+async fn operator_admin_tools_record_the_creator_and_sign_out_ends_the_session() -> Result<()> {
+    let world = world().await?;
+    world.db.edit(|data| {
+        data.invite_to_group("home", "eric@example.test", "Eric", true, true)?;
+        data.invite_to_group("home", "ada@example.test", "Ada", true, true)?;
+        data.invite_to_group("home", GOB, "Gob", false, true)?;
+        data.invite_to_group("home", KID, "Kid", false, true)?;
+        data.set_operator("eric@example.test", true)
+    })?;
+    world.db.google_account("kid-subject", KID)?;
+    let denied = world
+        .http
+        .post(format!(
+            "{}/api/operator/members/gob%40example.test/sign-in-link",
+            world.url
+        ))
+        .header("host", HOST)
+        .header("origin", format!("https://{HOST}"))
+        .header("cookie", "member=admin")
+        .body("{}")
+        .send()
+        .await?;
+    assert_eq!(denied.status(), 403);
+    let ada_members: Value = world
+        .http
+        .get(format!("{}/api/admin/members", world.url))
+        .header("host", HOST)
+        .header("cookie", "member=admin")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(ada_members["members"][GOB].get("sign_in").is_none());
+
+    let minted: Value = world
+        .http
+        .post(format!(
+            "{}/api/operator/members/gob%40example.test/sign-in-link",
+            world.url
+        ))
+        .header("host", HOST)
+        .header("origin", format!("https://{HOST}"))
+        .header("cookie", "member=operator")
+        .body("{}")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let url = minted["url"].as_str().unwrap();
+    let google_mint = world
+        .http
+        .post(format!(
+            "{}/api/operator/members/kid%40example.test/sign-in-link",
+            world.url
+        ))
+        .header("host", HOST)
+        .header("origin", format!("https://{HOST}"))
+        .header("cookie", "member=operator")
+        .body("{}")
+        .send()
+        .await?;
+    assert_eq!(google_mint.status(), 403);
+    let members: Value = world
+        .http
+        .get(format!("{}/api/admin/members", world.url))
+        .header("host", HOST)
+        .header("cookie", "member=operator")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(members["members"][KID]["sign_in"]["kind"], "google");
+    assert!(
+        members["members"][KID]["sign_in"]["links"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let record = &members["members"][GOB]["sign_in"];
+    assert_eq!(record["kind"], "pending");
+    assert_eq!(record["links"][0]["created_by"], "Eric");
+    assert!(record["links"][0]["redeemed"].is_null());
+    assert_eq!(
+        record["links"][0]["expires"].as_u64().unwrap()
+            - record["links"][0]["created"].as_u64().unwrap(),
+        30 * 60
+    );
+    assert_eq!(minted["expires_at"], record["links"][0]["expires"]);
+    assert!(!members.to_string().contains(token_of(url)));
+
+    let cookie = session_cookie(&open_link(&world, url).await?);
+    let after: Value = world
+        .http
+        .get(format!("{}/api/admin/members", world.url))
+        .header("host", HOST)
+        .header("cookie", "member=operator")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let record = &after["members"][GOB]["sign_in"];
+    assert_eq!(record["kind"], "member_link");
+    assert!(record["links"][0]["redeemed"].as_u64().is_some());
+    assert_eq!(record["links"][0]["created_by"], "Eric");
+    assert_eq!(
+        record["sessions"][0]["expires"].as_u64().unwrap()
+            - record["sessions"][0]["created"].as_u64().unwrap(),
+        2 * 60 * 60
+    );
+    let signed_out = world
+        .http
+        .get(format!("{}/sign-out", world.url))
+        .header("host", HOST)
+        .header("cookie", &cookie)
+        .send()
+        .await?;
+    assert_eq!(signed_out.status(), 303);
+    assert_eq!(signed_out.headers()["location"], "/oauth2/sign_out?rd=%2F");
+    assert!(
+        signed_out.headers()["set-cookie"]
+            .to_str()?
+            .contains("Max-Age=0")
+    );
+    assert_eq!(me(&world, &cookie, None).await?.status(), 401);
+
+    let minted: Value = world
+        .http
+        .post(format!(
+            "{}/api/operator/members/gob%40example.test/sign-in-link",
+            world.url
+        ))
+        .header("host", HOST)
+        .header("origin", format!("https://{HOST}"))
+        .header("cookie", "member=operator")
+        .body("{}")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let cookie = session_cookie(&open_link(&world, minted["url"].as_str().unwrap()).await?);
+    let revoked = world
+        .http
+        .delete(format!(
+            "{}/api/operator/members/gob%40example.test/sign-in",
+            world.url
+        ))
+        .header("host", HOST)
+        .header("origin", format!("https://{HOST}"))
+        .header("cookie", "member=operator")
+        .send()
+        .await?;
+    assert_eq!(revoked.status(), 200);
+    assert_eq!(me(&world, &cookie, None).await?.status(), 401);
+    let admin_revoke = world
+        .http
+        .delete(format!(
+            "{}/api/operator/members/gob%40example.test/sign-in",
+            world.url
+        ))
+        .header("host", HOST)
+        .header("origin", format!("https://{HOST}"))
+        .header("cookie", "member=admin")
+        .send()
+        .await?;
+    assert_eq!(admin_revoke.status(), 403);
     Ok(())
 }
 

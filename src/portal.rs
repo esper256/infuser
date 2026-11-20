@@ -542,7 +542,10 @@ pub fn router(platform: Platform) -> Router {
         .route("/games/{slug}", get(page))
         .route("/clubhouse", get(page))
         .route("/library", get(page))
-        .route("/member-link/{token}", get(member_link::redeem))
+        .route("/member-link/{token}", get(member_link::preview).post(member_link::redeem))
+        .route("/sign-out", get(member_link::sign_out))
+        .route("/api/operator/members/{member}/sign-in-link", post(member_link::mint))
+        .route("/api/operator/members/{member}/sign-in", delete(member_link::revoke))
         .route(
             "/assets/clubhouse.js",
             get(|h: HeaderMap| async move {
@@ -1138,11 +1141,27 @@ async fn members(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.admin(&h, false).await?;
     let (group, _) = p.group_view(&h, &email)?;
     let data = p.db.catalog()?;
-    Ok(reply(
-        json!({"members":data.members.iter().filter(|(email,_)|data.groups.member(email)==group).map(|(key,m)| {
-            let mut value=serde_json::to_value(m).expect("member serialization");value["contact_email"]=data.contact_email(key).into();(key,value)
-        }).collect::<BTreeMap<_,_>>()}),
-    ))
+    let operator = data.operator(&email);
+    let mut members = BTreeMap::new();
+    for (key, member) in data
+        .members
+        .iter()
+        .filter(|(key, _)| data.groups.member(key) == group)
+    {
+        let mut value = serde_json::to_value(member).expect("member serialization");
+        value["contact_email"] = data.contact_email(key).into();
+        if operator
+            && let Some(account) = data
+                .identities
+                .profiles
+                .get(key)
+                .map(|profile| profile.account_id.clone())
+        {
+            value["sign_in"] = p.db.account_sign_in(&data, &account)?;
+        }
+        members.insert(key.clone(), value);
+    }
+    Ok(reply(json!({"members": members})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

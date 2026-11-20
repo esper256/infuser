@@ -923,3 +923,8 @@ button.feed-row:hover { border-color: var(--accent); }
 .detail-playing .playing-roster { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .detail-playing .playing-roster li { display: flex; align-items: center; gap: 10px; }
 #account-playing { white-space: pre-line; }
+.member-link-panel { flex: 1 0 100%; display: grid; gap: 8px; }
+.member-link-panel p { margin: 0; }
+.member-link-url { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
+.member-link-page main { max-width: 32rem; }
+.member-link-confirm ul { padding-left: 1.2rem; }

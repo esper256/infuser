@@ -65,61 +65,56 @@ admin screen with its email and display name. That creates a normal pending
 invitation in that group. Do not use `infuser member` for this: that command
 adds accounts to Home and is the bootstrap path, not a group invitation.
 
-Only an operator on the server, over SSH, can mint a sign-in link. There is no
-button and no password. Run the command as the `infuser` user so the database
-files stay owned by the service. After an update, `/usr/local/bin/infuser`
-follows `/opt/infuser/current` when bootstrap installed that symlink. Confirm
-`infuser version` matches `/healthz` before minting. If the host still has a
-separately copied binary, run `/opt/infuser/current/infuser` instead.
+The operator mints the sign-in link from **Admin tools**, next to that pending
+invitation (or next to an assistant that already signs in by member link).
+Group admins can open Admin tools, but only an operator sees **Sign-in link**.
+A member link permanently claims the invitation, so Google can never claim it
+afterwards. That is a stronger grant than inviting someone, and it stays with
+the operator.
 
-```sh
-sudo -u infuser infuser member-link /etc/infuser/infuser.toml ASSISTANT_EMAIL
-```
+The button shows the URL once, with **Copy link** and the expiry time. It is
+single-use and lasts 30 minutes. Minting another link deletes unused ones.
+Infuser does not log the URL and does not store the raw token, only a SHA-256
+hash. The same row records who created it and when it was redeemed. Admin
+tools shows that in one short line, plus any active sessions (when they
+started and when they expire) and **Revoke**. Revoke ends those sessions and
+deletes unused links.
 
-The command prints one line: an `https` URL. It is single-use and expires in
-ten minutes. Minting another link for the same account deletes unused links.
-The URL is not written to a file and Infuser does not log it. Do not paste it
-into a ticket, chat, or anywhere a preview bot will open it. A browser
-prefetch (`Sec-Purpose: prefetch` or `Purpose: preview`) does not consume it;
-an ordinary GET does.
-
-Open the URL in the assistant's browser. Infuser claims the pending invitation
-with its own login issuer, sets an `__Host-infuser_member` cookie, and
-redirects to `/library`. The cookie is `Secure`, `HttpOnly`, `SameSite=Lax`,
-and `Path=/`, with no `Domain` attribute. The server stores only a SHA-256
-hash of the session token. The session lasts two hours. That is long enough
-to browse, launch a game, and look at a slow one, and much shorter than the
-seven-day Google session. `SameSite=Lax` sends the cookie on same-site loads
-of the Library, including when the assistant opens the site from a bookmark,
-and does not send it on a cross-site form post. Write requests still check
-`Origin`.
+Opening the URL does not sign anyone in. The page names the person and group
+and asks for **Continue**. Only that POST claims the invitation, sets the
+`__Host-infuser_member` cookie, and redirects to `/library`. A chat preview or
+a browser prefetch cannot burn the link or receive a session. The cookie is
+`Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`, with no `Domain`
+attribute. The session lasts two hours. That is long enough to browse, launch
+a game, and look at a slow one, and much shorter than the seven-day Google
+session. `SameSite=Lax` sends the cookie on same-site loads of the Library,
+including when the assistant opens the site from a bookmark, and does not send
+it on a cross-site form post. Write requests still check `Origin`.
 
 The assistant is then a normal member of the invited group: chat, presence,
 and games use the same routes as everyone else. Game launches still exchange a
 separate `__Host-infuser_game` cookie on the game host. Google cookies stay on
-the main site.
+the main site. **Sign out** clears the member cookie, deletes that session,
+and then continues to the Google sign-out page.
 
-Identify the member the same way as other operator member commands: the
-original profile handle, or a contact email that names one account. An account
-in several groups has one sign-in and the usual profile chooser. Pass the
-email when it names that one account, or any of its profile handles. If the
-email matches more than one account, the command stops and asks for a profile
-handle. `--list` prints those handles and never prints a link or session token:
+Accounts that already sign in with Google never get the button, and the API
+refuses a link for them.
+
+If Admin tools is unavailable, the same operator commands remain as a
+break-glass path. Run them as the `infuser` user. After an update,
+`/usr/local/bin/infuser` follows `/opt/infuser/current` when bootstrap
+installed that symlink. Confirm `infuser version` matches `/healthz`. Identify
+the member the same way as other operator member commands. An email is
+accepted when it names one account. Several profiles on that account share the
+sign-in, and the profile chooser picks the group. If the email matches more
+than one account, pass a profile handle from `--list`. `--list` never prints a
+token.
 
 ```sh
+sudo -u infuser infuser member-link /etc/infuser/infuser.toml ASSISTANT_EMAIL
 sudo -u infuser infuser member-link /etc/infuser/infuser.toml ASSISTANT_EMAIL --list
 sudo -u infuser infuser member-link /etc/infuser/infuser.toml PROFILE_HANDLE --revoke
 ```
-
-`--revoke` deletes that account's unused links and sessions immediately. The
-Library's Sign out link only clears the Google cookie. Caddy sends `/oauth2/*`
-to OAuth2 Proxy, so Sign out does not clear a member-link cookie. Revoke is
-how an operator signs the assistant out.
-
-Mint a link only for the assistant's own invitation. A link cannot sign in as
-an account that already has a Google login, so it cannot become a person who
-has signed in. If you mint one for a pending invitation and it is redeemed,
-that invitation is claimed by the link and Google can no longer claim it.
 
 ### What the edge proxy already allows
 
@@ -129,8 +124,10 @@ proxy. `/v1/*` and `/healthz` stay private. Every other apex path, including
 `/member-link/*`, is proxied to Infuser, which checks the session itself.
 Wildcard game hosts still answer `/_infuser/server/*` only after Infuser's
 `/_infuser/proxy-auth` accepts the game cookie. No Caddy or OAuth2 Proxy
-change is required, and no new path is reachable without a sign-in except the
-redemption route. A request on any other host does not redeem the link.
+change is required. `/member-link/*` shows a confirm page and redeems only
+on Continue. `/sign-out` clears a member session and continues to Google
+sign-out. Neither one exposes the library. A request on any other host does
+not redeem the link.
 
 `infuser render-caddy` is the older static-site template. It wraps the apex in
 `forward_auth` to OAuth2 Proxy and is not the player routing. Do not install
