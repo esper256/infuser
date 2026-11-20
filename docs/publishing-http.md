@@ -207,6 +207,12 @@ themselves. See [verification and handoff](agents.md#publish-and-verify).
 After first publication, save a factual description via the [metadata API](game-metadata.md)
 and either upload a spec-compliant cover or store an `art_prompt` for later
 fulfillment by an Infuser art agent. Complete publication, not just file uploads.
+Publishing also stores gzip and Brotli copies of large WebAssembly, JavaScript,
+text, and Godot pack files. Upload the original files only. Do not add your own
+`.gz` or `.br` next to those files. Unity exports that already use encoded
+filenames, such as `Build/game.wasm.br`, are different: upload those filenames
+exactly as exported. See the [Unity recipe](engines/unity-web.md).
+
 Use the same credentials/app ID and a fresh
 build ID for each future “update it on Infuser.”
 

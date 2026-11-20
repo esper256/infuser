@@ -429,6 +429,9 @@ pub(super) async fn publish(
     tokio::task::spawn_blocking(move || -> Answer {
     let _mutation = mutation;
     p.validate_promotion(&app, &build)?;
+    // Files cannot change while this request holds the per-app lock. Compress
+    // before the publication lock so player launches are not stalled.
+    p.precompress_build(&app, &build)?;
     let _guard = p.publishing.lock().unwrap();
     let allow_duplicate = body.as_ref().is_some_and(|b| b.allow_duplicate_title);
     let listed = body.as_ref().is_none_or(|b| b.listed);
@@ -505,6 +508,63 @@ impl Platform {
         }
         crate::native::validate(&self.root().join(&key), &b.files)
             .map_err(|e| fault(422, &format!("{e:#}")))?;
+        Ok(())
+    }
+    fn precompress_build(&self, app: &str, build: &str) -> Result<()> {
+        let key = build_key(app, build);
+        let files = self
+            .db
+            .catalog()?
+            .builds
+            .get(&key)
+            .ok_or_else(|| fault(404, "unknown build"))?
+            .files
+            .clone();
+        let reserve = self
+            .config()
+            .controller
+            .disk_reserve_mb
+            .saturating_mul(1024 * 1024);
+        crate::precompress::ensure(
+            &self.root().join(&key),
+            &files,
+            reserve,
+            &crate::precompress::stamp_path(&self.config().controller.state_dir, &key),
+            true,
+        )?;
+        Ok(())
+    }
+    /// Fills in siblings for builds that were published before compression
+    /// existed. A repeat call keeps the copies it already wrote.
+    pub fn precompress_ready(&self) -> Result<()> {
+        let ready: Vec<_> = self
+            .db
+            .catalog()?
+            .builds
+            .iter()
+            .filter(|(_, build)| build.ready)
+            .map(|(key, build)| (key.clone(), build.files.clone()))
+            .collect();
+        let reserve = self
+            .config()
+            .controller
+            .disk_reserve_mb
+            .saturating_mul(1024 * 1024);
+        for (key, files) in ready {
+            let dir = self.root().join(&key);
+            if !dir.is_dir() {
+                continue;
+            }
+            if let Err(error) = crate::precompress::ensure(
+                &dir,
+                &files,
+                reserve,
+                &crate::precompress::stamp_path(&self.config().controller.state_dir, &key),
+                false,
+            ) {
+                tracing::warn!(%error, build = %key, "left an existing build uncompressed");
+            }
+        }
         Ok(())
     }
     // Callers hold the publication lock, also used by player launches. Never switch
@@ -771,6 +831,10 @@ pub(super) async fn remove_build(
         if path.exists() {
             std::fs::remove_dir_all(path)?;
         }
+        crate::precompress::remove_stamp(
+            &p.config().controller.state_dir,
+            &build_key(&app, &build),
+        )?;
         Ok(())
     })
     .await

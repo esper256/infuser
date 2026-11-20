@@ -42,6 +42,15 @@ threaded exports; set `cross_origin_isolation` explicitly in `infuser.game.json`
 if the export needs different behavior. Missing WASM/assets return 404. Large
 assets support HTTP range requests. Current limits: 64 MiB/file, 256 MiB/build.
 
+Publishing stores gzip and Brotli copies of the large engine files beside the
+originals: the WebAssembly module, the engine JavaScript, and the `.pck` when
+the copy is actually smaller. Browsers that accept those encodings download the
+smaller copy. Godot still receives the original bytes, and its loading bar uses
+the file sizes recorded in the export. A byte-range request, and a browser that
+does not accept compression, receive the original file. Upload the export as
+Godot wrote it; do not add `.br` or `.gz` siblings yourself. Cross-origin
+isolation headers stay the same on these responses.
+
 Declare SDK major 1 as in the [example manifest](../../examples/godot-web/infuser.game.json).
 Copy [addons/infuser](../../examples/godot-web/addons/infuser), put the `Infuser`
 autoload before game autoloads, and include

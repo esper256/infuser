@@ -40,6 +40,7 @@ pub mod notifications;
 pub mod peers;
 pub mod platform;
 pub mod portal;
+pub mod precompress;
 pub mod private_file;
 pub mod publish_capture;
 pub mod publisher;
