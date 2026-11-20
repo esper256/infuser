@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 
 pub const VERSION: u32 = 1;
 pub const GOOGLE: &str = "https://accounts.google.com";
+/// Operator member links. This is not a public sign-in provider and is never Google.
+pub const LINK: &str = "https://infuser.invalid/member-link";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Account {
@@ -103,6 +105,19 @@ impl Identities {
                 "invalid linked identity"
             );
         }
+        let mut google = BTreeSet::new();
+        let mut links = BTreeSet::new();
+        for login in self.logins.values() {
+            if login.issuer == GOOGLE {
+                google.insert(login.account_id.as_str());
+            } else if login.issuer == LINK {
+                links.insert(login.account_id.as_str());
+            }
+        }
+        ensure!(
+            google.is_disjoint(&links),
+            "an account cannot have both a Google login and a member link"
+        );
         for account in self.pending_google.values() {
             ensure!(
                 self.accounts.contains_key(account),
@@ -114,6 +129,13 @@ impl Identities {
                     .values()
                     .any(|l| &l.account_id == account && l.issuer == GOOGLE),
                 "claimed Google invitation retained"
+            );
+            ensure!(
+                !self
+                    .logins
+                    .values()
+                    .any(|l| &l.account_id == account && l.issuer == LINK),
+                "claimed member-link invitation retained"
             );
         }
         Ok(())
@@ -305,6 +327,13 @@ impl Data {
             .map(|l| l.email.as_str())
             .or_else(|| {
                 self.identities
+                    .logins
+                    .values()
+                    .find(|l| l.account_id == profile.account_id && l.issuer == LINK)
+                    .map(|l| l.email.as_str())
+            })
+            .or_else(|| {
+                self.identities
                     .pending_google
                     .iter()
                     .find(|(_, account)| **account == profile.account_id)
@@ -312,9 +341,63 @@ impl Data {
             })
             .unwrap_or(key)
     }
+    pub(crate) fn bind_member_link(&mut self, account: &str) -> Result<()> {
+        ensure!(
+            self.identities
+                .accounts
+                .get(account)
+                .is_some_and(|account| account.enabled),
+            crate::portal::fault(403, "Account disabled.")
+        );
+        ensure!(
+            !self
+                .identities
+                .logins
+                .values()
+                .any(|login| { login.account_id == account && login.issuer != LINK }),
+            crate::portal::fault(403, "This account signs in with Google.")
+        );
+        if self
+            .identities
+            .logins
+            .values()
+            .any(|login| login.account_id == account && login.issuer == LINK)
+        {
+            return Ok(());
+        }
+        let email = self
+            .identities
+            .pending_google
+            .iter()
+            .find(|(_, id)| id.as_str() == account)
+            .map(|(email, _)| email.clone())
+            .ok_or_else(|| {
+                crate::portal::fault(403, "Ask your admin for an Infuser invitation.")
+            })?;
+        let subject = secret();
+        self.identities.logins.insert(
+            Identities::login_key(LINK, &subject),
+            Login {
+                issuer: LINK.into(),
+                subject,
+                account_id: account.into(),
+                email,
+            },
+        );
+        self.identities.pending_google.retain(|_, id| id != account);
+        Ok(())
+    }
     fn bind_google(&mut self, subject: &str, email: &str) -> Result<String> {
         if let Some(login) = self.identities.login(GOOGLE, subject) {
             let account = login.account_id.clone();
+            ensure!(
+                !self
+                    .identities
+                    .logins
+                    .values()
+                    .any(|login| login.account_id == account && login.issuer == LINK),
+                crate::portal::fault(403, "Ask your admin for an Infuser invitation.")
+            );
             self.identities
                 .logins
                 .get_mut(&Identities::login_key(GOOGLE, subject))
@@ -332,6 +415,14 @@ impl Data {
             .ok_or_else(|| {
                 crate::portal::fault(403, "Ask your admin for an Infuser invitation.")
             })?;
+        ensure!(
+            !self
+                .identities
+                .logins
+                .values()
+                .any(|login| login.account_id == account && login.issuer == LINK),
+            crate::portal::fault(403, "Ask your admin for an Infuser invitation.")
+        );
         ensure!(
             !self
                 .identities
