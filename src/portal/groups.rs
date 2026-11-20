@@ -106,13 +106,15 @@ async fn update_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
     if stale {
         reasons.insert(0, "Waiting for a fresh update check".into());
     }
+    let (family, internal) = crate::changelog::notes();
     Ok(reply(
         json!({"configured":record.report.is_some(),"current_build":crate::BUILD_SHA,"current_built_at":crate::build_timestamp(),
         "release_built_at":record.release_built_at,"publishing":publishing,
         "available":record.available(),"available_since":record.available_since,"checked_at":record.checked_at,
         "report":record.report,"stale":stale,"reasons":reasons,"activity":activity,
         "host":crate::update_admission::host_panel(&p, &record)?,
-        "authorized_until":record.grant.filter(|g|g.expires>now() && g.current_build==crate::BUILD_SHA).map(|g|g.expires)}),
+        "authorized_until":record.grant.filter(|g|g.expires>now() && g.current_build==crate::BUILD_SHA).map(|g|g.expires),
+        "changelog":{"family":family,"internal":internal}}),
     ))
 }
 #[derive(Deserialize)]

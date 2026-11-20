@@ -295,10 +295,16 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .collect();
     update_reactions::add_summaries(&p.db, &data, &email, &mut apps)?;
     let friends = view.friends(&apps);
+    // Platform releases are not a group's game. Every signed-in group sees them.
+    let platform_updates = crate::platform::releases::feed_json(
+        &p.db
+            .platform_feed(&email, |profile| data.profile_enabled(profile))?,
+    );
     Ok(conditional::json(
         json!({
             "apps":apps,
             "friends":friends,
+            "platform_updates":platform_updates,
             "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.profile_enabled(e)).map(|(e,_)|json!({"id":data.player_id(e),"name":data.members[e].name})).collect::<Vec<_>>()})),
             "tags":crate::tags::catalog_for_apps(&data,apps.iter().filter_map(|a|a["id"].as_str())),
         }),

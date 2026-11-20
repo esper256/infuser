@@ -51,6 +51,16 @@ Infuser Play platforms. It publishes a complete `build-<commit>` release with
 same-commit binaries, installers, manifests and checksums. Existing updater URLs
 and installer aliases are retained. No Mac job is on this critical path.
 
+Each server release also gets a changelog of the merged pull requests and
+commits since the previous `build-<sha>`. The text is the GitHub release
+notes and a `changelog.json` asset. It is compiled into the server binary
+rather than added to `release.json`, because an updater that is already
+installed rejects unknown manifest fields. Pull request titles are the
+lines families may read. The path rules and the optional `family:` /
+`internal:` title prefixes are in the repository
+[agent instructions](../AGENTS.md). Internal-only releases stay in the notes
+and off the Recently feed.
+
 A running build finishes while new pushes replace only the pending run, so a
 burst consumes one running build plus the newest pending candidate rather than
 continually cancelling useful work. A tested ancestor of main may publish even

@@ -63,4 +63,4 @@ jobs:
             assert.equal(typeof run, 'function');
             assert.equal(typeof github.rest.pulls.list, 'function');
       - name: Release publication policy tests
-        run: node --test .github/scripts/publish-release.test.cjs .github/scripts/mac-release-plan.test.cjs
+        run: node --test .github/scripts/publish-release.test.cjs .github/scripts/mac-release-plan.test.cjs .github/scripts/changelog.test.cjs
