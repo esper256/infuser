@@ -201,7 +201,10 @@ pub(super) fn initialize(c: &mut Connection) -> Result<()> {
         WHEN NEW.channel_id IS NOT NULL AND NOT EXISTS(
             SELECT 1 FROM chat_channels WHERE id=NEW.channel_id
                 AND coalesce(default_group,'channel:'||id)=NEW.private_group)
-        BEGIN SELECT RAISE(ABORT,'chat channel binding mismatch'); END;")?;
+        BEGIN SELECT RAISE(ABORT,'chat channel binding mismatch'); END;
+        CREATE TABLE IF NOT EXISTS chat_reads (
+            channel_id TEXT NOT NULL, reader TEXT NOT NULL, message_id INTEGER NOT NULL,
+            PRIMARY KEY(channel_id, reader));")?;
     tx.commit()?;
     Ok(())
 }

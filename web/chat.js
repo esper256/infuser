@@ -1,4 +1,5 @@
 import { initChatEmoji } from '/assets/chat-emoji.js';
+import { seenLimit, advancedRead } from '/assets/chat-reads.js';
 import { attachmentIcon, attachmentDraft, screenshotTile } from '/assets/screenshots.js';
 import { openHomeChat } from '/assets/groups.js';
 // A theme opts in from CSS. Unset means the horizontal row and the upward tails.
@@ -60,7 +61,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   if(me.inspecting)$('form').hidden=true;
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
-  let messages=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,positionFrame,positionSignature,speakerSignature,scrollDirection=0,scrollSpeed=0,lastScrollTop=0,lastScrollAt=0;
+  let messages=[], reads=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,readAck=0,readFlight=0,readHold=false,positionFrame,positionSignature,speakerSignature,scrollDirection=0,scrollSpeed=0,lastScrollTop=0,lastScrollAt=0;
   const motion=matchMedia('(prefers-reduced-motion: reduce)');
   const setText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
   const setHidden=(node,hidden)=>{if(node.hidden!==hidden)node.hidden=hidden;};
@@ -285,7 +286,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       scrollSpeed=direction===scrollDirection ? .5*scrollSpeed+.5*speed : speed;scrollDirection=direction;
     }
     lastScrollTop=log.scrollTop;lastScrollAt=now;
-    if(bottom()&&isOpen())markRead();schedulePosition();
+    if(bottom()&&isOpen())markRead();schedulePosition();considerRead();
   },{passive:true});
   // Keep the native textarea's direction, caret scrolling and selection intact.
   // A separate native scrollport exposes the same vertical range on the left.
@@ -377,12 +378,57 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     if(added.length&&isOpen())$('announcement').textContent=added.length===1?`${added[0].author.name}: ${added[0].text}`:`${added.length} new messages`;
     updateToggle();
     position();
+    paintReads();
+    considerRead();
+  }
+  function paintReads() {
+    const rows=[...log.querySelectorAll('.chat-message')].map(node=>({id:Number(node.dataset.id),node}));
+    const buckets=new Map();
+    for(const read of reads){
+      if(!read||read.id===me.player_id)continue;
+      let target=null;
+      for(const row of rows)if(row.id<=read.message&&(!target||row.id>target.id))target=row;
+      if(!target)continue;
+      const list=buckets.get(target.id)||[];list.push(read);buckets.set(target.id,list);
+    }
+    for(const row of rows){
+      const people=(buckets.get(row.id)||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+      const existing=row.node.querySelector('.chat-reads');
+      const signature=people.map(person=>person.id+':'+person.message).join(',');
+      if(!people.length){existing?.remove();continue;}
+      if(existing?.dataset.reads===signature)continue;
+      const box=document.createElement('div');box.className='chat-reads';box.dataset.reads=signature;
+      for(const person of people){
+        const mark=document.createElement('span');mark.className='chat-read';mark.title=person.name;
+        mark.setAttribute('role','img');mark.setAttribute('aria-label',person.name+', read up to here');
+        const face=profileAvatar(person.name,person.id,person.avatar);if(face.tagName==='IMG')face.alt='';
+        mark.append(face);box.append(mark);
+      }
+      existing?existing.replaceWith(box):row.node.append(box);
+    }
+  }
+  function considerRead() {
+    if(readHold||readFlight||me.inspecting)return;
+    const active=isOpen()&&!document.hidden;
+    const bounds=log.getBoundingClientRect();
+    const boxes=[...log.querySelectorAll('.chat-message')].map(node=>{
+      const rect=node.getBoundingClientRect();
+      return {id:Number(node.dataset.id),top:rect.top,bottom:rect.bottom,height:rect.height};
+    });
+    const seen=seenLimit(boxes,bounds.top+log.clientTop,bounds.top+log.clientTop+log.clientHeight);
+    const next=advancedRead(readAck,seen,active);
+    if(next===readAck)return;
+    const sent=next;readFlight=sent;
+    request('/api/chat/read',{method:'POST',body:JSON.stringify({message:sent})})
+      .then(body=>{readAck=Math.max(readAck,Number(body.message)||sent);})
+      .catch(()=>{readHold=true;})
+      .finally(()=>{if(readFlight===sent)readFlight=0;});
   }
   async function poll() {
     clearTimeout(timer);
     if(busy||document.hidden)return;
     busy=true;
-    try{const data=await request('/api/chat');render(data.messages);setText($('connection'),'');}
+    try{const data=await request('/api/chat');reads=data.reads||[];readHold=false;render(data.messages);setText($('connection'),'');}
     catch(error){$('connection').textContent=error.status===401||error.status===403?'Sign in again to chat.':'Reconnecting…';}
     finally{busy=false;timer=setTimeout(poll,isOpen()?3000:10000);}
   }

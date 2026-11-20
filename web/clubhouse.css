@@ -550,6 +550,13 @@ form.admin-region-body { margin: 0; }
 .chat-empty { color: var(--quiet); font-size: 14px; text-align: center; margin: 30px 0; }
 .chat-message { display: flex; align-items: flex-end; gap: 12px; margin: 0 0 18px; }
 .chat-message:last-child { margin-bottom: 0; }
+.chat-message:has(.chat-reads) { position: relative; }
+.chat-reads { position: absolute; z-index: 2; right: 0; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
+.chat-message.own .chat-reads { right: auto; left: 0; flex-direction: row-reverse; }
+.chat-read { display: block; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px var(--page); }
+.chat-reads .chat-read + .chat-read { margin-left: -6px; }
+.chat-message.own .chat-reads .chat-read + .chat-read { margin-left: 0; margin-right: -6px; }
+.chat-read .avatar { width: 18px; height: 18px; font-size: 8px; border: 0; box-shadow: none; }
 .chat-message .chat-portrait { flex: none; width: 36px; height: 36px; min-width: 36px; border: 2px solid var(--line); box-shadow: 0 3px 0 #0004; font-size: 12px; }
 .chat-bubble { --bubble: var(--surface); position: relative; min-width: 0; max-width: calc(100% - 48px); padding: 10px 13px 12px; border: 1px solid var(--line); border-radius: 17px 17px 17px 5px; background: var(--bubble); color: var(--ink); box-shadow: 0 3px 0 #0004; }
 .chat-bubble::before { content: ''; position: absolute; width: 10px; height: 10px; bottom: 12px; left: -6px; background: var(--bubble); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg); }

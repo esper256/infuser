@@ -242,6 +242,32 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
     assert_eq!(listing["messages"].as_array().unwrap().len(), 1);
     assert_eq!(listing["messages"][0]["author"]["name"], "one");
     assert_eq!(listing["messages"][0]["can_delete"], false);
+    let read = |who: &str, message: u64| {
+        req(Method::POST, "/api/chat/read", who)
+            .header("origin", "https://games.example.com")
+            .json(&json!({"message": message}))
+    };
+    let first_id = first["id"].as_u64().unwrap();
+    let second = ok(send("two", "request-read-0002", "second line")).await?;
+    let second_id = second["id"].as_u64().unwrap();
+    assert_eq!(
+        ok(read("one", second_id)).await?["message"]
+            .as_u64()
+            .unwrap(),
+        second_id
+    );
+    assert_eq!(
+        ok(read("one", first_id)).await?["message"]
+            .as_u64()
+            .unwrap(),
+        second_id
+    );
+    assert_eq!(read("one", 9_000_000).send().await?.status(), 404);
+    let live = ok(req(Method::GET, "/api/chat", "two")).await?;
+    assert_eq!(live["reads"][0]["name"], "one");
+    assert_eq!(live["reads"][0]["message"], second_id);
+    assert!(!live.to_string().contains("@example.com"));
+    ok(remove("two", second_id)).await?;
     assert!(!listing.to_string().contains("@example.com"));
     let id = first["id"].as_u64().unwrap();
     assert_eq!(remove("two", id).send().await?.status(), 403);

@@ -35,6 +35,26 @@ pub(super) async fn send(
     )?))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Read {
+    message: u64,
+}
+
+pub(super) async fn advance(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<Read>,
+) -> Answer {
+    let email = p.member(&h, true).await?;
+    let (group, _) = p.group_view(&h, &email)?;
+    Ok(reply(p.db.chat_advance_read(
+        &email,
+        &group,
+        body.message,
+    )?))
+}
+
 pub(super) async fn remove(State(p): State<Platform>, Path(id): Path<u64>, h: HeaderMap) -> Answer {
     let email = p.member(&h, true).await?;
     let (group, _) = p.group_view(&h, &email)?;

@@ -13,8 +13,15 @@ Responses expose opaque player IDs, never emails. Chat reads use
 an unchanged authorized view returns 304. Membership and group access are checked
 before every response, including 304. Mutations use `no-store`.
 
-- `GET /api/chat` → `{messages:[{id, text, created, author:{id,name,avatar}, can_delete}]}`,
-  in chronological ID order. `created` is Unix seconds.
+- `GET /api/chat` → `{messages:[{id, text, created, author:{id,name,avatar}, can_delete}], reads:[{id, name, avatar, message}]}`,
+  messages in chronological ID order. `created` is Unix seconds. Each `reads`
+  entry is one person's cursor: the id of the newest message that was on screen
+  in their open chat while the page was visible. The cursor only moves forward.
+  `id` is the opaque player id.
+- `POST /api/chat/read` with `{message}` → `{message}`. The stored cursor is the
+  greater of the requested id and the cursor already stored. A message the
+  caller cannot see, including one outside their visit floor, returns 404.
+  Inspection is read-only. The response `message` is the cursor after the call.
 - `POST /api/chat` with `{client_id, text}` → `{id}`. Trimmed text is 1–280 Unicode
   characters; newlines are allowed, other control characters are rejected. The
   browser's native maxlength may be stricter for emoji. `client_id` is 16–64 ASCII

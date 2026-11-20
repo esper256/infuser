@@ -604,6 +604,7 @@
   border: 3px solid var(--ink-line);
   box-shadow: 2px 2px 0 var(--ink-line);
 }
+[data-theme="funny-pages"] .chat-read { box-shadow: 0 0 0 2px var(--ink-line); }
 [data-theme="funny-pages"] .chat-pointer { border-bottom-color: var(--ink-line); }
 [data-theme="funny-pages"] .chat-pointer::after { border-bottom-color: var(--caption); }
 [data-theme="funny-pages"] #library-chat[data-chat-anchor="right"] .chat-pointer { border-right-color: var(--ink-line); }
