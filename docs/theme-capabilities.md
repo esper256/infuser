@@ -2,7 +2,7 @@
 
 Audience: Infuser developers.
 
-Funny Pages is a preview. Cartridge Club is stable. Nightglass is the default. A
+Funny Pages and Field Notes are previews. Cartridge Club is stable. Nightglass is the default. A
 theme is still one presentation of the shared Library DOM and script. This
 page is what shipped.
 
@@ -11,11 +11,12 @@ page is what shipped.
 `web/themes.js` sets `data-theme` and, once styles have loaded, copies
 `--browser-chrome` onto `<meta name="theme-color">`. Nightglass sets that
 token to `#0c1017`, which is the value already in `web/index.html`. Cartridge
-Club sets `#14071f`. Funny Pages sets `#f4ecda`. The script does not load
+Club sets `#14071f`. Funny Pages sets `#f4ecda`. Field Notes sets `#f6f0e4`. The script does not load
 behavior, sound, or markup.
 
 `web/index.html` and `web/profiles.html` load `nightglass.css`, then
-`clubhouse.css`, then `cartridge-club.css`, then `funny-pages.css`. On both
+`clubhouse.css`, then `cartridge-club.css`, then `funny-pages.css`, then
+`field-notes.css`. On both
 pages a candidate rule wins a tie with the shared sheet. Tokens on
 `:root[data-theme="…"]` override `:root` on either page. The two candidate
 sheets are scoped to different `data-theme` values, so neither one paints
@@ -23,8 +24,9 @@ the other.
 
 The server serves theme files from one route, `/assets/themes/{*path}`.
 The handler in `src/portal/themes.rs` allows only an exact match from its
-list: the three stylesheets, Cartridge Club's Lilita One and Fredoka subsets,
-Funny Pages' Bangers and Comic Neue subsets, each theme's textures, the SIL
+list: the stylesheets, Cartridge Club's Lilita One and Fredoka subsets,
+Funny Pages' Bangers and Comic Neue subsets, Field Notes' Newsreader and
+Caveat subsets, each theme's textures, the SIL
 Open Font License files, and each `NOTICE.md`.
 A path with `..`, a backslash, an extra slash, or an extension outside
 css, woff2, svg, webp, png, txt, and md is rejected. Image, font, and text
@@ -80,8 +82,15 @@ things:
 - `#game-detail-content` is one column: the art on top, captions underneath.
   The close button stays the first control and sticks to the top corner.
 
-`@font-face` for Bangers and Comic Neue is global by CSS rules. Nightglass
-and Cartridge Club do not name those families. `forced-colors: active`
+Field Notes (`[data-theme="field-notes"]`) is the other layout preview. It
+does not use the chat-stack hook. `#visible-games` is one column of
+horizontal entries: the art is a specimen plate in the first column, and
+the title, tags, and Play control sit in the second. The row stays
+horizontal at 360px, with a narrower plate. The header stays the shared
+top bar. Recently stays the shared dropdown.
+
+`@font-face` for Bangers, Comic Neue, Newsreader, and Caveat is global by
+CSS rules. Nightglass and Cartridge Club do not name those families. `forced-colors: active`
 drops the theme's images, shadows, and custom fonts. The hover nudge is only under `prefers-reduced-motion:
 no-preference`. At 360px and below, filters, search, and Add a game stack,
 which matches DOM order.

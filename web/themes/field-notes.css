@@ -1,0 +1,415 @@
+/* Preview presentation. Every painted rule is scoped to
+ * [data-theme="field-notes"]. @font-face is global by CSS rules; the other
+ * themes do not use these family names. Fonts and the rule texture are served
+ * from /assets/themes/field-notes/ with their SIL Open Font License notices.
+ *
+ * The Library becomes a notebook: one column of horizontal specimen entries,
+ * art on the left and the writing on the right, on a desktop and on a phone.
+ */
+
+@font-face {
+  font-family: Newsreader;
+  src: url("/assets/themes/field-notes/newsreader-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Newsreader;
+  src: url("/assets/themes/field-notes/newsreader-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Caveat;
+  src: url("/assets/themes/field-notes/caveat-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root[data-theme="field-notes"] {
+  color-scheme: light;
+  --paper: #f6f0e4;
+  --ink: #2c261f;
+  --pencil: #5e564c;
+  --rule: #e4d3b4;
+  --margin: #b94a42;
+  --moss: #2f6b45;
+  --moss-deep: #1f4a30;
+  --page: var(--paper);
+  --field: #fffaf1;
+  --panel: #fffaf1;
+  --card-dock: transparent;
+  --detail-panel: #fffaf1;
+  --feedback-bubble: #fff6df;
+  --button-ink: #f6f0e4;
+  --accent: var(--moss);
+  --accent-hover: #3d8156;
+  --accent-pressed: var(--moss-deep);
+  --ink-line: var(--ink);
+  --quiet: var(--pencil);
+  --line: #c9b89a;
+  --surface: #fff6df;
+  --glass: #fffaf1;
+  --focus: #1d4e89;
+  --presence-online: #2f6b45;
+  --warm: #9a4318;
+  --green: var(--moss);
+  --browser-chrome: #f6f0e4;
+  --game-ratio: auto;
+}
+
+[data-theme="field-notes"] body {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--margin), var(--margin)),
+    repeating-linear-gradient(to bottom, transparent 0 31px, var(--rule) 31px 32px);
+  background-size: 2px 100%, 100% 32px;
+  background-position: 28px 0, 0 0;
+  background-repeat: no-repeat, repeat;
+  color: var(--ink);
+  font-family: Newsreader, "Iowan Old Style", Palatino, serif;
+}
+
+[data-theme="field-notes"] ::selection { background: #f3d27a; color: var(--ink); }
+
+[data-theme="field-notes"] body:has(#welcome:not([hidden])) {
+  color-scheme: dark;
+  background: #060b12;
+  color: #edf4ef;
+}
+
+[data-theme="field-notes"] header {
+  background:
+    linear-gradient(var(--margin), var(--margin)) 28px 0 / 2px 100% no-repeat,
+    var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+[data-theme="field-notes"] .brand-wordmark {
+  background: var(--ink);
+  padding: 4px 8px 5px;
+  border-radius: 3px;
+}
+
+[data-theme="field-notes"] h1,
+[data-theme="field-notes"] h2,
+[data-theme="field-notes"] .game-open,
+[data-theme="field-notes"] #activity h2,
+[data-theme="field-notes"] dialog h2 {
+  font-family: Caveat, Newsreader, serif;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* One notebook column. A pasted photo on the left, the specimen note on the right. */
+[data-theme="field-notes"] #visible-games.games {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+[data-theme="field-notes"] #visible-games > .game,
+[data-theme="field-notes"] #hidden-game-list .hidden-game {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
+  column-gap: 28px;
+  align-items: start;
+  aspect-ratio: auto;
+  min-height: 0;
+  padding: 16px 8px 18px 4px;
+  border: 0;
+  border-radius: 2px;
+  background: #fbf7ef;
+  box-shadow: none;
+}
+[data-theme="field-notes"] #visible-games > .game::before,
+[data-theme="field-notes"] .game-art:not(:has(img))::before,
+[data-theme="field-notes"] .game-art:not(:has(img))::after { content: none; }
+[data-theme="field-notes"] #visible-games > .game .game-art,
+[data-theme="field-notes"] #hidden-game-list .hidden-game .game-art {
+  position: relative;
+  inset: auto;
+  z-index: 1;
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 5 / 4;
+  min-height: 0;
+  align-self: start;
+  border: 10px solid #fff;
+  border-radius: 2px;
+  box-shadow: 0 8px 16px #0000001a;
+  transform: rotate(-1.2deg);
+  background: linear-gradient(160deg, #efe2c4, #d7c39a 70%);
+}
+[data-theme="field-notes"] #visible-games > .game:nth-child(even) .game-art { transform: rotate(1.1deg); }
+[data-theme="field-notes"] #visible-games > .game .game-art.has-game-art,
+[data-theme="field-notes"] #hidden-game-list .hidden-game .game-art.has-game-art { overflow: visible; }
+[data-theme="field-notes"] #visible-games > .game .game-art.has-game-art img,
+[data-theme="field-notes"] #hidden-game-list .hidden-game .game-art.has-game-art img { border-radius: 1px; }
+[data-theme="field-notes"] #visible-games > .game .game-art.has-game-art::after,
+[data-theme="field-notes"] #hidden-game-list .hidden-game .game-art.has-game-art::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: -16px;
+  left: 18px;
+  width: 58px;
+  height: 18px;
+  border-radius: 1px;
+  background: #f6e7a8d0;
+  transform: rotate(-8deg);
+  box-shadow: 0 1px 0 #00000014;
+  pointer-events: none;
+}
+[data-theme="field-notes"] .specimen-page {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 2px;
+}
+[data-theme="field-notes"] .specimen-page .game-heading,
+[data-theme="field-notes"] .hidden-game .game-heading { width: 100%; justify-content: flex-start; }
+[data-theme="field-notes"] .specimen-text {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 18px;
+  line-height: 32px;
+  color: var(--ink);
+  background-image: repeating-linear-gradient(to bottom, transparent 0 31px, var(--rule) 31px 32px);
+  background-size: 100% 32px;
+}
+[data-theme="field-notes"] .specimen-when { margin: 10px 0 0; color: var(--pencil); font-size: 14px; }
+[data-theme="field-notes"] .specimen-page .game-meta { margin: 0; }
+[data-theme="field-notes"] .specimen-page .actions {
+  --card-control-height: 42px;
+  align-self: flex-start;
+  align-items: stretch;
+  margin: 4px 0 0;
+}
+[data-theme="field-notes"] .specimen-page .actions > .play-menu { display: flex; }
+[data-theme="field-notes"] .specimen-page .play-menu > summary { flex: 1; height: auto; }
+[data-theme="field-notes"] .game-bottom:not(:has(.game-buzz)) { display: none; }
+[data-theme="field-notes"] .game-dock:empty { display: none; }
+[data-theme="field-notes"] .game-bottom { position: relative; grid-column: 1; grid-row: 1; align-self: end; z-index: 2; width: auto; margin: 0 0 10px 12px; }
+[data-theme="field-notes"] .game:not(.hidden-game) .game-buzz { margin: 0; }
+[data-theme="field-notes"] .game h2,
+[data-theme="field-notes"] .game-heading h2 {
+  display: block;
+  overflow: visible;
+  overflow-wrap: normal;
+  text-align: left;
+  font-size: 42px;
+  line-height: 1.25;
+  padding: 0;
+}
+[data-theme="field-notes"] .game-open,
+[data-theme="field-notes"] .game-open:hover,
+[data-theme="field-notes"] .game-open:active:not(:disabled) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  padding: 0.16em 0.7em 0.2em 0;
+  text-align: left;
+  background: none;
+  color: var(--ink);
+}
+[data-theme="field-notes"] #hidden-game-list { display: flex; flex-direction: column; gap: 16px; }
+[data-theme="field-notes"] #hidden-game-list .hidden-game {
+  grid-template-columns: 104px minmax(0, 1fr);
+  column-gap: 16px;
+  padding: 12px;
+}
+[data-theme="field-notes"] #hidden-game-list .hidden-game .game-art {
+  aspect-ratio: 1;
+  border-width: 6px;
+  transform: rotate(-1deg);
+}
+[data-theme="field-notes"] #hidden-game-list .hidden-game .game-heading h2 { font-size: 32px; }
+[data-theme="field-notes"] .game:not(.hidden-game) .game-heading {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+[data-theme="field-notes"] .game-tags .tag-chip,
+[data-theme="field-notes"] .edit-tags,
+[data-theme="field-notes"] .game-meta .quiet,
+[data-theme="field-notes"] .game-visibility {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--pencil);
+  backdrop-filter: none;
+}
+[data-theme="field-notes"] .library-toolbar {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  padding-inline: 0;
+}
+[data-theme="field-notes"] .tag-filter,
+[data-theme="field-notes"] .tag-chip,
+[data-theme="field-notes"] .add-game {
+  border-color: var(--line);
+  background: var(--field);
+  color: var(--ink);
+}
+[data-theme="field-notes"] .tag-filter.selected,
+[data-theme="field-notes"] .tag-chip.selected { background: #f3d27a; color: var(--ink); }
+[data-theme="field-notes"] input,
+[data-theme="field-notes"] textarea,
+[data-theme="field-notes"] select {
+  background: var(--field);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+@media (hover: hover) {
+  [data-theme="field-notes"] .game:hover { transform: none; border-color: transparent; box-shadow: none; }
+}
+@media (max-width: 520px) {
+  [data-theme="field-notes"] body { background-position: 12px 0, 0 0; }
+  [data-theme="field-notes"] header {
+    background:
+      linear-gradient(var(--margin), var(--margin)) 12px 0 / 2px 100% no-repeat,
+      var(--paper);
+  }
+  [data-theme="field-notes"] #visible-games > .game,
+  [data-theme="field-notes"] #hidden-game-list .hidden-game {
+    grid-template-columns: 116px minmax(0, 1fr);
+    column-gap: 12px;
+    padding: 12px 4px;
+  }
+  [data-theme="field-notes"] #visible-games > .game .game-art,
+  [data-theme="field-notes"] #visible-games > .game:nth-child(even) .game-art,
+  [data-theme="field-notes"] #hidden-game-list .hidden-game .game-art {
+    aspect-ratio: 1;
+    border-width: 5px;
+    transform: none;
+  }
+  [data-theme="field-notes"] .game h2,
+  [data-theme="field-notes"] .game-heading h2,
+  [data-theme="field-notes"] #hidden-game-list .hidden-game .game-heading h2 { font-size: 30px; }
+  [data-theme="field-notes"] .specimen-page .actions { --card-control-height: 44px; }
+}
+
+/* Recently stays the shared dropdown, dressed as a pressed note. */
+[data-theme="field-notes"] #activity.recent-panel,
+[data-theme="field-notes"] .account-menu {
+  background: var(--field);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: 3px 4px 0 #00000014;
+}
+[data-theme="field-notes"] #activity .feed-entry {
+  width: 100%;
+  border-bottom: 1px solid var(--rule);
+  align-items: center;
+}
+[data-theme="field-notes"] .feed-row,
+[data-theme="field-notes"] .feed-entry > .feed-row,
+[data-theme="field-notes"] .feed-entry:nth-child(3n+2) > .feed-row,
+[data-theme="field-notes"] .feed-row:nth-child(2n) {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+}
+[data-theme="field-notes"] .feed-row small,
+[data-theme="field-notes"] .feed-row p { color: var(--pencil); }
+[data-theme="field-notes"] .account-menu label { color: var(--ink); font-size: 15px; font-weight: 700; }
+[data-theme="field-notes"] .account-menu > button,
+[data-theme="field-notes"] .account-menu > a { color: var(--ink); }
+[data-theme="field-notes"] .account-menu > button:hover,
+[data-theme="field-notes"] .account-menu > a:hover { background: #f3d27a; color: var(--ink); }
+
+[data-theme="field-notes"] dialog,
+[data-theme="field-notes"] #game-detail {
+  background: var(--field);
+  color: var(--ink);
+  border-color: var(--line);
+}
+[data-theme="field-notes"] .detail-info h2 { font-family: Caveat, Newsreader, serif; }
+[data-theme="field-notes"] .feedback-bubble {
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 #0000000d;
+  color: var(--ink);
+  padding: 12px 14px;
+}
+[data-theme="field-notes"] .game-description {
+  margin: 0 0 22px;
+  padding: 0 8px 0 16px;
+  border: 0;
+  border-left: 2px solid var(--margin);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--ink);
+  background-color: transparent;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 31px, var(--rule) 31px 32px);
+  background-size: 100% 32px;
+  line-height: 32px;
+}
+
+[data-theme="field-notes"] #chat-panel {
+  background: var(--field);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 32px #00000022;
+}
+[data-theme="field-notes"] .chat-bubble {
+  --bubble: #fffdf8;
+  background: var(--bubble);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: 0 2px 0 #00000010;
+}
+[data-theme="field-notes"] .own .chat-bubble { --bubble: #e7f0df; background: #e7f0df; }
+[data-theme="field-notes"] .chat-bubble::before { background: var(--bubble); border-color: var(--line); }
+[data-theme="field-notes"] .own .chat-meta strong,
+[data-theme="field-notes"] .chat-meta strong { color: var(--moss-deep); }
+[data-theme="field-notes"] #chat-toggle,
+[data-theme="field-notes"] #voice-toggle {
+  background: var(--field);
+  color: var(--ink);
+  border-color: var(--line);
+}
+[data-theme="field-notes"] .presence-name {
+  background: var(--field);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+@media (forced-colors: active) {
+  [data-theme="field-notes"] body,
+  [data-theme="field-notes"] header,
+  [data-theme="field-notes"] .game,
+  [data-theme="field-notes"] .game-art,
+  [data-theme="field-notes"] dialog,
+  [data-theme="field-notes"] #activity.recent-panel,
+  [data-theme="field-notes"] .account-menu,
+  [data-theme="field-notes"] .chat-bubble,
+  [data-theme="field-notes"] button,
+  [data-theme="field-notes"] input {
+    background-image: none;
+    box-shadow: none;
+    font-family: inherit;
+    forced-color-adjust: auto;
+  }
+  [data-theme="field-notes"] #visible-games > .game .game-art:not(:has(img))::before,
+  [data-theme="field-notes"] #visible-games > .game .game-art:not(:has(img))::after { content: none; }
+}

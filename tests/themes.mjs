@@ -60,6 +60,43 @@ test('funny pages is linked after the other sheets and every rule is scoped',()=
   }
   walk(css);
 });
+test('field notes is linked last and every rule is scoped',()=>{
+  const html=readFileSync(new URL('../web/index.html',import.meta.url),'utf8');
+  const profiles=readFileSync(new URL('../web/profiles.html',import.meta.url),'utf8');
+  const css=readFileSync(new URL('../web/themes/field-notes.css',import.meta.url),'utf8').replace(/\/\*[\s\S]*?\*\//g,'');
+  for(const page of [html,profiles]){
+    const funny=page.indexOf('/assets/themes/funny-pages.css');
+    const field=page.indexOf('/assets/themes/field-notes.css');
+    assert.ok(funny>=0&&field>funny);
+  }
+  assert.equal(boot('field-notes').themes.current,'field-notes');
+  assert.equal(boot().themes.catalog.find(t=>t.id==='field-notes').status,'preview');
+  function walk(sheet){
+    let i=0;
+    while(i<sheet.length){
+      const start=i;
+      while(i<sheet.length&&sheet[i]!=='{')i++;
+      const prelude=sheet.slice(start,i).trim();
+      if(i>=sheet.length)break;
+      i++;
+      const innerStart=i;
+      let depth=1;
+      while(i<sheet.length&&depth){
+        if(sheet[i]==='{')depth++;
+        else if(sheet[i]==='}')depth--;
+        if(depth)i++;
+      }
+      const inner=sheet.slice(innerStart,i);
+      i++;
+      if(!prelude)continue;
+      if(/^@(media|container|supports|layer)\b/.test(prelude))walk(inner);
+      else if(/^@font-face\b/.test(prelude))continue;
+      else if(prelude.startsWith('@'))assert.fail('unexpected at-rule '+prelude);
+      else assert.ok(prelude.includes('[data-theme="field-notes"]'),prelude);
+    }
+  }
+  walk(css);
+});
 test('selection persists and other tabs can change or clear it',()=>{
   const {themes,values,storage}=boot();
   themes.select('cartridge-club');assert.equal(values.get('infuser.theme'),'cartridge-club');
