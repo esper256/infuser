@@ -6,6 +6,7 @@
   const catalog = Object.freeze([
     Object.freeze({id: 'nightglass', name: 'Nightglass', status: 'stable'}),
     Object.freeze({id: 'cartridge-club', name: 'Cartridge Club', status: 'preview'}),
+    Object.freeze({id: 'funny-pages', name: 'Funny Pages', status: 'preview'}),
   ]);
   const resolve = id => catalog.find(theme => theme.id === id && theme.status !== 'retired')?.id || defaultId;
   const read = () => { try { return localStorage.getItem(key); } catch { return null; } };

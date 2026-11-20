@@ -175,6 +175,36 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
             .status(),
         404
     );
+    let funny = http
+        .get(format!("{url}/assets/themes/funny-pages.css"))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(funny.headers()["content-type"], "text/css");
+    assert!(funny.text().await?.contains("funny-pages"));
+    let dots = http
+        .get(format!("{url}/assets/themes/funny-pages/halftone.svg"))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(dots.headers()["content-type"], "image/svg+xml");
+    assert_eq!(
+        dots.headers()["content-security-policy"],
+        "default-src 'none'"
+    );
+    let comic = http
+        .get(format!(
+            "{url}/assets/themes/funny-pages/bangers-latin.woff2"
+        ))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(comic.headers()["content-type"], "font/woff2");
+    assert_eq!(
+        comic.headers()["content-security-policy"],
+        "default-src 'none'"
+    );
+    assert!(!comic.bytes().await?.is_empty());
     let before: Value = request(Method::GET, "/api/me", "member=one")
         .send()
         .await?
