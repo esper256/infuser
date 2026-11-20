@@ -373,7 +373,17 @@ pub async fn collect(settings: &Settings) -> Result<Report> {
     }
     if let Some(work) = &settings.updater_state_dir {
         checks.push(check("update",!work.join("failed-release").exists(),"Automatic deployment rollback status","Inspect infuser-update.service; a failed release remains held until a newer build or explicit retry."));
-        checks.push(check("update-wait",!work.join("deferred-release").exists() || fs::metadata(work.join("deferred-release")).ok().and_then(|m|m.modified().ok()).is_some_and(|t|t.elapsed().unwrap_or_default()<Duration::from_secs(24*3600)),"Update still waiting to install","Open Admin tools to see what it is waiting on. Authorizing one update skips that wait."));
+        let holding = api
+            .as_ref()
+            .and_then(|value| value["update_holding"].as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        checks.push(update_wait(work, root, &holding));
         let rollback = work.join("rollback");
         if rollback.join("last-failure.json").exists() || rollback.join("latest.json").exists() {
             let ok = crate::rollback::record_ok(&rollback);
@@ -438,9 +448,167 @@ pub async fn collect(settings: &Settings) -> Result<Report> {
     }
     Ok(report)
 }
+fn update_wait(updater_dir: &Path, state_dir: &Path, holding: &[String]) -> Check {
+    let deferred_path = updater_dir.join("deferred-release");
+    let deferred = fs::read_to_string(&deferred_path)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let fresh = deferred.is_none()
+        || fs::metadata(&deferred_path)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .is_some_and(|modified| {
+                modified.elapsed().unwrap_or_default() < Duration::from_secs(24 * 3600)
+            });
+    let record = fs::read(state_dir.join("deployment.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<crate::deployment::Record>(&bytes).ok());
+    let report = record.as_ref().and_then(|record| record.report.as_ref());
+    let waiting = deferred.is_some()
+        || report.is_some_and(|report| report.phase == crate::deployment::Phase::Waiting);
+    if !waiting {
+        return check(
+            "update-wait",
+            true,
+            "No update waiting",
+            "No action needed.",
+        );
+    }
+    let because = if report.is_some_and(|report| report.maintenance_blocked) {
+        "another job on this computer, such as a backup".to_owned()
+    } else if let Some(wait) = record.as_ref().and_then(|record| record.host_wait.as_ref()) {
+        match wait.step {
+            crate::deployment::HostStep::Reboot => "a reboot".to_owned(),
+            crate::deployment::HostStep::Ansible => "Ansible".to_owned(),
+        }
+    } else {
+        let reasons = holding
+            .iter()
+            .map(|reason| clip_reason(reason))
+            .filter(|reason| !reason.is_empty())
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if reasons.is_empty() {
+            "the next updater check".to_owned()
+        } else {
+            reasons
+        }
+    };
+    let overdue = if fresh {
+        String::new()
+    } else {
+        " It has been waiting for more than 24 hours.".to_owned()
+    };
+    let sentence = if because.ends_with('.') {
+        because
+    } else {
+        format!("{because}.")
+    };
+    check(
+        "update-wait",
+        fresh,
+        format!("Update waiting to install: {sentence}{overdue}"),
+        "Open Admin tools to see what it is waiting on. Authorizing one update skips that wait.",
+    )
+}
+fn clip_reason(value: &str) -> String {
+    let mut text = String::new();
+    for character in value.chars() {
+        if text.chars().count() >= 180 {
+            break;
+        }
+        if !character.is_control() {
+            text.push(character);
+        }
+    }
+    text.trim().to_owned()
+}
 fn write_report(path: &Path, report: &Report) -> Result<()> {
     crate::private_file::replace(path, &serde_json::to_vec(report)?)?;
     // Contains sanitized status only. State directory still restricts access.
     fs::set_permissions(path, fs::Permissions::from_mode(0o644))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::deployment::{HostPolicy, HostStep, Phase, Report, Tracker};
+    use std::time::SystemTime;
+
+    fn layout() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let updater = root.path().join("updater");
+        fs::create_dir(&state).unwrap();
+        fs::create_dir(&updater).unwrap();
+        (root, state, updater)
+    }
+    fn report(phase: Phase, blocked: bool) -> Report {
+        Report {
+            release: Some("a".repeat(40)),
+            built_at: None,
+            phase,
+            maintenance_blocked: blocked,
+        }
+    }
+
+    #[test]
+    fn idle_update_wait_does_not_say_an_update_is_waiting() {
+        let (_root, state, updater) = layout();
+        let tracker = Tracker::open(&state).unwrap();
+        tracker.report(report(Phase::Current, false)).unwrap();
+        fs::write(updater.join("failed-release"), b"not-this-check").unwrap();
+        let check = update_wait(&updater, &state, &[]);
+        assert!(check.ok);
+        assert_eq!(check.detail, "No update waiting");
+        assert!(!check.detail.contains("waiting to install"));
+    }
+
+    #[test]
+    fn waiting_update_names_the_reason_and_ages_out() {
+        let (_root, state, updater) = layout();
+        let tracker = Tracker::open(&state).unwrap();
+        tracker.report(report(Phase::Waiting, false)).unwrap();
+        fs::write(updater.join("deferred-release"), "b".repeat(40)).unwrap();
+        let fresh = update_wait(
+            &updater,
+            &state,
+            &["Receiving \"Pond\" from an agent, started 2 minutes ago.".into()],
+        );
+        assert!(fresh.ok);
+        assert_eq!(
+            fresh.detail,
+            "Update waiting to install: Receiving \"Pond\" from an agent, started 2 minutes ago."
+        );
+        tracker.report(report(Phase::Waiting, true)).unwrap();
+        let blocked = update_wait(&updater, &state, &["Receiving \"Pond\".".into()]);
+        assert!(blocked.ok);
+        assert_eq!(
+            blocked.detail,
+            "Update waiting to install: another job on this computer, such as a backup."
+        );
+        tracker.report(report(Phase::Waiting, false)).unwrap();
+        tracker
+            .note_host_wait(HostStep::Reboot, HostPolicy::Release)
+            .unwrap();
+        let reboot = update_wait(&updater, &state, &[]);
+        assert_eq!(reboot.detail, "Update waiting to install: a reboot.");
+        let file = fs::File::options()
+            .write(true)
+            .open(updater.join("deferred-release"))
+            .unwrap();
+        file.set_modified(SystemTime::now() - Duration::from_secs(25 * 3600))
+            .unwrap();
+        let stale = update_wait(&updater, &state, &[]);
+        assert!(!stale.ok);
+        assert!(stale.detail.contains("a reboot."));
+        assert!(
+            stale
+                .detail
+                .contains("It has been waiting for more than 24 hours.")
+        );
+    }
 }

@@ -85,6 +85,15 @@ async fn stalled_controller_recovery_is_bounded_and_backup_pause_is_respected() 
         anyhow::Ok(())
     };
     run().await?;
+    let idle: infuser::host_health::Report =
+        serde_json::from_slice(&fs::read(state.join("host-health.json"))?)?;
+    let update_wait = idle
+        .checks
+        .iter()
+        .find(|check| check.id == "update-wait")
+        .unwrap();
+    assert!(update_wait.ok);
+    assert_eq!(update_wait.detail, "No update waiting");
     let text = fs::read_to_string(metrics.join("infuser.prom"))?;
     assert!(text.contains("infuser_check_success{check=\"controller\"} 1"));
     assert!(text.contains("infuser_check_success{check=\"rollback-snapshot\"} 0"));
