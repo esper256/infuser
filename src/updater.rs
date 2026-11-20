@@ -395,22 +395,42 @@ fn release_label(path: &Path) -> Result<String> {
     Ok(name.to_owned())
 }
 
-fn hold_update_lock(config: &Settings) -> Result<File> {
+/// Exclusive `update.lock`.
+///
+/// `flock` belongs to the open file description. A concurrent `spawn` copies
+/// that description into the child until `exec`, so closing the owner's
+/// descriptor can leave the lock held after `update` returns. `unlock`
+/// releases every copy, including one a sibling thread has just inherited.
+struct UpdateLock {
+    file: File,
+}
+
+impl Drop for UpdateLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
+fn open_update_lock(config: &Settings) -> Result<File> {
     fs::create_dir_all(&config.state_dir)?;
-    let lock = OpenOptions::new()
+    Ok(OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
         .write(true)
         .mode(0o600)
-        .open(config.state_dir.join("update.lock"))?;
-    lock.try_lock().map_err(|error| match error {
+        .open(config.state_dir.join("update.lock"))?)
+}
+
+fn hold_update_lock(config: &Settings) -> Result<UpdateLock> {
+    let file = open_update_lock(config)?;
+    file.try_lock().map_err(|error| match error {
         std::fs::TryLockError::WouldBlock => {
             anyhow::anyhow!("another update is already running")
         }
         std::fs::TryLockError::Error(error) => error.into(),
     })?;
-    Ok(lock)
+    Ok(UpdateLock { file })
 }
 
 fn acquire_host_lock(path: &Path) -> Result<Option<File>> {
@@ -545,6 +565,36 @@ mod host_lock_tests {
                 .status()?
                 .success()
         );
+        Ok(())
+    }
+
+    fn lock_settings(dir: &std::path::Path) -> Settings {
+        Settings {
+            repository: "example/infuser".into(),
+            install_dir: dir.join("install"),
+            state_dir: dir.join("state"),
+            controller_config: dir.join("controller.toml"),
+            service: "infuser.service".into(),
+            health_url: health(),
+        }
+    }
+
+    #[test]
+    fn dropping_the_update_lock_releases_it_while_a_duplicate_is_still_open() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let config = lock_settings(dir.path());
+        let held = hold_update_lock(&config)?;
+        // fork and dup share one open-file description. This duplicate is the
+        // descriptor a child keeps until exec.
+        let inherited = held.file.try_clone()?;
+        assert!(
+            hold_update_lock(&config).is_err(),
+            "the owner must still exclude a second update"
+        );
+        drop(held);
+        let again = hold_update_lock(&config)?;
+        drop(again);
+        drop(inherited);
         Ok(())
     }
 
@@ -832,17 +882,11 @@ pub async fn update(
     http: &reqwest::Client,
     service: &dyn Service,
 ) -> Result<String> {
-    fs::create_dir_all(&config.state_dir)?;
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .mode(0o600)
-        .open(config.state_dir.join("update.lock"))?;
-    if lock.try_lock().is_err() {
+    let file = open_update_lock(config)?;
+    if file.try_lock().is_err() {
         return Ok("Another update is already running".into());
     }
+    let _lock = UpdateLock { file };
     fs::create_dir_all(config.install_dir.join("releases"))?;
     let pending_file = config.state_dir.join("pending.json");
     let failed_file = config.state_dir.join("failed-release");
