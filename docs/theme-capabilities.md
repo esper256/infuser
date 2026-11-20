@@ -67,15 +67,16 @@ did not gain wrappers or layout hooks. The sheet does four things:
   next row. That is the same order as Tab.
 - At 960px and wider, Recently opens as an absolute flyout just to the
   right of the masthead, about 360px wide, painted with the masthead so it
-  sits over the game grid. The entry list scrolls inside the flyout. Narrower
-  widths keep the shared panel under the top bar.
+  sits over the game grid. The entry list scrolls inside the flyout, and a
+  comic tail points back at the Recent button. Narrower widths keep the
+  shared panel under the top bar, without that tail.
 - `#game-detail-content` is one column: the art on top, captions underneath.
   The close button stays the first control and sticks to the top corner.
 
 `@font-face` for Bangers and Comic Neue is global by CSS rules. Nightglass
 and Cartridge Club do not name those families. `forced-colors: active`
-drops the theme's images, shadows, and custom fonts. The bubble tail is an
-empty `::before`. The hover nudge is only under `prefers-reduced-motion:
+drops the theme's images, shadows, and custom fonts. Chat message tails
+and the chat-panel pointers are hidden. The hover nudge is only under `prefers-reduced-motion:
 no-preference`. At 360px and below, filters, search, and Add a game stack,
 which matches DOM order.
 
