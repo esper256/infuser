@@ -5,7 +5,7 @@ import { selectedVisit, visitHeaders, initVisits, updateVisit, returnHome } from
 import { setupPwa, clearNotifications } from '/assets/pwa.js';
 import { profileFetch, pinProfile, chooser } from '/assets/profiles.js';
 import { inspection, inspectionHeaders, initGroups } from '/assets/groups.js';
-import { initChat } from '/assets/chat.js';
+import { initChat, chatDock } from '/assets/chat.js';
 import { initVoice } from '/assets/voice.js';
 import { initClientUpdates } from '/assets/client-updates.js';
 import { initServerUpdates } from '/assets/server-updates.js';
@@ -496,8 +496,12 @@ function chatPresenceLayout(people,count,list){
   const order=chatPresenceOrder.filter(id=>byId.has(id)),known=new Set(order);
   for(const person of people)if(!known.has(person.id))order.push(person.id);
   const {base,first,step,badge}=presenceMetrics||{base:0,first:0,step:1,badge:0};
-  const start=list.getBoundingClientRect().left+base+first-badge/2;
-  const slots=Array.from({length:count},(_,index)=>index).filter(index=>chatPresence.left===null||start+index*step>=chatPresence.left&&start+index*step<=chatPresence.right);
+  const box=list.getBoundingClientRect();
+  const vertical=presenceMetrics?.axis==='column'&&chatPresence.axis==='column';
+  const start=(vertical?box.top:box.left)+base+first-badge/2;
+  const slots=vertical
+    ?Array.from({length:count},(_,index)=>index).filter(index=>chatPresence.top==null||start+index*step>=chatPresence.top&&start+index*step<=chatPresence.bottom)
+    :Array.from({length:count},(_,index)=>index).filter(index=>chatPresence.left===null||start+index*step>=chatPresence.left&&start+index*step<=chatPresence.right);
   const visible=new Set(chatPresence.visible.filter(id=>byId.has(id))),reserved=new Set();
   // Speakers already able to connect keep their places, even at the right edge.
   for(const slot of slots)if(visible.has(order[slot]))reserved.add(slot);
@@ -552,9 +556,27 @@ function animatePresence(list,before){
 }
 reactionMotion.addEventListener('change',()=>{if(reactionMotion.matches){for(const animation of presenceMotions.values())animation.cancel();presenceMotions.clear();for(const ghost of presenceGhosts)ghost.remove();presenceGhosts.clear();}});
 
+function columnPresenceCount(people,list,cluster){
+  const voice=$('voice-toggle'),gap=parseFloat(getComputedStyle(cluster).rowGap)||0;
+  const room=cluster.clientHeight-$('chat-toggle').offsetHeight-gap-(voice&&!voice.hidden?voice.offsetHeight+gap:0);
+  const self=list.querySelector('.presence-self');
+  const outer=node=>{const style=getComputedStyle(node);return node.offsetHeight+parseFloat(style.marginTop)+parseFloat(style.marginBottom);};
+  const base=self?outer(self):0;
+  const layoutKey=JSON.stringify(['column',room,base,innerHeight,document.documentElement.dataset.theme]);
+  if(layoutKey===presenceLayoutKey)return people.length<=presenceSlots?people.length:Math.max(0,presenceSlots-1);
+  presenceLayoutKey=layoutKey;
+  let badge=list.querySelector('.presence-person:not(.presence-self)');
+  const probe=!badge;if(probe){badge=el('li',undefined,'presence-person');list.append(badge);}
+  const first=outer(badge);
+  const next=el('li',undefined,'presence-person');list.append(next);
+  const step=outer(next);presenceMetrics={base,first,step,badge:badge.offsetHeight,axis:'column'};next.remove();if(probe)badge.remove();
+  const slots=Math.max(0,Math.floor((room-base-first+.5)/Math.max(1,step))+1);presenceSlots=slots;
+  return people.length<=slots?people.length:Math.max(0,slots-1);
+}
 function visiblePresenceCount(people){
   const list=$('friends'),cluster=list.closest('.presence-chat');
   if(!cluster||!people.length)return people.length;
+  if(chatDock()?.stack==='column')return columnPresenceCount(people,list,cluster);
   const voice=$('voice-toggle'),gap=parseFloat(getComputedStyle(cluster).columnGap);
   const room=cluster.clientWidth-$('chat-toggle').offsetWidth-gap-(voice&&!voice.hidden?voice.offsetWidth+gap:0);
   const self=list.querySelector('.presence-self');
