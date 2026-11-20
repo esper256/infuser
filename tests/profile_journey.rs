@@ -149,6 +149,32 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         assert_eq!(asset.headers()["content-type"], mime);
         assert!(asset.text().await?.contains(marker));
     }
+    let font = http
+        .get(format!(
+            "{url}/assets/themes/cartridge-club/lilita-one-latin.woff2"
+        ))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(font.headers()["content-type"], "font/woff2");
+    assert_eq!(
+        font.headers()["content-security-policy"],
+        "default-src 'none'"
+    );
+    assert!(!font.bytes().await?.is_empty());
+    let notice = http
+        .get(format!("{url}/assets/themes/cartridge-club/NOTICE.md"))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert!(notice.text().await?.contains("Lilita One"));
+    assert_eq!(
+        http.get(format!("{url}/assets/themes/cartridge-club/no-such.woff2"))
+            .send()
+            .await?
+            .status(),
+        404
+    );
     let before: Value = request(Method::GET, "/api/me", "member=one")
         .send()
         .await?

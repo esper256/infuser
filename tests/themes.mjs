@@ -31,6 +31,20 @@ test('unknown and retired choices fall back rather than selecting arbitrary CSS'
   const {themes}=boot('cartridge-club',{code});
   assert.equal(themes.current,'nightglass');themes.select('cartridge-club');assert.equal(themes.current,'nightglass');
 });
+test('browser chrome token is copied onto the theme-color meta',()=>{
+  const meta={content:''};
+  const document={
+    documentElement:{dataset:{}},
+    readyState:'loading',
+    querySelector:selector=>selector==='meta[name="theme-color"]'?meta:null,
+    addEventListener(){},
+  };
+  const values=new Map();
+  const localStorage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value)};
+  const window={addEventListener(){},dispatchEvent(){}};
+  vm.runInNewContext(source,{window,document,localStorage,getComputedStyle:()=>({getPropertyValue:()=>' #0c1017 '}),Event:class {}});
+  assert.equal(meta.content,'#0c1017');
+});
 test('blocked storage does not break selection for this visit',()=>{
   const {themes}=boot(undefined,{blocked:true});
   assert.equal(themes.current,'nightglass');themes.select('cartridge-club');assert.equal(themes.current,'cartridge-club');

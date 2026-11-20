@@ -5,7 +5,7 @@ pub(super) fn version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| {
         hash(&format!(
-            "{}{}",
+            "{}{}{}",
             concat!(
                 env!("CARGO_PKG_VERSION"),
                 include_str!("../../web/index.html"),
@@ -32,6 +32,7 @@ pub(super) fn version() -> &'static str {
                 include_str!("../../web/themes/nightglass.css"),
                 include_str!("../../web/themes/cartridge-club.css"),
             ),
+            super::themes::source_fingerprint(),
             crate::BUILD_SHA
         ))
     })

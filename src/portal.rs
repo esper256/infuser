@@ -58,6 +58,7 @@ mod screenshots;
 mod sdk_v1;
 mod server_builds;
 mod server_diagnostics;
+mod themes;
 mod update_reactions;
 mod urls;
 mod visits;
@@ -553,8 +554,7 @@ pub fn router(platform: Platform) -> Router {
             }),
         )
         .route("/assets/themes.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/themes.js")) }))
-        .route("/assets/themes/nightglass.css", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/css", include_bytes!("../web/themes/nightglass.css")) }))
-        .route("/assets/themes/cartridge-club.css", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/css", include_bytes!("../web/themes/cartridge-club.css")) }))
+        .route("/assets/themes/{*path}", get(themes::asset))
         .route("/assets/card-generating.webp", get(|| async {
             ([(header::CONTENT_TYPE, "image/webp"), (header::CACHE_CONTROL, "public, max-age=3600")],
              include_bytes!("../assets/card-fallback/generating.webp").as_slice())
