@@ -15,12 +15,12 @@ Club sets `#14071f`. Funny Pages sets `#f4ecda`. Field Notes sets `#f6f0e4`. The
 behavior, sound, or markup.
 
 `web/index.html` and `web/profiles.html` load `nightglass.css`, then
-`clubhouse.css`, then `cartridge-club.css`, then `funny-pages.css`, then
-`field-notes.css`. On both
-pages a candidate rule wins a tie with the shared sheet. Tokens on
-`:root[data-theme="…"]` override `:root` on either page. The two candidate
-sheets are scoped to different `data-theme` values, so neither one paints
-the other.
+`clubhouse.css`. `web/themes.js` then inserts only the active candidate
+stylesheet, after those two, and only when one is selected. On both pages a
+candidate rule wins a tie with the shared sheet by selector specificity.
+Tokens on `:root[data-theme="…"]` override `:root` on either page. Candidate
+sheets are scoped to different `data-theme` values, so one does not paint
+the other. A Nightglass visit does not download the other sheets.
 
 The server serves theme files from one route, `/assets/themes/{*path}`.
 The handler in `src/portal/themes.rs` allows only an exact match from its
@@ -95,9 +95,10 @@ drops the theme's images, shadows, and custom fonts. The hover nudge is only und
 no-preference`. At 360px and below, filters, search, and Add a game stack,
 which matches DOM order.
 
-Shipping the theme still registers it, links `funny-pages.css` after the
-other sheets, and names its files in the asset allowlist. Those edits do
-not change Nightglass or Cartridge Club selectors.
+Shipping the theme still registers it in `web/themes.js` and names its files
+in the asset allowlist. The top-level css entry is the stylesheet the client
+loads; HTML does not gain a `<link>`. Those edits do not change Nightglass
+or Cartridge Club selectors.
 
 The game player page, `desktop.html`, and the native Play app do not load
 this system. Sound is not part of it. A manifest for those would be a later
@@ -157,10 +158,11 @@ every Funny Pages rule is scoped to `[data-theme="funny-pages"]` (with
 
 ## Checking the other themes
 
-Adding Funny Pages links another stylesheet, so Nightglass pages load its
-`@font-face` rules even though Nightglass never names Bangers or Comic
-Neue. A one-off Chrome pass compared every Nightglass element's computed
-style and border box with that sheet present and with the sheet empty.
+Candidate sheets load only for the theme that is showing, so a Nightglass
+page does not parse another theme's `@font-face` rules. An earlier Chrome
+pass, from when every candidate sheet was linked, compared every Nightglass
+element's computed style and border box with that sheet present and with
+the sheet empty.
 The states were the Library, the open profile menu, the open game detail,
 and chat open with several people talking, scrolled to the top, the
 middle, and the bottom, at 1440×900 and 360×780. Computed style covered

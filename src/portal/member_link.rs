@@ -132,9 +132,9 @@ fn confirm_page(token: &str, people: &[(String, String)]) -> String {
         .iter()
         .map(|(name, group)| format!("<li>{} in {}</li>", escape(name), escape(group)))
         .collect::<String>();
-    format!(
+    super::themes::fingerprint_html(&format!(
         r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Sign in · Infuser</title><link rel="stylesheet" href="/assets/clubhouse.css" referrerpolicy="no-referrer"><link rel="stylesheet" href="/assets/themes/nightglass.css" referrerpolicy="no-referrer"><body class="member-link-page"><main class="member-link-confirm"><h1>Sign in to Infuser</h1><p>This link signs in as:</p><ul>{lines}</ul><form method="post" action="/member-link/{token}"><button type="submit">Continue</button></form><p class="quiet">The link works once. Continue only if this is the right person.</p></main>"#
-    )
+    ))
 }
 
 fn escape(value: &str) -> String {
