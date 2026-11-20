@@ -32,6 +32,7 @@ try {
   else if(path==='/api/admin/game-authors')data={games:apps.map(g=>({id:g.id,title:g.title,authors:g.authors??(g.author?[g.author]:[])})),members:[author,friend]};
   else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:503,json:{error:'Please retry author credits.'}});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
   else if(path==='/api/admin/members')data={members:{}};
+  else if(path==='/api/admin/games')data={games:[]};
   else if(path==='/api/admin/credentials')data={credentials:[]};
   else if(path==='/api/admin/peer-health')data={sessions:[]};
   else if(path==='/api/profile'&&method==='GET')data={users:[]};
@@ -231,7 +232,17 @@ try {
   apps[1].reactions=[...recentReactions(n),{id:'old',name:'Old',emoji:'⭐',updated:now-29*86400,text:''}];await page.evaluate(()=>refreshTestLibrary());
   assert.equal(await pendingCard().locator('.game-buzz span').count(),faces);
   if(!faces)emptyInset=await dockInset();
-  else assert(Math.abs(await dockInset()-emptyInset)<1,'adding reactions keeps the dock on its original baseline');
+  else {
+   const placed=await pendingCard().evaluate(c=>{
+    const buzz=c.querySelector('.game-buzz'),dock=c.querySelector('.game-dock'),heading=c.querySelector('.game-heading');
+    const b=buzz.getBoundingClientRect(),d=dock.getBoundingClientRect(),h=heading.getBoundingClientRect();
+    const face=buzz.querySelector('span').getBoundingClientRect();
+    return {beside:b.right<=h.left+1,below:face.top>=d.bottom-1,inset:c.getBoundingClientRect().bottom-d.bottom};
+   });
+   assert(placed.beside||placed.below,'reactions stay beside the title or just below it');
+   if(placed.beside)assert(Math.abs(placed.inset-emptyInset)<1,'reactions beside the title keep the dock on its baseline');
+   else assert(placed.inset>emptyInset+8,'reactions below the title sit under the dock');
+  }
   if(faces===8)assert.equal(await pendingCard().locator('.game-buzz span').nth(1).evaluate(e=>getComputedStyle(e).marginLeft),'-15px','eight faces use the original cramped spacing');
  }
  apps[1].reactions=recentReactions(8);await page.evaluate(()=>refreshTestLibrary());
@@ -266,12 +277,20 @@ try {
       h.left>=card.getBoundingClientRect().left&&[plate.querySelector('.game-open'),plate.querySelector('.creator')].every(withinPlate)&&
       parseFloat(getComputedStyle(plate).borderTopWidth)>0&&getComputedStyle(row).backgroundColor==='rgba(0, 0, 0, 0)';
    })),`${theme} ${width}: title and author share a bordered plate beside Play`);
-   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');if(!buzz)return true;const b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();return b.right<=h.left+1||b.bottom<=Math.min(p.top,h.top);})),'reaction stacks must not overlap controls');
+   assert(await page.locator('#visible-games .game').evaluateAll(cards=>cards.every(card=>{
+    const buzz=card.querySelector('.game-buzz'),play=card.querySelector('.actions'),heading=card.querySelector('.game-heading');
+    if(!buzz)return true;
+    const face=buzz.querySelector('span').getBoundingClientRect(),b=buzz.getBoundingClientRect(),p=play.getBoundingClientRect(),h=heading.getBoundingClientRect();
+    const misses=box=>face.right<=box.left+1||face.left>=box.right-1||face.bottom<=box.top+1||face.top>=box.bottom-1;
+    return (b.right<=h.left+1||face.top>=Math.max(h.bottom,p.bottom)-1)&&misses(h)&&misses(p);
+   })),'reaction stacks sit beside the title or just below it, and never cover the controls');
    assert(await page.locator('#games .game').evaluateAll(cards=>cards.every(card=>{
     const buzz=card.querySelector('.game-buzz');if(!buzz)return true;
     const c=card.getBoundingClientRect(),face=buzz.firstElementChild.getBoundingClientRect(),hang=(face.bottom-c.bottom)/face.height;
-    return face.left>=c.left&&face.left-c.left<=8&&((hang>=.15&&hang<=.25)||(!card.classList.contains("hidden-game")&&face.bottom<=card.querySelector(".game-dock").getBoundingClientRect().top))&&buzz.getBoundingClientRect().height>=44;
-   })),'emoji faces should hang 20% below the card, stay inside its left edge, and retain a touch target');
+    const dock=card.querySelector('.game-dock')?.getBoundingClientRect();
+    const underPlate=!card.classList.contains('hidden-game')&&dock&&face.top>=dock.bottom-1&&face.bottom<=c.bottom+1;
+    return face.left>=c.left&&face.left-c.left<=8&&((hang>=.15&&hang<=.25)||underPlate)&&buzz.getBoundingClientRect().height>=44;
+   })),'emoji faces should hang 20% below the card or sit just under the title, stay inside its left edge, and retain a touch target');
    await search.fill('');await search.click();
    assert.equal(await suggestions.getByRole('option').count(),2);
    assert(await suggestions.evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&e.scrollWidth<=e.clientWidth;}));
