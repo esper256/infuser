@@ -599,7 +599,16 @@
   background: var(--burst);
   border-radius: 16px 16px 6px 16px;
 }
-[data-theme="funny-pages"] .own .chat-bubble::before { background: var(--burst); border-color: var(--ink-line); }
+/* The rule above pins every tail to the left and wins the tie with the
+   shared own-message rule, so the viewer's wedge was aimed away from the
+   picture on the right. Put that wedge back on the right. */
+[data-theme="funny-pages"] .own .chat-bubble::before {
+  left: auto;
+  right: -8px;
+  transform: rotate(225deg);
+  background: var(--burst);
+  border-color: var(--ink-line);
+}
 [data-theme="funny-pages"] .own .chat-meta strong { color: var(--ink-line); }
 [data-theme="funny-pages"] .chat-message .chat-portrait {
   border: 3px solid var(--ink-line);
