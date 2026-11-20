@@ -34,6 +34,24 @@ magick header-light-640.png -quality 90 header-light.webp
 
 # Split the Library identity from the original PNG, never the lossy header WebP.
 magick lockup-light-master.png -crop 700x880+320+30 +repage header-icon-master.png
+# Opaque launcher icons. Android masks purpose "any" onto a white plate and
+# shrinks it. Match apple-touch-icon.png (#071019) across the whole square.
+# Keep the glyph inside the centered safe circle (diameter 80% of the canvas)
+# and scale it until the farthest kept pixel sits on that circle. A 3% alpha
+# threshold drops the master's near-zero green fringe and keeps the vapor.
+mask_geom=$(magick header-icon-master.png -alpha extract -threshold 3% -format '%@' info:)
+mask_radius=$(magick header-icon-master.png -alpha extract -threshold 3% -trim +repage \
+  -fx 'u>0.5?hypot(i-(w-1)/2,j-(h-1)/2)/w:0' -format '%[fx:maxima*w]' info:)
+mask_trim_w=$(magick header-icon-master.png -alpha extract -threshold 3% -trim +repage -format '%w' info:)
+mask_trim_h=$(magick header-icon-master.png -alpha extract -threshold 3% -trim +repage -format '%h' info:)
+for size in 192 512; do
+  mask_w=$(magick xc: -format "%[fx:floor(${mask_trim_w}*0.4*${size}/${mask_radius})]" info:)
+  mask_h=$(magick xc: -format "%[fx:floor(${mask_w}*${mask_trim_h}/${mask_trim_w})]" info:)
+  magick -size "${size}x${size}" 'xc:#071019' \
+    \( header-icon-master.png -crop "${mask_geom}" +repage -filter Lanczos -resize "${mask_w}x${mask_h}!" \) \
+    -gravity center -composite -background '#071019' -alpha off -depth 8 \
+    "icon-maskable-${size}.png"
+done
 magick lockup-light-master.png -crop 560x130+350+950 +repage header-wordmark-master.png
 magick header-icon-master.png -resize 140x176 -define webp:lossless=true header-icon.webp
 magick header-wordmark-master.png -resize 480x -define webp:lossless=true header-wordmark.webp

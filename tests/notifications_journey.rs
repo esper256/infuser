@@ -108,11 +108,22 @@ async fn install_and_chat_notification_lifecycle() -> Result<()> {
     assert_eq!(manifest["name"], "Infuser");
     assert_eq!(manifest["display"], "standalone");
     assert_eq!(manifest["start_url"], "/library");
+    assert_eq!(
+        manifest["icons"],
+        json!([
+            {"src": "/assets/app-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/assets/app-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/assets/app-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": "/assets/app-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+        ])
+    );
     for path in [
         "/sw.js",
         "/assets/pwa.js",
         "/assets/app-192.png",
         "/assets/app-512.png",
+        "/assets/app-maskable-192.png",
+        "/assets/app-maskable-512.png",
         "/assets/apple-touch-icon.png",
     ] {
         let r = req(Method::GET, path, "").send().await?;

@@ -19,6 +19,8 @@ pub(super) fn routes() -> Router<Platform> {
         "/assets/pwa.js",
         "/assets/app-192.png",
         "/assets/app-512.png",
+        "/assets/app-maskable-192.png",
+        "/assets/app-maskable-512.png",
         "/assets/apple-touch-icon.png",
     ] {
         router = router.route(path, get(asset));
@@ -41,6 +43,14 @@ async fn asset(State(p): State<Platform>, request: Request) -> Answer {
         "/assets/app-512.png" => (
             "image/png",
             include_bytes!("../../assets/branding/infuser/icon-512.png"),
+        ),
+        "/assets/app-maskable-192.png" => (
+            "image/png",
+            include_bytes!("../../assets/branding/infuser/icon-maskable-192.png"),
+        ),
+        "/assets/app-maskable-512.png" => (
+            "image/png",
+            include_bytes!("../../assets/branding/infuser/icon-maskable-512.png"),
         ),
         "/assets/apple-touch-icon.png" => (
             "image/png",
