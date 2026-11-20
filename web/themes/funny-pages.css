@@ -177,17 +177,36 @@
   [data-theme="funny-pages"] #recent-menu { width: 100%; }
   [data-theme="funny-pages"] #recent-menu #recent-toggle { margin-inline: auto; }
   [data-theme="funny-pages"] .brand-wordmark img { width: 168px; }
+  /* Chatter circles stack down the masthead. The panel opens to their right. */
+  :root[data-theme="funny-pages"] {
+    --chat-stack: column;
+    --chat-anchor: right;
+  }
   [data-theme="funny-pages"] .presence-chat {
-    flex: none;
-    flex-wrap: wrap;
-    justify-content: center;
+    flex: 1 1 auto;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
     min-width: 0;
+    min-height: 0;
     width: 100%;
   }
   [data-theme="funny-pages"] .presence-stack {
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
     max-width: 100%;
+  }
+  [data-theme="funny-pages"] .presence-self { margin: 0; }
+  [data-theme="funny-pages"] .presence-person + .presence-person { margin-left: 0; margin-top: 6px; }
+  [data-theme="funny-pages"] .presence-self + .presence-person { margin-left: 0; margin-top: 8px; }
+  [data-theme="funny-pages"] .presence-name {
+    top: 50%;
+    right: auto;
+    left: calc(100% + 8px);
+    transform: translateY(-50%);
   }
   /* Recently opens as a flyout beside the masthead, over the grid.
      The list scrolls; the heading and close button stay put. */
@@ -523,7 +542,7 @@
 [data-theme="funny-pages"] .text-button { color: var(--accent); }
 [data-theme="funny-pages"] .text-button:hover { color: var(--accent-pressed); background: transparent; }
 
-/* Recently entries and the profile menu are caption cards. Chat tails stay off. */
+/* Recently entries and the profile menu are caption cards. */
 [data-theme="funny-pages"] #activity.recent-panel,
 [data-theme="funny-pages"] .account-menu {
   border: 4px solid var(--ink-line);
@@ -545,14 +564,50 @@
   color: var(--ink-line);
   box-shadow: 3px 3px 0 var(--ink-line);
 }
-[data-theme="funny-pages"] .chat-bubble::before,
-[data-theme="funny-pages"] .chat-pointer,
-[data-theme="funny-pages"] .chat-pointer::after,
 [data-theme="funny-pages"] .recent-panel .feed-row::before {
   content: none;
   display: none;
   border: 0;
 }
+[data-theme="funny-pages"] #chat-panel {
+  border: 4px solid var(--ink-line);
+  border-radius: 18px;
+  background: var(--caption);
+  box-shadow: 6px 6px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .chat-bubble {
+  --bubble: #fff;
+  border: 3px solid var(--ink-line);
+  border-radius: 16px 16px 16px 6px;
+  background: var(--bubble);
+  color: var(--ink-line);
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .chat-bubble::before {
+  width: 12px;
+  height: 12px;
+  bottom: 10px;
+  left: -8px;
+  background: var(--bubble);
+  border-width: 0 0 3px 3px;
+  border-style: solid;
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .own .chat-bubble {
+  --bubble: var(--burst);
+  background: var(--burst);
+  border-radius: 16px 16px 6px 16px;
+}
+[data-theme="funny-pages"] .own .chat-bubble::before { background: var(--burst); border-color: var(--ink-line); }
+[data-theme="funny-pages"] .own .chat-meta strong { color: var(--ink-line); }
+[data-theme="funny-pages"] .chat-message .chat-portrait {
+  border: 3px solid var(--ink-line);
+  box-shadow: 2px 2px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .chat-pointer { border-bottom-color: var(--ink-line); }
+[data-theme="funny-pages"] .chat-pointer::after { border-bottom-color: var(--caption); }
+[data-theme="funny-pages"] #library-chat[data-chat-anchor="right"] .chat-pointer { border-right-color: var(--ink-line); }
+[data-theme="funny-pages"] #library-chat[data-chat-anchor="right"] .chat-pointer::after { border-right-color: var(--caption); }
 [data-theme="funny-pages"] .recent-panel .feed-row > span,
 [data-theme="funny-pages"] .recent-panel .feed-row small,
 [data-theme="funny-pages"] .recent-panel .feed-row p {

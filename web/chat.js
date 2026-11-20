@@ -1,6 +1,20 @@
 import { initChatEmoji } from '/assets/chat-emoji.js';
 import { attachmentIcon, attachmentDraft, screenshotTile } from '/assets/screenshots.js';
 import { openHomeChat } from '/assets/groups.js';
+// A theme opts in from CSS. Unset means the horizontal row and the upward tails.
+export function chatDock(){
+  const style=getComputedStyle(document.documentElement);
+  let stack=style.getPropertyValue('--chat-stack').trim();
+  let anchor=style.getPropertyValue('--chat-anchor').trim();
+  if(stack!=='row'&&stack!=='column')stack='';
+  if(!['below','above','left','right'].includes(anchor))anchor='';
+  if(!stack&&!anchor)return null;
+  if(!stack)stack=anchor==='left'||anchor==='right'?'column':'row';
+  if(!anchor)anchor=stack==='column'?'right':'below';
+  if(stack==='row'&&anchor==='below')return null;
+  const gap=parseFloat(style.getPropertyValue('--chat-gap'));
+  return {stack,anchor,gap:Number.isFinite(gap)?gap:18};
+}
 const graphemes=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'grapheme'}):null;
 const emojiPresentation=/\p{Emoji_Presentation}|\p{Emoji}\uFE0F|[#*0-9]\uFE0F?\u20E3/u;
 function messageText(value){
@@ -129,8 +143,26 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     // Anchor to the row, not an avatar's animated position.
     const anchor=presence.getBoundingClientRect();
     const width=Math.min(437,document.documentElement.clientWidth-24);
-    const left=Math.max(12,Math.min(anchor.left-16,document.documentElement.clientWidth-width-12));
-    const top=compact()?viewTop+12:Math.max(viewTop+12,Math.min(anchor.bottom+18,viewBottom-260));
+    const dock=chatDock();
+    const clientWidth=document.documentElement.clientWidth;
+    let left,top;
+    if(!dock){
+      left=Math.max(12,Math.min(anchor.left-16,clientWidth-width-12));
+      top=compact()?viewTop+12:Math.max(viewTop+12,Math.min(anchor.bottom+18,viewBottom-260));
+    }else{
+      const gap=dock.gap;
+      if(dock.anchor==='right')left=Math.max(12,Math.min(anchor.right+gap,clientWidth-width-12));
+      else if(dock.anchor==='left')left=Math.max(12,Math.min(anchor.left-gap-width,clientWidth-width-12));
+      else left=Math.max(12,Math.min(anchor.left-16,clientWidth-width-12));
+      if(compact())top=viewTop+12;
+      else if(dock.anchor==='above'){
+        const lifted=Math.min(672,Math.max(0,anchor.top-gap-(viewTop+12)));
+        top=Math.max(viewTop+12,anchor.top-gap-lifted);
+      }else if(dock.anchor==='left'||dock.anchor==='right')top=Math.max(viewTop+12,Math.min(anchor.top-8,viewBottom-260));
+      else top=Math.max(viewTop+12,Math.min(anchor.bottom+gap,viewBottom-260));
+      if(root.dataset.chatAnchor!==dock.anchor)root.dataset.chatAnchor=dock.anchor;
+    }
+    if(!dock&&root.hasAttribute('data-chat-anchor'))root.removeAttribute('data-chat-anchor');
     const panelHeight=Math.min(672,viewBottom-top-12);
     const signature=JSON.stringify([left,top,panelHeight]);
     if(signature!==positionSignature){
@@ -152,7 +184,11 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       }
     }
     const upcoming=[...ahead].filter(([id])=>!visible.has(id)).sort((a,b)=>a[1]-b[1]).slice(0,3).map(([id])=>id);
-    const context={visible:[...visible.keys()].sort(),upcoming,left:compact()?null:left+12,right:compact()?null:left+width-12};
+    const context=!dock
+      ?{visible:[...visible.keys()].sort(),upcoming,left:compact()?null:left+12,right:compact()?null:left+width-12}
+      :{visible:[...visible.keys()].sort(),upcoming,axis:dock.stack,
+        left:dock.stack==='row'&&!compact()?left+12:null,right:dock.stack==='row'&&!compact()?left+width-12:null,
+        top:dock.stack==='column'&&!compact()?top+12:null,bottom:dock.stack==='column'&&!compact()?top+panelHeight-12:null};
     const contextSignature=JSON.stringify(context);
     if(contextSignature!==speakerSignature){speakerSignature=contextSignature;onSpeakerContext(context);}
     const existing=new Map([...$('pointers').children].map(pointer=>[pointer.dataset.playerId,pointer]));
@@ -162,20 +198,42 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       if(animation)moving=true;
       // At 65% of this ease-in/out movement, the portrait is ~90% home and slowing.
       const settling=!animation||Number(animation.currentTime)/Number(animation.effect.getTiming().duration)>=.65;
-      const rect=badge.getBoundingClientRect(),center=rect.left+rect.width/2;
-      if(!visible.has(badge.dataset.playerId)||!settling||rect.top<viewTop||rect.bottom+4>=top||center<left+12||center>left+width-12)continue;
+      const rect=badge.getBoundingClientRect(),centerX=rect.left+rect.width/2,centerY=rect.top+rect.height/2;
+      if(!visible.has(badge.dataset.playerId)||!settling||rect.top<viewTop)continue;
       // One visible message is 85%, three is neutral, and five or more is 115%.
-      // Vary only width so both the portrait tip and panel seam stay attached.
+      // Vary only the cross-axis so both the portrait tip and panel seam stay attached.
       const scale=(.85+.075*Math.min(4,visible.get(badge.dataset.playerId)-1)).toFixed(3);
+      let cross,tail,side='below';
+      if(!dock){
+        if(rect.bottom+4>=top||centerX<left+12||centerX>left+width-12)continue;
+        cross=(centerX-left)+'px';tail=(top-rect.bottom-4)+'px';
+      }else if(dock.anchor==='right'||dock.anchor==='left'){
+        const edge=dock.anchor==='right'?left:left+width;
+        const reach=dock.anchor==='right'?edge-(rect.right+4):(rect.left-4)-edge;
+        if(reach<=0||centerY<top+12||centerY>top+panelHeight-12||rect.bottom>viewBottom)continue;
+        side=dock.anchor;cross=(centerY-top)+'px';tail=reach+'px';
+      }else if(dock.anchor==='above'){
+        const edge=top+panelHeight,reach=rect.top-4-edge;
+        if(reach<=0||centerX<left+12||centerX>left+width-12)continue;
+        side='above';cross=(centerX-left)+'px';tail=reach+'px';
+      }else continue;
       let pointer=existing.get(badge.dataset.playerId);
       if(!pointer){
         pointer=document.createElement('span');pointer.className='chat-pointer';pointer.dataset.playerId=badge.dataset.playerId;
         pointer.style.setProperty('--tail-scale',scale);
         $('pointers').append(pointer);
-        if(!motion.matches)pointer.animate([{opacity:0,transform:'translateX(-50%) scaleX(var(--tail-scale)) scaleY(0)'},{opacity:1,transform:'translateX(-50%) scaleX(var(--tail-scale)) scaleY(1)'}],{duration:140,easing:'ease-out'});
+        if(!motion.matches){
+          const from=side==='below'||side==='above'?'translateX(-50%) scaleX(var(--tail-scale)) scaleY(0)':'translateY(-50%) scaleY(var(--tail-scale)) scaleX(0)';
+          const to=side==='below'||side==='above'?'translateX(-50%) scaleX(var(--tail-scale)) scaleY(1)':'translateY(-50%) scaleY(var(--tail-scale)) scaleX(1)';
+          pointer.animate([{opacity:0,transform:from},{opacity:1,transform:to}],{duration:140,easing:'ease-out'});
+        }
       }
-      const x=(center-left)+'px',tail=(top-rect.bottom-4)+'px';
-      if(pointer.style.left!==x)pointer.style.left=x;
+      if(side==='below'){
+        if(pointer.style.left!==cross)pointer.style.left=cross;
+      }else{
+        if(pointer.style.left)pointer.style.left='';
+        if(pointer.style.getPropertyValue('--tail-cross')!==cross)pointer.style.setProperty('--tail-cross',cross);
+      }
       if(pointer.style.getPropertyValue('--tail-height')!==tail)pointer.style.setProperty('--tail-height',tail);
       if(pointer.style.getPropertyValue('--tail-scale')!==scale)pointer.style.setProperty('--tail-scale',scale);
       existing.delete(badge.dataset.playerId);

@@ -51,8 +51,10 @@ on the shared `::after`.
 ## Layout
 
 Funny Pages (`[data-theme="funny-pages"]`) changes layout from its own
-stylesheet. `web/clubhouse.css`, `web/clubhouse.js`, and the shared markup
-did not gain wrappers or layout hooks. The sheet does four things:
+stylesheet. The shared chat code gained one hook: `--chat-stack` and
+`--chat-anchor`, read while the chat window is open. Unset, that hook draws
+the same horizontal row and upward triangles as before. The sheet does four
+things:
 
 - At 960px and wider, while the Library is showing, `body` is a two-column
   grid. The header is column one: a sticky masthead, one viewport tall.
@@ -70,13 +72,17 @@ did not gain wrappers or layout hooks. The sheet does four things:
   sits over the game grid. The entry list scrolls inside the flyout, and a
   comic tail points back at the Recent button. Narrower widths keep the
   shared panel under the top bar, without that tail.
+- At 960px and wider, `--chat-stack: column` and `--chat-anchor: right` stack
+  the chatter circles down the masthead and open the chat panel to their
+  right. The connector triangles point sideways at the circles whose messages
+  are in view. Below 960px the circles stay in the shared horizontal row.
+  Message tails inside the bubbles stay on, drawn as ink wedges.
 - `#game-detail-content` is one column: the art on top, captions underneath.
   The close button stays the first control and sticks to the top corner.
 
 `@font-face` for Bangers and Comic Neue is global by CSS rules. Nightglass
 and Cartridge Club do not name those families. `forced-colors: active`
-drops the theme's images, shadows, and custom fonts. Chat message tails
-and the chat-panel pointers are hidden. The hover nudge is only under `prefers-reduced-motion:
+drops the theme's images, shadows, and custom fonts. The hover nudge is only under `prefers-reduced-motion:
 no-preference`. At 360px and below, filters, search, and Add a game stack,
 which matches DOM order.
 
@@ -106,9 +112,12 @@ change.
 | `web/themes/funny-pages/` | Bangers, Comic Neue, halftone textures, OFL texts, and the notice. |
 | `src/portal/client.rs` | The Funny Pages sheet is part of the client version hash, with the other theme bytes. |
 
-`web/clubhouse.js`, `web/clubhouse.css`, and `web/themes/nightglass.css` have
-no Funny Pages edits. Nightglass's browser-chrome token is still the color
-the meta tag already had.
+`web/clubhouse.js` and `web/clubhouse.css` read `--chat-stack` and
+`--chat-anchor` and, only when a theme sets them, draw the connector from
+that side. Nightglass and Cartridge Club leave both unset, so their row,
+panel, and upward triangles stay on the previous path. Neither shared file
+gained a Funny Pages selector. Nightglass's browser-chrome token is still
+the color the meta tag already had.
 
 ## Nightglass pixels
 
@@ -139,14 +148,14 @@ every Funny Pages rule is scoped to `[data-theme="funny-pages"]` (with
 
 ## Checking the other themes
 
-Adding Funny Pages links another stylesheet, so Nightglass and Cartridge
-Club pages load its `@font-face` rules even though they never name Bangers
-or Comic Neue. A one-off Chrome pass compared every element's computed
+Adding Funny Pages links another stylesheet, so Nightglass pages load its
+`@font-face` rules even though Nightglass never names Bangers or Comic
+Neue. A one-off Chrome pass compared every Nightglass element's computed
 style and border box with that sheet present and with the sheet empty.
-The states were the Library, the open profile menu, and the open game
-detail, at 1440×900 and 360×780. Computed style covered display, grid and
-flex placement, font, color, background, and box metrics. After Cartridge
-Club's own Fredoka and Lilita One faces had loaded, both themes matched
-exactly: same elements, same computed values, same border boxes. No
-tolerance was used. The pass is not a CI job. The pixel diff stays out of
-CI for the reason above.
+The states were the Library, the open profile menu, the open game detail,
+and chat open with several people talking, scrolled to the top, the
+middle, and the bottom, at 1440×900 and 360×780. Computed style covered
+display, grid and flex placement, font, color, background, and box
+metrics. Nightglass matched exactly: same elements, same computed values,
+same border boxes. No tolerance was used. The pass is not a CI job. The
+pixel diff stays out of CI for the reason above.
