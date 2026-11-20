@@ -731,25 +731,13 @@
 [data-theme="castle-keep"] .own .chat-bubble {
   --bubble: #2a333c;
   background-color: #2a333c;
-  background-image: url("/assets/themes/castle-keep/steel.svg"), var(--steel-face);
-  background-repeat: repeat, no-repeat;
+  background-image: linear-gradient(180deg, #3c4754, #2a333c 48%, #232b33);
   color: var(--steel-ink);
   border: 2px solid var(--gold);
   border-radius: 16px 16px 8px 16px;
-  padding-left: 32px;
-  box-shadow: inset 0 1px 0 #ffffff55, 0 3px 0 #07090c;
+  box-shadow: inset 0 1px 0 #ffffff22, 0 3px 0 #07090c;
 }
-[data-theme="castle-keep"] .own .chat-bubble::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  bottom: 10px;
-  width: 14px;
-  height: 12px;
-  background: var(--heart-red) center / contain no-repeat;
-  pointer-events: none;
-}
-[data-theme="castle-keep"] .own .chat-bubble::before { background: #2a333c; border-color: var(--gold); }
+[data-theme="castle-keep"] .own .chat-bubble::before { background: #2e3844; border-color: var(--gold); }
 [data-theme="castle-keep"] .chat-meta,
 [data-theme="castle-keep"] .chat-meta time { color: #5c4632; }
 [data-theme="castle-keep"] .chat-meta strong { color: var(--heart); }
@@ -757,7 +745,26 @@
 [data-theme="castle-keep"] .own .chat-meta time { color: #d5dde4; }
 [data-theme="castle-keep"] .own .chat-meta strong { color: var(--gold); }
 [data-theme="castle-keep"] #chat-emoji-toggle,
-[data-theme="castle-keep"] #chat-emoji-toggle:hover { color: var(--manuscript-ink); background: transparent; }
+[data-theme="castle-keep"] #chat-emoji-toggle:hover {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 2px solid var(--iron);
+  border-radius: 10px;
+  background-color: #d5dce1;
+  background-image: var(--steel-face);
+  color: var(--steel-ink);
+  box-shadow: inset 0 1px 0 #fff;
+}
+[data-theme="castle-keep"] #chat-emoji-toggle:hover { background-image: var(--steel-hot); }
+[data-theme="castle-keep"] #chat-emoji-toggle svg { display: none; }
+[data-theme="castle-keep"] #chat-emoji-toggle::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='8.2' fill='none' stroke='black' stroke-width='1.8'/%3E%3Ccircle cx='9' cy='10' r='1.15' fill='black'/%3E%3Ccircle cx='15' cy='10' r='1.15' fill='black'/%3E%3Cpath d='M8.2 14.2a4.2 3.1 0 0 0 7.6 0' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
 [data-theme="castle-keep"] #chat-close {
   background: #121820;
   color: var(--ink);
