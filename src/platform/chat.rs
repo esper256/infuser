@@ -61,7 +61,52 @@ impl Database {
                     "can_delete":access.can_delete(email, &author)}));
             }
         }
-        Ok(json!({"messages":messages}))
+        let mut read_rows = tx.prepare(
+            "SELECT reader, message_id FROM chat_reads WHERE channel_id=?1 ORDER BY message_id, reader",
+        )?;
+        let mut reads = Vec::new();
+        for row in read_rows.query_map([&channel.id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?))
+        })? {
+            let (reader, message) = row?;
+            if let Some(member) = data.members.get(&reader).filter(|m| m.enabled) {
+                reads.push(json!({"id":data.player_id(&reader),"name":member.name,"avatar":member.avatar,"message":message}));
+            }
+        }
+        Ok(json!({"messages":messages,"reads":reads}))
+    }
+
+    pub fn chat_advance_read(&self, email: &str, group: &str, message: u64) -> Result<Value> {
+        let channel_id = self.default_chat_channel(group)?;
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let data = members(self, &tx, email)?;
+        let channel = channels::Channel::load(&tx, &channel_id)?;
+        let access = channel
+            .access(&data, email, false, now())
+            .ok_or_else(|| fault(403, "Group access denied."))?;
+        let visible = tx
+            .query_row(
+                "SELECT 1 FROM library_chat WHERE id=?1 AND channel_id=?2 AND text IS NOT NULL AND created>?3 AND id>?4",
+                params![message, channel.id, now().saturating_sub(RETENTION), access.after_message],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+        ensure!(visible, fault(404, "Message not found."));
+        tx.execute(
+            "INSERT INTO chat_reads(channel_id, reader, message_id) VALUES(?1,?2,?3)
+             ON CONFLICT(channel_id, reader) DO UPDATE SET message_id=excluded.message_id
+             WHERE excluded.message_id > chat_reads.message_id",
+            params![channel.id, email, message],
+        )?;
+        let stored: u64 = tx.query_row(
+            "SELECT message_id FROM chat_reads WHERE channel_id=?1 AND reader=?2",
+            params![channel.id, email],
+            |r| r.get(0),
+        )?;
+        tx.commit()?;
+        Ok(json!({"message":stored}))
     }
 
     pub fn chat_send(&self, email: &str, client_id: &str, text: &str) -> Result<Value> {

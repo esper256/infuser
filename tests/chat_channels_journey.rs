@@ -156,6 +156,26 @@ fn upgrade_preserves_visits_retries_history_notifications_and_old_writers() -> R
             ids(db.chat_list_group("visitor", "home", false)?),
             vec![9, 10]
         );
+        assert!(
+            db.chat_advance_read("visitor", "home", 7).is_err(),
+            "a message behind the visit floor was never on screen for that reader"
+        );
+        assert_eq!(
+            db.chat_advance_read("visitor", "home", 9)?["message"],
+            json!(9)
+        );
+        assert_eq!(
+            db.chat_advance_read("visitor", "home", 10)?["message"],
+            json!(10)
+        );
+        assert_eq!(
+            db.chat_advance_read("visitor", "home", 9)?["message"],
+            json!(10),
+            "a later report cannot move a cursor backward"
+        );
+        let host_view = db.chat_list("host")?;
+        assert_eq!(host_view["reads"][0]["message"], json!(10));
+        assert_eq!(host_view["reads"][0]["name"], "visitor");
         assert!(db.chat_list_channel("other", &home, false).is_err());
         assert_eq!(
             db.chat_send("host", "legacy-request-0008", "Removed")?,
