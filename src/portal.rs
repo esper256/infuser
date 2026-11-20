@@ -562,7 +562,7 @@ pub fn router(platform: Platform) -> Router {
                 conditional::static_asset(&h, "text/css", include_bytes!("../web/clubhouse.css"))
             }),
         )
-        .route("/assets/themes.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/themes.js")) }))
+        .route("/assets/themes.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", themes::script()) }))
         .route("/assets/themes/{*path}", get(themes::asset))
         .route("/assets/card-generating.webp", get(|| async {
             ([(header::CONTENT_TYPE, "image/webp"), (header::CACHE_CONTROL, "public, max-age=3600")],
@@ -817,7 +817,7 @@ async fn page(State(p): State<Platform>, request: Request) -> Answer {
     if host(request.headers()) != p.domain() {
         return game_file(State(p), request).await;
     }
-    let html = include_str!("../web/index.html").replace(
+    let html = themes::fingerprint_html(include_str!("../web/index.html")).replace(
         "</head>",
         &format!(
             "<meta name=\"infuser-client-version\" content=\"{}\"></head>",

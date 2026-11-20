@@ -63,7 +63,7 @@ pub(super) fn routes() -> Router<Platform> {
 }
 async fn page(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.main_host(&h)?;
-    Ok(([("Cache-Control","no-store"),("Content-Security-Policy","default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../../web/profiles.html"))).into_response())
+    Ok(([("Cache-Control","no-store"),("Content-Security-Policy","default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")],Html(super::themes::fingerprint_html(include_str!("../../web/profiles.html")))).into_response())
 }
 async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.main_host(&h)?;

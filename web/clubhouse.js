@@ -1307,7 +1307,7 @@ function setupAccount(){
   for(const theme of themes.catalog.filter(theme=>theme.status!=='retired')){
     const option=el('option',theme.name+(theme.status==='preview'?' · Preview':''));option.value=theme.id;select.append(option);
   }
-  select.value=themes.current;select.onchange=()=>themes.select(select.value);
+  select.value=themes.current;select.onchange=()=>{const chosen=select.value;Promise.resolve(themes.select(chosen)).catch(()=>{select.value=themes.current;});};
   window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
   label.append(select);
   const out=el('a','Sign out');out.className='sign-out';out.href='/sign-out';

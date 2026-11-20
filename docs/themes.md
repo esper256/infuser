@@ -23,26 +23,35 @@ Theme preferences are not account settings and do not change a player's handle o
   every theme. Preserve reduced-motion and forced-colors support.
 - `web/themes/nightglass.css` supplies the baseline tokens. It always loads, so
   candidates can override only the tokens and presentation rules they need.
-- `web/themes/cartridge-club.css`, `web/themes/funny-pages.css`, and
-  `web/themes/field-notes.css` are opt-in candidates. Every selector is scoped
-  to that theme's `data-theme` value;
-  neither sheet can affect the baseline or the other candidate.
-- `web/themes.js` is the small theme registry and preference bootstrap. It runs
-  before the stylesheets to restore `infuser.theme` without a flash. It contains
-  no game or account logic. After styles load, it copies the `--browser-chrome`
-  token onto `<meta name="theme-color">`. Nightglass sets that token to
-  `#0c1017`. Unknown/retired preferences fall back to `defaultId`;
-  unavailable browser storage does not prevent selection for the current visit.
+- Candidate stylesheets are opt-in. Every selector is scoped to that theme's
+  `data-theme` value, so a sheet cannot affect the baseline or another theme.
+  The HTML does not link them. `web/themes.js` inserts a render-blocking
+  `<link>` for the saved theme while the document is still parsing, and loads
+  a different sheet when the Theme menu changes. `data-theme` changes only
+  after that sheet's `load` event, so the previous theme stays up until the
+  new one can paint.
+- `web/themes.js` is the catalog (id, name, status) and the preference
+  bootstrap. It runs in the head after `nightglass.css` and `clubhouse.css`,
+  still before first paint. It contains no game or account logic. After styles
+  load, it copies the `--browser-chrome` token onto `<meta name="theme-color">`.
+  Nightglass sets that token to `#0c1017`. Unknown/retired preferences fall
+  back to `defaultId`; unavailable browser storage does not prevent selection
+  for the current visit.
 - The server embeds theme files and serves them from one allowlisted route,
-  `/assets/themes/{*path}`. Stylesheet URLs stay `/assets/themes/nightglass.css`,
-  `/assets/themes/cartridge-club.css`, `/assets/themes/funny-pages.css`, and
-  `/assets/themes/field-notes.css`.
-  A theme's fonts, textures, and license notices live under
-  `/assets/themes/<id>/` and are named in `src/portal/themes.rs`. No dynamic
-  stylesheet URLs, theme-specific endpoints, or database migrations are
-  needed. The Library and the profile picker load `nightglass.css`, then
-  `clubhouse.css`, then each candidate stylesheet. The game player page,
-  `desktop.html`, and the Play app do not.
+  `/assets/themes/{*path}`. The stylesheet list is the top-level `*.css`
+  entries in `src/portal/themes.rs`. `themes.js` is served with that list
+  prepended (`InfuserThemeSheets`), including a `?v=` content hash for each
+  sheet. A request whose `v` matches the sheet's bytes is
+  `Cache-Control: public, max-age=31536000, immutable`. A plain URL, including
+  fonts and textures, keeps the same `no-cache` plus ETag behavior as other
+  `/assets`. `source_fingerprint()` still folds every registry file into the
+  client version. A theme's fonts, textures, and license notices live under
+  `/assets/themes/<id>/`. No theme-specific endpoints or database migrations
+  are needed. The Library and the profile picker load `nightglass.css`, then
+  `clubhouse.css`, then the one active candidate. The service worker only
+  handles navigations, so these stylesheets stay on the network. The game
+  player page and the Play app do not load this system. `desktop.html` and
+  the member-link page keep nightglass only.
 
 Shared functionality continues to evolve under every design. The profile menu
 and Recently panel are shared features; switching back to Nightglass does not
@@ -117,15 +126,18 @@ does not label it Preview, and it is still not the default. Funny Pages
 and Field Notes stay previews until they earn adoption. Shipping a preview
 is not approval to make it the default.
 
-To add a candidate, register a new ID as `preview`, add a scoped stylesheet,
-name its files in the theme asset route, link the stylesheet after
-`clubhouse.css`, and compare it with the baseline on the same real
-UI. Do not clone markup or JavaScript. To adopt one after review, mark it `stable`
-and change `defaultId`. Existing explicit preferences remain respected. To retire
-one, mark it `retired`; choose a different stable default first if necessary.
-Its optional scoped stylesheet/link/route can then be removed. Baseline tokens
-remain shared even if the Nightglass choice is ever retired. No feature revert
-is involved in these operations.
+To add a candidate, register a new ID as `preview` in the `web/themes.js`
+catalog, add a scoped stylesheet, and name its files in `src/portal/themes.rs`
+(`FILES` and a `bytes` arm). A top-level `{id}.css` entry joins the stylesheet
+list the client already reads. Do not add a `<link>` in HTML, and do not edit
+`client.rs`: `source_fingerprint()` already covers every registry file.
+Compare the theme with the baseline on the same real UI. Do not clone markup
+or JavaScript. To adopt one after review, mark it `stable` and change
+`defaultId`. Existing explicit preferences remain respected. To retire one,
+mark it `retired`; choose a different stable default first if necessary.
+Its optional scoped stylesheet and registry entries can then be removed.
+Baseline tokens remain shared even if the Nightglass choice is ever retired.
+No feature revert is involved in these operations.
 
 ## Review gate
 

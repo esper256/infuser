@@ -1,7 +1,13 @@
 //! Allowlisted Library theme files. Paths are exact; nothing is read from disk.
 use super::*;
 use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
 
+// Top-level `{id}.css` entries are the theme stylesheets. `script()` exposes
+// that list to the client, which loads only the active sheet. `nightglass.css`
+// stays linked from HTML as the base tokens. To add a theme, append its css
+// and asset paths here, add `bytes` arms, and add a catalog entry in
+// `web/themes.js`. Do not add a stylesheet `<link>` in HTML.
 const FILES: &[&str] = &[
     "nightglass.css",
     "cartridge-club.css",
@@ -42,6 +48,83 @@ pub(super) fn source_fingerprint() -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+fn digest(body: &[u8]) -> String {
+    Sha256::digest(body)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+struct Stylesheet {
+    id: &'static str,
+    path: &'static str,
+    version: String,
+}
+
+fn stylesheets() -> &'static [Stylesheet] {
+    static SHEETS: OnceLock<Vec<Stylesheet>> = OnceLock::new();
+    SHEETS.get_or_init(|| {
+        FILES
+            .iter()
+            .filter_map(|path| {
+                let id = path.strip_suffix(".css")?;
+                if id.is_empty() || id.contains('/') {
+                    return None;
+                }
+                let (_, body) = bytes(path)?;
+                Some(Stylesheet {
+                    id,
+                    path,
+                    version: digest(body),
+                })
+            })
+            .collect()
+    })
+}
+
+fn sheets_json() -> String {
+    let sheets: Vec<Value> = stylesheets()
+        .iter()
+        .map(|sheet| {
+            json!({
+                "id": sheet.id,
+                "href": format!("/assets/themes/{}?v={}", sheet.path, sheet.version),
+            })
+        })
+        .collect();
+    serde_json::to_string(&sheets).expect("theme sheet list")
+}
+
+/// `themes.js` plus the registry's stylesheet URLs, so a new `{id}.css` entry
+/// is selectable without editing HTML.
+pub(super) fn script() -> &'static [u8] {
+    static BODY: OnceLock<Vec<u8>> = OnceLock::new();
+    BODY.get_or_init(|| {
+        let mut body = format!("globalThis.InfuserThemeSheets={};", sheets_json()).into_bytes();
+        body.extend_from_slice(include_bytes!("../../web/themes.js"));
+        body
+    })
+}
+
+/// Fingerprint theme stylesheet links already in HTML. A plain URL still
+/// works and revalidates; the `?v=` form is what the page asks for.
+pub(super) fn fingerprint_html(html: &str) -> String {
+    let mut html = html.to_string();
+    for sheet in stylesheets() {
+        let from = format!("href=\"/assets/themes/{}\"", sheet.path);
+        let to = format!("href=\"/assets/themes/{}?v={}\"", sheet.path, sheet.version);
+        html = html.replace(&from, &to);
+    }
+    html
+}
+
+fn requested_version(uri: &axum::http::Uri) -> Option<&str> {
+    uri.query()?.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        (key == "v").then_some(value)
+    })
 }
 
 fn bytes(path: &str) -> Option<(&'static str, &'static [u8])> {
@@ -187,7 +270,11 @@ fn theme_id(value: &str) -> bool {
             .all(|char| char.is_ascii_lowercase() || char.is_ascii_digit() || char == '-')
 }
 
-pub(super) async fn asset(headers: HeaderMap, Path(path): Path<String>) -> Response {
+pub(super) async fn asset(
+    headers: HeaderMap,
+    Path(path): Path<String>,
+    axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
+) -> Response {
     if !allowed(&path) {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -199,6 +286,13 @@ pub(super) async fn asset(headers: HeaderMap, Path(path): Path<String>) -> Respo
         response.headers_mut().insert(
             header::CONTENT_SECURITY_POLICY,
             "default-src 'none'".parse().unwrap(),
+        );
+    } else if requested_version(&uri).is_some_and(|version| version == digest(body)) {
+        // Same bytes as the ETag. The query is the cache key, matching the
+        // immutable vendor asset that already has its version in the URL.
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            "public, max-age=31536000, immutable".parse().unwrap(),
         );
     }
     response
@@ -219,5 +313,78 @@ mod tests {
         assert!(!allowed("../nightglass.css"));
         assert!(!allowed("cartridge-club/.."));
         assert!(!allowed("cartridge-club/note.html"));
+    }
+
+    #[test]
+    fn registry_stylesheets_are_exposed_with_stable_fingerprints() {
+        let script = std::str::from_utf8(script()).unwrap();
+        assert!(script.starts_with("globalThis.InfuserThemeSheets="));
+        assert!(script.contains("window.InfuserThemes"));
+        let sheets = stylesheets();
+        assert!(sheets.iter().any(|sheet| sheet.id == "nightglass"));
+        assert!(sheets.iter().any(|sheet| sheet.id == "cartridge-club"));
+        assert!(sheets.iter().any(|sheet| sheet.id == "funny-pages"));
+        assert!(sheets.iter().any(|sheet| sheet.id == "field-notes"));
+        for sheet in sheets {
+            assert!(
+                script.contains(&format!(
+                    "/assets/themes/{}?v={}",
+                    sheet.path, sheet.version
+                )),
+                "{}",
+                sheet.path
+            );
+            let (_, body) = bytes(sheet.path).unwrap();
+            assert_eq!(sheet.version, digest(body));
+        }
+        let html = fingerprint_html(
+            r#"<link rel="stylesheet" href="/assets/themes/nightglass.css"><link rel="stylesheet" href="/assets/themes/cartridge-club.css">"#,
+        );
+        assert_eq!(html.matches("?v=").count(), 2);
+        assert!(!html.contains("href=\"/assets/themes/nightglass.css\""));
+        assert_eq!(html, fingerprint_html(&html));
+    }
+
+    #[tokio::test]
+    async fn fingerprinted_stylesheet_is_immutable_and_plain_urls_revalidate() {
+        let (_, body) = bytes("nightglass.css").unwrap();
+        let version = digest(body);
+        let plain = request("nightglass.css", "").await;
+        assert_eq!(plain.headers()[header::CONTENT_TYPE], "text/css");
+        assert_eq!(plain.headers()[header::CACHE_CONTROL], "no-cache");
+        assert!(
+            plain.headers()[header::ETAG]
+                .to_str()
+                .unwrap()
+                .contains(&version)
+        );
+        let hit = request("nightglass.css", &format!("?v={version}")).await;
+        assert_eq!(
+            hit.headers()[header::CACHE_CONTROL],
+            "public, max-age=31536000, immutable"
+        );
+        let miss = request("nightglass.css", "?v=not-the-hash").await;
+        assert_eq!(miss.headers()[header::CACHE_CONTROL], "no-cache");
+        let (_, font_body) = bytes("cartridge-club/lilita-one-latin.woff2").unwrap();
+        let font = request(
+            "cartridge-club/lilita-one-latin.woff2",
+            &format!("?v={}", digest(font_body)),
+        )
+        .await;
+        assert_eq!(font.headers()[header::CACHE_CONTROL], "no-cache");
+        assert_eq!(
+            font.headers()[header::CONTENT_SECURITY_POLICY],
+            "default-src 'none'"
+        );
+    }
+
+    async fn request(path: &str, query: &str) -> Response {
+        let uri: axum::http::Uri = format!("/assets/themes/{path}{query}").parse().unwrap();
+        asset(
+            HeaderMap::new(),
+            Path(path.to_string()),
+            axum::extract::OriginalUri(uri),
+        )
+        .await
     }
 }

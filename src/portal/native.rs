@@ -6,7 +6,11 @@ pub(super) fn routes() -> Router<Platform> {
     Router::new()
         .route(
             "/desktop",
-            get(|| async { Html(include_str!("../../web/desktop.html")) }),
+            get(|| async {
+                Html(super::themes::fingerprint_html(include_str!(
+                    "../../web/desktop.html"
+                )))
+            }),
         )
         .route(
             "/assets/desktop.js",
