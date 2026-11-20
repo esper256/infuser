@@ -109,7 +109,7 @@ function layoutTagRows(){
     fitTagRow(row,state);
   }
 }
-window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(layoutTagRows));
+window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{layoutTagRows();if(library)renderGames();}));
 window.addEventListener('resize',()=>{for(const {close} of tagRows.values())close();layoutTagRows();});
 window.addEventListener('scroll',()=>{for(const {close} of tagRows.values())close();},{passive:true});
 document.fonts.ready.then(()=>{for(const state of tagRows.values())state.layoutKey=null;layoutTagRows();});
@@ -269,7 +269,8 @@ function renderGames() {
     for(const key of Object.keys(game))if(!(key in incoming))delete game[key];
     Object.assign(game,incoming);
     const {players,reactions,join_targets,...metadata}=game;
-    const signature=JSON.stringify([metadata,(game.tags||[]).map(tagLabel),me.admin,me.inspecting,me.avatars]);
+    const theme=document.documentElement.dataset.theme||'';
+    const signature=JSON.stringify([metadata,(game.tags||[]).map(tagLabel),me.admin,me.inspecting,me.avatars,theme]);
     const actionSignature=JSON.stringify(join_targets);
     const buzzSignature=JSON.stringify(recentReactions(game));
     if(state.signature===signature){
@@ -312,6 +313,27 @@ function renderGames() {
     if(game.preview)dock.append(el('p','Hidden','game-visibility'));else card.insertBefore(meta,bottom);
     const tags=el('div',undefined,'game-tags');for(const tag of game.tags||[]){const chip=el('button',tagLabel(tag),'tag-chip');chip.title=tagLabel(tag);chip.onclick=()=>{activeTag=activeTag===tag?'':tag;renderFilters();renderGames();};tags.append(chip);}if(game.can_edit_tags&&!me.inspecting){const edit=el('button','＋ Tags','edit-tags');edit.onclick=()=>openTags(game);tags.append(edit);}if(!game.preview){meta.append(tags);prepareTagRow(tags);}
     heading.append(creatorButton(game));dock.append(heading,gameActions(game,card));
+    if(theme==='field-notes'){
+      const page=el('div',undefined,'specimen-page');
+      const note=el('div',undefined,'specimen-note');
+      const writing=(game.description||'').trim();
+      if(writing)note.append(el('p',writing,'specimen-text'));
+      if(game.updated){
+        const noted=new Date(game.updated*1000);
+        if(!Number.isNaN(noted.getTime())){
+          const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          note.append(el('p','Noted '+months[noted.getMonth()]+' '+noted.getDate()+', '+noted.getFullYear(),'specimen-when'));
+        }
+      }
+      page.append(heading);
+      if(note.childElementCount)page.append(note);
+      if(meta.isConnected)page.append(meta);
+      const visibility=dock.querySelector('.game-visibility');
+      if(visibility)page.append(visibility);
+      const actions=dock.querySelector('.actions');
+      if(actions)page.append(actions);
+      card.append(page);
+    }
     renderGamePlayers(card,game);
     if(focusIndex>=0)(card.querySelectorAll('button,summary')[focusIndex]||open).focus({preventScroll:true});
     (game.preview?hiddenCards:nextCards).push(card);
