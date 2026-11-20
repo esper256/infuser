@@ -103,7 +103,11 @@ try {
  await page.getByText('A reboot is waiting until play is idle.',{exact:true}).waitFor();
  await page.locator('.update-host').getByText('Alex has “Pond” open in the browser.',{exact:true}).waitFor();
  await page.locator('.update-host').getByText('Update anyway does not apply.',{exact:false}).waitFor();
- await page.evaluate(async()=>{state.configured=false;state.available=false;state.checked_at=0;await refresh();});
+ await page.evaluate(async()=>{state.changelog={family:['Games remember where you left off'],internal:['Cache the release build']};await refresh();});
+ assert.equal(await page.locator('.update-build').first().getByText('Games remember where you left off',{exact:true}).count(),1);
+ assert.equal(await page.locator('.update-build').first().getByText('Cache the release build',{exact:true}).count(),1);
+ assert.equal(await page.locator('.update-candidate').getByText("What's new in the staged update shows up after it is running.",{exact:true}).count(),1);
+ await page.evaluate(async()=>{state.changelog=null;state.configured=false;state.available=false;state.checked_at=0;await refresh();});
  assert(await page.getByText('Not configured',{exact:true}).isVisible());
  assert(await page.locator('#server-update').isVisible());
  assert.equal(await page.evaluate(()=>humanWait(100,100+90060)),'1 d 1 h');

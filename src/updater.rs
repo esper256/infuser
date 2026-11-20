@@ -46,6 +46,10 @@ pub struct Release {
     /// publishing a release that sets it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host: Vec<crate::deployment::HostStep>,
+    // What's new is not stored here. This struct rejects unknown fields, and the
+    // updater running on a host is not replaced by the release it installs.
+    // `changelog.json` is a separate release asset; the daemon reads the copy
+    // compiled into the binary.
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

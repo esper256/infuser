@@ -16,9 +16,10 @@ export function initServerUpdates({panel,api,me}) {
   const header=node('div'),badge=node('span');header.className='update-heading';badge.className='update-state';header.append(title,badge);
   const builds=node('div');builds.className='update-builds';
   function buildCard(label){
-    const card=node('div'),heading=node('h4',label),id=node('code'),age=node('p'),date=node('time');
-    card.className='update-build';age.className='update-build-age';card.append(heading,id,age,date);builds.append(card);
-    return {card,id,age,date};
+    const card=node('div'),heading=node('h4',label),id=node('code'),age=node('p'),date=node('time'),notes=node('div');
+    card.className='update-build';age.className='update-build-age';notes.className='update-notes';notes.hidden=true;
+    card.append(heading,id,age,date,notes);builds.append(card);
+    return {card,id,age,date,notes};
   }
   const current=buildCard('Running now'),next=buildCard('Staged update');next.card.classList.add('update-candidate');
   const activityList=node('div');activityList.className='update-activity';activityList.setAttribute('role','status');activityList.hidden=true;
@@ -42,6 +43,31 @@ export function initServerUpdates({panel,api,me}) {
     text(view.date,known?new Date(timestamp*1000).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'');
     if(known)set(view.date,'dateTime',new Date(timestamp*1000).toISOString());else if(view.date.hasAttribute('datetime'))view.date.removeAttribute('datetime');
   }
+  function showNotes(view,notes,waiting){
+    const family=Array.isArray(notes?.family)?notes.family:[];
+    const internal=Array.isArray(notes?.internal)?notes.internal:[];
+    const signature=JSON.stringify([family,internal,!!waiting]);
+    if(view.notes.dataset.notes!==signature){
+      view.notes.dataset.notes=signature;
+      view.notes.replaceChildren();
+      if(family.length||internal.length){
+        view.notes.append(node('h5',"What's new"));
+        if(family.length){
+          const list=node('ul');
+          for(const line of family)list.append(node('li',line));
+          view.notes.append(list);
+        }
+        if(internal.length){
+          view.notes.append(node('p','Behind the scenes','update-caption'));
+          const list=node('ul');list.className='update-internal';
+          for(const line of internal)list.append(node('li',line));
+          view.notes.append(list);
+        }
+      }
+      if(waiting)view.notes.append(node('p',"What's new in the staged update shows up after it is running.",'update-caption'));
+    }
+    set(view.notes,'hidden',!family.length&&!internal.length&&!waiting);
+  }
   function render(){
     set(section,'hidden',!state);
     if(!state)return;
@@ -54,6 +80,8 @@ export function initServerUpdates({panel,api,me}) {
     set(badge.dataset,'attention',String(!reachable||stale||phase==='failed'));
     showBuild(current,state.current_build,state.current_built_at,'Unknown build');
     showBuild(next,state.available?state.report?.release:null,state.available?state.release_built_at:null,state.available?'Checking…':state.configured&&!stale&&phase==='current'?'Already on latest':'Not checked yet');
+    showNotes(current,state.changelog,false);
+    showNotes(next,null,!!state.available);
     text(badge,!reachable?'Connection lost':!state.configured?'Not configured':stale?'Check overdue':phase==='failed'?'Update failed':phase==='checking'?'Checking…':phase==='downloading'?'Downloading':phase==='activating'?'Restarting':state.available?'Update available':phase==='current'?'Up to date':'Awaiting check');
     const activitySignature=JSON.stringify(activity);
     if(activityList.dataset.activity!==activitySignature){

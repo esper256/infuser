@@ -43,6 +43,13 @@ jobs:
         run: |
           mapfile -t tests < <(rg --files tests -g '*_sdk.mjs' -g '*theme*.mjs' -g '*theme*.js' -g 'voice_chimes.mjs')
           node --test "${tests[@]}"
+      - name: Changelog tests
+        run: node --test .github/scripts/changelog.test.cjs
+      - name: Write the release changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node .github/scripts/changelog.cjs CHANGELOG.json
       - name: Build native binary
         run: cargo build --locked --release --bin infuser
       - name: Package
@@ -51,6 +58,7 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/infuser "dist/infuser-linux-$ARCH"
+          if [ "$ARCH" = amd64 ]; then cp CHANGELOG.json dist/changelog.json; fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: infuser-linux-${{ matrix.arch }}

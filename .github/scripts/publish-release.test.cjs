@@ -64,6 +64,29 @@ test('server release is complete, single-commit, and retains both existing insta
   }
   assert(!files.some(file => file.includes('macos')));
 });
+test('changelog ships beside the manifest and in the release notes, not as a release.json field', async t => {
+  const f = fixture(t);
+  const changelog = {
+    version: 1,
+    since: previous,
+    changes: [
+      { text: 'Games remember where you left off', audience: 'family', pr: 12 },
+      { text: 'Cache the release build', audience: 'internal' },
+    ],
+  };
+  fs.writeFileSync(path.join(f.directory, 'changelog.json'), JSON.stringify(changelog));
+  assert.equal(await f.run(), 'published');
+  const manifest = JSON.parse(fs.readFileSync(path.join(f.directory, 'release.json')));
+  assert.equal(manifest.changelog, undefined);
+  assert.equal(manifest.host, undefined);
+  assert.equal(f.uploads[0].length, 12);
+  assert.ok(f.uploads[0].some(file => file.endsWith('changelog.json')));
+  assert.match(f.writes[0].body.body, /## What's new\n- Games remember where you left off/);
+  assert.match(f.writes[0].body.body, /## Behind the scenes\n- Cache the release build/);
+  assert.doesNotMatch(f.writes[0].body.body.split('Tested ')[0], /[0-9a-f]{40}/);
+  const sums = fs.readFileSync(path.join(f.directory, 'SHA256SUMS'), 'utf8');
+  assert.match(sums, /changelog\.json/);
+});
 test('a release can name the host step it cannot take effect without', t => {
   const f = fixture(t);
   prepare(f.directory, commit, 'server', ['reboot', 'reboot']);

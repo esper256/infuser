@@ -21,6 +21,7 @@ pub mod deployments;
 pub mod groups;
 pub mod identity;
 mod metadata;
+pub(crate) mod releases;
 pub mod screenshots;
 pub mod visits;
 pub use metadata::{GameMetadata, MetadataUpdate};
@@ -437,6 +438,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS update_reactions(
             deployment TEXT NOT NULL, profile TEXT NOT NULL, publication TEXT NOT NULL, emoji TEXT NOT NULL,
             PRIMARY KEY(deployment,profile)) WITHOUT ROWID;")?;
+        releases::initialize(&c)?;
         crate::notifications::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS portrait_builds(build_key TEXT PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS native_resolution_builds(build_key TEXT PRIMARY KEY);

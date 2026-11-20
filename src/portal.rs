@@ -46,6 +46,7 @@ mod library;
 mod metadata;
 mod native;
 mod peerjs;
+mod platform_updates;
 mod presence;
 mod profiles;
 mod publication;
@@ -597,6 +598,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/apps/{app}/card-art/{build}", get(card_art::image))
         .route("/api/launches/{id}", get(launch_status))
         .route("/api/apps/{app}/updates/{publication}/reaction", put(update_reactions::set))
+        .route("/api/platform-updates/{batch}/reaction", put(platform_updates::set))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
         .route("/api/admin/apps/{app}/reactions/{player}", delete(remove_game_reaction))
         .route("/api/admin/game-authors", get(authors::inventory))

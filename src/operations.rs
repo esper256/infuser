@@ -59,6 +59,7 @@ async fn deployment_report(
     if !authorized(&app, &headers) {
         return error(StatusCode::UNAUTHORIZED, "control token required");
     }
+    let announced = body.release.clone();
     let report = crate::deployment::Report {
         release: body.release,
         built_at: body.built_at,
@@ -81,6 +82,18 @@ async fn deployment_report(
             .controller
             .deployment
             .note_host(&release, steps);
+    }
+    if saved.is_ok()
+        && let Err(error) = crate::platform::releases::consider(
+            &app.platform.db,
+            body.phase,
+            announced.as_deref(),
+            crate::BUILD_SHA,
+            &crate::changelog::family_lines(),
+            now(),
+        )
+    {
+        tracing::warn!(%error, "platform update was not announced");
     }
     match saved {
         Ok(()) => Json(json!({"ok":true})).into_response(),

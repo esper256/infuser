@@ -2,6 +2,7 @@ pub mod api;
 pub mod backup;
 pub mod caddy;
 pub mod card_art;
+pub mod changelog;
 pub mod cloud;
 pub mod config;
 pub mod connections;

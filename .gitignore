@@ -1,4 +1,5 @@
 target/
+CHANGELOG.json
 .local/
 *.credentials.json
 .env

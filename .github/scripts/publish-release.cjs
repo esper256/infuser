@@ -3,13 +3,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { notes } = require('./changelog.cjs');
 const SHA = /^[0-9a-f]{40}$/;
 const serverFiles = ['infuser-linux-amd64', 'infuser-linux-arm64',
   'infuser-play-linux-x86_64', 'infuser-play-windows-x86_64.exe',
   'Infuser-Play-Setup.exe', 'Infuser-Play.flatpak'];
 const macFiles = ['infuser-macos-amd64', 'infuser-macos-arm64'];
 
-function prepare(directory, commit, channel, host = []) {
+function prepare(directory, commit, channel, host = [], extras = []) {
   if (!Array.isArray(host) || host.some(step => !['reboot', 'ansible'].includes(step))) {
     throw new Error('host steps must be reboot, ansible, or both');
   }
@@ -30,7 +31,11 @@ function prepare(directory, commit, channel, host = []) {
   const manifest = { commit, artifacts: Object.fromEntries(platforms.map(p => [p, artifact('infuser-' + p)])) };
   // Omitted when empty so updaters that reject unknown fields can still read it.
   if (host.length) manifest.host = host;
+  // Extra assets are uploaded and checksummed, but they are not manifest fields.
+  // The deployed updater rejects unknown release.json fields.
+  for (const extra of extras) digest(extra);
   write('release.json', manifest);
+  for (const extra of extras) if (!files.includes(extra)) files.push(extra);
   if (channel === 'server') {
     write('play-release.json', { protocol: 1, commit, artifacts: {
       'linux-x86_64': artifact('infuser-play-linux-x86_64'),
@@ -60,7 +65,10 @@ async function publish({ directory, commit, channel, repository, runUrl }, reque
   if (repository !== 'esper256/infuser') throw new Error('Unexpected repository');
   const planPath = path.join(process.cwd(), 'deploy/host-plan.json');
   const host = fs.existsSync(planPath) ? JSON.parse(fs.readFileSync(planPath, 'utf8')).steps || [] : [];
-  const files = prepare(directory, commit, channel, host);
+  const changelogPath = path.join(directory, 'changelog.json');
+  const extras = channel === 'server' && fs.existsSync(changelogPath) ? ['changelog.json'] : [];
+  const files = prepare(directory, commit, channel, host, extras);
+  const changelogNotes = extras.length ? notes(JSON.parse(fs.readFileSync(changelogPath, 'utf8'))) : '';
   const root = `repos/${repository}`, tag = `${channel === 'server' ? 'build' : 'macos'}-${commit}`;
   const compare = async (base, head) => {
     const result = await request(`${root}/compare/${base}...${head}`);
@@ -87,7 +95,7 @@ async function publish({ directory, commit, channel, repository, runUrl }, reque
   if (existing && !existing.draft) return 'already-published';
   if (!existing) existing = await request(`${root}/releases`, 'POST', {
     tag_name: tag, target_commitish: commit, name: `${channel === 'server' ? 'Server and Play' : 'Mac publisher'} ${commit.slice(0, 8)}`,
-    body: `Tested ${channel} artifacts from commit ${commit}.\n\n${runUrl}\n\n${channel === 'macos' ? 'Independent Mac publisher track; the prerelease flag keeps this out of server/Play automatic updates. Verify downloads against SHA256SUMS from this tag.' : 'Linux servers and Infuser Play. Mac publishers are published separately as macos-<commit> releases.'}`,
+    body: `${changelogNotes ? changelogNotes + '\n\n' : ''}Tested ${channel} artifacts from commit ${commit}.\n\n${runUrl}\n\n${channel === 'macos' ? 'Independent Mac publisher track; the prerelease flag keeps this out of server/Play automatic updates. Verify downloads against SHA256SUMS from this tag.' : 'Linux servers and Infuser Play. Mac publishers are published separately as macos-<commit> releases.'}`,
     draft: true, prerelease: channel === 'macos', make_latest: 'false',
   });
   if (!existing?.id || existing.tag_name !== tag || !existing.draft || existing.target_commitish !== commit) throw new Error('Unexpected draft release response');
