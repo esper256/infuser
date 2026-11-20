@@ -185,9 +185,16 @@
   background-image: repeating-linear-gradient(to bottom, transparent 0 31px, var(--rule) 31px 32px);
   background-size: 100% 32px;
 }
-[data-theme="field-notes"] .specimen-when { margin: 2px 0 0; color: var(--pencil); font-size: 14px; }
+[data-theme="field-notes"] .specimen-when { margin: 10px 0 0; color: var(--pencil); font-size: 14px; }
 [data-theme="field-notes"] .specimen-page .game-meta { margin: 0; }
-[data-theme="field-notes"] .specimen-page .actions { align-self: flex-start; margin: 4px 0 0; }
+[data-theme="field-notes"] .specimen-page .actions {
+  --card-control-height: 42px;
+  align-self: flex-start;
+  align-items: stretch;
+  margin: 4px 0 0;
+}
+[data-theme="field-notes"] .specimen-page .actions > .play-menu { display: flex; }
+[data-theme="field-notes"] .specimen-page .play-menu > summary { flex: 1; height: auto; }
 [data-theme="field-notes"] .game-bottom:not(:has(.game-buzz)) { display: none; }
 [data-theme="field-notes"] .game-dock:empty { display: none; }
 [data-theme="field-notes"] .game-bottom { position: relative; grid-column: 1; grid-row: 1; align-self: end; z-index: 2; width: auto; margin: 0 0 10px 12px; }
@@ -295,6 +302,7 @@
   [data-theme="field-notes"] .game h2,
   [data-theme="field-notes"] .game-heading h2,
   [data-theme="field-notes"] #hidden-game-list .hidden-game .game-heading h2 { font-size: 30px; }
+  [data-theme="field-notes"] .specimen-page .actions { --card-control-height: 44px; }
 }
 
 /* Recently stays the shared dropdown, dressed as a pressed note. */
