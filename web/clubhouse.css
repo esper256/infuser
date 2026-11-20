@@ -326,7 +326,13 @@ form.admin-region-body { margin: 0; }
 .admin h3 { font-size: 13px; font-weight: 600; margin-top: 26px; color: #c3d2cd; }
 .admin label { line-height: 1.5; }
 .admin button { font-size: 12px; }
-#members > div, #credentials > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #30444a; color: #bacbc8; font-size: 12px; overflow-wrap: anywhere; }
+#members > div, #credentials > div, #admin-games .admin-game { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #30444a; color: #bacbc8; font-size: 12px; overflow-wrap: anywhere; }
+#admin-games .admin-game { flex-wrap: wrap; align-items: flex-start; }
+#admin-games ul { margin: 8px 0 12px; padding-left: 18px; }
+#admin-games li { margin: 4px 0; }
+.admin button.danger { background: #8f3030; color: #fff; }
+.admin button.danger:hover { background: #a84444; }
+.admin button.danger:disabled { opacity: .45; }
 #members > div > span, #credentials > div > span { min-width: 0; }
 #members button, #credentials button { min-height: 36px; padding: 7px 10px; font-size: 11px; }
 #members > div { flex-wrap: wrap; }

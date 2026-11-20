@@ -120,6 +120,44 @@ fn begin_reader(
     tx.commit()?;
     Ok(Some(id))
 }
+fn capture_db(settings: &Settings) -> std::path::PathBuf {
+    settings.state_dir.join("publish-captures/requests.sqlite")
+}
+pub fn count_app(settings: &Settings, app: &str) -> Result<u64> {
+    if !capture_db(settings).exists() {
+        return Ok(0);
+    }
+    let c = connect(settings)?;
+    Ok(c.query_row(
+        "SELECT COUNT(*) FROM requests WHERE json_extract(request,'$.app')=?1",
+        [app],
+        |row| row.get(0),
+    )?)
+}
+/// Drop this game's captured requests and any bodies no other game still uses.
+pub fn forget_app(settings: &Settings, app: &str) -> Result<u64> {
+    if !capture_db(settings).exists() {
+        return Ok(0);
+    }
+    let mut c = connect(settings)?;
+    let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let removed = tx.execute(
+        "DELETE FROM requests WHERE json_extract(request,'$.app')=?1",
+        [app],
+    )?;
+    tx.execute(
+        "DELETE FROM bodies WHERE sha256 NOT IN (SELECT body_sha256 FROM requests)",
+        [],
+    )?;
+    let bytes: u64 = tx.query_row(
+        "SELECT COALESCE(SUM(length(request)+length(body)+768),0) FROM requests JOIN bodies ON bodies.sha256=requests.body_sha256",
+        [],
+        |row| row.get(0),
+    )?;
+    tx.execute("UPDATE capture_usage SET bytes=?1 WHERE id=1", [bytes])?;
+    tx.commit()?;
+    Ok(removed as u64)
+}
 pub fn finish(settings: &Settings, id: i64, status: u16) -> Result<()> {
     connect(settings)?.execute(
         "UPDATE requests SET status=?1 WHERE id=?2",

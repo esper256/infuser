@@ -26,6 +26,10 @@ pub trait Engine: Send + Sync {
     async fn ensure(&self, id: &str, instance: &Instance, owner: &str) -> Result<Health>;
     async fn health(&self, instance: &Instance, owner: &str, id: &str) -> Result<Health>;
     async fn remove(&self, id: &str, instance: &Instance, owner: &str) -> Result<()>;
+    /// Remove only this game's named world volume. Test engines keep the default no-op.
+    async fn discard_world(&self, _owner: &str, _id: &str) -> Result<()> {
+        Ok(())
+    }
     async fn diagnostics(
         &self,
         _id: &str,
@@ -537,6 +541,30 @@ impl Engine for Docker {
         }
         if self.object("container", &i.name).await?.is_some() {
             bail!("container still present after removal");
+        }
+        Ok(())
+    }
+
+    async fn discard_world(&self, owner: &str, id: &str) -> Result<()> {
+        let name = format!("infuser-{owner}-{id}-data");
+        ensure!(
+            name.len() <= 128
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+            "invalid game volume name"
+        );
+        let listed = self
+            .cmd(&[
+                "volume",
+                "ls",
+                "--quiet",
+                "--filter",
+                &format!("name=^{name}$"),
+            ])
+            .await?;
+        if listed.lines().any(|line| line == name) {
+            self.cmd(&["volume", "rm", "--force", &name]).await?;
         }
         Ok(())
     }

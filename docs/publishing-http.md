@@ -187,6 +187,14 @@ curl --silent --show-error --fail --proto '=https' \
   --output .local/publish-response.json "$BUILD_URL/publish"
 ```
 
+A 409 whose JSON `code` is `duplicate_title` means this is the first publish of a
+new game and its title matches an existing game in this group, including a hidden
+one. `matches` lists that game's title, id, slug, and `hidden` flag. Publish the
+update to the existing app instead. The draft build is unchanged. Retry this same
+publish with `"allow_duplicate_title": true` in `.local/publish.json` only when a
+separate copy is intentional. An update to a game that already published does not
+return this code. Titles match after trimming whitespace and ignoring case.
+
 Inspect the response: `state:"queued"` means a managed server or peer session is
 still active. The update waits for shutdown/session end; do not call it live yet.
 GET `$BUILD_URL` for `publication_state` and check metadata with the publisher
