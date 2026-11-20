@@ -12,6 +12,15 @@ const FILES: &[&str] = &[
     "cartridge-club/OFL-lilita.txt",
     "cartridge-club/OFL-fredoka.txt",
     "cartridge-club/NOTICE.md",
+    "funny-pages.css",
+    "funny-pages/bangers-latin.woff2",
+    "funny-pages/comic-neue-400-latin.woff2",
+    "funny-pages/comic-neue-700-latin.woff2",
+    "funny-pages/halftone.svg",
+    "funny-pages/newsprint.svg",
+    "funny-pages/OFL-bangers.txt",
+    "funny-pages/OFL-comic-neue.txt",
+    "funny-pages/NOTICE.md",
 ];
 
 pub(super) fn source_fingerprint() -> String {
@@ -64,6 +73,42 @@ fn bytes(path: &str) -> Option<(&'static str, &'static [u8])> {
         "cartridge-club/NOTICE.md" => (
             "text/plain; charset=utf-8",
             include_bytes!("../../web/themes/cartridge-club/NOTICE.md").as_slice(),
+        ),
+        "funny-pages.css" => (
+            "text/css",
+            include_bytes!("../../web/themes/funny-pages.css").as_slice(),
+        ),
+        "funny-pages/bangers-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/funny-pages/bangers-latin.woff2").as_slice(),
+        ),
+        "funny-pages/comic-neue-400-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/funny-pages/comic-neue-400-latin.woff2").as_slice(),
+        ),
+        "funny-pages/comic-neue-700-latin.woff2" => (
+            "font/woff2",
+            include_bytes!("../../web/themes/funny-pages/comic-neue-700-latin.woff2").as_slice(),
+        ),
+        "funny-pages/halftone.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../web/themes/funny-pages/halftone.svg").as_slice(),
+        ),
+        "funny-pages/newsprint.svg" => (
+            "image/svg+xml",
+            include_bytes!("../../web/themes/funny-pages/newsprint.svg").as_slice(),
+        ),
+        "funny-pages/OFL-bangers.txt" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/funny-pages/OFL-bangers.txt").as_slice(),
+        ),
+        "funny-pages/OFL-comic-neue.txt" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/funny-pages/OFL-comic-neue.txt").as_slice(),
+        ),
+        "funny-pages/NOTICE.md" => (
+            "text/plain; charset=utf-8",
+            include_bytes!("../../web/themes/funny-pages/NOTICE.md").as_slice(),
         ),
         _ => return None,
     })

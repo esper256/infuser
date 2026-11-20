@@ -1,0 +1,651 @@
+/* Preview presentation. Every painted rule is scoped to
+ * [data-theme="funny-pages"]. @font-face is global by CSS rules; Nightglass
+ * and Cartridge Club do not use these family names. Fonts and textures are
+ * served from /assets/themes/funny-pages/ with their SIL Open Font License
+ * notices.
+ *
+ * Layout stays in this sheet. The page becomes a comic: a left masthead
+ * column, an asymmetric panel grid, and Recently as speech bubbles in that
+ * masthead. Visual order follows DOM order, so keyboard focus is not shuffled.
+ * Phone widths stack the masthead back into the shared top bar. */
+
+@font-face {
+  font-family: Bangers;
+  src: url("/assets/themes/funny-pages/bangers-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Comic Neue";
+  src: url("/assets/themes/funny-pages/comic-neue-400-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Comic Neue";
+  src: url("/assets/themes/funny-pages/comic-neue-700-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root[data-theme="funny-pages"] {
+  color-scheme: light;
+  --masthead: 220px;
+  --ink-line: #1a1208;
+  --newsprint: #f4ecda;
+  --caption: #fffdf8;
+  --burst: #ffd000;
+  --game-ratio: 1;
+  --presence-online: #128a3e;
+  --detail-panel: #fffdf8;
+  --feedback-bubble: #fff6c2;
+  --page: var(--newsprint);
+  --field: #fffdf8;
+  --button-ink: #fffdf8;
+  --accent-hover: #ff5548;
+  --accent-pressed: #c42b22;
+  --panel: #fffdf8;
+  --card-dock: #fffdf8;
+  --ink: #1a1208;
+  --quiet: #5e5146;
+  --accent: #e23b2f;
+  --green: #e23b2f;
+  --warm: #c45112;
+  --line: #1a1208;
+  --surface: #fff3bf;
+  --glass: #fffdf8;
+  --focus: #1d4ed8;
+  --browser-chrome: #f4ecda;
+}
+
+[data-theme="funny-pages"] body {
+  background-color: var(--newsprint);
+  background-image: url("/assets/themes/funny-pages/newsprint.svg");
+  background-size: 18px 18px;
+  color: var(--ink);
+  font-family: "Comic Neue", "Segoe UI", system-ui, sans-serif;
+}
+
+[data-theme="funny-pages"] ::selection {
+  background: var(--burst);
+  color: var(--ink-line);
+}
+
+[data-theme="funny-pages"] body:has(#welcome:not([hidden])) {
+  color-scheme: dark;
+  background: #060b12;
+  color: #edf4ef;
+}
+
+[data-theme="funny-pages"] .game h2,
+[data-theme="funny-pages"] .game-open,
+[data-theme="funny-pages"] .detail-info h2,
+[data-theme="funny-pages"] #activity h2,
+[data-theme="funny-pages"] dialog h2,
+[data-theme="funny-pages"] .profile-chooser h1 {
+  font-family: Bangers, "Comic Neue", system-ui, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+}
+
+/* Newsprint page. The masthead is a real column, not a recolored bar. */
+[data-theme="funny-pages"] header {
+  border-bottom: 4px solid var(--ink-line);
+  background-color: var(--burst);
+  background-image: url("/assets/themes/funny-pages/newsprint.svg");
+  background-size: 18px 18px;
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] .brand-wordmark {
+  background: #161616;
+  padding: 6px 8px 7px;
+  border-radius: 8px;
+  box-shadow: 4px 4px 0 var(--accent);
+}
+[data-theme="funny-pages"] .brand-wordmark img { width: 132px; }
+[data-theme="funny-pages"] #recent-menu #recent-toggle {
+  background: #161616;
+  border: 3px solid var(--ink-line);
+  box-shadow: 3px 3px 0 var(--accent);
+}
+[data-theme="funny-pages"] .presence-self .profile-menu > summary {
+  border-color: var(--ink-line);
+  background: var(--caption);
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] #chat-toggle,
+[data-theme="funny-pages"] #voice-toggle {
+  background: var(--caption);
+  border: 3px solid var(--ink-line);
+  box-shadow: 3px 3px 0 var(--ink-line);
+  color: var(--ink-line);
+}
+
+@media (min-width: 960px) {
+  [data-theme="funny-pages"] body:has(#clubhouse:not([hidden])) {
+    display: grid;
+    grid-template-columns: var(--masthead) minmax(0, 1fr);
+    align-items: start;
+    background-image:
+      linear-gradient(var(--burst), var(--burst)),
+      url("/assets/themes/funny-pages/newsprint.svg");
+    background-size: var(--masthead) 100%, 18px 18px;
+    background-repeat: no-repeat, repeat;
+  }
+  [data-theme="funny-pages"] body:has(#clubhouse:not([hidden])) > header {
+    position: sticky;
+    top: 0;
+    grid-column: 1;
+    grid-row: 1;
+    height: 100dvh;
+    max-height: 100dvh;
+    max-width: none;
+    margin: 0;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 16px;
+    padding: 16px 14px 24px;
+    border-bottom: 0;
+    border-right: 4px solid var(--ink-line);
+    z-index: 20;
+  }
+  [data-theme="funny-pages"] body:has(#clubhouse:not([hidden])) > main,
+  [data-theme="funny-pages"] body:has(#clubhouse:not([hidden])) > footer {
+    grid-column: 2;
+    max-width: none;
+    margin: 0;
+    min-width: 0;
+  }
+  [data-theme="funny-pages"] body:has(#clubhouse:not([hidden])) > main {
+    padding: 22px 28px 36px 22px;
+    background-color: #f7f1e4;
+    background-image: url("/assets/themes/funny-pages/newsprint.svg");
+    background-size: 18px 18px;
+  }
+  [data-theme="funny-pages"] .brand {
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    gap: 12px;
+  }
+  [data-theme="funny-pages"] #recent-menu { width: 100%; }
+  [data-theme="funny-pages"] #recent-menu #recent-toggle { margin-inline: auto; }
+  [data-theme="funny-pages"] .brand-wordmark img { width: 168px; }
+  [data-theme="funny-pages"] .presence-chat {
+    flex: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+  }
+  [data-theme="funny-pages"] .presence-stack {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
+  }
+  /* Recently opens as a flyout beside the masthead, over the grid.
+     The list scrolls; the heading and close button stay put. */
+  [data-theme="funny-pages"] #activity.recent-panel {
+    position: absolute;
+    top: 16px;
+    left: calc(100% + 14px);
+    width: min(360px, calc(100vw - var(--masthead) - 36px));
+    max-height: none;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    z-index: 8;
+  }
+  [data-theme="funny-pages"] #activity.recent-panel #feed {
+    max-height: min(520px, calc(100dvh - 150px));
+    overflow: auto;
+    padding-right: 4px;
+  }
+  /* Comic tail aimed at the Recent button. Only the wide flyout. */
+  [data-theme="funny-pages"] #activity.recent-panel::before {
+    content: "";
+    display: block;
+    box-sizing: content-box;
+    position: absolute;
+    left: -22px;
+    top: 28px;
+    width: 0;
+    height: 0;
+    border: 16px solid transparent;
+    border-right-color: #1a1208;
+    border-left-width: 0;
+    z-index: 5;
+  }
+  [data-theme="funny-pages"] #activity.recent-panel::after {
+    content: "";
+    display: block;
+    box-sizing: content-box;
+    position: absolute;
+    left: -14px;
+    top: 36px;
+    width: 0;
+    height: 0;
+    border: 10px solid transparent;
+    border-right-color: #fffdf8;
+    border-left-width: 0;
+    z-index: 6;
+  }
+}
+
+@media (max-width: 380px) {
+  [data-theme="funny-pages"] .brand-wordmark img { width: 92px; }
+  [data-theme="funny-pages"] .brand-wordmark { padding: 4px 6px 5px; box-shadow: 3px 3px 0 var(--accent); }
+}
+
+/* Control strip. Areas stay filters, then search, then Add a game. */
+[data-theme="funny-pages"] .library-toolbar {
+  padding: 10px;
+  border: 3px solid var(--ink-line);
+  border-radius: 16px;
+  background: var(--caption);
+  box-shadow: 5px 5px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .tag-filter,
+[data-theme="funny-pages"] .tag-chip,
+[data-theme="funny-pages"] .tag-more {
+  border: 2px solid var(--ink-line);
+  background: var(--burst);
+  color: var(--ink-line);
+  box-shadow: 2px 2px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .tag-filter:hover,
+[data-theme="funny-pages"] .tag-chip:hover,
+[data-theme="funny-pages"] .tag-more:hover,
+[data-theme="funny-pages"] .tag-more.selected {
+  background: #fff3bf;
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .tag-filter.selected,
+[data-theme="funny-pages"] .tag-filter.selected:hover,
+[data-theme="funny-pages"] .tag-chip.selected {
+  background: var(--accent);
+  color: var(--button-ink);
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .search-label input,
+[data-theme="funny-pages"] input,
+[data-theme="funny-pages"] textarea,
+[data-theme="funny-pages"] select {
+  border: 3px solid var(--ink-line);
+  background: #fff;
+  color: var(--ink-line);
+  box-shadow: inset 0 2px 0 #00000014;
+}
+[data-theme="funny-pages"] input::placeholder,
+[data-theme="funny-pages"] textarea::placeholder { color: #7a6d60; }
+[data-theme="funny-pages"] label { color: var(--ink); }
+[data-theme="funny-pages"] .add-game {
+  border: 3px solid var(--ink-line);
+  background: var(--accent);
+  color: var(--button-ink);
+  box-shadow: 4px 4px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .add-game:hover { background: var(--accent-hover); border-color: var(--ink-line); }
+[data-theme="funny-pages"] #game-count { color: var(--quiet); }
+
+@media (max-width: 360px) {
+  [data-theme="funny-pages"] .library-toolbar { grid-template-columns: minmax(0, 1fr); }
+  [data-theme="funny-pages"] .library-toolbar .tag-filters { grid-area: 1 / 1; }
+  [data-theme="funny-pages"] .library-toolbar .search-label { grid-area: 2 / 1; max-width: none; }
+  [data-theme="funny-pages"] .library-toolbar .add-game { grid-area: 3 / 1; justify-self: stretch; }
+}
+
+/* Comic panels. The container is the library column, so the masthead's width
+   does not make a 3-column grid overflow a phone. */
+[data-theme="funny-pages"] body:has(#clubhouse:not([hidden])) > main {
+  container-type: inline-size;
+  container-name: library;
+}
+[data-theme="funny-pages"] #visible-games.games {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px 16px;
+  align-items: stretch;
+}
+[data-theme="funny-pages"] #visible-games > .game {
+  grid-column: auto;
+  grid-row: auto;
+  min-height: 240px;
+}
+[data-theme="funny-pages"] #visible-games > .game:first-child { min-height: 320px; }
+[data-theme="funny-pages"] .game:not(.hidden-game) {
+  aspect-ratio: auto;
+  --card-padding: 12px;
+  border: 4px solid var(--ink-line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 6px 6px 0 var(--ink-line);
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] #visible-games > .game:nth-child(3n+2) { border-radius: 18px 6px 14px 8px; }
+[data-theme="funny-pages"] #visible-games > .game:nth-child(3n) { border-radius: 6px 16px 8px 18px; }
+[data-theme="funny-pages"] .game:not(.hidden-game)::before { background: none; }
+[data-theme="funny-pages"] .game-art:not(:has(img))::before {
+  border-color: var(--burst);
+  border-right-color: var(--accent);
+  border-bottom-color: #1a8cff;
+}
+[data-theme="funny-pages"] .game-art:not(:has(img))::after {
+  border-color: #ff4fa3;
+  border-top-color: var(--burst);
+  border-right-color: #1a8cff;
+  border-bottom-color: var(--accent);
+}
+[data-theme="funny-pages"] .game-art.has-game-art::after,
+[data-theme="funny-pages"] .detail-art.has-game-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/assets/themes/funny-pages/halftone.svg");
+  background-size: 12px 12px;
+  mix-blend-mode: multiply;
+  opacity: 0.32;
+  pointer-events: none;
+}
+[data-theme="funny-pages"] .game:not(.hidden-game) .game-heading {
+  border: 3px solid var(--ink-line);
+  border-radius: 10px;
+  background: var(--burst);
+  color: var(--ink-line);
+  box-shadow: 3px 3px 0 var(--ink-line);
+  backdrop-filter: none;
+}
+[data-theme="funny-pages"] .game h2,
+[data-theme="funny-pages"] .game-open {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+[data-theme="funny-pages"] .game h2 { font-size: clamp(20px, 5cqw, 28px); line-height: 1.15; }
+[data-theme="funny-pages"] .game:not(.hidden-game) .game-dock { flex-wrap: wrap; justify-content: flex-end; }
+[data-theme="funny-pages"] .game:not(.hidden-game) .game-heading { flex: 1 1 auto; min-width: 0; }
+@container (max-width: 300px) {
+  [data-theme="funny-pages"] .game:not(.hidden-game) .game-heading { flex-basis: 100%; }
+  [data-theme="funny-pages"] .game:not(.hidden-game) .actions { margin-left: auto; }
+}
+[data-theme="funny-pages"] #visible-games > .game:first-child h2 { font-size: clamp(28px, 4.6cqw, 44px); }
+[data-theme="funny-pages"] .game-open,
+[data-theme="funny-pages"] .game-open:hover,
+[data-theme="funny-pages"] .game-open:active:not(:disabled) {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  padding-right: 0.18em;
+  color: var(--ink-line);
+  background: none;
+}
+[data-theme="funny-pages"] .game:not(.hidden-game) .game-heading h2 { overflow: visible; }
+[data-theme="funny-pages"] .game:not(.hidden-game) .game-bottom { margin-top: auto; }
+[data-theme="funny-pages"] .game:not(.hidden-game) .game-buzz {
+  margin-left: 0;
+  margin-bottom: 6px;
+}
+[data-theme="funny-pages"] .actions > button {
+  border: 3px solid var(--ink-line);
+  border-radius: 12px 0 0 12px;
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .play-menu summary {
+  border: 3px solid var(--ink-line);
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+  background: var(--burst);
+  color: var(--ink-line);
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .play-menu-items {
+  background: var(--caption);
+  border: 3px solid var(--ink-line);
+  color: var(--ink-line);
+  box-shadow: 4px 4px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .play-menu-items button { color: var(--ink-line); }
+[data-theme="funny-pages"] .play-menu-items button:hover { background: var(--burst); color: var(--ink-line); }
+[data-theme="funny-pages"] .game .creator .avatar,
+[data-theme="funny-pages"] .detail-creator .avatar { border-color: var(--ink-line); }
+[data-theme="funny-pages"] .hidden-game {
+  border: 3px solid var(--ink-line);
+  background: var(--caption);
+  box-shadow: 4px 4px 0 var(--ink-line);
+  color: var(--ink-line);
+}
+
+@container library (min-width: 680px) {
+  [data-theme="funny-pages"] #visible-games.games { grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr); }
+  [data-theme="funny-pages"] #visible-games > .game:first-child {
+    grid-column: 1 / -1;
+    min-height: 390px;
+  }
+}
+@container library (min-width: 880px) {
+  [data-theme="funny-pages"] #visible-games.games {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.85fr) minmax(0, 0.7fr);
+  }
+  [data-theme="funny-pages"] #visible-games > .game:first-child {
+    grid-column: span 2;
+    grid-row: span 2;
+    min-height: 540px;
+  }
+  [data-theme="funny-pages"] #visible-games > .game:nth-child(4n+5),
+  [data-theme="funny-pages"] #visible-games > .game:nth-child(4n+6) { grid-column: span 2; }
+}
+@container library (max-width: 520px) {
+  [data-theme="funny-pages"] #visible-games > .game { min-height: 230px; }
+  [data-theme="funny-pages"] #visible-games > .game:first-child { min-height: 300px; }
+}
+
+@media (hover: hover) {
+  [data-theme="funny-pages"] .game:hover {
+    border-color: var(--ink-line);
+    box-shadow: 9px 9px 0 var(--ink-line);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  [data-theme="funny-pages"] .game:not(.hidden-game):hover { transform: translate(-2px, -2px); }
+}
+
+/* The detail dialog is one comic page: splash art, then caption boxes.
+   Close stays the first control and sticks to the top corner. */
+[data-theme="funny-pages"] dialog {
+  border: 4px solid var(--ink-line);
+  border-radius: 12px;
+  background: var(--caption);
+  color: var(--ink);
+  box-shadow: 8px 8px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] dialog::backdrop {
+  background-color: #1a1208d4;
+  background-image: url("/assets/themes/funny-pages/newsprint.svg");
+  background-size: 18px 18px;
+  backdrop-filter: none;
+}
+[data-theme="funny-pages"] #game-detail {
+  width: min(760px, calc(100% - 28px));
+  max-height: calc(100dvh - 28px);
+  overflow: auto;
+  padding: 0 0 12px;
+  border-width: 5px;
+}
+[data-theme="funny-pages"] #game-detail-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(180px, 38vh) auto;
+  height: auto;
+  min-width: 0;
+}
+[data-theme="funny-pages"] .detail-art.game-art {
+  height: 100%;
+  min-height: 180px;
+  border-bottom: 4px solid var(--ink-line);
+}
+[data-theme="funny-pages"] .detail-info { overflow: visible; padding: 16px 18px 8px; }
+[data-theme="funny-pages"] .detail-info h2 { margin: 4px 8px 12px 0; font-size: clamp(32px, 6vw, 52px); color: var(--ink-line); }
+[data-theme="funny-pages"] #close-game-detail,
+[data-theme="funny-pages"] .close {
+  background: var(--burst);
+  color: var(--ink-line);
+  border: 3px solid var(--ink-line);
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] #close-game-detail {
+  position: sticky;
+  float: right;
+  top: 10px;
+  margin: 10px 10px -50px 0;
+  z-index: 5;
+}
+[data-theme="funny-pages"] .close:hover { background: #ffe14a; color: var(--ink-line); }
+[data-theme="funny-pages"] .game-description,
+[data-theme="funny-pages"] .feedback-bubble {
+  border: 3px solid var(--ink-line);
+  background: var(--feedback-bubble);
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .game-description { padding: 10px 12px; }
+[data-theme="funny-pages"] .feedback-bubble::before {
+  background: var(--feedback-bubble);
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .detail-tags .tag-chip { color: var(--ink-line); background: none; box-shadow: none; border: 0; }
+[data-theme="funny-pages"] .detail-tags .tag-chip:hover { color: var(--accent); }
+[data-theme="funny-pages"] .secondary { background: #fff; color: var(--ink-line); border: 3px solid var(--ink-line); }
+[data-theme="funny-pages"] .secondary:hover { background: var(--burst); color: var(--ink-line); }
+[data-theme="funny-pages"] .text-button { color: var(--accent); }
+[data-theme="funny-pages"] .text-button:hover { color: var(--accent-pressed); background: transparent; }
+
+/* Recently entries and the profile menu are caption cards. Chat tails stay off. */
+[data-theme="funny-pages"] #activity.recent-panel,
+[data-theme="funny-pages"] .account-menu {
+  border: 4px solid var(--ink-line);
+  border-radius: 16px;
+  background: var(--caption);
+  color: var(--ink);
+  box-shadow: 6px 6px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .account-menu { z-index: 40; }
+[data-theme="funny-pages"] #activity h2 { font-size: 26px; }
+[data-theme="funny-pages"] .feed-row,
+[data-theme="funny-pages"] .feed-entry:nth-child(3n+2) > .feed-row,
+[data-theme="funny-pages"] .feed-row:nth-child(2n),
+[data-theme="funny-pages"] .feed-row:nth-child(3n+2) {
+  position: relative;
+  background: #fff;
+  border: 3px solid var(--ink-line);
+  border-radius: 16px 16px 16px 6px;
+  color: var(--ink-line);
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .chat-bubble::before,
+[data-theme="funny-pages"] .chat-pointer,
+[data-theme="funny-pages"] .chat-pointer::after,
+[data-theme="funny-pages"] .recent-panel .feed-row::before {
+  content: none;
+  display: none;
+  border: 0;
+}
+[data-theme="funny-pages"] .recent-panel .feed-row > span,
+[data-theme="funny-pages"] .recent-panel .feed-row small,
+[data-theme="funny-pages"] .recent-panel .feed-row p {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+[data-theme="funny-pages"] .feed-platform { box-shadow: inset 4px 0 0 var(--accent); }
+[data-theme="funny-pages"] .feed-platform-badge { color: var(--accent); }
+[data-theme="funny-pages"] .account-menu > button,
+[data-theme="funny-pages"] .account-menu > a { color: var(--ink-line); border-radius: 10px; }
+[data-theme="funny-pages"] .account-menu > button:hover,
+[data-theme="funny-pages"] .account-menu > a:hover { background: var(--burst); color: var(--ink-line); }
+[data-theme="funny-pages"] .account-menu label { color: var(--ink); }
+[data-theme="funny-pages"] .account-menu select {
+  border: 3px solid var(--ink-line);
+  background: #fff;
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] .presence-name {
+  background: var(--caption);
+  color: var(--ink-line);
+  border: 2px solid var(--ink-line);
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .search-options { border: 3px solid var(--ink-line); box-shadow: 4px 4px 0 var(--ink-line); }
+[data-theme="funny-pages"] #notice {
+  background: var(--burst);
+  color: var(--ink-line);
+  border: 3px solid var(--ink-line);
+  box-shadow: 4px 4px 0 var(--ink-line);
+}
+
+[data-theme="funny-pages"] #emoji span {
+  background: #fff;
+  border: 3px solid var(--ink-line);
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] #emoji input:checked + span { background: var(--burst); border-color: var(--ink-line); }
+[data-theme="funny-pages"] .prompt-card,
+[data-theme="funny-pages"] .prompt-card textarea {
+  background: #fff;
+  color: var(--ink-line);
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .prompt-card textarea { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+[data-theme="funny-pages"] .setup-note,
+[data-theme="funny-pages"] .saved-hint,
+[data-theme="funny-pages"] #tag-selection-count { color: var(--quiet); }
+[data-theme="funny-pages"] .profile-tile { background: #fff; border-color: transparent; }
+[data-theme="funny-pages"] .profile-option:hover .profile-tile,
+[data-theme="funny-pages"] .profile-option input:checked + .profile-tile {
+  background: #fff6c2;
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .profile-choice {
+  border: 3px solid var(--ink-line);
+  box-shadow: 4px 4px 0 var(--ink-line);
+  background: var(--caption);
+}
+[data-theme="funny-pages"] .admin h3,
+[data-theme="funny-pages"] #members > div,
+[data-theme="funny-pages"] #credentials > div,
+[data-theme="funny-pages"] #admin-games .admin-game { color: var(--ink); }
+[data-theme="funny-pages"] #members > div,
+[data-theme="funny-pages"] #credentials > div,
+[data-theme="funny-pages"] #admin-games .admin-game { border-bottom-color: var(--line); }
+
+@media (forced-colors: active) {
+  [data-theme="funny-pages"] body,
+  [data-theme="funny-pages"] header,
+  [data-theme="funny-pages"] main,
+  [data-theme="funny-pages"] .library-toolbar,
+  [data-theme="funny-pages"] .game,
+  [data-theme="funny-pages"] .game-art,
+  [data-theme="funny-pages"] .game-heading,
+  [data-theme="funny-pages"] dialog,
+  [data-theme="funny-pages"] #activity.recent-panel,
+  [data-theme="funny-pages"] .account-menu,
+  [data-theme="funny-pages"] .feed-row,
+  [data-theme="funny-pages"] .feedback-bubble,
+  [data-theme="funny-pages"] button,
+  [data-theme="funny-pages"] input,
+  [data-theme="funny-pages"] .brand-wordmark {
+    background-image: none;
+    box-shadow: none;
+    text-shadow: none;
+    font-family: inherit;
+    forced-color-adjust: auto;
+  }
+  [data-theme="funny-pages"] .game-art.has-game-art::after,
+  [data-theme="funny-pages"] .detail-art.has-game-art::after,
+  [data-theme="funny-pages"] #activity.recent-panel::before,
+  [data-theme="funny-pages"] #activity.recent-panel::after,
+  [data-theme="funny-pages"] .recent-panel .feed-row::before { content: none; }
+}

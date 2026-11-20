@@ -2,8 +2,8 @@
 
 Audience: Infuser developers.
 
-Cartridge Club is a preview that can carry fonts and textures as well as
-colors. What shipped, and what is still deferred, is in
+Cartridge Club is stable. Funny Pages is a preview that also changes the
+Library's layout. What shipped, and what is still deferred, is in
 [Theme capabilities](theme-capabilities.md). Nightglass stays the default.
 
 Themes change presentation, not the application's features or identity. The
@@ -23,8 +23,9 @@ Theme preferences are not account settings and do not change a player's handle o
   every theme. Preserve reduced-motion and forced-colors support.
 - `web/themes/nightglass.css` supplies the baseline tokens. It always loads, so
   candidates can override only the tokens and presentation rules they need.
-- `web/themes/cartridge-club.css` is an opt-in candidate. Every selector is scoped
-  to `[data-theme="cartridge-club"]`; it cannot affect the baseline.
+- `web/themes/cartridge-club.css` and `web/themes/funny-pages.css` are opt-in
+  candidates. Every selector is scoped to that theme's `data-theme` value;
+  neither sheet can affect the baseline or the other candidate.
 - `web/themes.js` is the small theme registry and preference bootstrap. It runs
   before the stylesheets to restore `infuser.theme` without a flash. It contains
   no game or account logic. After styles load, it copies the `--browser-chrome`
@@ -32,13 +33,14 @@ Theme preferences are not account settings and do not change a player's handle o
   `#0c1017`. Unknown/retired preferences fall back to `defaultId`;
   unavailable browser storage does not prevent selection for the current visit.
 - The server embeds theme files and serves them from one allowlisted route,
-  `/assets/themes/{*path}`. Stylesheet URLs stay `/assets/themes/nightglass.css`
-  and `/assets/themes/cartridge-club.css`. A theme's fonts, textures, and
-  license notices live under `/assets/themes/<id>/` and are named in
-  `src/portal/themes.rs`. No dynamic stylesheet URLs, theme-specific
-  endpoints, or database migrations are needed. The Library and the profile
-  picker load `nightglass.css`, then `clubhouse.css`, then the candidate
-  stylesheet. The game player page, `desktop.html`, and the Play app do not.
+  `/assets/themes/{*path}`. Stylesheet URLs stay `/assets/themes/nightglass.css`,
+  `/assets/themes/cartridge-club.css`, and `/assets/themes/funny-pages.css`.
+  A theme's fonts, textures, and license notices live under
+  `/assets/themes/<id>/` and are named in `src/portal/themes.rs`. No dynamic
+  stylesheet URLs, theme-specific endpoints, or database migrations are
+  needed. The Library and the profile picker load `nightglass.css`, then
+  `clubhouse.css`, then each candidate stylesheet. The game player page,
+  `desktop.html`, and the Play app do not.
 
 Shared functionality continues to evolve under every design. The profile menu
 and Recently panel are shared features; switching back to Nightglass does not
@@ -46,10 +48,21 @@ remove them. Nightglass preserves the previous visual language, not a frozen cop
 of the old application. The card fallback and official branding assets are shared.
 
 Theme rules may change colors, typography, materials, spacing, grid placement,
-and decorative treatments. They must not remove functional controls or permission
-checks. The shared layout visually hides the large Library heading while retaining
+and decorative treatments. A theme may also reposition existing regions with
+its own stylesheet: Funny Pages turns the header into a left-hand masthead on
+wide screens, gives the game list an asymmetric panel grid, and opens Recently
+as a flyout beside that masthead. No shared wrapper or layout hook was added
+for that. Themes must not remove functional controls or permission checks.
+The shared layout visually hides the large Library heading while retaining
 it for assistive technology. Do not hide application features with theme CSS.
-Keep DOM and keyboard order coherent when changing layout.
+Keep DOM and keyboard order coherent when changing layout. Prefer a placement
+that follows source order when a visual move would send keyboard focus
+somewhere other than the next thing on screen. Funny Pages therefore keeps
+the masthead's controls in source order, and its panel spans still read
+left to right, top to bottom. The wide grid starts when the library column
+itself is at least 880px, so the masthead does not steal the space the
+panels need. At 360px the masthead returns to the top bar
+and the panels become one column.
 
 ## Cards and game details
 
@@ -89,8 +102,10 @@ The registry gives each theme a stable ID, display name, and status:
 | `stable` | Reviewed and available; one stable theme is the default |
 | `retired` | Not offered; saved selections resolve to the current default |
 
-Nightglass remains the default. Cartridge Club must earn adoption through side-
-by-side review; shipping its preview is not approval to make it the default.
+Nightglass remains the default. Cartridge Club is stable, so the Theme menu
+does not label it Preview, and it is still not the default. Funny Pages
+stays a preview until it earns adoption. Shipping a preview is not approval
+to make it the default.
 
 To add a candidate, register a new ID as `preview`, add a scoped stylesheet,
 name its files in the theme asset route, link the stylesheet after
@@ -123,8 +138,8 @@ stacks have modest breathing room, gradually returning to the original 15px over
 at eight faces. The Play dock uses 8px padding to leave more artwork visible.
 
 Run `node --test tests/themes.mjs` for registry and browser-chrome checks.
-Browser checks must exercise the shared UI in both themes; screenshots alone
-do not demonstrate functional parity. A zero-tolerance Nightglass pixel diff
+Browser checks must exercise the shared UI in every selectable theme;
+screenshots alone do not demonstrate functional parity. A zero-tolerance Nightglass pixel diff
 is not in CI: Chrome does not reproduce text pixels across two page loads, and
 disabling the candidate stylesheet repaints glyphs even when computed style
 does not change. See [Theme capabilities](theme-capabilities.md). Keep temporary

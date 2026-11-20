@@ -31,6 +31,7 @@ pub(super) fn version() -> &'static str {
                 include_str!("../../web/themes.js"),
                 include_str!("../../web/themes/nightglass.css"),
                 include_str!("../../web/themes/cartridge-club.css"),
+                include_str!("../../web/themes/funny-pages.css"),
             ),
             super::themes::source_fingerprint(),
             crate::BUILD_SHA
