@@ -41,6 +41,7 @@ mod conditional;
 mod connections;
 mod dedicated;
 mod feedback;
+mod games;
 mod groups;
 mod library;
 mod metadata;
@@ -604,6 +605,15 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/admin/members", get(members).post(invite))
         .route("/api/admin/members/handle", put(rename_member).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/apps/{app}/visibility", put(set_visibility).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/admin/games", get(games::list))
+        .route(
+            "/api/admin/apps/{app}/deletion",
+            get(games::preview).post(games::delete_game).layer(DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/api/admin/apps/{app}/title",
+            put(games::rename).layer(DefaultBodyLimit::max(1024)),
+        )
         .route("/api/admin/peer-health", get(peer_health_admin))
         .route(
             "/api/admin/credentials",

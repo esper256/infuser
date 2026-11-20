@@ -141,5 +141,14 @@ directory if the host does not use `/var/lib/infuser`. Keep the service user
 from `deploy/infuser.service` as the owner of every restored file; the command
 above copies the owner and mode already on the destination.
 
+## Games deleted after the snapshot
+
+An admin can delete a hidden game after this snapshot is taken. The snapshot is a
+copy of the databases and `state.json` from before that deletion, so restoring it
+brings those catalog rows, saves, and publish-capture records back. Published
+files, Docker volumes, containers, and images are not in the snapshot. A restored
+catalog can therefore point at game files that were removed. Take a new snapshot
+after a deletion you want to keep. This does not keep the deleted game's files.
+
 References: [SQLite backup API](https://sqlite.org/backup.html),
 [automatic updates](deployment.md), [encrypted backups](backup-operations.md).

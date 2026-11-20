@@ -105,6 +105,20 @@ not provide missing SDK methods. Upgrading again restores the declaration.
 Slug and alias records live outside legacy catalog JSON so older catalog writers
 cannot erase them. A pre-feature daemon will not resolve the new links; restoring
 a supported daemon restores the same assignments without reallocating them.
+Deleting a hidden game removes that game's `game_urls` row. A pre-update rollback
+snapshot can still contain it; see [roll back a bad update](update-rollback.md).
+
+## Admin removal and locked titles
+
+`title_locked` is a column on `game_metadata`. Publisher title writes refuse to
+change a locked name. Promotion does not copy the manifest title into that column.
+Hidden-game deletion removes the catalog entry, side-table rows for that app and
+its deployment ids, saves, cloud checkpoints, screenshots, publish captures, web
+files, server keys, and packaged containers, volumes, and images. It refuses while
+a peer room, reserved dedicated server, or publish/packaging job is active, and
+does not stop them. The append-only `admin-audit.jsonl` in the state directory
+records the actor, app, title, and time. Chat text stays; a chat row that pointed
+at a deleted screenshot keeps the text and drops the image reference.
 
 ## Managed packaging internals
 

@@ -78,7 +78,7 @@ impl Web {
         .await?;
         let key = claim["token"].as_str().unwrap();
         let path = format!("/api/publisher/apps/{app}/builds/first");
-        ok(self.key(key,Method::PUT,&path).json(&json!({"manifest":{"schema_version":1,"app_id":app,"title":"Visit game","play_modes":["solo"],"solo_runtime":"client_only","cloud_saves":{"groups":[{"id":"campaign","label":"Campaign","files":[{"path":"save.json","format":"json"}]}]}}}))).await?;
+        ok(self.key(key,Method::PUT,&path).json(&json!({"manifest":{"schema_version":1,"app_id":app,"title":format!("Visit game {app}"),"play_modes":["solo"],"solo_runtime":"client_only","cloud_saves":{"groups":[{"id":"campaign","label":"Campaign","files":[{"path":"save.json","format":"json"}]}]}}}))).await?;
         ok(self
             .key(key, Method::PUT, &format!("{path}/files/index.html"))
             .body("<script type=module src='/_infuser/sdk.js'></script>"))

@@ -1032,6 +1032,68 @@ async function adminRefresh(){
     row.append(label,actions);$('members').append(row);
   }
   $('credentials').replaceChildren();for(const c of credentials.credentials){const row=el('div'),button=el('button','Revoke','secondary');row.append(el('span',c.label+' · '+c.app),button);button.onclick=async()=>{try{await api('/api/admin/credentials/'+c.id,{method:'DELETE'});await adminRefresh();}catch(error){showError(error);}};$('credentials').append(row);}
+  await loadGameTools();
+}
+async function loadGameTools(){
+  if(!me.admin||me.inspecting)return;
+  if($('admin-games')?.contains(document.activeElement))return;
+  const data=await api('/api/admin/games');
+  if(!$('admin').open||$('admin-games')?.contains(document.activeElement))return;
+  let host=$('admin-games');
+  if(!host){host=el('section');host.id='admin-games';$('admin-controls').append(adminRegion('Games',host));}
+  host.replaceChildren(el('p','Rename changes the Library name and keeps it when an agent publishes again. The web address stays the same, so old links and browser saves keep working. Delete is only for a game that is already hidden.','quiet'));
+  if(!data.games.length){host.append(el('p','No published games.','quiet'));return;}
+  for(const game of data.games){
+    const row=el('div',undefined,'admin-game'),actions=el('div',undefined,'member-actions');
+    row.append(el('span',`${game.title} · ${game.slug||game.id}${game.hidden?' · hidden':''}${game.title_locked?' · name locked':''}`));
+    const rename=el('button','Rename','secondary');rename.type='button';rename.setAttribute('aria-label','Rename '+game.title);
+    rename.onclick=()=>openGameRename(row,game);
+    const remove=el('button','Delete',game.hidden?'danger':'secondary');remove.type='button';remove.disabled=!game.hidden;
+    remove.title=game.hidden?'Delete this hidden game':'Hide the game before deleting it';
+    remove.setAttribute('aria-label','Delete '+game.title);
+    remove.onclick=()=>openGameDelete(row,game);
+    actions.append(rename,remove);row.append(actions);host.append(row);
+  }
+}
+function openGameRename(row,game){
+  if(row.querySelector('form'))return;
+  const form=el('form'),label=el('label','Library name'),input=el('input'),save=el('button','Save name'),cancel=el('button','Cancel','secondary'),error=el('p',undefined,'member-error');
+  input.value=game.title;input.maxLength=80;input.required=true;input.autocomplete='off';input.setAttribute('aria-label','New Library name');
+  save.type='submit';cancel.type='button';error.setAttribute('role','alert');
+  label.append(input);form.append(label,el('p','This does not change the web address '+(game.slug||game.id)+'. A later publish keeps this name.','quiet'),error,save,cancel);
+  cancel.onclick=()=>{form.remove();};
+  form.onsubmit=async event=>{
+    event.preventDefault();if(!input.value.trim())return;save.disabled=true;error.textContent='';
+    try{
+      await api('/api/admin/apps/'+encodeURIComponent(game.id)+'/title',{method:'PUT',body:JSON.stringify({title:input.value.trim()})});
+      notice('Library name saved. The web address is unchanged.');
+      form.remove();await loadGameTools();await refresh(true);
+    }catch(failure){error.textContent=failure.message;save.disabled=false;}
+  };
+  row.append(form);input.focus();
+}
+async function openGameDelete(row,game){
+  if(row.querySelector('.admin-game-confirm'))return;
+  const box=el('div',undefined,'admin-game-confirm');box.append(el('p','Checking what will be removed…','quiet'));row.append(box);
+  try{
+    const plan=await api('/api/admin/apps/'+encodeURIComponent(game.id)+'/deletion');
+    box.replaceChildren();const list=el('ul');for(const line of plan.lines)list.append(el('li',line));box.append(list);
+    if(plan.blocked){box.append(el('p',plan.blocked,'quiet'));return;}
+    const form=el('form'),label=el('label','Type '+plan.confirm+' to delete'),input=el('input'),submit=el('button','Delete permanently','danger'),cancel=el('button','Cancel','secondary'),error=el('p',undefined,'member-error');
+    input.required=true;input.autocomplete='off';input.setAttribute('aria-label','Type the game name to confirm deletion');
+    submit.type='submit';cancel.type='button';error.setAttribute('role','alert');label.append(input);form.append(label,error,submit,cancel);
+    cancel.onclick=()=>box.remove();
+    form.onsubmit=async event=>{
+      event.preventDefault();
+      if(input.value.trim()!==plan.confirm){error.textContent='Type the game’s current name.';return;}
+      submit.disabled=true;error.textContent='';
+      try{
+        await api('/api/admin/apps/'+encodeURIComponent(game.id)+'/deletion',{method:'POST',body:JSON.stringify({confirm:input.value.trim()})});
+        notice(plan.title+' was deleted.');await loadGameTools();await refresh(true);
+      }catch(failure){error.textContent=failure.message;submit.disabled=false;}
+    };
+    box.append(form);input.focus();
+  }catch(failure){box.replaceChildren(el('p',failure.message));}
 }
 function openMemberRename(row,actions,email,member,updateLabel,rename){
   actions.hidden=true;

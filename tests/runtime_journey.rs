@@ -136,7 +136,7 @@ async fn publish(
     build: &str,
     on_demand: bool,
 ) -> Result<u16> {
-    let mut manifest = json!({"schema_version":1,"app_id":app,"title":"Lifecycle test","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"}});
+    let mut manifest = json!({"schema_version":1,"app_id":app,"title":format!("Lifecycle {app}"),"play_modes":["solo","multiplayer"],"solo_runtime":"client_only","multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"}});
     if on_demand {
         manifest["server_start"] = json!("on_demand");
     }

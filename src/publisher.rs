@@ -147,7 +147,7 @@ fn plain_web_export_keeps_art_sources_local() -> Result<()> {
 }
 
 pub async fn run(args: &[String]) -> Result<()> {
-    let connection_path=args.get(1).context("usage: infuser publish CONNECTION.credentials.json PROJECT [--solo] [--preview] [--title TITLE] [--web-dir EXPORT]")?;
+    let connection_path=args.get(1).context("usage: infuser publish CONNECTION.credentials.json PROJECT [--solo] [--preview] [--allow-duplicate-title] [--title TITLE] [--web-dir EXPORT]")?;
     let connection: Connection = serde_json::from_slice(&std::fs::read(connection_path)?)?;
     let url = reqwest::Url::parse(&connection.api_url)?;
     ensure!(
@@ -698,7 +698,7 @@ pub async fn run(args: &[String]) -> Result<()> {
     let promotion = response(
         http.post(format!("{build_url}/publish"))
             .bearer_auth(&connection.token)
-            .json(&json!({"listed":!has(args,"--preview")}))
+            .json(&json!({"listed":!has(args,"--preview"),"allow_duplicate_title":has(args,"--allow-duplicate-title")}))
             .send_to_infuser()
             .await?,
     )
