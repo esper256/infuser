@@ -48,6 +48,7 @@ not a claim of pixel-identical background extraction. Keep masters intact.
 | `icon-{64,128,180,192,256,512}.png` | Square transparent device-and-vapor marks without text |
 | `favicon-{16,32,48}.png`, `favicon.ico` | Tighter device crop for tiny tabs; ICO includes all three sizes |
 | `apple-touch-icon.png` | Opaque 180×180 dark-background touch icon |
+| `icon-maskable-{192,512}.png` | Opaque launcher icons on `#071019`; the glyph sits inside the centered circle whose diameter is 80% of the canvas. Served as `/assets/app-maskable-{192,512}.png` with purpose `maskable` |
 | `preview-backgrounds.png` | Review sheet showing light/dark text on intended surfaces |
 
 Use the supplied small exports rather than scaling the complete wordmark to
