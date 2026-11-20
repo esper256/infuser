@@ -120,10 +120,40 @@ A publish during an active peer session queues the new build. When the last room
 ends, the controller promotes it; already-open old clients must reopen before
 starting another multiplayer session. Single-player saves are unchanged.
 
-## Connection status and admin diagnostics
+## Connection status
 
-Players see only a small connection symbol in the existing title bar. It does
-not overlay the game, open dialogs, or change fullscreen. A green connection
-means the peer links are connected; it does not claim that device rendering or
-the game's simulation is fast. Games should not add numeric network overlays to
-the normal player experience.
+Players see two quiet signals in the existing title bar. Neither overlays the
+game, opens a dialog, or changes fullscreen.
+
+A connection symbol shows whether the peer links are up. Green means the links
+are connected. It does not claim that device rendering or the game's simulation
+is fast.
+
+A network-path label says when Infuser's own machines are involved. Infuser
+decides the words. The browser does not report the path, and a Godot web game
+does not send its own network stats. The same bar covers every player in the
+room.
+
+- **Server** — this player's connection is listed in the game's current
+  dedicated-session report, so play is going through a game container on the
+  Infuser box.
+- **Relayed** — coturn holds a TURN allocation for this peer's username, so
+  gameplay is going through Infuser.
+- **STUN** — coturn has seen a STUN binding for this peer and holds no
+  allocation. Hole punching used Infuser, and the game traffic itself does not.
+- **LAN** — coturn has seen nothing for this peer. Solo play uses this label,
+  and so does a room that never touched the relay.
+
+A host with two or more other players sees a count instead of one word, for
+example `3 STUN, 1 relayed`. Each other player sees their own word.
+
+Coturn's loopback management CLI is the relay observation. Allocations match
+the TURN username Infuser issued for that peer. A STUN binding usually has no
+username, so Infuser matches it to the player address Caddy recorded. Players
+on the same public address share that anonymous observation. An allocation
+still stays with the peer named in its username. Once a binding has been seen,
+the label stays STUN after coturn drops the short-lived binding session, until
+an allocation appears or the peer leaves. The label is the latest complete
+reading. It is not a speedometer. Games should still not add numeric network
+overlays, such as ping, bitrate, or packet loss, to the normal player view.
+Admin diagnostics remain separate.

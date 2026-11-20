@@ -21,6 +21,8 @@ urls = ["turn:games.example.com:8700?transport=udp", "turn:games.example.com:870
 secret_file = "/etc/infuser/turn.secret"
 relay_port_start = 8800
 relay_port_end = 8899
+cli_port = 5766
+cli_password_file = "/etc/infuser/turn-cli.secret"
 ```
 
 Generate a random shared secret locally on the server. Protect it and the coturn
@@ -34,6 +36,13 @@ and the reserved relay ports, not all outbound traffic.
 
 The example uses TURN UDP/TCP, with WebRTC DTLS protecting game payloads; it does
 not configure TURN-over-TLS. TLS-only traversal is currently unsupported.
+
+The player bar's network-path label reads coturn through its management CLI.
+Enable `cli` bound to `127.0.0.1` and the port in `cli_port`. Put the same
+password in `cli-password` and in `cli_password_file`, mode `0640`. Infuser
+dials only `127.0.0.1`. That listener is not a public port: leave it out of
+the cloud firewall, the host firewall, and the game-port admission table.
+Without the CLI, peer rooms omit the label rather than calling the path LAN.
 To check the relay, use two authorized test players with
 `relayOnly: true`. Look for **relay ↔ relay** in selected-candidate stats and
 increasing byte counters. Merely gathering a relay candidate does not prove

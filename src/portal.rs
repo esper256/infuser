@@ -145,6 +145,7 @@ pub struct Platform {
     connections: Arc<Mutex<crate::connections::Attempts>>,
     connection_epoch: String,
     dedicated: Arc<Mutex<crate::dedicated::Directory>>,
+    network_paths: Arc<crate::network_path::Memory>,
     voice: Option<Arc<crate::voice::Service>>,
     native_manifests: Arc<Mutex<BTreeMap<(String, u64), infuser_native_protocol::Manifest>>>,
 }
@@ -210,6 +211,7 @@ impl Platform {
             connections: Default::default(),
             connection_epoch: secret()[..16].into(),
             dedicated: Default::default(),
+            network_paths: Default::default(),
             packager: Arc::new(crate::server_package::worker::DockerWorker {
                 settings: controller.config.controller.clone(),
             }),
@@ -645,6 +647,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/session", post(exchange))
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
+        .route("/_infuser/network-path", get(network_path))
         .route("/_infuser/presence/v1", get(presence::snapshot))
         .route("/_infuser/launch-intent/v1/consume", post(consume_intent))
         .route("/_infuser/runtime/v1", get(runtime::status).post(runtime::acquire))
@@ -1343,6 +1346,91 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
     )
         .into_response())
 }
+fn client_ip(h: &HeaderMap) -> Option<IpAddr> {
+    h.get("x-infuser-client-ip")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+}
+fn dedicated_server(p: &Platform, launch: &str) -> bool {
+    let time = now();
+    let attempts = p.connections.lock().unwrap();
+    let directory = p.dedicated.lock().unwrap();
+    let links = attempts
+        .0
+        .values()
+        .filter(|attempt| attempt.identity.launch_id == launch)
+        .map(|attempt| crate::network_path::Link {
+            connection_id: attempt.identity.connection_id.clone(),
+            runtime_id: attempt.identity.runtime_id().to_owned(),
+            instance_id: attempt.identity.instance_id.clone(),
+            connected: attempt.state == crate::connections::State::Connected
+                && attempt.admission.as_deref() == Some("accepted")
+                && attempt.session.is_some(),
+        })
+        .collect::<Vec<_>>();
+    let reports = directory
+        .0
+        .iter()
+        .map(|(runtime, report)| crate::network_path::Report {
+            runtime_id: runtime.clone(),
+            instance_id: report.scope.instance_id.clone(),
+            fresh: report.seen.saturating_add(crate::dedicated::REPORT_SECONDS) > time,
+            connections: report
+                .sessions
+                .values()
+                .flat_map(|session| session.connections.iter().cloned())
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    crate::network_path::on_server(&links, &reports)
+}
+async fn coturn_reading(p: &Platform) -> crate::network_path::Reading {
+    let Some(turn) = p.config().controller.turn.as_ref() else {
+        return crate::network_path::Reading::Unconfigured;
+    };
+    let (Some(port), Some(path)) = (turn.cli_port, turn.cli_password_file.as_ref()) else {
+        return crate::network_path::Reading::Unconfigured;
+    };
+    let password = match tokio::fs::read_to_string(path).await {
+        Ok(password) => password,
+        Err(error) => {
+            tracing::debug!(error = %error, "TURN CLI password file unreadable");
+            return crate::network_path::Reading::Failed;
+        }
+    };
+    match crate::network_path::read_cli(port, &password).await {
+        Ok(snapshot) => crate::network_path::Reading::Ready(snapshot),
+        Err(error) => {
+            tracing::debug!(error = %error, "coturn CLI snapshot failed");
+            crate::network_path::Reading::Failed
+        }
+    }
+}
+async fn network_path(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let (id, _) = p.game(&h)?;
+    let server = dedicated_server(&p, &id);
+    let membership = p.peers.membership(&id, client_ip(&h), now());
+    let reading = if server || membership.is_none() {
+        crate::network_path::Reading::NotNeeded
+    } else {
+        coturn_reading(&p).await
+    };
+    let seat = membership.map(|membership| crate::network_path::Seat {
+        host: membership.self_id == membership.host_id,
+        self_id: membership.self_id,
+        peers: membership
+            .peers
+            .into_iter()
+            .map(|(id, address)| crate::network_path::Participant { id, address })
+            .collect(),
+    });
+    let label = p.network_paths.label(&crate::network_path::Query {
+        server,
+        seat,
+        reading,
+    });
+    Ok(reply(json!({"label": label})))
+}
 async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (id, l) = p.game(&h)?;
     let d = p.db.catalog()?;
@@ -1481,6 +1569,12 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
         now(),
     )?;
     result["ice_servers"] = json!([relay.credentials(result["self_id"].as_str().unwrap(), now())]);
+    if let Some(address) = client_ip(&h)
+        && let Some(peer) = result["self_id"].as_str()
+    {
+        p.peers
+            .note_address(launch.runtime_id(), peer, &id, address, now());
+    }
     if body.adapter.is_some() {
         result["peerjs"] = json!({"path":"/_infuser/peerjs/", "id":format!("i-{}-{}",result["epoch"].as_str().unwrap(),result["self_id"].as_str().unwrap()),"key":"peerjs"});
     }
@@ -1514,13 +1608,14 @@ async fn peer_poll(
         h.get("sec-fetch-site").is_none_or(|v| v == "same-origin"),
         fault(403, "poll from the game origin")
     );
-    Ok(reply(p.peers.poll(
-        launch.runtime_id(),
-        &peer,
-        &id,
-        cursor.after,
-        now(),
-    )?))
+    let view = p
+        .peers
+        .poll(launch.runtime_id(), &peer, &id, cursor.after, now())?;
+    if let Some(address) = client_ip(&h) {
+        p.peers
+            .note_address(launch.runtime_id(), &peer, &id, address, now());
+    }
+    Ok(reply(view))
 }
 async fn peer_signal(
     State(p): State<Platform>,

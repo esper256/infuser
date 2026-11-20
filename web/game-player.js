@@ -237,6 +237,19 @@ try{
   title.textContent=session.manifest.title;document.title=session.manifest.title+' · Infuser';
   document.getElementById('library').href=session.library_url;
   document.getElementById('guest').hidden=!session.guest;
+  const pathLabel=document.getElementById('path');
+  async function refreshPath(){
+    try{
+      const pathResponse=await fetch('/_infuser/network-path',{credentials:'same-origin',signal:AbortSignal.timeout(4000)});
+      if(!pathResponse.ok){pathLabel.hidden=true;return;}
+      const body=await pathResponse.json();
+      const label=typeof body.label==='string'?body.label:'';
+      pathLabel.hidden=!label;
+      pathLabel.textContent=label;
+    }catch{/* The next poll asks the server again. */}
+  }
+  refreshPath();
+  setInterval(refreshPath,5000);
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
   if(!session.guest){

@@ -32,6 +32,8 @@ fn turn_credentials_keep_hmac_sha1_and_padded_base64() -> anyhow::Result<()> {
         secret_file,
         relay_port_start: 49152,
         relay_port_end: 49252,
+        cli_port: None,
+        cli_password_file: None,
     })?;
     let credentials = relay.credentials("peer-123", 1000);
     assert_eq!(credentials["username"], "4600:peer-123");

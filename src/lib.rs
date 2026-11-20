@@ -17,6 +17,7 @@ pub mod launch_intent;
 pub mod maintenance;
 pub mod manifest;
 pub mod native;
+pub mod network_path;
 pub mod operations;
 pub mod sdk_contract;
 pub mod server_package;

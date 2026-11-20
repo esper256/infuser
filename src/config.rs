@@ -62,6 +62,11 @@ pub struct Turn {
     pub secret_file: PathBuf,
     pub relay_port_start: u16,
     pub relay_port_end: u16,
+    /// Loopback coturn CLI. Both fields are set, or neither is.
+    #[serde(default)]
+    pub cli_port: Option<u16>,
+    #[serde(default)]
+    pub cli_password_file: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -266,6 +271,16 @@ impl Config {
                 turn.secret_file.is_absolute(),
                 "TURN secret file must be absolute"
             );
+            match (turn.cli_port, turn.cli_password_file.as_ref()) {
+                (None, None) => {}
+                (Some(_), Some(path)) => {
+                    ensure!(
+                        path.is_absolute(),
+                        "TURN CLI password file must be absolute"
+                    );
+                }
+                _ => bail!("TURN CLI needs a loopback port and a password file"),
+            }
             ensure!(
                 !turn.urls.is_empty() && turn.urls.len() <= 4,
                 "provide 1–4 TURN URLs"
@@ -304,6 +319,21 @@ impl Config {
                 ensure!(
                     !(turn.relay_port_start..=turn.relay_port_end).contains(&port),
                     "TURN listener overlaps relay range"
+                );
+                ensure!(
+                    turn.cli_port != Some(port),
+                    "TURN CLI overlaps TURN listener"
+                );
+            }
+            if let Some(port) = turn.cli_port {
+                ensure!(
+                    port >= 1024
+                        && port != s.api_port
+                        && !(s.port_start..=s.port_end).contains(&port)
+                        && !(turn.relay_port_start..=turn.relay_port_end).contains(&port)
+                        && s.peerjs_port != Some(port)
+                        && s.voice.as_ref().is_none_or(|voice| voice.port != port),
+                    "invalid TURN CLI port or overlap"
                 );
             }
             ensure!(

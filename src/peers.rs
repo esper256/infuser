@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use sha1::Sha1;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    net::IpAddr,
     sync::Mutex,
 };
 
@@ -56,6 +57,12 @@ struct Peer {
     signals: VecDeque<Value>,
     health: Value,
     health_seen: u64,
+    address: Option<IpAddr>,
+}
+pub struct Membership {
+    pub self_id: String,
+    pub host_id: String,
+    pub peers: Vec<(String, Option<IpAddr>)>,
 }
 struct Room {
     app: String,
@@ -306,6 +313,7 @@ impl Rooms {
                 signals: VecDeque::new(),
                 health: Value::Null,
                 health_seen: 0,
+                address: None,
             })
             .expires = time + 30;
         Ok(view(room, &peer))
@@ -426,6 +434,55 @@ impl Rooms {
         let mut rooms = self.rooms.lock().unwrap();
         reap(&mut rooms, time);
         json!({"sessions":rooms.values().map(|r|json!({"app_id":r.app,"session_id":r.epoch,"build_id":r.build,"peers":r.peers.iter().map(|(id,p)|json!({"id":id,"name":p.identity.name,"host":*id==r.host,"reported_at":p.health_seen,"health":p.health})).collect::<Vec<_>>()})).collect::<Vec<_>>()})
+    }
+    /// Record the address Caddy observed, without extending the room lease.
+    pub fn note_address(&self, app: &str, peer: &str, launch: &str, address: IpAddr, time: u64) {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        for room in rooms.values_mut().filter(|room| room.app == app) {
+            if let Some(found) = room
+                .peers
+                .get_mut(peer)
+                .filter(|found| found.identity.launch == launch)
+            {
+                found.address = Some(address);
+                return;
+            }
+        }
+    }
+    /// The live room for this launch, preferring the most recently refreshed seat.
+    pub fn membership(
+        &self,
+        launch: &str,
+        address: Option<IpAddr>,
+        time: u64,
+    ) -> Option<Membership> {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let (epoch, peer_id, _) = rooms
+            .values()
+            .filter_map(|room| {
+                room.peers
+                    .iter()
+                    .find(|(_, peer)| peer.identity.launch == launch)
+                    .map(|(id, peer)| (room.epoch.clone(), id.clone(), peer.expires))
+            })
+            .max_by_key(|(_, _, expires)| *expires)?;
+        let room = rooms.get_mut(&epoch)?;
+        if let Some(address) = address
+            && let Some(peer) = room.peers.get_mut(&peer_id)
+        {
+            peer.address = Some(address);
+        }
+        Some(Membership {
+            self_id: peer_id,
+            host_id: room.host.clone(),
+            peers: room
+                .peers
+                .iter()
+                .map(|(id, peer)| (id.clone(), peer.address))
+                .collect(),
+        })
     }
     pub fn leave_launch(&self, app: &str, launch: &str) {
         let mut rooms = self.rooms.lock().unwrap();
