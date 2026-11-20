@@ -64,21 +64,27 @@ change.
 `web/index.html` and `web/clubhouse.js` are unchanged. Nightglass's token
 value for the browser chrome is the color the meta tag already had.
 
-## Nightglass pixel diff
+## Nightglass pixels
 
-`node tests/nightglass_pixels.mjs` renders the real Library in one Chrome
-with reduced motion, at 1440×1180, 768×1100, 390×980, and 320×780. For the
-grid, the Firefly Drift detail, Recently, and the profile menu it requires:
+Two settled frames of one Nightglass page match exactly, in the system
+Chrome used for the mockups and in Puppeteer's Chrome. That only shows the
+page is still. It does not show that the candidate sheet is invisible.
 
-1. Two settled Nightglass frames are identical.
-2. Disabling Cartridge Club's rules, while the same `@font-face` rules stay
-   registered, does not change a pixel.
+Comparing Nightglass with the full Cartridge Club sheet against Nightglass
+with only that sheet's `@font-face` rules is not deterministic. On Puppeteer
+24's Chrome, two loads of the identical full stylesheet already differed by
+154 to 760 pixels on the grid and the detail dialog, while the profile menu
+and Recently matched. Disabling the live stylesheet in one page, after
+copying the same `@font-face` rules into another sheet, left geometry and
+computed fonts unchanged and still moved hundreds of pixels along glyph
+edges. The count was not stable across runs (a phone detail was 0, then
+494). Chrome repaints the font atlas when a face is registered or when a
+stylesheet that contains `@font-face` is removed. Those repaints are not a
+layout or color change, and they are not bit-exact.
 
-Registering a font face makes Chrome repaint existing glyphs once, even when
-no element uses the new family. The check waits until that repaint is over,
-then compares. It has no retry and no tolerance. CI runs it as the
-Nightglass pixels job. PR checks are advisory and use `continue-on-error`;
-read that job's own conclusion.
+A CI job that failed on any difference would fail on that rasterizer noise.
+A retry or a pixel tolerance would hide a real leak as well as the noise.
+The check is not in CI for that reason.
 
-`node --test tests/themes.mjs` still checks the registry, and checks that a
+`node --test tests/themes.mjs` checks the registry, and checks that a
 `--browser-chrome` value is trimmed onto the meta tag.

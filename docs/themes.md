@@ -123,11 +123,12 @@ stacks have modest breathing room, gradually returning to the original 15px over
 at eight faces. The Play dock uses 8px padding to leave more artwork visible.
 
 Run `node --test tests/themes.mjs` for registry and browser-chrome checks.
-`node tests/nightglass_pixels.mjs` fails if any Nightglass pixel changes when
-Cartridge Club's rules are removed, or between two settled Nightglass frames.
-CI runs that diff. Browser checks must exercise the shared UI in both themes;
-screenshots alone do not demonstrate functional parity. Keep temporary fixtures
-and comparison screenshots in `.local/`.
+Browser checks must exercise the shared UI in both themes; screenshots alone
+do not demonstrate functional parity. A zero-tolerance Nightglass pixel diff
+is not in CI: Chrome does not reproduce text pixels across two page loads, and
+disabling the candidate stylesheet repaints glyphs even when computed style
+does not change. See [Theme capabilities](theme-capabilities.md). Keep temporary
+fixtures and comparison screenshots in `.local/`.
 
 Run `node tests/library_detail_journey.mjs` for the isolated mock-API browser
 journey. Set `INFUSER_PLAYWRIGHT` and `INFUSER_CHROMIUM` for an existing browser

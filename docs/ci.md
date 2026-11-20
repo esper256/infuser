@@ -4,11 +4,8 @@ Audience: Infuser developers.
 
 PR checks are advisory: fast Rust journeys (`cargo test --locked`), Node 24 SDK
 and theme tests (`node --test tests/*_sdk.mjs tests/themes.mjs`), Rust formatting
-(`cargo fmt --all -- --check`), Clippy
-(`cargo clippy --locked --all-targets -- -D warnings`), and the Nightglass pixel
-diff (`node tests/nightglass_pixels.mjs`). The pixel diff fails on any difference
-between two settled Nightglass frames, and on any difference when Cartridge Club's
-rules are turned off while its font faces stay registered. Each check runs independently
+(`cargo fmt --all -- --check`), and Clippy
+(`cargo clippy --locked --all-targets -- -D warnings`). Each check runs independently
 with `continue-on-error`; inspect job/step results even if the overall check is green.
 There is no approval environment, required check, or release dependency added here.
 The release workflow remains separately maintained.
