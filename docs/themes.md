@@ -2,9 +2,8 @@
 
 Audience: Infuser developers.
 
-Cartridge Club and Funny Pages are previews. Cartridge Club carries fonts
-and textures as well as colors. Funny Pages also changes the Library's
-layout. What shipped, and what is still deferred, is in
+Cartridge Club is stable. Funny Pages is a preview that also changes the
+Library's layout. What shipped, and what is still deferred, is in
 [Theme capabilities](theme-capabilities.md). Nightglass stays the default.
 
 Themes change presentation, not the application's features or identity. The
@@ -103,9 +102,10 @@ The registry gives each theme a stable ID, display name, and status:
 | `stable` | Reviewed and available; one stable theme is the default |
 | `retired` | Not offered; saved selections resolve to the current default |
 
-Nightglass remains the default. Cartridge Club and Funny Pages must earn
-adoption through side-by-side review; shipping a preview is not approval to
-make it the default.
+Nightglass remains the default. Cartridge Club is stable, so the Theme menu
+does not label it Preview, and it is still not the default. Funny Pages
+stays a preview until it earns adoption. Shipping a preview is not approval
+to make it the default.
 
 To add a candidate, register a new ID as `preview`, add a scoped stylesheet,
 name its files in the theme asset route, link the stylesheet after

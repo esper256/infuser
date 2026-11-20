@@ -144,7 +144,7 @@
     max-height: 100dvh;
     max-width: none;
     margin: 0;
-    overflow: auto;
+    overflow: visible;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -153,6 +153,7 @@
     padding: 16px 14px 24px;
     border-bottom: 0;
     border-right: 4px solid var(--ink-line);
+    z-index: 20;
   }
   [data-theme="funny-pages"] body:has(#clubhouse:not([hidden])) > main,
   [data-theme="funny-pages"] body:has(#clubhouse:not([hidden])) > footer {
@@ -195,8 +196,11 @@
     top: auto;
     left: auto;
     width: auto;
-    max-height: min(52dvh, 480px);
+    max-width: 100%;
+    max-height: min(480px, max(160px, calc(100dvh - 340px)));
     margin: 8px 0 0;
+    overflow: auto;
+    z-index: auto;
   }
 }
 
@@ -485,7 +489,7 @@
 [data-theme="funny-pages"] .text-button { color: var(--accent); }
 [data-theme="funny-pages"] .text-button:hover { color: var(--accent-pressed); background: transparent; }
 
-/* Speech bubbles for Recently, and a caption card for the profile menu. */
+/* Recently entries and the profile menu are caption cards. Chat tails stay off. */
 [data-theme="funny-pages"] #activity.recent-panel,
 [data-theme="funny-pages"] .account-menu {
   border: 4px solid var(--ink-line);
@@ -494,6 +498,7 @@
   color: var(--ink);
   box-shadow: 6px 6px 0 var(--ink-line);
 }
+[data-theme="funny-pages"] .account-menu { z-index: 40; }
 [data-theme="funny-pages"] #activity h2 { font-size: 26px; }
 [data-theme="funny-pages"] .feed-row,
 [data-theme="funny-pages"] .feed-entry:nth-child(3n+2) > .feed-row,
@@ -506,15 +511,13 @@
   color: var(--ink-line);
   box-shadow: 3px 3px 0 var(--ink-line);
 }
+[data-theme="funny-pages"] .chat-bubble::before,
+[data-theme="funny-pages"] .chat-pointer,
+[data-theme="funny-pages"] .chat-pointer::after,
 [data-theme="funny-pages"] .recent-panel .feed-row::before {
-  content: "";
-  position: absolute;
-  left: -9px;
-  bottom: 12px;
-  border: 7px solid transparent;
-  border-right-color: var(--ink-line);
-  border-left: 0;
-  pointer-events: none;
+  content: none;
+  display: none;
+  border: 0;
 }
 [data-theme="funny-pages"] .feed-platform { box-shadow: inset 4px 0 0 var(--accent); }
 [data-theme="funny-pages"] .feed-platform-badge { color: var(--accent); }

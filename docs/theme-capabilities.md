@@ -2,7 +2,7 @@
 
 Audience: Infuser developers.
 
-Cartridge Club and Funny Pages are previews. Nightglass is the default. A
+Funny Pages is a preview. Cartridge Club is stable. Nightglass is the default. A
 theme is still one presentation of the shared Library DOM and script. This
 page is what shipped.
 
@@ -98,7 +98,7 @@ change.
 | `web/clubhouse.css` | The 380px header rule no longer names Cartridge Club. |
 | `web/themes.js` | Copies `--browser-chrome` onto the theme-color meta. Funny Pages is a `preview` entry. Nightglass stays `defaultId`. |
 | `web/themes/nightglass.css` | `--browser-chrome: #0c1017`. |
-| `web/themes/cartridge-club.css` | The Cartridge Club preview. |
+| `web/themes/cartridge-club.css` | The Cartridge Club theme. |
 | `web/themes/cartridge-club/` | Fonts, textures, OFL texts, and the notice. |
 | `web/index.html`, `web/profiles.html` | `funny-pages.css` is linked after `cartridge-club.css`. |
 | `web/themes/funny-pages.css` | The Funny Pages layout preview. |

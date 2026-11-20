@@ -5,7 +5,7 @@
   const defaultId = 'nightglass';
   const catalog = Object.freeze([
     Object.freeze({id: 'nightglass', name: 'Nightglass', status: 'stable'}),
-    Object.freeze({id: 'cartridge-club', name: 'Cartridge Club', status: 'preview'}),
+    Object.freeze({id: 'cartridge-club', name: 'Cartridge Club', status: 'stable'}),
     Object.freeze({id: 'funny-pages', name: 'Funny Pages', status: 'preview'}),
   ]);
   const resolve = id => catalog.find(theme => theme.id === id && theme.status !== 'retired')?.id || defaultId;

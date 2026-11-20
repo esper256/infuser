@@ -17,7 +17,7 @@ test('baseline stays default; a saved candidate restores without adopting it',()
   const {themes}=boot('cartridge-club');
   assert.equal(themes.current,'cartridge-club');
   assert.equal(themes.catalog.find(t=>t.id===themes.defaultId).status,'stable');
-  assert.equal(themes.catalog.find(t=>t.id==='cartridge-club').status,'preview');
+  assert.equal(themes.catalog.find(t=>t.id==='cartridge-club').status,'stable');
   const funny=boot('funny-pages');
   assert.equal(funny.themes.current,'funny-pages');
   assert.equal(funny.themes.catalog.find(t=>t.id==='funny-pages').status,'preview');
@@ -68,7 +68,7 @@ test('selection persists and other tabs can change or clear it',()=>{
 });
 test('unknown and retired choices fall back rather than selecting arbitrary CSS',()=>{
   assert.equal(boot('https://example.com/theme.css').themes.current,'nightglass');
-  const code=source.replace("name: 'Cartridge Club', status: 'preview'","name: 'Cartridge Club', status: 'retired'");
+  const code=source.replace("name: 'Cartridge Club', status: 'stable'","name: 'Cartridge Club', status: 'retired'");
   const {themes}=boot('cartridge-club',{code});
   assert.equal(themes.current,'nightglass');themes.select('cartridge-club');assert.equal(themes.current,'nightglass');
 });
