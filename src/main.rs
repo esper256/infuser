@@ -194,6 +194,35 @@ async fn main() -> Result<()> {
         println!("Operator permission updated for {name}.");
         return Ok(());
     }
+    if args.first().is_some_and(|s| s == "member-link") {
+        let config = Config::load(Path::new(
+            args.get(1).context("configuration path required")?,
+        ))?;
+        let member = args
+            .get(2)
+            .context("usage: infuser member-link CONFIG MEMBER [--revoke|--list]")?;
+        let revoke = args.iter().any(|arg| arg == "--revoke");
+        let list = args.iter().any(|arg| arg == "--list");
+        ensure!(
+            !member.starts_with('-')
+                && !(revoke && list)
+                && args.len() == if revoke || list { 4 } else { 3 },
+            "usage: infuser member-link CONFIG MEMBER [--revoke|--list]"
+        );
+        let db = infuser::platform::Database::open(&config.controller.state_dir)?;
+        if list {
+            println!("{}", db.describe_member_link(member)?);
+            return Ok(());
+        }
+        if revoke {
+            let names = db.revoke_member_links(member)?;
+            println!("Signed-out sessions and sign-in links removed for {names}.");
+            return Ok(());
+        }
+        let (url, _) = db.mint_member_link(&config.controller.domain, member, "server operator")?;
+        println!("{url}");
+        return Ok(());
+    }
     if args.first().is_some_and(|s| s == "member") {
         let config = Config::load(Path::new(args.get(1).context("config path required")?))?;
         let email = args.get(2).context("email required")?;
@@ -281,7 +310,7 @@ async fn main() -> Result<()> {
     .contains(&command)
     {
         bail!(
-            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
+            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser member-link CONFIG MEMBER [--revoke|--list] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
         );
     }
     let path = args.get(1).context("configuration path required")?;

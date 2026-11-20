@@ -125,7 +125,7 @@ export function setupPwa({panel,me,api,notice}) {
   refresh().catch(()=>{hint.textContent='Could not check notifications. Try again.';}).finally(()=>{button.disabled=false;});
   // Unsubscribe before signing out on a shared device. If it fails, keep the
   // session available for a retry instead of leaving a hidden subscription.
-  const out=panel.querySelector('a[href*="sign_out"]');
+  const out=panel.querySelector('a.sign-out');
   out?.addEventListener('click',async event=>{
     if(!supported()){forgetProfile();return;}
     event.preventDefault();

@@ -44,6 +44,7 @@ mod feedback;
 mod games;
 mod groups;
 mod library;
+mod member_link;
 mod metadata;
 mod native;
 mod peerjs;
@@ -541,6 +542,10 @@ pub fn router(platform: Platform) -> Router {
         .route("/games/{slug}", get(page))
         .route("/clubhouse", get(page))
         .route("/library", get(page))
+        .route("/member-link/{token}", get(member_link::preview).post(member_link::redeem))
+        .route("/sign-out", get(member_link::sign_out))
+        .route("/api/operator/members/{member}/sign-in-link", post(member_link::mint))
+        .route("/api/operator/members/{member}/sign-in", delete(member_link::revoke))
         .route(
             "/assets/clubhouse.js",
             get(|h: HeaderMap| async move {
@@ -694,7 +699,29 @@ async fn session_auth(
         request.method() == axum::http::Method::GET,
     );
     let choosing = path == "/api/profiles";
+    // A member-link cookie is its own sign-in. An invalid one must not fall
+    // through to Google, or a shared browser could become someone else.
+    let member_token = cookie
+        .as_ref()
+        .and_then(|value| value.to_str().ok())
+        .and_then(platform::member_link::cookie_value)
+        .map(str::to_owned);
     let verified: Result<_> = async {
+        if let Some(token) = member_token {
+            let account = p.db.member_session(&token)?;
+            let profile = if choosing {
+                None
+            } else {
+                let key =
+                    p.db.catalog()?
+                        .select_profile(&account, selected_profile?.as_deref())?;
+                Some(
+                    key.parse::<axum::http::HeaderValue>()
+                        .map_err(|_| fault(500, "Invalid stored profile handle."))?,
+                )
+            };
+            return Ok((account, profile, Vec::<axum::http::HeaderValue>::new()));
+        }
         let cookie = cookie.ok_or_else(|| fault(401, "Please sign in with Google."))?;
         let response = p
             .http
@@ -1114,11 +1141,27 @@ async fn members(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.admin(&h, false).await?;
     let (group, _) = p.group_view(&h, &email)?;
     let data = p.db.catalog()?;
-    Ok(reply(
-        json!({"members":data.members.iter().filter(|(email,_)|data.groups.member(email)==group).map(|(key,m)| {
-            let mut value=serde_json::to_value(m).expect("member serialization");value["contact_email"]=data.contact_email(key).into();(key,value)
-        }).collect::<BTreeMap<_,_>>()}),
-    ))
+    let operator = data.operator(&email);
+    let mut members = BTreeMap::new();
+    for (key, member) in data
+        .members
+        .iter()
+        .filter(|(key, _)| data.groups.member(key) == group)
+    {
+        let mut value = serde_json::to_value(member).expect("member serialization");
+        value["contact_email"] = data.contact_email(key).into();
+        if operator
+            && let Some(account) = data
+                .identities
+                .profiles
+                .get(key)
+                .map(|profile| profile.account_id.clone())
+        {
+            value["sign_in"] = p.db.account_sign_in(&data, &account)?;
+        }
+        members.insert(key.clone(), value);
+    }
+    Ok(reply(json!({"members": members})))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

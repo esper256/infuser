@@ -139,6 +139,9 @@ This accepts hidden client-only or on-demand web games and creates a single-use,
 two-minute launch link with a **fresh guest** save namespace. It grants no portal,
 publishing or admin access. Treat the output as private and close the test game
 when done. Normal player launches still require Google and enabled membership.
+An assistant that should be a real member uses an invitation and a member link
+instead; see [identity operations](identity-operations.md). `preview-game` does
+not sign anyone in.
 
 ## Multiple families
 

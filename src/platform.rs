@@ -20,6 +20,7 @@ mod chat;
 pub mod deployments;
 pub mod groups;
 pub mod identity;
+pub mod member_link;
 mod metadata;
 pub(crate) mod releases;
 pub mod screenshots;
@@ -453,6 +454,7 @@ impl Database {
             [serde_json::to_string(&Data::default())?],
         )?;
         activity::initialize(&mut c)?;
+        member_link::initialize(&c)?;
         let db = Self {
             catalog: Mutex::new(None),
             connection: Mutex::new(c),
@@ -722,6 +724,7 @@ impl Database {
             tx.execute("DELETE FROM saves WHERE owner=?1", [&owner])?;
             crate::cloud::delete_owner(&tx, &owner)?;
         }
+        member_link::expire(&tx, time)?;
         tx.commit()?;
         Ok(())
     }
