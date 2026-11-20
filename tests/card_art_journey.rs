@@ -266,7 +266,38 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .await?
         .error_for_status()?;
     assert_eq!(image.headers()["content-type"], "image/webp");
-    assert_eq!(image.headers()["cache-control"], "private, no-cache");
+    assert!(image_url.contains("/card-art/with-art/"), "{image_url}");
+    assert_eq!(
+        image.headers()["cache-control"],
+        "private, max-age=31536000, immutable"
+    );
+    assert_eq!(
+        member("/api/apps/pond/card-art/with-art", "admin")
+            .send()
+            .await?
+            .headers()["cache-control"],
+        "private, no-cache"
+    );
+    let small = member(&format!("{image_url}?w=384"), "admin")
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(
+        small.headers()["cache-control"],
+        "private, max-age=31536000, immutable"
+    );
+    let small_bytes = small.bytes().await?;
+    assert_eq!(
+        image_webp::WebPDecoder::new(std::io::Cursor::new(&small_bytes))?.dimensions(),
+        (384, 384)
+    );
+    assert_eq!(
+        member(&format!("{image_url}?w=100"), "admin")
+            .send()
+            .await?
+            .status(),
+        400
+    );
     let etag = image.headers()["etag"].clone();
     assert_eq!(
         member(image_url, "admin")
@@ -540,7 +571,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         .send()
         .await?
         .error_for_status()?;
-    assert_eq!(image.headers()["cache-control"], "private, no-cache");
+    assert_eq!(
+        image.headers()["cache-control"],
+        "private, max-age=31536000, immutable"
+    );
     assert_eq!(image.bytes().await?.as_ref(), bytes);
     let after = p.db.read()?;
     assert_eq!(
@@ -626,7 +660,12 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     assert_eq!(member(replacement_url, "admin").send().await?.status(), 200);
     let cleared = json_ok(publisher(Method::DELETE, art_path)).await?;
     assert_eq!(cleared["title"], "Pond After Dark");
-    assert_eq!(cleared["card_art_url"], "/api/apps/pond/card-art/with-art");
+    let cleared_url = cleared["card_art_url"].as_str().unwrap();
+    assert!(
+        cleared_url.starts_with("/api/apps/pond/card-art/with-art/"),
+        "{cleared_url}"
+    );
+    assert_ne!(cleared_url, "/api/apps/pond/card-art/with-art");
     assert_eq!(member(replacement_url, "admin").send().await?.status(), 404);
     let cleared =
         json_ok(publisher(Method::PATCH, metadata_path).json(&json!({"title":null}))).await?;

@@ -174,17 +174,15 @@ impl View<'_> {
             });
         }
         let authors = authors::credits(data, id);
-        let card_art_url = card_art::url(id, &app.build, build, data.metadata.get(id))
+        let card_art_url = card_art::url(id, &app.build, build, data.metadata.get(id), &p.root())
             .map(|url| {
                 if self.inspecting {
                     format!("{url}?inspect_group={}", self.group)
+                } else if data.groups.member(self.email) != self.group {
+                    data.active_visit(self.group, self.time)
+                        .map_or(url.clone(), |(id, _)| format!("{url}?visit={id}"))
                 } else {
-                    if data.groups.member(self.email) != self.group {
-                        data.active_visit(self.group, self.time)
-                            .map_or(url.clone(), |(id, _)| format!("{url}?visit={id}"))
-                    } else {
-                        url
-                    }
+                    url
                 }
             })
             .map(|url| {

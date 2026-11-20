@@ -16,7 +16,7 @@ pub(super) fn art_pending(data: &platform::Data, app: &str) -> bool {
     })
 }
 
-fn view(d: &platform::Data, app: &str) -> Result<Value> {
+fn view(d: &platform::Data, app: &str, root: &std::path::Path) -> Result<Value> {
     let active = d.apps.get(app).ok_or_else(|| fault(404, "unknown game"))?;
     let build = &d.builds[&build_key(app, &active.build)];
     let metadata = d.metadata.get(app).cloned().unwrap_or_default();
@@ -27,7 +27,7 @@ fn view(d: &platform::Data, app: &str) -> Result<Value> {
         "title":title(d,app,&build.manifest.title),"title_override":metadata.title,"title_locked":metadata.title_locked,"orientation":build.manifest.orientation,
         "description":metadata.description,
         "art_prompt":metadata.art_prompt,"art_prompt_revision":prompt_revision,"art_prompt_pending":prompt_pending,
-        "card_art_url":card_art::url(app,&active.build,build,d.metadata.get(app)),
+        "card_art_url":card_art::url(app,&active.build,build,d.metadata.get(app),root),
         "card_art_override":metadata.card_art_revision,"updated":metadata.updated,
         "tags":d.tags.get(app).cloned().unwrap_or_default(),
         "slug":d.game_urls.get(app).map(|u|&u.slug)}),
@@ -61,7 +61,7 @@ pub(super) async fn list_metadata(State(p): State<Platform>, h: HeaderMap) -> An
                 .as_ref()
                 .is_none_or(|group| data.groups.app(app) == group)
         })
-        .map(|app| view(&data, app))
+        .map(|app| view(&data, app, &p.root()))
         .collect::<Result<Vec<_>>>()?;
     Ok(reply(
         json!({"version":1,"apps":apps,"description_max_chars":2000,
@@ -75,7 +75,7 @@ pub(super) async fn get_metadata(
     h: HeaderMap,
 ) -> Answer {
     authorize(&p, &h, &app)?;
-    Ok(reply(view(&p.db.read()?, &app)?))
+    Ok(reply(view(&p.db.read()?, &app, &p.root())?))
 }
 
 #[derive(Deserialize)]
@@ -158,7 +158,7 @@ pub(super) async fn patch_metadata(
             ..Default::default()
         },
     )?;
-    Ok(reply(view(&p.db.read()?, &app)?))
+    Ok(reply(view(&p.db.read()?, &app, &p.root())?))
 }
 
 pub(super) async fn put_art(
@@ -200,7 +200,7 @@ pub(super) async fn put_art(
             ..Default::default()
         },
     )?;
-    Ok(reply(view(&p.db.read()?, &app)?))
+    Ok(reply(view(&p.db.read()?, &app, &p.root())?))
 }
 
 pub(super) async fn delete_art(
@@ -216,5 +216,5 @@ pub(super) async fn delete_art(
             ..Default::default()
         },
     )?;
-    Ok(reply(view(&p.db.read()?, &app)?))
+    Ok(reply(view(&p.db.read()?, &app, &p.root())?))
 }
