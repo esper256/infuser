@@ -135,6 +135,10 @@ the Library that a player chose single player.
 - **Peer-hosted:** one player hosts each room. WebRTC requires Infuser TURN
   fallback, even when LAN or direct internet connections work. Use the
   [browser peer SDK](peer-hosting.md), Godot adapter, or PeerJS adapter as appropriate.
+  Rooms hold 2–8 players including the host. Set `multiplayer.max_players` in
+  that range. Godot games copied from the older two-player example should follow
+  [Upgrading a two-player game](engines/godot-multiplayer.md#upgrading-a-two-player-game):
+  the manifest cap, one dictionary of remote players, and the host relay.
   Test with relay forced; LAN-only and direct-only networking are unsupported.
 - **Dedicated / persistent world:** one managed server per game. Plain Node HTTP/WebSocket
   games can use the [Node server recipe](engines/node-server.md) when advertised by

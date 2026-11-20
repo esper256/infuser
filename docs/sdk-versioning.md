@@ -57,8 +57,11 @@ Existing projects with no `sdk` declaration keep the legacy injected script.
 
 For a peer-hosted game with independent rooms, require `peers.rooms.v1` plus
 the adapter capability (`peers.webrtc.v1` for the built-in transport or
-`peers.peerjs.v1` for PeerJS). All require TURN. PeerJS also requires the private
-PeerServer service. Older servers may advertise WebRTC without independent rooms.
+`peers.peerjs.v1` for PeerJS). All require TURN. Peer-hosted WebRTC rooms admit
+2–8 players, including the host. `multiplayer.max_players` chooses the cap
+inside that range. A full room reports reason `full`, and a leave frees the
+seat. PeerJS also requires the private PeerServer service. Older servers may
+advertise WebRTC without independent rooms.
 The same SDK advertisement appears in `session.capabilities.sdk`. Capabilities describe API
 availability; the game's existing topology, save-group and launch-intent
 manifest declarations still determine which features it can use.

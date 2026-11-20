@@ -160,6 +160,32 @@ test('failed peer link reconnects within the same room and ignores obsolete chan
   assert.equal(room.epoch,'session-one'); assert.equal(h.endings.length,0); room.close();
 });
 
+test('a host of three members drops one leaver and keeps the other links', async t => {
+  const h = setup(t);
+  h.snapshot.peers = [{id:'self'},{id:'m1'},{id:'m2'},{id:'m3'}];
+  const room = await h.start();
+  await h.advance();
+  assert.equal(h.connections.length, 3);
+  const offers = h.requests.filter(r => r.path.endsWith('/signals') && r.body.payload.type === 'offer');
+  assert.deepEqual(offers.map(r => r.body.to).sort(), ['m1','m2','m3']);
+  for (const pc of h.connections) h.open(pc);
+  assert.equal(h.indicators.at(-1), 'connected');
+  assert.equal(room.send('m1', {tick:1}), true);
+  assert.equal(room.send('m2', {tick:2}), true);
+  assert.equal(room.send('m3', {tick:3}), true);
+  h.poll(Promise.resolve(Response.json({...h.snapshot, peers:[{id:'self'},{id:'m1'},{id:'m3'}], signals:[]})));
+  await h.advance(1000);
+  assert.equal(h.connections[1].closed, true);
+  assert.equal(h.connections.filter(pc => !pc.closed).length, 2);
+  assert.equal(room.send('m2', {tick:4}), false);
+  assert.equal(room.send('m1', {tick:5}), true);
+  assert.equal(room.send('m3', {tick:6}), true);
+  assert.equal(h.indicators.at(-1), 'connected');
+  assert.equal(h.endings.length, 0);
+  assert.equal(room.epoch, 'session-one');
+  room.close();
+});
+
 test('a data channel closing during send returns false instead of breaking the game loop', async t => {
   const h=setup(t),room=await h.start(); await h.advance();
   const pc=h.connections[0]; h.open(pc);

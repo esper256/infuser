@@ -5,9 +5,12 @@ Audience: game authors and their agents.
 `--preview` in this fixture is for admin-only testing. Publish normally when an
 ordinary user needs to play; hidden builds are not available to them.
 
-A small two-player game showing Godot web exports, GDScript cloud saves,
-and `WebRTCMultiplayerPeer` RPCs. No external art dependencies. Keep it hidden
-with `--preview` until explicitly choosing to list it.
+A small co-op game for up to four players, showing Godot web exports, GDScript
+cloud saves, and `WebRTCMultiplayerPeer` RPCs. Peer-hosted rooms hold 2–8
+players; this manifest uses four. Each joined player gets a lantern. Traffic
+for every member goes through the host, and through TURN when that path is
+selected. No external art dependencies. Keep it hidden with `--preview` until
+explicitly choosing to list it.
 
 Requires Godot **4.7.2 standard**, its matching web export templates, and the
 Infuser CLI. The tested preset uses GDScript, Compatibility rendering, no threads,

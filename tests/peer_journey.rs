@@ -1,7 +1,7 @@
 use anyhow::Result;
 use infuser::{
     config::Config,
-    controller::{Controller, now},
+    controller::{Controller, Fault, now},
     docker::Docker,
     peers::{Identity, Join, Rooms},
     platform::{self, App, Build, Launch},
@@ -15,6 +15,13 @@ fn identity(id: &str) -> Identity {
         player: id.into(),
         name: "Player".into(),
         guest: true,
+    }
+}
+fn party<'a>(epoch: Option<&'a str>) -> Join<'a> {
+    Join {
+        max_players: 32,
+        expected_epoch: epoch,
+        ..join("lake", "one")
     }
 }
 fn join<'a>(app: &'a str, build: &'a str) -> Join<'a> {
@@ -151,6 +158,124 @@ fn explicit_rooms_are_isolated_from_automatic_matchmaking_and_late_leaves() -> R
     let remaining = rooms.discover_all("pond", "one", 131);
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0]["id"], replacement["epoch"]);
+    Ok(())
+}
+
+#[test]
+fn four_players_free_a_seat_and_the_ninth_is_full() -> Result<()> {
+    let rooms = Rooms::default();
+    let mut created = party(None);
+    created.create = true;
+    created.joinable = Some(true);
+    let host = rooms.join(identity("host"), created, 100)?;
+    assert_eq!(host["role"], "host");
+    assert_eq!(
+        host["max_players"], 8,
+        "a request above the platform cap is clamped to 8"
+    );
+    let epoch = host["epoch"].as_str().unwrap();
+    let host_id = host["self_id"].as_str().unwrap();
+    let mut members = Vec::new();
+    for name in ["m1", "m2", "m3"] {
+        let joined = rooms.join(identity(name), party(Some(epoch)), 100)?;
+        assert_eq!(joined["epoch"], host["epoch"]);
+        assert_eq!(joined["role"], "member");
+        assert_eq!(joined["host_id"], host_id);
+        members.push((name, joined));
+    }
+    let open = &rooms.discover_all("lake", "one", 100)[0];
+    assert_eq!(open["player_count"], 4);
+    assert_eq!(open["joinable"], true);
+    assert!(open["reason"].is_null());
+
+    for (name, member) in &members {
+        let id = member["self_id"].as_str().unwrap();
+        rooms.signal(
+            "lake",
+            host_id,
+            "host",
+            &json!({"epoch": epoch, "to": id, "payload": {"type": "offer", "description": "sdp"}}),
+            100,
+        )?;
+        rooms.signal(
+            "lake",
+            id,
+            name,
+            &json!({"epoch": epoch, "to": host_id, "payload": {"type": "answer", "description": "sdp"}}),
+            100,
+        )?;
+    }
+    let crossed = rooms
+        .signal(
+            "lake",
+            members[0].1["self_id"].as_str().unwrap(),
+            "m1",
+            &json!({"epoch": epoch, "to": members[1].1["self_id"], "payload": {"type": "candidate", "candidate": "x"}}),
+            100,
+        )
+        .expect_err("members only signal the host");
+    let forbidden = crossed.downcast::<Fault>()?;
+    assert_eq!(forbidden.status, 403);
+    let host_mail = rooms.poll("lake", host_id, "host", 0, 100)?;
+    assert_eq!(host_mail["peers"].as_array().unwrap().len(), 4);
+    assert_eq!(host_mail["signals"].as_array().unwrap().len(), 3);
+    let m1_id = members[0].1["self_id"].as_str().unwrap();
+    let m1_mail = rooms.poll("lake", m1_id, "m1", 0, 100)?;
+    assert_eq!(m1_mail["signals"].as_array().unwrap().len(), 1);
+    assert_eq!(m1_mail["signals"][0]["from"], host_id);
+
+    let m2_id = members[1].1["self_id"].as_str().unwrap();
+    rooms.leave("lake", m2_id, "m2", 101)?;
+    let freed = &rooms.discover_all("lake", "one", 101)[0];
+    assert_eq!(freed["player_count"], 3);
+    assert_eq!(freed["joinable"], true);
+    assert!(freed["reason"].is_null());
+    assert!(
+        rooms
+            .signal(
+                "lake",
+                host_id,
+                "host",
+                &json!({"epoch": epoch, "to": m2_id, "payload": {"type": "offer", "description": "sdp"}}),
+                101,
+            )
+            .is_err()
+    );
+    rooms.poll(
+        "lake",
+        m1_id,
+        "m1",
+        m1_mail["cursor"].as_u64().unwrap(),
+        101,
+    )?;
+    let replacement = rooms.join(identity("m4"), party(Some(epoch)), 102)?;
+    assert_eq!(replacement["epoch"], host["epoch"]);
+    assert_eq!(replacement["role"], "member");
+    assert_eq!(rooms.discover_all("lake", "one", 102)[0]["player_count"], 4);
+    let again = rooms.join(identity("m1"), party(Some(epoch)), 102)?;
+    assert_eq!(again["self_id"], m1_id);
+    assert_eq!(
+        rooms.discover_all("lake", "one", 102)[0]["player_count"],
+        4,
+        "reusing a live connection reclaims the same seat"
+    );
+    for name in ["m5", "m6", "m7", "m8"] {
+        let joined = rooms.join(identity(name), party(Some(epoch)), 103)?;
+        assert_eq!(joined["epoch"], host["epoch"]);
+    }
+    let full = &rooms.discover_all("lake", "one", 103)[0];
+    assert_eq!(full["player_count"], 8);
+    assert_eq!(full["max_players"], 8);
+    assert_eq!(full["joinable"], false);
+    assert_eq!(full["reason"], "full");
+    let refused = rooms
+        .join(identity("m9"), party(Some(epoch)), 104)
+        .expect_err("ninth player");
+    let full_join = refused.downcast::<Fault>()?;
+    assert_eq!(full_join.status, 409);
+    assert_eq!(full_join.message, "the shared session is full");
+    assert_eq!(rooms.discover_all("lake", "one", 104)[0]["player_count"], 8);
+    assert_eq!(rooms.discover_all("lake", "one", 104)[0]["reason"], "full");
     Ok(())
 }
 

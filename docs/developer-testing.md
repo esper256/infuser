@@ -527,7 +527,12 @@ browsers remain acceptance items. This is not an SDK 1.0 declaration.
 Lantern Lake uses real `WebRTCMultiplayerPeer` channels and GDScript RPCs.
 The relay journey checks selected candidate pairs, bytes and RPC reception in
 both directions, and host departure. An automatic-mode run also passed with a
-direct connection. Normal gameplay has no numeric network overlay.
+direct connection. Normal gameplay has no numeric network overlay. The fast
+peer journey admits a host and three members to one room, frees a seat when a
+member leaves, and refuses a ninth join with reason `full`. The SDK peer test
+keeps two of three member links open after the other member leaves. The headless
+Godot script checks seven distinct member ids, a server with three clients, relay
+enabled, and a removed client freeing that peer id.
 
 Recovery passed in Bazzite's Flatpak Chrome for threaded and single-threaded
 exports: a short signaling failure, transport replacement, background operation,

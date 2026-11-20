@@ -12,7 +12,7 @@ saves, artwork, publishing, and handoff steps.
 This preview supports Godot 4.7.2 standard/GDScript with the Compatibility
 renderer, using single-threaded or threaded web exports. Physical laptop sleep
 and Windows browser testing remain unverified. The [example project](../../examples/godot-web/README.md)
-shows saves, guest play, and two-player multiplayer.
+shows saves, guest play, and peer-hosted multiplayer for 2–8 players.
 
 For an existing project with a **Web** export preset and matching Godot export
 templates installed on the game-making machine:
@@ -69,10 +69,14 @@ Cancel leaves the conflict pending; retry uses the same resolution commit ID.
 For an existing-project walkthrough, see [Dodge the Creeps](../../examples/godot-existing/README.md).
 It adds a best-score checkpoint at game-over while keeping the original gameplay.
 
-For co-op, copy the current peer addon and require `peers.rooms.v1`. Use
-`await peers.create()` for Play and an unchecked Play Solo checkbox for local
-play. Each host gets a separate room. A host that needs setup time can start
-closed with `await peers.create(false, false)`.
+For co-op, copy the current peer addon and require `peers.rooms.v1`. Set
+`multiplayer.max_players` from 2 through 8. Use `await peers.create()` for Play
+and an unchecked Play Solo checkbox for local play. Each host gets a separate
+room. Players share one star: every member relays via the host and through TURN
+when ICE selects it, so keep packets small. A two-player game needs the
+manifest change and a remote-state dictionary; follow
+[Upgrading a two-player game](godot-multiplayer.md#upgrading-a-two-player-game).
+A host that needs setup time can start closed with `await peers.create(false, false)`.
 Call `await peers.set_joinable(true)` when friends can enter and
 `await peers.set_joinable(false)` to close admission. The default is open.
 
