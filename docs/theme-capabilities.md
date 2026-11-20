@@ -94,8 +94,9 @@ move the header, the card grid, Recently, or the chat dock. The page is night
 ashlar with torchlight and a darker turf baseline, and the header ends in
 crenellations. Game cards are iron-bound oak plaques hung on that wall, with
 the cover in a gold frame and the title on a brass plate just under the
-cover. Filter tags and the tags on a plaque are swallowtail pennants on a
-lance: royal blue, or crimson with a heart when chosen. Play and
+cover. One faint carved shield sits in the stone. Filter tags and the tags
+on a plaque are tall swallowtail pennants with a brass lance tip: royal
+blue, or crimson with a heart when chosen. Play and
 the other controls are blackened steel. A heart still marks a chosen tag, a
 reaction, and your own chat note. `--browser-chrome` is `#10161e`. At 520px and below, filters, search,
 and Add a game stack, which matches DOM order. Coarse pointers get 44px

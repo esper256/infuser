@@ -64,7 +64,7 @@
   --iron: #0e141a;
   --mortar: #10161e;
   --pennant: polygon(0 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 0 100%);
-  --guidon: polygon(0 0, calc(100% - 12px) 0, 100% 22%, calc(100% - 30px) 50%, 100% 78%, calc(100% - 12px) 100%, 0 100%);
+  --guidon: polygon(0 10%, calc(100% - 20px) 0, 100% 16%, calc(100% - 58px) 50%, 100% 84%, calc(100% - 20px) 100%, 0 90%);
   --shield: polygon(10% 0, 90% 0, 100% 16%, 100% 62%, 50% 100%, 0 62%, 0 16%);
   --heart-red: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath fill='%239d1c32' d='M16 27.2C8.2 21.6 2 16.8 2 10.6 2 6.6 5 3.8 8.8 3.8c2.2 0 4.2 1 5.6 2.7L16 8.4l1.6-1.9c1.4-1.7 3.4-2.7 5.6-2.7 3.8 0 6.8 2.8 6.8 6.8 0 6.2-6.2 11-14 16.6z'/%3E%3C/svg%3E");
   --heart-cream: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath fill='%23fff6ee' d='M16 27.2C8.2 21.6 2 16.8 2 10.6 2 6.6 5 3.8 8.8 3.8c2.2 0 4.2 1 5.6 2.7L16 8.4l1.6-1.9c1.4-1.7 3.4-2.7 5.6-2.7 3.8 0 6.8 2.8 6.8 6.8 0 6.2-6.2 11-14 16.6z'/%3E%3C/svg%3E");
@@ -83,9 +83,9 @@
     url("/assets/themes/castle-keep/runes.svg"),
     radial-gradient(ellipse at 50% 68%, transparent 8%, #05080ccc 76%),
     url("/assets/themes/castle-keep/stone.svg");
-  background-repeat: no-repeat, no-repeat, repeat-x, repeat, no-repeat, repeat;
-  background-position: center top, center top, center bottom, center, center, center top;
-  background-size: auto, auto, auto 84px, 380px 340px, auto, 280px 154px;
+  background-repeat: no-repeat, no-repeat, repeat-x, no-repeat, no-repeat, repeat;
+  background-position: center top, center top, center bottom, center bottom 96px, center, center top;
+  background-size: auto, auto, auto 84px, 150px 188px, auto, 280px 154px;
   background-attachment: fixed, fixed, fixed, fixed, fixed, fixed;
   color: var(--ink);
   font-family: Nunito, "Segoe UI", system-ui, sans-serif;
@@ -307,7 +307,7 @@
     linear-gradient(180deg, #3a4654, #141b24 70%);
   box-shadow: inset 0 1px 0 #ffffff22, 0 8px 0 #07090c, 0 0 24px #ff8a2a22;
 }
-/* Swallowtail guidon. The lance is the rod; the cloth flies from it. */
+/* Tall swallowtail. A short brass lance tip, then cloth with a deep fork. */
 [data-theme="castle-keep"] .tag-filter,
 [data-theme="castle-keep"] .game-tags .tag-chip,
 [data-theme="castle-keep"] .tag-overflow-panel .tag-chip {
@@ -318,30 +318,30 @@
   border: 0;
   border-radius: 0;
   clip-path: none;
-  min-height: 36px;
-  padding: 6px 38px 6px 18px;
+  min-height: 54px;
+  padding: 8px 66px 8px 28px;
   background: transparent;
   color: #f6f1e6;
   box-shadow: none;
   text-shadow: 0 1px 0 #0008;
   font-weight: 700;
 }
+[data-theme="castle-keep"] .tag-filter { min-height: 64px; font-size: 15px; }
 [data-theme="castle-keep"] .tag-filter::before,
 [data-theme="castle-keep"] .game-tags .tag-chip::before,
 [data-theme="castle-keep"] .tag-overflow-panel .tag-chip::before {
   content: "";
   position: absolute;
   z-index: 1;
-  left: 1px;
-  top: 0;
-  bottom: 0;
-  width: 7px;
-  border-radius: 4px;
-  background:
-    radial-gradient(circle at 50% 4px, #f3e2b0 0 2.5px, transparent 3px),
-    radial-gradient(circle at 50% calc(100% - 4px), #f3e2b0 0 2.5px, transparent 3px),
-    linear-gradient(90deg, #1a120c, #d7b56a 46%, #2a2016);
-  box-shadow: 0 0 0 1px #07090c;
+  left: 0;
+  top: 50%;
+  width: 16px;
+  height: 22px;
+  transform: translateY(-50%);
+  border-radius: 1px 0 0 1px;
+  clip-path: polygon(0 50%, 100% 6%, 86% 50%, 100% 94%);
+  background: linear-gradient(180deg, #f8efc8, #e2c074 42%, #8a6420 78%, #f0d48a);
+  box-shadow: 0 1px 0 #3a2a10;
   pointer-events: none;
 }
 [data-theme="castle-keep"] .tag-filter::after,
@@ -350,27 +350,30 @@
   content: "";
   position: absolute;
   z-index: -1;
-  left: 8px;
-  top: 5px;
+  left: 12px;
+  top: 2px;
   right: 0;
-  bottom: 5px;
+  bottom: 2px;
   clip-path: var(--guidon);
   background-color: var(--royal);
   background-image:
-    linear-gradient(90deg, #e2c074 0 4px, transparent 4px),
-    linear-gradient(180deg, #ffffff55 0%, transparent 22%, #00000000 48%, #00000038 100%),
-    linear-gradient(115deg, transparent 0 58%, #0000002b 60% 64%, transparent 66%),
-    linear-gradient(180deg, #5b92e4, #1e4f9a 46%, #14356e);
+    linear-gradient(90deg, #f0d48a 0 5px, transparent 5px),
+    radial-gradient(ellipse 55% 70% at 28% 0%, #ffffff73, transparent 58%),
+    radial-gradient(ellipse 80% 55% at 62% 115%, #04102888, transparent 60%),
+    linear-gradient(180deg, #ffffff40 0 14%, transparent 14% 42%, #00000038 42% 54%, transparent 54% 78%, #00000030 100%),
+    linear-gradient(105deg, #6ea2ee 0%, #1e4f9a 36%, #3d78c8 58%, #14356e 100%);
+  filter: drop-shadow(0 2px 0 #00000055);
   pointer-events: none;
 }
 [data-theme="castle-keep"] .tag-filter:hover::after,
 [data-theme="castle-keep"] .game-tags .tag-chip:hover::after,
 [data-theme="castle-keep"] .tag-overflow-panel .tag-chip:hover::after {
   background-image:
-    linear-gradient(90deg, #f0d48a 0 4px, transparent 4px),
-    linear-gradient(180deg, #ffffff66 0%, transparent 22%, #00000028 100%),
-    linear-gradient(115deg, transparent 0 58%, #00000022 60% 64%, transparent 66%),
-    linear-gradient(180deg, #7aabef, #2f6fd0 46%, #1e4f9a);
+    linear-gradient(90deg, #f8e7b0 0 5px, transparent 5px),
+    radial-gradient(ellipse 55% 70% at 28% 0%, #ffffff88, transparent 58%),
+    radial-gradient(ellipse 80% 55% at 62% 115%, #04102866, transparent 60%),
+    linear-gradient(180deg, #ffffff55 0 14%, transparent 14% 42%, #0000002e 42% 54%, transparent 54% 78%, #00000028 100%),
+    linear-gradient(105deg, #8eb8f4 0%, #2f6fd0 36%, #5b92e4 58%, #1e4f9a 100%);
 }
 [data-theme="castle-keep"] .tag-filter.selected,
 [data-theme="castle-keep"] .tag-filter.selected:hover,
@@ -378,7 +381,7 @@
 [data-theme="castle-keep"] .game-tags .tag-chip.selected:hover,
 [data-theme="castle-keep"] .tag-overflow-panel .tag-chip.selected,
 [data-theme="castle-keep"] .tag-overflow-panel .tag-chip.selected:hover {
-  padding-left: 30px;
+  padding-left: 42px;
   color: #fff6ee;
 }
 [data-theme="castle-keep"] .tag-filter.selected::after,
@@ -390,13 +393,14 @@
   background-color: var(--heart);
   background-image:
     var(--heart-cream),
-    linear-gradient(90deg, #f0d48a 0 4px, transparent 4px),
-    linear-gradient(180deg, #ffffff44 0%, transparent 24%, #00000038 100%),
-    linear-gradient(115deg, transparent 0 58%, #00000030 60% 64%, transparent 66%),
-    linear-gradient(180deg, #e2556c, #c4324a 46%, #8e162b);
+    linear-gradient(90deg, #f8e7b0 0 5px, transparent 5px),
+    radial-gradient(ellipse 55% 70% at 28% 0%, #ffffff66, transparent 58%),
+    radial-gradient(ellipse 80% 55% at 62% 115%, #28060c88, transparent 60%),
+    linear-gradient(180deg, #ffffff40 0 14%, transparent 14% 42%, #00000038 42% 54%, transparent 54% 78%, #00000030 100%),
+    linear-gradient(105deg, #e2556c 0%, #c4324a 38%, #a32038 60%, #6e1020 100%);
   background-repeat: no-repeat;
-  background-position: 8px center, left center, center, center, center;
-  background-size: 12px 11px, auto, auto, auto, auto;
+  background-position: 10px center, left center, center, center, center, center;
+  background-size: 13px 12px, auto, auto, auto, auto, auto;
 }
 [data-theme="castle-keep"] .tag-filter:focus-visible,
 [data-theme="castle-keep"] .tag-chip:focus-visible,
@@ -409,8 +413,9 @@
   clip-path: var(--shield);
   border: 0;
   border-radius: 0;
-  min-width: 46px;
-  padding: 6px 10px 12px;
+  min-width: 52px;
+  min-height: 64px;
+  padding: 8px 12px 14px;
   background-image: var(--steel-face);
   background-color: #d5dce1;
   color: var(--steel-ink);
@@ -940,6 +945,13 @@
 
 @media (max-width: 520px) {
   [data-theme="castle-keep"] header { padding-bottom: 52px; }
+  :root[data-theme="castle-keep"] {
+    --guidon: polygon(0 10%, calc(100% - 16px) 0, 100% 18%, calc(100% - 36px) 50%, 100% 82%, calc(100% - 16px) 100%, 0 90%);
+  }
+  [data-theme="castle-keep"] .tag-filter {
+    padding: 8px 44px 8px 24px;
+    font-size: 14px;
+  }
   [data-theme="castle-keep"] .library-toolbar { grid-template-columns: minmax(0, 1fr); }
   [data-theme="castle-keep"] .library-toolbar .tag-filters { grid-area: 1 / 1; }
   [data-theme="castle-keep"] .library-toolbar .search-label { grid-area: 2 / 1; max-width: none; }
@@ -947,9 +959,9 @@
 }
 @media (pointer: coarse) {
   [data-theme="castle-keep"] .tag-filter,
-  [data-theme="castle-keep"] .library-toolbar .tag-more,
   [data-theme="castle-keep"] .game-tags .tag-chip,
-  [data-theme="castle-keep"] .tag-overflow-panel .tag-chip,
+  [data-theme="castle-keep"] .tag-overflow-panel .tag-chip { min-height: 52px; }
+  [data-theme="castle-keep"] .library-toolbar .tag-more { min-height: 52px; min-width: 44px; }
   [data-theme="castle-keep"] .edit-tags,
   [data-theme="castle-keep"] .library-toolbar .search-label input,
   [data-theme="castle-keep"] .add-game,
