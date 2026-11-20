@@ -497,8 +497,11 @@ $('game-detail').addEventListener('close',()=>{
   (detailReturnFocus?.isConnected&&detailReturnFocus.getClientRects().length?detailReturnFocus:fallback||$('recent-toggle')).focus({preventScroll:true});
 });
 
+function knownPicture(picture){
+  return (me?.avatars||[]).some(a=>a.id===picture)||(me?.portraits||[]).some(a=>a.id===picture);
+}
 function profileAvatar(name,id,picture,size=128) {
-  if((me?.avatars||[]).some(a=>a.id===picture)){
+  if(knownPicture(picture)){
     const avatar=el('img',undefined,'avatar');avatar.src='/assets/avatars/'+encodeURIComponent(picture)+'/'+size+'.webp';avatar.alt='';avatar.width=size;avatar.height=size;return avatar;
   }
   const words=(name||'').trim().split(/\s+/).filter(Boolean);
@@ -1102,6 +1105,10 @@ async function adminRefresh(){
     const updateLabel=()=>{label.textContent=`${m.name} · ${m.contact_email||email}${m.admin?' · admin':''}${m.enabled?'':' · disabled'}`;rename.setAttribute('aria-label','Rename '+m.name);};updateLabel();
     rename.type='button';rename.onclick=()=>openMemberRename(row,actions,email,m,updateLabel,rename);actions.append(rename);
     if(!m.admin){const toggle=el('button',m.enabled?'Disable':'Enable','secondary');toggle.onclick=async()=>{try{await api('/api/admin/members',{method:'POST',body:JSON.stringify({email,name:m.name,admin:m.admin,enabled:!m.enabled})});await adminRefresh();}catch(error){showError(error);}};actions.append(toggle);}
+    if(me.operator&&(me.portraits||[]).length){
+      const picture=el('button','Picture','secondary');picture.type='button';picture.setAttribute('aria-label','Assign hidden picture for '+m.name);
+      picture.onclick=()=>openHiddenPicture(row,email,m,picture);actions.append(picture);
+    }
     if(me.operator&&m.sign_in&&m.sign_in.kind!=='google'){
       const mint=el('button','Sign-in link','secondary');mint.type='button';mint.setAttribute('aria-label','Sign-in link for '+m.name);
       mint.onclick=async()=>{
@@ -1209,6 +1216,30 @@ async function openGameDelete(row,game){
     box.append(form);input.focus();
   }catch(failure){box.replaceChildren(el('p',failure.message));}
 }
+function openHiddenPicture(row,email,member,button){
+  const existing=row.querySelector('.member-picture');
+  if(existing){existing.remove();button.focus();return;}
+  const form=el('form',undefined,'member-picture member-handle'),label=el('label','Hidden picture'),select=el('select'),save=el('button','Save picture'),error=el('p',undefined,'member-error');
+  select.name='avatar';select.setAttribute('aria-label','Hidden picture for '+member.name);
+  const initials=el('option','Initials');initials.value='';select.append(initials);
+  for(const picture of me.portraits||[]){
+    const option=el('option',picture.name);option.value=picture.id;select.append(option);
+  }
+  select.value=(me.portraits||[]).some(picture=>picture.id===member.avatar)?member.avatar:'';
+  save.type='submit';error.setAttribute('role','alert');
+  form.onsubmit=async event=>{
+    event.preventDefault();if(save.disabled)return;
+    error.textContent='';save.disabled=true;select.disabled=true;
+    try{
+      const saved=await api('/api/operator/members/'+encodeURIComponent(email)+'/avatar',{method:'PUT',body:JSON.stringify({avatar:select.value})});
+      member.avatar=saved.avatar;
+      if(saved.player_id===me.player_id){me.avatar=saved.avatar;renderAccount();}
+      const chosen=select.selectedOptions[0]?.textContent||'initials';
+      form.remove();notice(member.name+' now uses '+chosen+'.');
+    }catch(problem){error.textContent=problem.message;save.disabled=false;select.disabled=false;}
+  };
+  label.append(select);form.append(label,save,error);row.append(form);select.focus();
+}
 function openMemberRename(row,actions,email,member,updateLabel,rename){
   actions.hidden=true;
   const form=el('form',undefined,'member-handle'),label=el('label'),input=el('input'),save=el('button','Save'),cancel=el('button','Cancel','secondary'),error=el('p',undefined,'member-error');
@@ -1229,7 +1260,7 @@ function openMemberRename(row,actions,email,member,updateLabel,rename){
   };
   form.append(label,save,cancel,error);row.append(form);input.focus();input.select();
 }
-$('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with that Google account.');await adminRefresh();}catch(error){showError(error);}};
+$('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with this email.');await adminRefresh();}catch(error){showError(error);}};
 $('credential-form').onsubmit=async event=>{event.preventDefault();try{const data=Object.fromEntries(new FormData(event.target)),connection=await api('/api/admin/credentials',{method:'POST',body:JSON.stringify(data)});const blob=new Blob([JSON.stringify(connection,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=connection.app_id+'.credentials.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Connection file downloaded. Attach it in your game’s existing agent chat.');await adminRefresh();}catch(error){showError(error);}};
 function renderAccount(){
   $('greeting').textContent='Signed in as '+me.name+'.';$('account-trigger').setAttribute('aria-label',me.name+(me.inspecting?'':' · online')+' · Profile menu');
@@ -1324,16 +1355,17 @@ async function openProfile(){
   const request=new AbortController();profileUsageRequest=request;
   $('profile-error').textContent='';
   const picker=$('profile-options');picker.replaceChildren();
-  const selected=(me.avatars||[]).some(a=>a.id===me.avatar)?me.avatar:'';
+  const listed=(me.avatars||[]).some(a=>a.id===me.avatar);
+  const selected=listed?me.avatar:(me.avatar?null:'');
   for(const option of [{id:'',name:'Initials'},...(me.avatars||[])]){
     const label=el('label',undefined,'profile-option'),radio=el('input'),tile=el('span',undefined,'profile-tile');
-    radio.type='radio';radio.name='avatar';radio.value=option.id;radio.checked=option.id===selected;radio.required=true;
+    radio.type='radio';radio.name='avatar';radio.value=option.id;radio.checked=selected!==null&&option.id===selected;radio.required=true;
     const portrait=el('span',undefined,'profile-portrait');portrait.append(profileAvatar(me.name,me.player_id,option.id,256));
     radio.setAttribute('aria-label',option.name);
     tile.append(portrait,el('span',option.name,'profile-caption'));
     label.append(radio,tile);picker.append(label);
   }
-  $('profile-dialog').showModal();picker.querySelector('input:checked').focus();
+  $('profile-dialog').showModal();(picker.querySelector('input:checked')||picker.querySelector('input')).focus();
   try{
     const data=await api('/api/profile',{signal:AbortSignal.any([request.signal,AbortSignal.timeout(10000)])});
     if(request.signal.aborted)return;
