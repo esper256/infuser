@@ -1,12 +1,10 @@
 //! Ephemeral signaling only. Game simulation and traffic stay in browser WebRTC peers.
 use crate::{config::Turn, platform::hash, portal::fault, store::secret};
 use anyhow::{Result, ensure};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Value, json};
-use sha1::Sha1;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    net::IpAddr,
     sync::Mutex,
 };
 
@@ -26,10 +24,7 @@ impl Relay {
     pub fn credentials(&self, peer: &str, time: u64) -> Value {
         let expires = time + 3600;
         let username = format!("{expires}:{peer}");
-        let mut mac =
-            Hmac::<Sha1>::new_from_slice(&self.secret).expect("HMAC accepts any key length");
-        mac.update(username.as_bytes());
-        json!({"urls":self.urls,"username":username,"credential":STANDARD.encode(mac.finalize().into_bytes()),"expires_at":expires})
+        json!({"urls":self.urls,"username":username,"credential":crate::turn::credential(&self.secret, &username),"expires_at":expires})
     }
 }
 #[derive(Clone)]
@@ -56,6 +51,7 @@ struct Peer {
     signals: VecDeque<Value>,
     health: Value,
     health_seen: u64,
+    address: Option<IpAddr>,
 }
 struct Room {
     app: String,
@@ -306,6 +302,7 @@ impl Rooms {
                 signals: VecDeque::new(),
                 health: Value::Null,
                 health_seen: 0,
+                address: None,
             })
             .expires = time + 30;
         Ok(view(room, &peer))
@@ -393,6 +390,49 @@ impl Rooms {
             room.peers.remove(peer);
         }
         Ok(())
+    }
+    pub fn admitted(&self, peer: &str, time: u64) -> bool {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        rooms.values().any(|room| room.peers.contains_key(peer))
+    }
+    pub fn note_address(&self, app: &str, peer: &str, launch: &str, address: IpAddr, time: u64) {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let Ok(room) = member(&mut rooms, app, peer, launch) else {
+            return;
+        };
+        if let Some(peer) = room.peers.get_mut(peer) {
+            peer.address = Some(address);
+        }
+    }
+    pub fn seat(&self, app: &str, launch: &str, time: u64) -> Option<crate::turn::Seat> {
+        let mut rooms = self.rooms.lock().unwrap();
+        reap(&mut rooms, time);
+        let room = rooms.values().find(|room| {
+            room.app == app
+                && room
+                    .peers
+                    .values()
+                    .any(|peer| peer.identity.launch == launch)
+        })?;
+        let self_id = room
+            .peers
+            .iter()
+            .find(|(_, peer)| peer.identity.launch == launch)
+            .map(|(id, _)| id.clone())?;
+        Some(crate::turn::Seat {
+            host: room.host == self_id,
+            peers: room
+                .peers
+                .iter()
+                .map(|(id, peer)| crate::turn::Participant {
+                    id: id.clone(),
+                    address: peer.address,
+                })
+                .collect(),
+            self_id,
+        })
     }
     pub fn end(&self, app: &str) {
         self.rooms.lock().unwrap().retain(|_, r| r.app != app);

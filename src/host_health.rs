@@ -443,7 +443,17 @@ pub async fn collect(settings: &Settings) -> Result<Report> {
     if let Some(directory) = &settings.metrics_dir {
         fs::create_dir_all(directory)?;
         let path = directory.join("infuser.prom");
-        crate::private_file::replace(&path, report.prometheus().as_bytes())?;
+        let mut text = report.prometheus();
+        for name in ["turn-client.prom", "turn-relay.prom"] {
+            if let Ok(extra) = fs::read_to_string(root.join(name))
+                && extra.len() <= 65_536
+                && !extra.contains('\0')
+            {
+                text.push('\n');
+                text.push_str(&extra);
+            }
+        }
+        crate::private_file::replace(&path, text.as_bytes())?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o644))?;
     }
     Ok(report)

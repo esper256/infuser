@@ -1,0 +1,27 @@
+[Unit]
+Description=Infuser embedded TURN relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=infuser
+Group=infuser
+StateDirectory=infuser
+StateDirectoryMode=0700
+ExecStart=/opt/infuser/current/infuser turn /etc/infuser/infuser.toml
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/infuser
+MemoryMax=128M
+TasksMax=64
+LimitNOFILE=4096
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -147,6 +147,10 @@ pub struct Platform {
     dedicated: Arc<Mutex<crate::dedicated::Directory>>,
     voice: Option<Arc<crate::voice::Service>>,
     native_manifests: Arc<Mutex<BTreeMap<(String, u64), infuser_native_protocol::Manifest>>>,
+    path_memory: Arc<crate::turn::Memory>,
+    turn_view: Arc<Mutex<Option<crate::turn::Snapshot>>>,
+    client_metrics: Arc<crate::turn::ClientPath>,
+    turn_bridge: Arc<std::sync::atomic::AtomicBool>,
 }
 impl Platform {
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
@@ -232,6 +236,10 @@ impl Platform {
             peers: Arc::new(crate::peers::Rooms::recovering(resume_after)),
             relay,
             native_manifests: Default::default(),
+            path_memory: Default::default(),
+            turn_view: Default::default(),
+            client_metrics: Arc::new(crate::turn::ClientPath::new()),
+            turn_bridge: Default::default(),
         };
         platform.reconcile_publications()?;
         platform.controller.deployment.observe_boot()?;
@@ -239,6 +247,48 @@ impl Platform {
     }
     fn config(&self) -> &Config {
         &self.controller.config
+    }
+    pub fn listen_turn_bridge(&self) -> Result<()> {
+        let Some(turn) = &self.config().controller.turn else {
+            return Ok(());
+        };
+        if turn.engine != crate::config::TurnEngine::Embedded
+            || self
+                .turn_bridge
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            return Ok(());
+        }
+        let path = turn
+            .socket
+            .clone()
+            .unwrap_or_else(|| self.config().controller.state_dir.join("turn.sock"));
+        let rooms = Arc::clone(&self.peers);
+        crate::turn::serve_bridge(
+            &path,
+            Arc::new(move |peer| rooms.admitted(peer, now())),
+            Arc::clone(&self.turn_view),
+        )
+    }
+    fn network_label(&self, launch_id: &str, launch: &Launch) -> Option<String> {
+        let embedded = self
+            .config()
+            .controller
+            .turn
+            .as_ref()
+            .is_some_and(|turn| turn.engine == crate::config::TurnEngine::Embedded);
+        let view = self
+            .turn_view
+            .lock()
+            .unwrap()
+            .clone()
+            .map(|view| view.label_view());
+        self.path_memory.label(&crate::turn::Query {
+            server: on_dedicated_server(self, launch_id),
+            embedded,
+            seat: self.peers.seat(launch.runtime_id(), launch_id, now()),
+            view,
+        })
     }
     fn root(&self) -> PathBuf {
         self.config().controller.state_dir.join("content")
@@ -645,6 +695,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/session", post(exchange))
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
+        .route("/_infuser/network-path", get(network_path))
         .route("/_infuser/presence/v1", get(presence::snapshot))
         .route("/_infuser/launch-intent/v1/consume", post(consume_intent))
         .route("/_infuser/runtime/v1", get(runtime::status).post(runtime::acquire))
@@ -947,8 +998,7 @@ async fn launch(
         .as_ref()
         .is_some_and(|m| matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld));
     let needs_server = b.manifest.server_start.is_none()
-        && ((body.mode.as_deref() == Some("multiplayer") && managed)
-            || (body.mode.is_none() && managed)
+        && ((body.mode.is_none() || body.mode.as_deref() == Some("multiplayer")) && managed
             || matches!(b.manifest.solo_runtime, Some(SoloRuntime::SharedServer)));
     let id = secret()[..32].to_string();
     let token = secret();
@@ -1356,6 +1406,43 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         json!({"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
+async fn network_path(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let (id, launch) = p.game(&h)?;
+    Ok(reply(json!({"label": p.network_label(&id, &launch)})))
+}
+fn client_ip(h: &HeaderMap) -> Option<IpAddr> {
+    h.get("x-infuser-client-ip")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+}
+fn remember_peer(p: &Platform, h: &HeaderMap, app: &str, peer: &str, launch: &str) {
+    if let Some(ip) = client_ip(h) {
+        p.peers.note_address(app, peer, launch, ip, now());
+    }
+}
+fn on_dedicated_server(p: &Platform, launch_id: &str) -> bool {
+    let attempts = p.connections.lock().unwrap();
+    let directory = p.dedicated.lock().unwrap();
+    let time = now();
+    attempts.0.values().any(|attempt| {
+        attempt.identity.launch_id == launch_id
+            && attempt.state == crate::connections::State::Connected
+            && attempt.admission.as_deref() == Some("accepted")
+            && directory
+                .0
+                .get(attempt.identity.runtime_id())
+                .is_some_and(|report| {
+                    report.scope.instance_id == attempt.identity.instance_id
+                        && report.seen + crate::dedicated::REPORT_SECONDS > time
+                        && report.sessions.values().any(|session| {
+                            session
+                                .connections
+                                .iter()
+                                .any(|id| id == &attempt.identity.connection_id)
+                        })
+                })
+    })
+}
 async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
     p.origin(&h, host(&h))?;
     let (id, _) = p.game(&h)?;
@@ -1484,6 +1571,12 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
     if body.adapter.is_some() {
         result["peerjs"] = json!({"path":"/_infuser/peerjs/", "id":format!("i-{}-{}",result["epoch"].as_str().unwrap(),result["self_id"].as_str().unwrap()),"key":"peerjs"});
     }
+    if let Some(peer) = result["self_id"].as_str()
+        && let Some(ip) = client_ip(&h)
+    {
+        p.peers
+            .note_address(launch.runtime_id(), peer, &id, ip, now());
+    }
     result["ice_transport_policy"] = json!(if body.relay_only
         || matches!(
             multiplayer.direct_connect,
@@ -1514,6 +1607,7 @@ async fn peer_poll(
         h.get("sec-fetch-site").is_none_or(|v| v == "same-origin"),
         fault(403, "poll from the game origin")
     );
+    remember_peer(&p, &h, launch.runtime_id(), &peer, &id);
     Ok(reply(p.peers.poll(
         launch.runtime_id(),
         &peer,
@@ -1532,6 +1626,7 @@ async fn peer_signal(
     p.origin(&h, host(&h))?;
     p.peers
         .signal(launch.runtime_id(), &peer, &id, &body, now())?;
+    remember_peer(&p, &h, launch.runtime_id(), &peer, &id);
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_leave(State(p): State<Platform>, Path(peer): Path<String>, h: HeaderMap) -> Answer {
@@ -1544,6 +1639,7 @@ async fn peer_ice(State(p): State<Platform>, Path(peer): Path<String>, h: Header
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
     p.peers.poll(launch.runtime_id(), &peer, &id, 0, now())?;
+    remember_peer(&p, &h, launch.runtime_id(), &peer, &id);
     let relay = p
         .relay
         .as_ref()
@@ -1560,6 +1656,24 @@ async fn peer_health(
 ) -> Answer {
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
+    if let Some(connections) = body.get("connections").and_then(|value| value.as_array()) {
+        for connection in connections {
+            if let Some(ms) = connection
+                .get("round_trip_ms")
+                .and_then(|value| value.as_u64())
+            {
+                p.client_metrics.observe(
+                    connection.get("local").and_then(|value| value.as_str()),
+                    connection.get("remote").and_then(|value| value.as_str()),
+                    ms,
+                );
+            }
+        }
+        p.client_metrics.publish(&crate::turn::client_metrics_path(
+            &p.config().controller.state_dir,
+        ));
+    }
+    remember_peer(&p, &h, launch.runtime_id(), &peer, &id);
     p.peers
         .health(launch.runtime_id(), &peer, &id, body, now())?;
     Ok(reply(json!({"ok":true})))
@@ -1569,6 +1683,9 @@ async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (group, _) = p.group_view(&h, &email)?;
     let data = p.db.catalog()?;
     let mut report = p.peers.diagnostics(now());
+    if let Some(relay) = p.turn_view.lock().unwrap().clone() {
+        report["relay"] = serde_json::to_value(&relay).unwrap_or(Value::Null);
+    }
     if let Some(sessions) = report["sessions"].as_array_mut() {
         sessions.retain(|s| {
             s["app_id"]

@@ -177,6 +177,9 @@ failure cannot masquerade as a successful ping. Do not silence this rule.
 - Last restore-verified backup and failures, when backups are enabled.
 - A failed pre-update database snapshot, once the updater has attempted one.
 - Website response, HTTPS certificate expiry, failed scrapes and stale collector.
+- Embedded relay path time, jitter, stalls, active allocations, and bytes.
+  These are installation-wide. They do not name players, games, or addresses.
+  Per-player detail stays on Admin → Network diagnostics.
 
 Persistent failures alert after a short grace period. Missing collector data is
 an alert, not a successful check. Backup staging is explicitly reported; a long
@@ -194,6 +197,26 @@ The included stack caps memory and CPU, limits container logs, and retains seven
 days of metrics with a 1 GB TSDB block target. The WAL and current head need extra
 space, so that target is not a disk quota. Monitor actual use on your host. Do not
 add Loki or a second Alertmanager unless you need their extra capabilities.
+
+## Relay metrics in Explore
+
+The collector copies `turn-client.prom` and `turn-relay.prom` from the state
+directory into the textfile the existing host job already scrapes. Open
+Grafana Explore against the Infuser Prometheus datasource. Useful queries:
+
+```promql
+histogram_quantile(0.95, sum by (le, path) (rate(infuser_path_rtt_ms_bucket[5m])))
+histogram_quantile(0.95, sum by (le, leg) (rate(infuser_turn_leg_rtt_ms_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(infuser_turn_jitter_ms_bucket[5m])))
+sum(rate(infuser_turn_stalls_total[5m]))
+infuser_turn_allocations
+sum by (direction) (rate(infuser_turn_bytes_total[5m]))
+```
+
+`path` is `relay`, `stun`, or `lan` from the browser's selected pair.
+`leg` is `peer` or `client` from consent checks on the relay. The Infuser
+dashboard folder includes a Relay page with the same series. No query should
+group by a username, peer id, or address.
 
 The collector keeps a current report, not an incident database. The separate
 stable binary used for backup recovery is described in the backup guide; the

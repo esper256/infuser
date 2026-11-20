@@ -7,6 +7,7 @@ import {spawn} from 'node:child_process';
 import {chromium} from '../services/peerjs/node_modules/playwright/index.mjs';
 const processes=[], errors=[], clients=[];
 const live=process.argv[2], recovery=process.argv[3]==='recovery';
+const relay=Boolean(live)||process.env.INFUSER_RELAY==='1';
 async function start(command,args,ready) {
   const child=spawn(command,args,{stdio:['ignore','pipe','pipe']});processes.push(child);
   let output='';
@@ -34,7 +35,7 @@ try {
       await route.fulfill({response,json:body});
     });
     const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
-    const url=new URL(urls[i]);url.searchParams.set('autoplay','1');if(live)url.searchParams.set('relay','1');
+    const url=new URL(urls[i]);url.searchParams.set('autoplay','1');if(relay)url.searchParams.set('relay','1');
     await page.goto(url.href);
     const frame=live?await (await page.locator('#game').elementHandle()).contentFrame():page;
     await frame.waitForFunction(()=>window.peerjsTest?.room?.active,{}, {timeout:20000});
@@ -45,7 +46,7 @@ try {
   for(const c of clients){
     const e=await c.frame.evaluate(async()=>({role:peerjsTest.role,session:peerjsTest.session,received:peerjsTest.received,binary:peerjsTest.binary,links:await peerjsTest.room.stats()}));
     assert.equal(e.links.length,1);assert(e.links[0].bytesSent>0&&e.links[0].bytesReceived>0);
-    if(live){assert.equal(e.links[0].local,'relay');assert.equal(e.links[0].remote,'relay');}
+    if(relay){assert.equal(e.links[0].local,'relay');assert.equal(e.links[0].remote,'relay');}
     evidence.push(e);
   }
   assert.deepEqual(evidence.map(e=>e.role),['host','member']);assert.equal(evidence[0].session,evidence[1].session);

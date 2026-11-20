@@ -628,7 +628,7 @@ impl Platform {
                 .get(app)
                 .is_some_and(|i| i.reserved());
             if ((changes_server && running) || self.peers.active(app, now()))
-                && !d.apps.get(app).is_some_and(|a| a.build == build)
+                && d.apps.get(app).is_none_or(|a| a.build != build)
             {
                 d.builds.get_mut(&key).unwrap().ready = true;
                 d.pending_promotions.insert(
@@ -821,15 +821,14 @@ pub(super) async fn remove_build(
             let _guard = p.publishing.lock().unwrap();
             p.db.edit(|d| {
                 ensure!(
-                    !d.apps.get(&app).is_some_and(|a| a.build == build)
+                    d.apps.get(&app).is_none_or(|a| a.build != build)
                         && !d
                             .deployments
                             .values()
                             .any(|dep| dep.app == app && dep.active.build == build)
-                        && !d
-                            .pending_promotions
+                        && d.pending_promotions
                             .get(&app)
-                            .is_some_and(|p| p.build == build)
+                            .is_none_or(|p| p.build != build)
                         && !d
                             .launches
                             .values()

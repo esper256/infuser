@@ -1,0 +1,77 @@
+{
+  "uid": "infuser-turn",
+  "title": "Relay",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "tags": ["infuser"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Browser round trip",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "infuser-prometheus"},
+      "targets": [{
+        "refId": "A",
+        "expr": "histogram_quantile(0.95, sum by (le, path) (rate(infuser_path_rtt_ms_bucket[5m])))",
+        "legendFormat": "{{path}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "title": "Relay leg round trip",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "infuser-prometheus"},
+      "targets": [{
+        "refId": "A",
+        "expr": "histogram_quantile(0.95, sum by (le, leg) (rate(infuser_turn_leg_rtt_ms_bucket[5m])))",
+        "legendFormat": "{{leg}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "title": "Jitter and stalls",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "infuser-prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(infuser_turn_jitter_ms_bucket[5m])))",
+          "legendFormat": "jitter"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(infuser_turn_stalls_total[5m]))",
+          "legendFormat": "stalls/s"
+        }
+      ],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "title": "Allocations and bytes",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "infuser-prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "infuser_turn_allocations",
+          "legendFormat": "{{traffic}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (direction) (rate(infuser_turn_bytes_total[5m]))",
+          "legendFormat": "{{direction}} B/s"
+        }
+      ],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    }
+  ]
+}

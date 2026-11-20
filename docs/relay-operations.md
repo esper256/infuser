@@ -17,10 +17,15 @@ For example, reduce controller `port_end` to 8699 and add:
 
 ```toml
 [controller.turn]
+engine = "coturn" # or "embedded"
 urls = ["turn:games.example.com:8700?transport=udp", "turn:games.example.com:8700?transport=tcp"]
 secret_file = "/etc/infuser/turn.secret"
 relay_port_start = 8800
 relay_port_end = 8899
+# Required only for engine = "embedded". Same mapping as coturn external-ip.
+# listen_ip = "10.0.0.5"
+# public_ip = "203.0.113.10"
+# socket = "/var/lib/infuser/turn.sock"
 ```
 
 Generate a random shared secret locally on the server. Protect it and the coturn
@@ -34,6 +39,62 @@ and the reserved relay ports, not all outbound traffic.
 
 The example uses TURN UDP/TCP, with WebRTC DTLS protecting game payloads; it does
 not configure TURN-over-TLS. TLS-only traversal is currently unsupported.
+
+## Embedded relay
+
+`engine = "embedded"` runs the relay inside `infuser turn`, a second process
+from the same binary. It listens on the same 8700 UDP/TCP ports and relays on
+the same UDP range. It does not open any new public port and it does not change
+the host firewall. The daemon and the relay share a Unix socket under the state
+directory. The relay asks the daemon whether a peer is still admitted, and it
+sends back the bindings and allocations used for the player-bar label.
+
+Install the unit once, from a checkout that contains it:
+
+```sh
+sudo install -m 0644 deploy/infuser-turn.service /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+Leave the unit disabled until cutover. The updater restarts `infuser-turn.service`
+only when the new binary's relay fingerprint differs from the previous binary.
+A website or game-server deploy does not restart it, so relayed matches stay up.
+That check lives in the updater binary at `/usr/local/libexec/infuser-updater`.
+Install the updater from this release before expecting the automatic restart.
+Until then, restart the unit yourself when a release says the relay changed.
+
+Replace `/usr/local/libexec/infuser-updater` with the new `infuser` binary only
+as part of the documented updater install. Do not point the updater at a
+half-written file.
+
+### Cutover
+
+1. Add `engine = "embedded"`, `listen_ip`, and `public_ip` to `[controller.turn]`.
+   `listen_ip` is the address coturn bound. `public_ip` is the address in
+   coturn's `external-ip`. Keep the same secret file and the same ports.
+2. `sudo systemctl enable --now infuser-turn.service` will fail while coturn
+   still holds the ports. Stop the container without deleting it:
+   `sudo docker stop infuser-turn`.
+3. `sudo systemctl start infuser-turn.service` and `sudo systemctl restart infuser.service`.
+4. In `/etc/infuser/operations.toml`, remove `infuser-turn` from `containers`
+   and add `infuser-turn.service` to `services`, then let the next collector
+   run. A stopped container would otherwise stay red.
+5. Play a relay-only match with two authorized players. The bar should say
+   Relayed, and Admin → Network diagnostics should show bytes on the allocation.
+
+### Rollback
+
+1. Set `engine = "coturn"`.
+2. `sudo systemctl stop infuser-turn.service` so the ports are free.
+3. `sudo docker start infuser-turn`.
+4. `sudo systemctl restart infuser.service`.
+5. Put `infuser-turn` back on the container list and remove
+   `infuser-turn.service` from `services`.
+
+The coturn container and its config stay on disk. Rollback does not recreate
+them. A binary older than this release cannot read `engine`, `listen_ip`,
+`public_ip`, or `socket`. Remove those keys before switching back to such a
+binary.
 To check the relay, use two authorized test players with
 `relayOnly: true`. Look for **relay ↔ relay** in selected-candidate stats and
 increasing byte counters. Merely gathering a relay candidate does not prove
