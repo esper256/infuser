@@ -65,10 +65,10 @@ did not gain wrappers or layout hooks. The sheet does four things:
   below that. In the wide query, cards `4n+5` and `4n+6` span two tracks.
   Auto-placement stays row-wise, so the next card is to the right or on the
   next row. That is the same order as Tab.
-- On the wide masthead, `#activity` is `position: static`. Opening Recently
-  inserts speech bubbles between the Recent button and the wordmark, which
-  is their DOM order inside `.brand`. Narrow widths keep the shared
-  absolute panel.
+- At 960px and wider, Recently opens as an absolute flyout just to the
+  right of the masthead, about 360px wide, painted with the masthead so it
+  sits over the game grid. The entry list scrolls inside the flyout. Narrower
+  widths keep the shared panel under the top bar.
 - `#game-detail-content` is one column: the art on top, captions underneath.
   The close button stays the first control and sticks to the top corner.
 

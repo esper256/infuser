@@ -51,7 +51,7 @@ Theme rules may change colors, typography, materials, spacing, grid placement,
 and decorative treatments. A theme may also reposition existing regions with
 its own stylesheet: Funny Pages turns the header into a left-hand masthead on
 wide screens, gives the game list an asymmetric panel grid, and opens Recently
-as speech bubbles in that masthead. No shared wrapper or layout hook was added
+as a flyout beside that masthead. No shared wrapper or layout hook was added
 for that. Themes must not remove functional controls or permission checks.
 The shared layout visually hides the large Library heading while retaining
 it for assistive technology. Do not hide application features with theme CSS.
