@@ -1049,6 +1049,10 @@ fn valid_emoji(emoji: &str) -> bool {
         "🎵",
         "😄",
         "🤝",
+        "🔥",
+        "👻",
+        "🏆",
+        "🎉",
     ]
     .contains(&emoji)
 }

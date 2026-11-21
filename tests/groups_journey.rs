@@ -517,6 +517,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         "music",
         "smile",
         "together",
+        "fire",
+        "spooky",
+        "trophy",
+        "celebrate",
     ] {
         let response = c
             .member("user", Method::GET, &format!("/assets/reactions/{id}.webp"))
@@ -553,6 +557,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         "🎵",
         "😄",
         "🤝",
+        "🔥",
+        "👻",
+        "🏆",
+        "🎉",
     ] {
         ok(
             c.member("user", Method::PUT, &format!("/api/apps/{away}/reaction"))
