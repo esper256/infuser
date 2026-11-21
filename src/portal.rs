@@ -1367,7 +1367,17 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let data = p.db.catalog()?;
     let build = &data.builds[&build_key(&launch.app, &launch.build)];
     let page = presence::open_page(&p.db, &id, &launch.host)?;
-    let html = include_str!("../web/game-player.html").replace("PLAYER_PAGE_ID", &page);
+    let voice_token = if !launch.guest {
+        p.voice
+            .as_ref()
+            .map(|v| v.player_token(&id))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let html = include_str!("../web/game-player.html")
+        .replace("PLAYER_PAGE_ID", &page)
+        .replace("PLAYER_VOICE_TOKEN", &voice_token);
     let mut response = (
         [
             ("Cache-Control", "no-store"),

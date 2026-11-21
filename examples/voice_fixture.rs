@@ -101,6 +101,9 @@ async fn main() -> Result<()> {
             settings: cfg.controller.clone(),
         }),
     )?))?;
+    std::fs::create_dir_all(root.join("content/pond/one"))?;
+    let game_html = b"<!doctype html><title>Pond</title><body style=\"margin:0;background:#102028;color:#edf4ef;display:grid;place-items:center;height:100vh;font:16px system-ui\">Pond</body>";
+    std::fs::write(root.join("content/pond/one/index.html"), game_html)?;
     p.db.edit(|d| {
         d.groups.names.insert("away".into(), "Away".into());
         for who in ["visitor", "other"] {
@@ -108,6 +111,28 @@ async fn main() -> Result<()> {
                 .members
                 .insert(format!("{who}@example.com"), "away".into());
         }
+        d.apps.insert(
+            "pond".into(),
+            serde_json::from_value(json!({"build":"one","updated":now(),"listed":true}))?,
+        );
+        d.builds.insert(
+            "pond/one".into(),
+            serde_json::from_value(json!({
+                "manifest": {
+                    "schema_version": 1,
+                    "app_id": "pond",
+                    "title": "Moon Pond Adventure",
+                    "play_modes": ["solo"],
+                    "solo_runtime": "client_only"
+                },
+                "server": null,
+                "spa": false,
+                "cross_origin_isolation": false,
+                "ready": true,
+                "created": now(),
+                "files": { "index.html": game_html.len() }
+            }))?,
+        );
         d.visits.insert(
             "visit".into(),
             Visit {
@@ -165,7 +190,10 @@ async fn main() -> Result<()> {
                 }
             }),
         );
-    let cert = rcgen::generate_simple_self_signed(vec!["games.example.com".into()])?;
+    let cert = rcgen::generate_simple_self_signed(vec![
+        "games.example.com".into(),
+        "*.games.example.com".into(),
+    ])?;
     let cert_path = root.join("cert.pem");
     let key_path = root.join("key.pem");
     std::fs::write(&cert_path, cert.cert.pem())?;

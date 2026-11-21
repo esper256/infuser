@@ -49,7 +49,109 @@ try{
   await river.context.setOffline(true);await sleep(2500);await river.context.setOffline(false);
   await river.page.waitForFunction(()=>document.querySelector('#voice-toggle').dataset.state==='on',{},{timeout:20000});
   await river.page.waitForFunction(()=>document.querySelectorAll('.voice-badge').length===2);
+  // Exercise Library split pill, caret open+close click toggle, mute badge, deafen, and focus handling.
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  assert.equal(await river.page.locator('#voice-mixer-toggle').getAttribute('aria-expanded'),'true');
+  // Clicking the caret a second time must close the popover (not light-dismiss + re-open).
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
+  assert.equal(await river.page.locator('#voice-mixer-toggle').getAttribute('aria-expanded'),'false');
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  await river.page.screenshot({path:path.join(root,'voice-mixer.png')});
+  await river.page.locator('#voice-mixer').getByRole('button',{name:'Mute',exact:true}).click();
+  await river.page.waitForFunction(()=>document.querySelector('.voice-split')?.dataset.muted==='true'&&!document.querySelector('.voice-split-badge')?.hidden);
+  await river.page.locator('#voice-mixer').getByRole('button',{name:'Deafen',exact:true}).click();
+  await river.page.waitForFunction(()=>document.querySelector('.voice-split')?.dataset.deafened==='true'&&document.querySelector('.voice-split-badge')?.hidden);
+  await river.page.locator('#voice-mixer').getByRole('button',{name:'Unmute',exact:true}).click();
+  await river.page.waitForFunction(()=>document.querySelector('.voice-split')?.dataset.muted==='false'&&document.querySelector('.voice-split')?.dataset.deafened==='false');
+  await river.page.keyboard.press('Escape');
+  await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
+  assert.equal(await river.page.evaluate(()=>document.activeElement?.id),'voice-mixer-toggle','closing mixer returns focus to caret');
   await river.page.screenshot({path:path.join(root,'voice-header.png')});
+
+  // Real 360x800 narrow-screen check for Library header + popover.
+  await river.page.setViewportSize({width:360,height:800});
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  const lib360=await river.page.evaluate(()=>{
+    const header=document.querySelector('header');
+    const pill=document.querySelector('.voice-split').getBoundingClientRect();
+    const chat=document.querySelector('#chat-toggle').getBoundingClientRect();
+    const pop=document.querySelector('#voice-mixer').getBoundingClientRect();
+    return {
+      headerOverflow:header.scrollWidth>header.clientWidth,
+      pillLeft:pill.left,pillRight:pill.right,
+      chatLeft:chat.left,chatRight:chat.right,
+      popLeft:pop.left,popRight:pop.right,popTop:pop.top,popBottom:pop.bottom,
+      vw:window.innerWidth,vh:window.innerHeight,
+    };
+  });
+  assert.equal(lib360.headerOverflow,false,'Library header must not overflow at 360px');
+  assert(lib360.pillLeft>=0&&lib360.pillRight<=lib360.vw,'Voice split pill fits inside 360px viewport');
+  assert(lib360.chatLeft>=0&&lib360.chatRight<=lib360.vw,'Chat toggle fits inside 360px viewport');
+  assert(lib360.pillRight<=lib360.chatLeft,'Voice pill and chat toggle do not overlap');
+  assert(lib360.popLeft>=12&&lib360.popRight<=lib360.vw-12,'Library voice popover stays within 12px horizontal margins at 360px');
+  assert(lib360.popTop>=12&&lib360.popBottom<=lib360.vh-12,'Library voice popover stays within 12px vertical margins at 360px');
+  await river.page.screenshot({path:path.join(root,'voice-library-360.png')});
+  await river.page.keyboard.press('Escape');
+  await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
+
+  // Real 360x800 game-player header check while muted: red mic-slash badge visible, no overflow.
+  const launch=await river.page.evaluate(async()=>{
+    const r=await fetch('/api/apps/pond/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'solo'})});
+    return {ok:r.ok,body:await r.json()};
+  });
+  assert.equal(launch.ok,true,'launch solo fixture game');
+  const gamePage=await river.context.newPage();
+  gamePage.on('pageerror',e=>console.error('game',e.message));
+  await gamePage.setViewportSize({width:360,height:800});
+  await gamePage.goto(launch.body.url);
+  await gamePage.locator('#voice-levels').waitFor({state:'visible'});
+  // Clicking the game bar pill opens, and clicking it a second time closes cleanly.
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'visible'});
+  assert.equal(await gamePage.locator('#voice-levels').getAttribute('aria-expanded'),'true');
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'hidden'});
+  assert.equal(await gamePage.locator('#voice-levels').getAttribute('aria-expanded'),'false');
+  // Mute from the game bar popover and verify the Library confirms it back to the game bar badge.
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'visible'});
+  const gamePop360=await gamePage.evaluate(()=>{
+    const pop=document.querySelector('#game-voice-mixer').getBoundingClientRect();
+    return {left:pop.left,right:pop.right,top:pop.top,bottom:pop.bottom,vw:window.innerWidth,vh:window.innerHeight};
+  });
+  assert(gamePop360.left>=10&&gamePop360.right<=gamePop360.vw-10,'Game voice popover stays inside 10px margins at 360px');
+  await gamePage.locator('#game-voice-mixer').getByRole('button',{name:'Mute',exact:true}).click();
+  await gamePage.waitForFunction(()=>document.querySelector('#voice-levels')?.dataset.muted==='true'&&!document.querySelector('.voice-split-badge')?.hidden);
+  await gamePage.screenshot({path:path.join(root,'voice-game-popover-360.png')});
+  await gamePage.keyboard.press('Escape');
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'hidden'});
+  const gameBar360=await gamePage.evaluate(()=>{
+    const bar=document.querySelector('#player-header .bar');
+    const pill=document.querySelector('#voice-levels').getBoundingClientRect();
+    const badge=document.querySelector('.voice-split-badge').getBoundingClientRect();
+    return {
+      overflow:bar.scrollWidth>bar.clientWidth,
+      pillLeft:pill.left,pillRight:pill.right,pillWidth:pill.width,pillHeight:pill.height,
+      badgeWidth:badge.width,badgeHeight:badge.height,
+      vw:window.innerWidth,
+    };
+  });
+  assert.equal(gameBar360.overflow,false,'Game bar must not overflow at 360px');
+  assert(gameBar360.pillLeft>=0&&gameBar360.pillRight<=gameBar360.vw,'Game voice pill fits inside 360px viewport');
+  assert(gameBar360.pillWidth>=40&&gameBar360.pillHeight>=40,'Game voice pill target is at least 40x40px');
+  assert(gameBar360.badgeWidth>=14&&gameBar360.badgeHeight>=14,'Muted badge is visible and at least 14px');
+  await gamePage.screenshot({path:path.join(root,'voice-game-muted-360.png')});
+  // Unmute again before continuing to observer-tab checks.
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').getByRole('button',{name:'Unmute',exact:true}).click();
+  await gamePage.waitForFunction(()=>document.querySelector('#voice-levels')?.dataset.muted==='false');
+  await gamePage.close();
+  await river.page.setViewportSize({width:1280,height:800});
+  console.log('360px Library and Game Player split-pill checks passed.');
   // A second tab sees the connection but never opens another microphone.
   const tab=await river.context.newPage();await tab.goto(origin+'/library');
   await tab.waitForFunction(()=>document.querySelector('#voice-toggle')?.dataset.state==='elsewhere');
@@ -83,7 +185,7 @@ try{
   await river.page.waitForFunction(()=>window.connections.every(pc=>pc.connectionState==='closed'));
   for(const viewport of [{width:390,height:844},{width:1280,height:800}]){
     await river.page.setViewportSize(viewport);
-    const [voice,chat]=await Promise.all(['#voice-toggle','#chat-toggle'].map(s=>river.page.locator(s).boundingBox()));
+    const [voice,chat]=await Promise.all(['.voice-split','#chat-toggle'].map(s=>river.page.locator(s).boundingBox()));
     assert(Math.abs(voice.y-chat.y)<10,'voice stays beside text chat');assert(voice.x+voice.width<=chat.x+1,'controls do not overlap');
   }
   passed=true;console.log('Voice UI and real-media journey passed. Artifacts: '+root);

@@ -2,12 +2,35 @@
 
 Audience: server operators. Game authors do not need to integrate voice.
 
-Voice chat is optional. When configured, the Library shows one headset toggle
-beside text chat. On joins the group's voice conversation and captures the
-microphone; off stops capture and listening. A small headset badge identifies
-connected profiles. There are no room menus, individual mute controls, recordings,
-video, or game-specific channels. Refreshing or leaving the Library disconnects;
-launching a game in another tab leaves the Library's voice connection running.
+Voice chat is optional. When configured, the Library shows a single split pill
+beside text chat (`[ headset | ▾ ]`). Clicking the headset turns voice on or
+off; clicking the caret opens the Voice mixer popover. When muted, a red
+mic-slash badge appears on the headset; when deafened, the whole pill switches
+to danger styling. A small headset badge identifies connected profiles, and an
+active speaking ring highlights who is talking.
+
+Players can adjust their microphone gain (0%–200% with a live level meter and
+optional pre-call mic test), master voice volume (0%–200%), per-participant
+volume and local mute (in the Voice mixer or a friend's avatar card), quick
+mute/deafen, and browser audio options (device selection, auto gain control,
+and noise suppression; echo cancellation stays on to prevent feedback). Gain,
+volume, per-participant mix, and processing preferences are saved per profile
+in SQLite; mic mute and deafen reset to unmuted on a fresh join. There are no
+room menus, recordings, video, or game-specific channels. Refreshing or leaving
+the Library disconnects; launching a game in another tab leaves the Library's
+voice connection running.
+
+While a player has an active voice connection in their Library tab, non-guest
+game tabs show the single-segment voice pill (`[ headset ▾ ]`) in the slim
+player header bar above the game, using the same muted badge and deafened
+styling. The game voice script loads lazily only for non-guest launches when
+voice is configured. Adjustments sync to the owning Library tab through
+`/_infuser/voice` and `/_infuser/voice/control` (authenticated by a per-launch
+HMAC token derived from a dedicated subkey and consumed by the player shell
+before the game iframe loads, so open game tabs survive controller restarts)
+and `/api/voice/control`; the game bar displays the state confirmed applied by
+the Library tab via `/api/voice/ack` after microphone mute/unmute completes,
+and game origins can never acquire the microphone or mint LiveKit tokens.
 
 The connected tab plays a soft rising three-note chime for joins and a falling
 chime for departures, including its own connection/disconnection. These tones are
@@ -101,6 +124,14 @@ Every initial connection and reconnect passes through Infuser's gateway. Even a
 LiveKit-refreshed token needs a live lease and current channel access. The sidecar's
 control API is private, and only the gateway's two exact signaling paths are public.
 Cookie and Infuser control credentials are never forwarded to the sidecar.
+
+On game origins, `/_infuser/voice` and `/_infuser/voice/control` require the
+player-shell HMAC token derived from a dedicated subkey (`infuser-player-voice-key-v1`),
+blocking direct unauthenticated API calls from game code. Because the game iframe
+and player shell share the isolated game origin (`frame-src 'self'`), same-origin
+DOM access to the player shell (for example clicking header controls or reading the
+open popover) is accepted for family-authored games; hosting untrusted games would
+require moving the player shell to a separate origin or sandboxing the iframe.
 
 The owning tab renews its lease every 20 seconds; it expires after 90 seconds
 without renewal. Off revokes admission before asking LiveKit to remove the
