@@ -645,14 +645,17 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
             .status(),
         422
     );
+    // Echo cancellation is accepted and ignored for one release so pre-deploy tabs stay clean.
+    let aec_reply: Value = req(reqwest::Method::PATCH, "/api/voice/settings", "host")
+        .json(&json!({"echo_cancellation": false}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
     assert_eq!(
-        req(reqwest::Method::PATCH, "/api/voice/settings", "host")
-            .json(&json!({"echo_cancellation": false}))
-            .send()
-            .await?
-            .status(),
-        422,
-        "echo cancellation cannot be disabled"
+        aec_reply["settings"]["echo_cancellation"], true,
+        "echo cancellation remains enabled even if an older client sends false"
     );
     assert_eq!(
         req(reqwest::Method::PATCH, "/api/voice/settings", "operator")
@@ -863,7 +866,8 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
     assert_eq!(woke["settings"]["output_volume"], 140);
     assert_eq!(woke["self"]["deafened"], true);
 
-    // Library confirms applying deafen; game header now sees applied_deafened=true.
+    // Library confirms applying deafen; game-origin /_infuser/voice/control returns the confirmed state.
+    let applied_before = game_patched["applied_revision"].as_u64().unwrap();
     req(reqwest::Method::POST, "/api/voice/ack", "host")
         .json(&json!({
             "id": host_join["id"],
@@ -874,17 +878,19 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         .send()
         .await?
         .error_for_status()?;
-    let confirmed: Value = game_req(
-        reqwest::Method::GET,
-        "pond.games.example.com",
-        "host-game-token",
-        Some(&player_voice_token),
-    )
-    .send()
-    .await?
-    .error_for_status()?
-    .json()
-    .await?;
+    let confirmed: Value = http
+        .get(format!(
+            "{url}/_infuser/voice/control?since={rev_after}&applied={applied_before}&active=1&epoch={epoch}"
+        ))
+        .header("host", "pond.games.example.com")
+        .header("origin", "https://pond.games.example.com")
+        .bearer_auth("host-game-token")
+        .header("x-infuser-player-voice", &player_voice_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
     assert_eq!(confirmed["applied_revision"], rev_after);
     assert_eq!(confirmed["applied_deafened"], true);
 

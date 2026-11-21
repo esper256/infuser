@@ -409,28 +409,38 @@
 [data-theme="field-notes"] .own .chat-meta strong,
 [data-theme="field-notes"] .chat-meta strong { color: var(--moss-deep); }
 [data-theme="field-notes"] #chat-toggle,
-[data-theme="field-notes"] #voice-toggle,
-[data-theme="field-notes"] #voice-mute,
-[data-theme="field-notes"] #voice-mixer-toggle {
+[data-theme="field-notes"] .voice-split > button {
   background: var(--field);
   color: var(--ink);
   border-color: var(--line);
 }
-[data-theme="field-notes"] #voice-toggle[aria-pressed="true"] {
+[data-theme="field-notes"] .voice-split > button:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+[data-theme="field-notes"] .voice-split-divider { background: var(--line); }
+[data-theme="field-notes"] .voice-split-toggle[aria-pressed="true"],
+[data-theme="field-notes"] .voice-split-toggle[aria-pressed="true"]:hover {
   background: #e2f1e7;
   color: var(--moss-deep);
   border-color: var(--moss);
 }
-[data-theme="field-notes"] #voice-mute[data-muted="true"],
-[data-theme="field-notes"] #voice-toggle[data-deafened="true"] {
+[data-theme="field-notes"] .voice-split[data-deafened="true"] > button,
+[data-theme="field-notes"] .voice-split[data-deafened="true"] > button:hover {
   background: var(--voice-danger-bg);
   color: var(--voice-danger-ink);
   border-color: var(--voice-danger-border);
 }
-[data-theme="field-notes"] #voice-mixer-toggle[aria-expanded="true"] {
+[data-theme="field-notes"] .voice-split-caret[aria-expanded="true"],
+[data-theme="field-notes"] .voice-split-caret[aria-expanded="true"]:hover {
   background: #f3d27a;
   color: var(--ink);
   border-color: var(--ink);
+}
+[data-theme="field-notes"] .voice-split-badge {
+  background: var(--voice-danger-bg);
+  color: var(--voice-danger-ink);
+  border-color: var(--voice-danger-border);
 }
 [data-theme="field-notes"] .presence-name {
   background: var(--field);

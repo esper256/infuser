@@ -720,41 +720,56 @@
 [data-theme="castle-keep"] #chat-actions #chat-delete { color: var(--heart); }
 
 /* Chat is a window in the wall: parchment letters, a steel note of your own. */
-[data-theme="castle-keep"] #chat-toggle,
-[data-theme="castle-keep"] #voice-toggle,
-[data-theme="castle-keep"] #voice-mute,
-[data-theme="castle-keep"] #voice-mixer-toggle {
+[data-theme="castle-keep"] #chat-toggle {
   background-image: var(--steel-face);
   background-color: #d5dce1;
   color: var(--steel-ink);
   border: 2px solid var(--iron);
   box-shadow: inset 0 1px 0 #fff, 0 3px 0 var(--mortar);
 }
+[data-theme="castle-keep"] .voice-split {
+  background: transparent;
+  border-radius: 10px;
+  box-shadow: 0 3px 0 var(--mortar);
+}
+[data-theme="castle-keep"] .voice-split > button {
+  background-image: var(--steel-face);
+  background-color: #d5dce1;
+  color: var(--steel-ink);
+  border: 2px solid var(--iron);
+  box-shadow: inset 0 1px 0 #fff;
+}
+[data-theme="castle-keep"] .voice-split-toggle { border-radius: 10px 0 0 10px; border-right: 0; }
+[data-theme="castle-keep"] .voice-split-caret { border-radius: 0 10px 10px 0; border-left: 0; }
+[data-theme="castle-keep"] .voice-split-divider { background: var(--iron); }
 [data-theme="castle-keep"] #chat-toggle[aria-expanded="true"],
 [data-theme="castle-keep"] #chat-toggle:hover,
-[data-theme="castle-keep"] #voice-toggle:hover,
-[data-theme="castle-keep"] #voice-mute:hover,
-[data-theme="castle-keep"] #voice-mixer-toggle:hover { background-image: var(--steel-hot); color: var(--steel-ink); }
-[data-theme="castle-keep"] #voice-toggle[aria-pressed="true"] {
+[data-theme="castle-keep"] .voice-split > button:hover { background-image: var(--steel-hot); color: var(--steel-ink); }
+[data-theme="castle-keep"] .voice-split-toggle[aria-pressed="true"],
+[data-theme="castle-keep"] .voice-split-toggle[aria-pressed="true"]:hover {
   background-image: none;
   background-color: #193b2a;
   color: var(--presence-online);
   border-color: var(--presence-online);
 }
-[data-theme="castle-keep"] #voice-mute[data-muted="true"],
-[data-theme="castle-keep"] #voice-mute[data-muted="true"]:hover,
-[data-theme="castle-keep"] #voice-toggle[data-deafened="true"],
-[data-theme="castle-keep"] #voice-toggle[data-deafened="true"]:hover {
+[data-theme="castle-keep"] .voice-split[data-deafened="true"] > button,
+[data-theme="castle-keep"] .voice-split[data-deafened="true"] > button:hover {
   background-image: none;
   background-color: #8e1730;
   color: #fff6ee;
   border-color: var(--gold);
 }
-[data-theme="castle-keep"] #voice-mixer-toggle[aria-expanded="true"],
-[data-theme="castle-keep"] #voice-mixer-toggle[aria-expanded="true"]:hover {
+[data-theme="castle-keep"] .voice-split[data-deafened="true"] .voice-split-divider { background: var(--gold); }
+[data-theme="castle-keep"] .voice-split-caret[aria-expanded="true"],
+[data-theme="castle-keep"] .voice-split-caret[aria-expanded="true"]:hover {
   background-image: none;
   background-color: #243140;
   color: var(--gold);
+  border-color: var(--gold);
+}
+[data-theme="castle-keep"] .voice-split-badge {
+  background-color: #8e1730;
+  color: #fff6ee;
   border-color: var(--gold);
 }
 [data-theme="castle-keep"] #chat-unread { color: #fff6ee; border-color: var(--mortar); }

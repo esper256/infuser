@@ -97,40 +97,51 @@
   background: #1a0c30;
   box-shadow: 0 0 0 3px #ffe14a33, 0 3px 0 #120818;
 }
-[data-theme="cartridge-club"] #chat-toggle,
-[data-theme="cartridge-club"] #voice-toggle,
-[data-theme="cartridge-club"] #voice-mute,
-[data-theme="cartridge-club"] #voice-mixer-toggle {
+[data-theme="cartridge-club"] #chat-toggle {
   background: #3a2070;
   color: #fff6e4;
   border: 3px solid #120818;
   border-radius: 16px;
   box-shadow: 0 3px 0 #120818;
 }
-[data-theme="cartridge-club"] #voice-mute:hover,
-[data-theme="cartridge-club"] #voice-mixer-toggle:hover,
-[data-theme="cartridge-club"] #voice-toggle:hover {
+[data-theme="cartridge-club"] .voice-split {
+  background: transparent;
+  border-radius: 16px;
+  box-shadow: 0 3px 0 #120818;
+}
+[data-theme="cartridge-club"] .voice-split > button {
+  background: #3a2070;
+  color: #fff6e4;
+  border: 3px solid #120818;
+}
+[data-theme="cartridge-club"] .voice-split-toggle { border-radius: 16px 0 0 16px; border-right: 0; }
+[data-theme="cartridge-club"] .voice-split-caret { border-radius: 0 16px 16px 0; border-left: 0; }
+[data-theme="cartridge-club"] .voice-split-divider { background: #120818; }
+[data-theme="cartridge-club"] .voice-split > button:hover {
   background: #5a309c;
   color: #fff6e4;
 }
-[data-theme="cartridge-club"] #voice-toggle[aria-pressed="true"],
-[data-theme="cartridge-club"] #voice-toggle[aria-pressed="true"]:hover {
+[data-theme="cartridge-club"] .voice-split-toggle[aria-pressed="true"],
+[data-theme="cartridge-club"] .voice-split-toggle[aria-pressed="true"]:hover {
   background: #1a4731;
   color: var(--presence-online);
   border-color: var(--presence-online);
 }
-[data-theme="cartridge-club"] #voice-mute[data-muted="true"],
-[data-theme="cartridge-club"] #voice-mute[data-muted="true"]:hover,
-[data-theme="cartridge-club"] #voice-toggle[data-deafened="true"],
-[data-theme="cartridge-club"] #voice-toggle[data-deafened="true"]:hover {
+[data-theme="cartridge-club"] .voice-split[data-deafened="true"] > button,
+[data-theme="cartridge-club"] .voice-split[data-deafened="true"] > button:hover {
   background: #a61e2c;
   color: #fff6e4;
   border-color: #120818;
 }
-[data-theme="cartridge-club"] #voice-mixer-toggle[aria-expanded="true"],
-[data-theme="cartridge-club"] #voice-mixer-toggle[aria-expanded="true"]:hover {
+[data-theme="cartridge-club"] .voice-split-caret[aria-expanded="true"],
+[data-theme="cartridge-club"] .voice-split-caret[aria-expanded="true"]:hover {
   background: #ffe14a;
   color: #2a1248;
+  border-color: #120818;
+}
+[data-theme="cartridge-club"] .voice-split-badge {
+  background: #a61e2c;
+  color: #fff6e4;
   border-color: #120818;
 }
 

@@ -1,13 +1,15 @@
 // Slim voice mixer for the isolated game player header bar.
 // Communicates strictly via same-origin /_infuser/voice using the player-page token; never acquires a microphone.
 import { clampPercent } from '/_infuser/voice-audio.js';
-
-const micOnSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></svg>';
-const micOffSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5a3 3 0 0 1 6 0v5M5 10a7 7 0 0 0 11.9 5M12 17v4M8 21h8M3 3l18 18"/></svg>';
-const headsetSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 13v-2a8 8 0 0 1 16 0v2M4 12H3v7h4v-7H4zm16 0h1v6h-4v-6h3zM20 18v1a3 3 0 0 1-3 3h-3"/><rect x="10" y="20" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/></svg>';
-const deafenSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 13v-2a8 8 0 0 1 16 0v2M4 12H3v7h4v-7H4zm16 0h1v6h-4v-6h3zM3 3l18 18"/></svg>';
-const speakerOnSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M11 5L6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>';
-const speakerOffSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>';
+import {
+  createVoiceSplit,
+  headsetSvg,
+  deafenSvg,
+  micOnSvg,
+  micOffSvg,
+  speakerOnSvg,
+  speakerOffSvg,
+} from '/_infuser/voice-split.js';
 
 export function initGameVoice({
   header,
@@ -21,46 +23,38 @@ export function initGameVoice({
     return { isOpen: () => false, close: () => {} };
   }
 
-  const muteBtn = document.createElement('button');
-  muteBtn.id = 'voice-mute';
-  muteBtn.type = 'button';
-  muteBtn.hidden = true;
-  muteBtn.innerHTML = micOnSvg;
-
-  const levelsBtn = document.createElement('button');
-  levelsBtn.id = 'voice-levels';
-  levelsBtn.type = 'button';
-  levelsBtn.hidden = true;
-  levelsBtn.setAttribute('aria-haspopup', 'dialog');
-  levelsBtn.setAttribute('aria-expanded', 'false');
-  levelsBtn.setAttribute('aria-controls', 'game-voice-mixer');
-  levelsBtn.innerHTML = headsetSvg + '<span class="voice-caret" aria-hidden="true">▾</span>';
-
-  anchorBefore.before(muteBtn, levelsBtn);
-
-  const mixer = document.createElement('section');
-  mixer.id = 'game-voice-mixer';
-  mixer.setAttribute('role', 'dialog');
-  mixer.setAttribute('aria-label', 'Voice controls');
-  mixer.hidden = true;
-  header.append(mixer);
-
-  const authHeaders = (extra = {}) => ({
-    'X-Infuser-Player-Voice': voiceToken,
-    ...extra,
-  });
-
   let state = null;
   let open = false;
   let alive = true;
-  let polling = false;
+  let fetching = false;
+  let controlAbort = null;
+  let controlRunning = false;
   let dragging = false;
   let pendingPatch = null;
   let patchTimer = null;
   let sending = false;
   let lastRenderSig = '';
-  let pollTimer = null;
-  let syncPolls = 0;
+  let restoreTarget = 'game';
+
+  const mixer = document.createElement('section');
+  mixer.id = 'game-voice-mixer';
+  mixer.setAttribute('popover', 'auto');
+  mixer.setAttribute('role', 'dialog');
+  mixer.setAttribute('aria-label', 'Voice controls');
+  document.body.append(mixer);
+
+  const split = createVoiceSplit({
+    withToggle: false,
+    controlsId: 'game-voice-mixer',
+    onOpen: () => openMixer(),
+    onClose: () => closeMixer('caret'),
+  });
+  anchorBefore.before(split.root);
+
+  const authHeaders = (extra = {}) => ({
+    'X-Infuser-Player-Voice': voiceToken,
+    ...extra,
+  });
 
   function peerSetting(playerId) {
     const raw = state?.peer_volumes?.[playerId];
@@ -70,8 +64,6 @@ export function initGameVoice({
     };
   }
 
-  // Only mute/deafen changes require fast confirmation polling so dragging
-  // gain/volume sliders never triggers a retry storm.
   function isMuteSyncing() {
     if (!state?.active) return false;
     const wantMuted = Boolean(state.mic_muted || state.deafened);
@@ -92,59 +84,73 @@ export function initGameVoice({
     return Boolean(state.applied_deafened);
   }
 
-  function setOpen(next, restoreFocus = false) {
-    if (open === next) return;
-    open = next;
-    mixer.hidden = !open;
-    levelsBtn.setAttribute('aria-expanded', String(open));
+  function positionMixer() {
+    if (!mixer.matches(':popover-open')) return;
+    const headerRect = header.getBoundingClientRect();
+    const width = Math.min(310, window.innerWidth - 20);
+    const rightMargin = 10;
+    const left = Math.max(10, window.innerWidth - width - rightMargin);
+    mixer.style.width = `${width}px`;
+    mixer.style.left = `${left}px`;
+    mixer.style.top = `${Math.max(10, Math.round(headerRect.bottom + 6))}px`;
+    mixer.style.maxHeight = `${Math.max(160, window.innerHeight - Math.round(headerRect.bottom + 18))}px`;
+  }
+
+  function openMixer() {
+    if (!state?.configured || !state?.active) return;
+    if (mixer.matches(':popover-open')) return;
+    restoreTarget = 'game';
+    lastRenderSig = '';
+    mixer.showPopover();
+    renderMixer();
+    positionMixer();
+    mixer.querySelector('.gvm-action')?.focus({ preventScroll: true });
+    void fetchStatus();
+  }
+
+  function closeMixer(target = 'game') {
+    restoreTarget = target;
+    if (mixer.matches(':popover-open')) mixer.hidePopover();
+  }
+
+  mixer.addEventListener('toggle', () => {
+    open = mixer.matches(':popover-open');
+    paintBar();
     onPopoverChange(open);
     if (open) {
-      lastRenderSig = '';
-      renderMixer();
-      schedulePoll();
-      void poll();
-    } else {
-      schedulePoll();
-      if (restoreFocus) onCloseFocus();
+      positionMixer();
+    } else if (restoreTarget === 'caret') {
+      split.caretBtn.focus({ preventScroll: true });
+      restoreTarget = 'game';
+    } else if (restoreTarget === 'game') {
+      onCloseFocus();
     }
-  }
+  });
+
+  mixer.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMixer('caret');
+    }
+  });
+
+  window.addEventListener('resize', positionMixer);
 
   function paintBar() {
     const active = Boolean(state?.configured && state?.active);
-    muteBtn.hidden = !active;
-    levelsBtn.hidden = !active;
-    if (!active) {
-      if (open) setOpen(false, false);
-      return;
-    }
-    const syncing = isMuteSyncing();
-    const muted = shownMicMuted();
-    const deafened = shownDeafened();
-    muteBtn.dataset.muted = String(muted);
-    muteBtn.dataset.syncing = String(syncing);
-    muteBtn.setAttribute('aria-pressed', String(muted));
-    muteBtn.innerHTML = muted ? micOffSvg : micOnSvg;
-    const muteLabel = syncing
-      ? 'Updating voice mute…'
-      : deafened
-        ? 'Deafened — unmute microphone'
-        : muted
-          ? 'Microphone muted — unmute'
-          : 'Mute microphone';
-    muteBtn.title = muteLabel;
-    muteBtn.setAttribute('aria-label', muteLabel);
-
-    levelsBtn.dataset.deafened = String(deafened);
-    levelsBtn.dataset.syncing = String(syncing);
-    levelsBtn.dataset.connected = String(Boolean(state.connected));
-    levelsBtn.innerHTML = (deafened ? deafenSvg : headsetSvg) + '<span class="voice-caret" aria-hidden="true">▾</span>';
-    const levelsLabel = syncing
-      ? 'Voice controls (updating…)'
-      : deafened
-        ? 'Voice controls (deafened)'
-        : 'Voice controls';
-    levelsBtn.title = levelsLabel;
-    levelsBtn.setAttribute('aria-label', levelsLabel);
+    if (!active && open) closeMixer('none');
+    split.setState({
+      visible: active,
+      on: active,
+      live: active && Boolean(state?.connected),
+      state: active ? (state.connected ? 'on' : 'connecting') : 'off',
+      muted: shownMicMuted(),
+      deafened: shownDeafened(),
+      syncing: isMuteSyncing(),
+      connected: Boolean(state?.connected),
+      expanded: open,
+    });
   }
 
   function mergePatch(patch) {
@@ -193,17 +199,15 @@ export function initGameVoice({
             mic_muted: updated.mic_muted,
             deafened: updated.deafened,
           };
-          const needsConfirm = isMuteSyncing();
-          if (needsConfirm) syncPolls = 0;
           paintBar();
           if (open && !dragging) renderMixer();
-          if (needsConfirm) schedulePoll();
+          ensureControlLoop();
         }
       } else if (res.status === 409) {
-        await poll();
+        await fetchStatus();
       }
     } catch {
-      /* Next poll reconciles state. */
+      /* Control loop or next focus/visibility refresh reconciles state. */
     } finally {
       sending = false;
       if (pendingPatch) void flushPatch();
@@ -251,7 +255,7 @@ export function initGameVoice({
       });
     } catch { /* ignore */ }
     if (state) state.active = false;
-    setOpen(false, true);
+    closeMixer('game');
     paintBar();
   }
 
@@ -338,7 +342,7 @@ export function initGameVoice({
     closeBtn.className = 'gvm-close';
     closeBtn.textContent = '×';
     closeBtn.setAttribute('aria-label', 'Close voice controls');
-    closeBtn.onclick = () => setOpen(false, true);
+    closeBtn.onclick = () => closeMixer('caret');
     head.append(title, closeBtn);
     mixer.append(head);
 
@@ -470,40 +474,95 @@ export function initGameVoice({
       }
       mixer.append(section);
     }
-  }
 
-  muteBtn.addEventListener('click', () => {
-    if (!state?.active) return;
-    if (state.deafened || shownDeafened()) queuePatch({ mic_muted: false, deafened: false }, true);
-    else queuePatch({ mic_muted: !state.mic_muted }, true);
-    if (open) {
+    const footer = document.createElement('div');
+    footer.className = 'gvm-footer';
+    const resetAll = document.createElement('button');
+    resetAll.type = 'button';
+    resetAll.className = 'gvm-reset';
+    resetAll.textContent = 'Reset levels';
+    resetAll.onclick = () => {
+      const peerReset = {};
+      for (const pid of Object.keys(state.peer_volumes || {})) {
+        peerReset[pid] = { volume: 100, muted: false };
+      }
+      queuePatch({ input_gain: 100, output_volume: 100, peer_volumes: peerReset }, true);
       lastRenderSig = '';
       renderMixer();
+    };
+    footer.append(resetAll);
+    mixer.append(footer);
+    positionMixer();
+  }
+
+  function applySnapshot(next) {
+    if (!pendingPatch && !dragging) {
+      state = next;
+      paintBar();
+      if (open) renderMixer();
+    } else if (state && next.active) {
+      state.epoch = next.epoch ?? state.epoch;
+      state.revision = next.revision ?? state.revision;
+      state.participants = next.participants;
+      state.connected = next.connected;
+      state.applied_revision = next.applied_revision;
+      state.applied_mic_muted = next.applied_mic_muted;
+      state.applied_deafened = next.applied_deafened;
+      paintBar();
     }
-    onCloseFocus();
-  });
+  }
 
-  levelsBtn.addEventListener('click', () => {
-    setOpen(!open, open);
-  });
+  function stopControlLoop() {
+    controlAbort?.abort();
+    controlAbort = null;
+    controlRunning = false;
+  }
 
-  document.addEventListener('pointerdown', event => {
-    if (!open) return;
-    if (mixer.contains(event.target) || levelsBtn.contains(event.target) || muteBtn.contains(event.target)) return;
-    setOpen(false, false);
-  });
+  function ensureControlLoop() {
+    if (!alive || document.hidden || controlRunning || !state || state.configured === false) return;
+    void runControlLoop();
+  }
 
-  mixer.addEventListener('keydown', event => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      setOpen(false, true);
+  async function runControlLoop() {
+    if (controlRunning) return;
+    controlRunning = true;
+    while (alive && !document.hidden && state && state.configured !== false) {
+      const ac = new AbortController();
+      controlAbort = ac;
+      try {
+        const params = new URLSearchParams({
+          since: String(state.revision || 0),
+          applied: String(state.applied_revision || 0),
+          active: state.active ? '1' : '0',
+          epoch: String(state.epoch || ''),
+        });
+        const res = await fetchFn('/_infuser/voice/control?' + params.toString(), {
+          credentials: 'same-origin',
+          headers: authHeaders(),
+          signal: AbortSignal.any([ac.signal, AbortSignal.timeout(30000)]),
+        });
+        if (!alive || ac.signal.aborted) break;
+        if (res.status === 204) continue;
+        if ([401, 403, 404, 410].includes(res.status)) {
+          state = { configured: false, active: false };
+          paintBar();
+          break;
+        }
+        if (!res.ok) break;
+        const next = await res.json();
+        applySnapshot(next);
+        if (!next.configured) break;
+      } catch {
+        // Exit without a retry timer; online/focus/visibilitychange or user action restarts.
+        break;
+      }
     }
-  });
+    controlRunning = false;
+  }
 
-  async function poll() {
-    if (polling || !alive) return;
-    polling = true;
+  async function fetchStatus() {
+    if (fetching || !alive) return;
+    fetching = true;
     try {
       const res = await fetchFn('/_infuser/voice', {
         credentials: 'same-origin',
@@ -513,61 +572,44 @@ export function initGameVoice({
       if (!res.ok) {
         if ([401, 403, 404, 410].includes(res.status)) {
           state = { configured: false, active: false };
+          stopControlLoop();
           paintBar();
         }
         return;
       }
       const next = await res.json();
-      if (!pendingPatch && !dragging) {
-        state = next;
-        paintBar();
-        if (open) renderMixer();
-      } else if (state && next.active) {
-        state.participants = next.participants;
-        state.connected = next.connected;
-        state.applied_revision = next.applied_revision;
-        state.applied_mic_muted = next.applied_mic_muted;
-        state.applied_deafened = next.applied_deafened;
-        paintBar();
-      }
-      if (!next.configured) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      } else if (isMuteSyncing()) {
-        syncPolls++;
-        if (syncPolls > 8) schedulePoll();
-      } else if (syncPolls > 0) {
-        syncPolls = 0;
-        schedulePoll();
-      }
+      applySnapshot(next);
+      if (next.configured) ensureControlLoop();
+      else stopControlLoop();
     } catch {
-      /* Transient error; retry on next tick. */
+      /* Next focus/visibilitychange/online event refreshes state. */
     } finally {
-      polling = false;
+      fetching = false;
     }
   }
 
-  function schedulePoll() {
-    clearInterval(pollTimer);
-    if (!alive || state?.configured === false) return;
-    const ms = isMuteSyncing() && !dragging && syncPolls <= 8 ? 300 : open ? 2500 : state?.active ? 5000 : 10000;
-    pollTimer = setInterval(() => {
-      if (!document.hidden) void poll();
-    }, ms);
-  }
-
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) void poll();
+    if (document.hidden) {
+      stopControlLoop();
+    } else {
+      void fetchStatus();
+    }
+  });
+  window.addEventListener('focus', () => {
+    if (!document.hidden && !controlRunning) void fetchStatus();
+  });
+  window.addEventListener('online', () => {
+    if (!document.hidden) void fetchStatus();
   });
   addEventListener('pagehide', () => {
     alive = false;
-    clearInterval(pollTimer);
+    stopControlLoop();
     clearTimeout(patchTimer);
   });
 
-  void poll().then(schedulePoll);
+  void fetchStatus();
   return {
     isOpen: () => open,
-    close: (restoreFocus = false) => setOpen(false, restoreFocus),
+    close: (restoreFocus = false) => closeMixer(restoreFocus ? 'game' : 'none'),
   };
 }

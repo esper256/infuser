@@ -66,21 +66,9 @@ function saveDevices(devices){
 export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   if(me.inspecting)return {stop:async()=>{},openSettings:()=>{},renderFriendControls:()=>{}};
 
-  const muteBtn=document.createElement('button');
-  muteBtn.id='voice-mute';muteBtn.className='voice-control';muteBtn.type='button';muteBtn.hidden=true;muteBtn.innerHTML=micOnIcon;
-  muteBtn.setAttribute('aria-label','Mute microphone');muteBtn.setAttribute('aria-pressed','false');
-
-  const mixerBtn=document.createElement('button');
-  mixerBtn.id='voice-mixer-toggle';mixerBtn.className='voice-control';mixerBtn.type='button';mixerBtn.hidden=true;mixerBtn.innerHTML=slidersIcon;
-  mixerBtn.setAttribute('aria-label','Voice levels and settings');mixerBtn.title='Voice levels and settings';
-  mixerBtn.setAttribute('aria-haspopup','dialog');mixerBtn.setAttribute('aria-expanded','false');mixerBtn.setAttribute('aria-controls','voice-mixer');
-
-  const button=document.createElement('button');
-  button.id='voice-toggle';button.className='voice-control';button.type='button';button.hidden=true;button.innerHTML=icon;
-  button.setAttribute('aria-label','Voice chat off');button.setAttribute('aria-pressed','false');
-
-  // Keep #voice-toggle directly beside #chat-toggle.
-  document.getElementById('chat-toggle').before(muteBtn,mixerBtn,button);
+  const splitSlot=document.createElement('span');
+  splitSlot.id='voice-split-slot';splitSlot.hidden=true;
+  document.getElementById('chat-toggle').before(splitSlot);
 
   const mixer=document.createElement('section');
   mixer.id='voice-mixer';mixer.className='voice-mixer';mixer.setAttribute('popover','auto');
@@ -90,7 +78,8 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   const audio=document.createElement('div');audio.hidden=true;document.body.append(audio);
 
   const audioModPromise=import('/assets/voice-audio.js');
-  let audioMod=null;
+  const splitModPromise=import('/assets/voice-split.js');
+  let audioMod=null,split=null;
   let snapshot=null,room=null,lease=null,track=null,phase='off',generation=0,polling=false,heartbeatAt=0,alive=true;
   let settings={input_gain:100,output_volume:100,auto_gain_control:true,noise_suppression:true,echo_cancellation:true,peer_volumes:{}};
   let serverEpoch='',revision=0,lastAckedKey='',micMuted=false,deafened=false,audioApplySeq=0;
@@ -98,10 +87,26 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   let identityToPlayer=new Map(),speakingIds=new Set();
   let controlAbort=null,controlRunning=false;
   let pendingPatch=null,patchTimer=null,sendingPatch=false,dragging=false;
-  let mixerAnchor=mixerBtn,lastMixerSig='',meterFrame=0,lastMeterAt=0,meterFill=null;
+  let mixerAnchor=null,lastMixerSig='',meterFrame=0,lastMeterAt=0,meterFill=null;
   let testStream=null,testProcessor=null,testingMic=false;
   let devices=readDevices(),deviceList={inputs:[],outputs:[]},optionsOpen=false;
   let wasConfigured=false;
+
+  async function ensureSplit(){
+    if(split)return split;
+    const mod=await splitModPromise;
+    if(split)return split;
+    split=mod.createVoiceSplit({
+      withToggle:true,
+      controlsId:'voice-mixer',
+      onToggle:()=>{if(phase!=='off'||snapshot?.self)void stop();else void start();},
+      onOpen:()=>openSettings(split.caretBtn),
+      onClose:()=>{if(mixer.matches(':popover-open'))mixer.hidePopover();},
+    });
+    splitSlot.replaceWith(split.root);
+    mixerAnchor=split.caretBtn;
+    return split;
+  }
 
   const chimes=createVoiceChimes();
   const request=(path,options={})=>api(path,{...options,signal:options.signal||AbortSignal.timeout(8000)});
@@ -164,6 +169,17 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
         else{micMuted=true;}
         paint();
         if(mixer.matches(':popover-open')&&!dragging)renderMixer();
+        if(targetLease&&targetLease===lease&&phase!=='off'){
+          try{
+            const reconciled=await request('/api/voice/settings',{
+              method:'PATCH',
+              body:JSON.stringify({mic_muted:micMuted,deafened}),
+            });
+            if(reconciled?.epoch)serverEpoch=reconciled.epoch;
+            if(typeof reconciled?.revision==='number')revision=Math.max(revision,reconciled.revision);
+            ackApplied({id:targetLease,epoch:serverEpoch,rev:revision,mic:micMuted,deaf:deafened});
+          }catch{/* Next status poll reconciles server lease. */}
+        }
       }
       notice('Could not update microphone mute state.');
       return false;
@@ -306,24 +322,19 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     if(configured!==wasConfigured){wasConfigured=configured;onConfiguredChange(configured);}
     const on=phase!=='off'||Boolean(snapshot?.self);
     const effectiveMuted=Boolean(micMuted||deafened);
-    button.hidden=!configured;
-    mixerBtn.hidden=!configured;
-    muteBtn.hidden=!configured||!on;
-
-    button.dataset.state=phase==='off'&&snapshot?.self?'elsewhere':phase;
-    button.dataset.deafened=String(on&&deafened);
-    button.setAttribute('aria-pressed',String(on));
-    button.innerHTML=on&&deafened?deafenIcon:icon;
-    const label=phase==='connecting'?'Voice chat connecting — turn off':phase==='reconnecting'?'Voice chat reconnecting — turn off':on?'Voice chat on — turn off':'Voice chat off — turn on';
-    button.title=label;button.setAttribute('aria-label',label);
-    button.disabled=!on&&snapshot?.available===false;
-
-    muteBtn.dataset.muted=String(effectiveMuted);
-    mixerBtn.dataset.muted=String(on&&effectiveMuted);
-    muteBtn.setAttribute('aria-pressed',String(effectiveMuted));
-    muteBtn.innerHTML=effectiveMuted?micOffIcon:micOnIcon;
-    const muteLabel=deafened?'Deafened — unmute microphone':effectiveMuted?'Microphone muted — unmute':'Mute microphone';
-    muteBtn.title=muteLabel;muteBtn.setAttribute('aria-label',muteLabel);
+    const state=phase==='off'&&snapshot?.self?'elsewhere':phase;
+    split?.setState({
+      visible:configured,
+      on,
+      live:phase==='on',
+      state,
+      muted:effectiveMuted,
+      deafened:Boolean(on&&deafened),
+      syncing:false,
+      connected:phase==='on',
+      disabled:!on&&snapshot?.available===false,
+      expanded:mixer.matches(':popover-open'),
+    });
 
     const ids=new Set((snapshot?.participants||[]).map(p=>p.id));
     for(const person of document.querySelectorAll('.presence-person[data-player-id]')){
@@ -434,7 +445,9 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
 
   function positionMixer(){
     if(!mixer.matches(':popover-open'))return;
-    const anchor=(mixerAnchor&&mixerAnchor.isConnected&&!mixerAnchor.hidden)?mixerAnchor:mixerBtn;
+    const fallback=split?.caretBtn||split?.root;
+    const anchor=(mixerAnchor&&mixerAnchor.isConnected&&!mixerAnchor.hidden)?mixerAnchor:fallback;
+    if(!anchor)return;
     const bounds=anchor.getBoundingClientRect();
     const width=Math.min(320,innerWidth-24);
     mixer.style.width=width+'px';
@@ -624,13 +637,16 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       body.append(lbl);
     }
 
-    const footer=document.createElement('div');footer.className='vm-advanced-footer';
     if(phase==='off'){
       const testBtn=document.createElement('button');testBtn.type='button';testBtn.className='secondary vm-test';
       testBtn.textContent=testingMic?'Stop mic test':'Test microphone';
       testBtn.onclick=()=>{void toggleMicTest();};
-      footer.append(testBtn);
+      body.append(testBtn);
     }
+    advanced.append(sum,body);
+    mixer.append(advanced);
+
+    const footer=document.createElement('div');footer.className='vm-footer';
     const resetAll=document.createElement('button');resetAll.type='button';resetAll.className='text-button';
     resetAll.textContent='Reset levels';
     resetAll.onclick=()=>{
@@ -640,28 +656,32 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       lastMixerSig='';renderMixer();
     };
     footer.append(resetAll);
-    body.append(footer);
-    advanced.append(sum,body);
-    mixer.append(advanced);
+    mixer.append(footer);
     positionMixer();
   }
 
-  function openSettings(anchor=mixerBtn){
+  function openSettings(anchor=split?.caretBtn){
     if(!snapshot?.configured)return;
-    mixerAnchor=anchor||mixerBtn;
+    mixerAnchor=anchor||split?.caretBtn||null;
     if(mixer.matches(':popover-open')){mixer.hidePopover();return;}
     mixer.showPopover();
     lastMixerSig='';
     renderMixer();
+    mixer.querySelector('.vm-action, .vm-join')?.focus({preventScroll:true});
     startMeterLoop();
     void refreshDevices();
   }
 
   mixer.addEventListener('toggle',()=>{
     const isOpen=mixer.matches(':popover-open');
-    mixerBtn.setAttribute('aria-expanded',String(isOpen));
+    paint();
     if(isOpen){positionMixer();startMeterLoop();}
-    else{stopMeterLoop();void stopMicTest();}
+    else{
+      stopMeterLoop();void stopMicTest();
+      if(mixer.contains(document.activeElement)||document.activeElement===document.body){
+        mixerAnchor?.focus?.({preventScroll:true});
+      }
+    }
   });
   mixer.addEventListener('keydown',event=>{
     if(event.key==='Escape'){event.preventDefault();event.stopPropagation();mixer.hidePopover();mixerAnchor?.focus?.({preventScroll:true});}
@@ -673,20 +693,13 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     controlAbort?.abort();controlAbort=null;controlRunning=false;
   }
 
-  function waitBackoff(ms,signal){
-    return new Promise(resolve=>{
-      if(signal?.aborted){resolve();return;}
-      const finish=()=>{clearTimeout(id);signal?.removeEventListener('abort',finish);window.removeEventListener('online',finish);resolve();};
-      const id=setTimeout(finish,ms);
-      signal?.addEventListener('abort',finish,{once:true});
-      window.addEventListener('online',finish,{once:true});
-    });
+  function ensureControlLoop(){
+    if(alive&&phase!=='off'&&!controlRunning)void runControlLoop(generation);
   }
 
   async function runControlLoop(myGen){
     if(controlRunning)return;
     controlRunning=true;
-    let backoff=0;
     while(alive&&myGen===generation&&phase!=='off'){
       const ac=new AbortController();controlAbort=ac;
       try{
@@ -697,13 +710,12 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
           signal:AbortSignal.any([ac.signal,AbortSignal.timeout(30000)]),
         });
         if(!alive||myGen!==generation)break;
-        if(res.status===204){backoff=0;continue;}
+        if(res.status===204)continue;
         if(res.status===401||res.status===403){
           await stop({message:'Voice chat ended. Your access changed.'});
           break;
         }
         if(res.ok){
-          backoff=0;
           const data=await res.json();
           syncServerState(data);
           if(lease&&phase!=='connecting'&&data.self?.id!==lease){
@@ -713,13 +725,11 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
           paint();
           if(mixer.matches(':popover-open')&&!dragging)renderMixer();
         }else{
-          backoff=Math.min(15000,backoff?backoff*2:1000);
-          await waitBackoff(backoff,ac.signal);
+          // End without a timed backoff; status poll, online, or visibilitychange restarts.
+          break;
         }
       }catch{
-        if(!alive||myGen!==generation||ac.signal.aborted)break;
-        backoff=Math.min(15000,backoff?backoff*2:1000);
-        await waitBackoff(backoff,ac.signal);
+        break;
       }
     }
     controlRunning=false;
@@ -854,15 +864,6 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     }
   }
 
-  button.onclick=()=>{if(phase!=='off'||snapshot?.self)void stop();else void start();};
-  muteBtn.onclick=()=>{
-    if(phase==='off'&&!snapshot?.self)return;
-    if(deafened)queuePatch({mic_muted:false,deafened:false},{immediate:true});
-    else queuePatch({mic_muted:!micMuted},{immediate:true});
-    if(mixer.matches(':popover-open')){lastMixerSig='';renderMixer();}
-  };
-  mixerBtn.onclick=()=>openSettings(mixerBtn);
-
   function renderFriendControls(person,panel){
     if(!snapshot?.configured||!person?.id||person.id===me.player_id)return;
     const inVoice=(snapshot.participants||[]).some(p=>p.id===person.id);
@@ -902,6 +903,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     if(polling||!alive)return;polling=true;
     try{
       if(!audioMod)audioMod=await audioModPromise.catch(()=>null);
+      if(!split)await ensureSplit().catch(()=>{});
       if(lease&&room&&Date.now()-heartbeatAt>20000){
         await request('/api/voice/heartbeat',{method:'POST',body:JSON.stringify({id:lease})});heartbeatAt=Date.now();
       }
@@ -911,6 +913,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       if(!status.configured)clearInterval(timer);
       if(room&&phase!=='connecting')phase=room.state==='connected'&&status.available?'on':'reconnecting';
       if(lease&&phase!=='connecting'&&status.self?.id!==lease){await stop({remote:false,message:'Voice chat was turned off.'});}
+      ensureControlLoop();
       paint();
       if(mixer.matches(':popover-open')&&!dragging)renderMixer();
     }catch(error){
@@ -922,7 +925,8 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   // A pinned request retains the old profile headers while navigation proceeds.
   addEventListener('pagehide',()=>{alive=false;observer.disconnect();clearInterval(timer);clearTimeout(patchTimer);stopMeterLoop();void stopMicTest();void stop({remote:!!lease});});
   const timer=setInterval(()=>{if(lease||!document.hidden)void poll();},3000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden){void poll();if(mixer.matches(':popover-open'))startMeterLoop();}else stopMeterLoop();});
+  window.addEventListener('online',()=>{if(alive){ensureControlLoop();void poll();}});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){ensureControlLoop();void poll();if(mixer.matches(':popover-open'))startMeterLoop();}else stopMeterLoop();});
   void poll();
   return {stop,openSettings,renderFriendControls};
 }

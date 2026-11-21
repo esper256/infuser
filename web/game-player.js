@@ -1,6 +1,5 @@
 import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
-import { initGameVoice } from '/_infuser/player-voice.js';
 // Capture fetch and consume the per-page voice token before the game iframe loads.
 const ownFetch = window.fetch.bind(window);
 const voiceTokenMeta = document.querySelector('meta[name="infuser-voice-token"]');
@@ -248,24 +247,28 @@ try{
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
   if(!session.guest){
-    initGameVoice({
-      header,
-      anchorBefore: resolutionButton,
-      voiceToken: playerVoiceToken,
-      fetchFn: ownFetch,
-      onPopoverChange(isOpen) {
-        voiceMenuOpen = isOpen;
-        if (isOpen) {
-          clearTimeout(hideTimer);
-          if (playerFullscreen()) showControls();
-        } else if (playerFullscreen() && header.hasAttribute('data-open')) {
-          showControls();
-        }
-      },
-      onCloseFocus() {
-        if (!game.hidden) game.contentWindow?.focus();
-      },
-    });
+    if(playerVoiceToken){
+      void import('/_infuser/player-voice.js').then(({ initGameVoice }) => {
+        initGameVoice({
+          header,
+          anchorBefore: resolutionButton,
+          voiceToken: playerVoiceToken,
+          fetchFn: ownFetch,
+          onPopoverChange(isOpen) {
+            voiceMenuOpen = isOpen;
+            if (isOpen) {
+              clearTimeout(hideTimer);
+              if (playerFullscreen()) showControls();
+            } else if (playerFullscreen() && header.hasAttribute('data-open')) {
+              showControls();
+            }
+          },
+          onCloseFocus() {
+            if (!game.hidden) game.contentWindow?.focus();
+          },
+        });
+      }).catch(() => { /* Voice controls are optional and must never block game launch. */ });
+    }
     const report=()=>fetch('/_infuser/input',{method:'POST',credentials:'same-origin'});
     const padActive=watchInput(document,report);
     game.addEventListener('load',()=>{

@@ -80,6 +80,15 @@ pub struct PeerAudioPatch {
     pub muted: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsValidationError(pub &'static str);
+impl std::fmt::Display for SettingsValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for SettingsValidationError {}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AudioSettingsPatch {
@@ -87,6 +96,9 @@ pub struct AudioSettingsPatch {
     pub output_volume: Option<u16>,
     pub auto_gain_control: Option<bool>,
     pub noise_suppression: Option<bool>,
+    // Accepted and ignored for one release so pre-deploy Library tabs never error.
+    #[serde(default)]
+    pub echo_cancellation: Option<bool>,
     pub peer_volumes: Option<BTreeMap<String, PeerAudioPatch>>,
     pub mic_muted: Option<bool>,
     pub deafened: Option<bool>,
@@ -122,23 +134,25 @@ impl AudioSettings {
         &mut self,
         patch: &AudioSettingsPatch,
         allow_processing: bool,
-    ) -> Result<bool> {
+    ) -> std::result::Result<bool, SettingsValidationError> {
         let mut changed = false;
         if let Some(gain) = patch.input_gain {
-            ensure!(
-                gain <= MAX_GAIN_PERCENT,
-                crate::portal::fault(422, "Microphone gain must be between 0% and 200%.")
-            );
+            if gain > MAX_GAIN_PERCENT {
+                return Err(SettingsValidationError(
+                    "Microphone gain must be between 0% and 200%.",
+                ));
+            }
             if self.input_gain != gain {
                 self.input_gain = gain;
                 changed = true;
             }
         }
         if let Some(volume) = patch.output_volume {
-            ensure!(
-                volume <= MAX_GAIN_PERCENT,
-                crate::portal::fault(422, "Voice volume must be between 0% and 200%.")
-            );
+            if volume > MAX_GAIN_PERCENT {
+                return Err(SettingsValidationError(
+                    "Voice volume must be between 0% and 200%.",
+                ));
+            }
             if self.output_volume != volume {
                 self.output_volume = volume;
                 changed = true;
@@ -157,33 +171,27 @@ impl AudioSettings {
                 self.noise_suppression = v;
                 changed = true;
             }
-        } else {
-            ensure!(
-                patch.auto_gain_control.is_none() && patch.noise_suppression.is_none(),
-                crate::portal::fault(
-                    422,
-                    "Voice processing options can only be changed from the Library."
-                )
-            );
+        } else if patch.auto_gain_control.is_some() || patch.noise_suppression.is_some() {
+            return Err(SettingsValidationError(
+                "Voice processing options can only be changed from the Library.",
+            ));
         }
         if let Some(peers) = &patch.peer_volumes {
-            ensure!(
-                peers.len() <= MAX_PEER_SETTINGS,
-                crate::portal::fault(422, "Too many participant volume entries.")
-            );
+            if peers.len() > MAX_PEER_SETTINGS {
+                return Err(SettingsValidationError(
+                    "Too many participant volume entries.",
+                ));
+            }
             for (player_id, update) in peers {
-                ensure!(
-                    valid_player_id(player_id),
-                    crate::portal::fault(422, "Invalid participant ID.")
-                );
-                if let Some(vol) = update.volume {
-                    ensure!(
-                        vol <= MAX_GAIN_PERCENT,
-                        crate::portal::fault(
-                            422,
-                            "Participant volume must be between 0% and 200%."
-                        )
-                    );
+                if !valid_player_id(player_id) {
+                    return Err(SettingsValidationError("Invalid participant ID."));
+                }
+                if let Some(vol) = update.volume
+                    && vol > MAX_GAIN_PERCENT
+                {
+                    return Err(SettingsValidationError(
+                        "Participant volume must be between 0% and 200%.",
+                    ));
                 }
                 let mut next = self
                     .peer_volumes
@@ -204,8 +212,7 @@ impl AudioSettings {
                     if !self.peer_volumes.contains_key(player_id)
                         && self.peer_volumes.len() >= MAX_PEER_SETTINGS
                     {
-                        return Err(crate::portal::fault(
-                            422,
+                        return Err(SettingsValidationError(
                             "Too many saved participant volume overrides.",
                         ));
                     }
@@ -252,6 +259,7 @@ pub(crate) struct State {
     pub checked_at: u64,
     pub revisions: BTreeMap<String, u64>,
     pub notifiers: BTreeMap<String, Arc<Notify>>,
+    pub game_notifiers: BTreeMap<String, Arc<Notify>>,
     #[cfg(test)]
     pub waiter_counts: BTreeMap<String, usize>,
     #[cfg(test)]
@@ -260,6 +268,7 @@ pub(crate) struct State {
 pub(crate) struct Service {
     pub port: u16,
     key: Credentials,
+    player_key: hmac::Key,
     pub epoch: String,
     pub state: Mutex<State>,
     // Serialize reconciliation and membership mutations, not audio or signaling.
@@ -279,9 +288,13 @@ impl Service {
             !key.api_key.is_empty() && key.api_key.len() <= 128 && key.api_secret.len() >= 32,
             "invalid voice credentials"
         );
+        let root_key = hmac::Key::new(hmac::HMAC_SHA256, key.api_secret.as_bytes());
+        let derived = hmac::sign(&root_key, b"infuser-player-voice-key-v1");
+        let player_key = hmac::Key::new(hmac::HMAC_SHA256, derived.as_ref());
         Ok(Self {
             port: settings.port,
             key,
+            player_key,
             epoch: crate::store::secret()[..16].into(),
             state: Default::default(),
             gate: Default::default(),
@@ -391,8 +404,28 @@ impl Service {
             .clone();
         (rev, notify)
     }
+    pub fn game_notifier_for(&self, owner: &str) -> Arc<Notify> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .game_notifiers
+            .entry(owner.to_owned())
+            .or_insert_with(|| Arc::new(Notify::new()))
+            .clone()
+    }
+    pub fn notify_game(&self, owner: &str) {
+        let notify = self
+            .state
+            .lock()
+            .unwrap()
+            .game_notifiers
+            .get(owner)
+            .cloned();
+        if let Some(notify) = notify {
+            notify.notify_waiters();
+        }
+    }
     pub fn bump_owner(&self, owner: &str, persisted: u64) -> u64 {
-        let (rev, notify) = {
+        let (rev, notify, game_notify) = {
             let mut state = self.state.lock().unwrap();
             let entry = state
                 .revisions
@@ -401,21 +434,23 @@ impl Service {
             *entry = (*entry + 1).max(persisted);
             let rev = *entry;
             let notify = state.notifiers.get(owner).cloned();
-            (rev, notify)
+            let game_notify = state.game_notifiers.get(owner).cloned();
+            (rev, notify, game_notify)
         };
         if let Some(notify) = notify {
+            notify.notify_waiters();
+        }
+        if let Some(notify) = game_notify {
             notify.notify_waiters();
         }
         rev
     }
     /// Deterministic per-launch HMAC token consumed by the player shell before the game iframe
-    /// loads. Stateless so it survives controller restarts and never grows unboundedly in memory.
+    /// loads. Signed with a dedicated derived subkey so it survives restarts without reusing the
+    /// LiveKit JWT signing key or growing memory per launch.
     pub fn player_token(&self, launch_id: &str) -> String {
         let input = format!("infuser-player-voice-v1:{launch_id}");
-        let tag = hmac::sign(
-            &hmac::Key::new(hmac::HMAC_SHA256, self.key.api_secret.as_bytes()),
-            input.as_bytes(),
-        );
+        let tag = hmac::sign(&self.player_key, input.as_bytes());
         B64.encode(tag.as_ref())
     }
     pub fn verify_player_token(&self, launch_id: &str, candidate: &str) -> bool {
@@ -423,12 +458,7 @@ impl Service {
             return false;
         };
         let input = format!("infuser-player-voice-v1:{launch_id}");
-        hmac::verify(
-            &hmac::Key::new(hmac::HMAC_SHA256, self.key.api_secret.as_bytes()),
-            input.as_bytes(),
-            &sig,
-        )
-        .is_ok()
+        hmac::verify(&self.player_key, input.as_bytes(), &sig).is_ok()
     }
     #[cfg(test)]
     pub fn enter_control_wait(&self, owner: &str) {

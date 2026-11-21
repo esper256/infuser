@@ -120,29 +120,49 @@
   background: var(--caption);
   box-shadow: 3px 3px 0 var(--ink-line);
 }
-[data-theme="funny-pages"] #chat-toggle,
-[data-theme="funny-pages"] #voice-toggle,
-[data-theme="funny-pages"] #voice-mute,
-[data-theme="funny-pages"] #voice-mixer-toggle {
+[data-theme="funny-pages"] #chat-toggle {
   background: var(--caption);
   border: 3px solid var(--ink-line);
   box-shadow: 3px 3px 0 var(--ink-line);
   color: var(--ink-line);
 }
-[data-theme="funny-pages"] #voice-toggle[aria-pressed="true"] {
+[data-theme="funny-pages"] .voice-split {
+  background: transparent;
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split > button {
+  background: var(--caption);
+  border: 3px solid var(--ink-line);
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split-toggle { border-right: 0; }
+[data-theme="funny-pages"] .voice-split-caret { border-left: 0; }
+[data-theme="funny-pages"] .voice-split-divider { background: var(--ink-line); }
+[data-theme="funny-pages"] .voice-split > button:hover {
+  background: var(--burst);
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split-toggle[aria-pressed="true"],
+[data-theme="funny-pages"] .voice-split-toggle[aria-pressed="true"]:hover {
   background: #dcfce7;
   color: #0e6b31;
   border-color: #0e6b31;
 }
-[data-theme="funny-pages"] #voice-mute[data-muted="true"],
-[data-theme="funny-pages"] #voice-toggle[data-deafened="true"] {
+[data-theme="funny-pages"] .voice-split[data-deafened="true"] > button,
+[data-theme="funny-pages"] .voice-split[data-deafened="true"] > button:hover {
   background: var(--voice-danger-bg);
   color: var(--voice-danger-ink);
   border-color: var(--ink-line);
 }
-[data-theme="funny-pages"] #voice-mixer-toggle[aria-expanded="true"] {
+[data-theme="funny-pages"] .voice-split-caret[aria-expanded="true"],
+[data-theme="funny-pages"] .voice-split-caret[aria-expanded="true"]:hover {
   background: var(--burst);
   color: var(--ink-line);
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split-badge {
+  background: var(--voice-danger-bg);
+  color: var(--voice-danger-ink);
   border-color: var(--ink-line);
 }
 

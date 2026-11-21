@@ -27,31 +27,54 @@
 }
 @media (prefers-reduced-motion:reduce) { :root:fullscreen #player-header { transition:none; } }
 
-/* Slim voice controls inside the game player header bar. */
+/* Slim voice control pill inside the game player header bar. */
+:root {
+  --voice-danger-bg: #7a2126;
+  --voice-danger-border: #d96b6b;
+  --voice-danger-ink: #fff4f2;
+}
 header { position:relative; z-index:2; min-width:0; }
-#voice-mute, #voice-levels {
-  display:inline-flex; align-items:center; justify-content:center; gap:4px;
-  min-height:32px; padding:5px 7px; border:1px solid #354759; border-radius:6px;
+header:has(#path:not([hidden])) #connection { display:none; }
+.voice-split { position:relative; display:inline-flex; align-items:center; flex:none; }
+.voice-split > button.voice-split-solo {
+  position:relative; display:inline-flex; align-items:center; justify-content:center; gap:3px;
+  min-width:44px; min-height:40px; height:40px; padding:0 8px;
+  border:1px solid #354759; border-radius:20px;
   color:#aff5cb; background:#16252b; flex:none;
 }
-#voice-mute:hover, #voice-levels:hover { background:#21373d; border-color:#5f8c7a; }
-#voice-mute svg, #voice-levels svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; display:block; }
-#voice-mute[data-muted="true"], #voice-levels[data-deafened="true"] {
-  color:#ffb4aa; border-color:#8a4343; background:#2e191d;
+.voice-split > button.voice-split-solo:hover { background:#21373d; border-color:#5f8c7a; }
+.voice-split-icon { display:block; width:18px; height:18px; flex:none; }
+.voice-caret { display:block; width:14px; height:14px; opacity:.85; flex:none; }
+.voice-split svg { width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; display:block; }
+.voice-split-badge {
+  position:absolute; top:-3px; right:-3px; z-index:3;
+  display:grid; place-items:center; width:16px; height:16px; padding:2px;
+  border:1px solid var(--voice-danger-border); border-radius:50%;
+  background:var(--voice-danger-bg); color:var(--voice-danger-ink); pointer-events:none;
 }
-#voice-mute[data-syncing="true"], #voice-levels[data-syncing="true"] { border-style:dotted; opacity:.85; }
-#voice-levels[data-connected="false"] { border-style:dashed; }
-#voice-levels .voice-caret { font-size:10px; opacity:.8; }
-@media (max-width:450px) { #voice-mute, #fullscreen span { display:none; } }
+.voice-split[data-deafened="true"] > button,
+.voice-split[data-deafened="true"] > button:hover {
+  color:var(--voice-danger-ink); border-color:var(--voice-danger-border); background:var(--voice-danger-bg);
+}
+.voice-split[data-syncing="true"] > button { border-style:dotted; opacity:.9; }
+.voice-split[data-connected="false"] > button { border-style:dashed; }
+.voice-split-caret[aria-expanded="true"] { border-color:#9ce7ca; background:#1e353a; }
+@media (pointer:coarse) {
+  .voice-split > button.voice-split-solo { min-width:44px; min-height:44px; height:44px; }
+}
+@media (max-width:450px) {
+  #fullscreen span { display:none; }
+  #path { max-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+}
 
 #game-voice-mixer {
-  position:absolute; top:calc(100% + 6px); right:max(10px, env(safe-area-inset-right)); z-index:10;
+  position:fixed; inset:auto; margin:0; z-index:10;
   width:min(310px, calc(100vw - 20px)); max-height:min(440px, calc(100dvh - 64px));
   overflow-y:auto; overscroll-behavior:contain;
   padding:12px; border:1px solid #3d5263; border-radius:12px;
   background:#111b24; color:#e7edf5; box-shadow:0 16px 40px #000a;
-  display:grid; gap:12px;
 }
+#game-voice-mixer:popover-open { display:grid; gap:12px; }
 .gvm-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .gvm-head strong { font-size:13px; color:#e7edf5; }
 .gvm-close { width:28px; height:28px; padding:0; display:grid; place-items:center; border-radius:50%; color:#b3bfcd; font-size:18px; }
@@ -81,3 +104,6 @@ header { position:relative; z-index:2; min-width:0; }
 }
 .gvm-peer-mute svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
 .gvm-peer-mute[data-muted="true"] { background:#3a1d22; border-color:#a24b52; color:#ffb4aa; }
+.gvm-footer { display:flex; justify-content:flex-end; padding-top:8px; border-top:1px solid #263442; }
+.gvm-reset { padding:4px 0; font-size:12px; color:#96a8bb; background:transparent; }
+.gvm-reset:hover { color:#aff5cb; background:transparent; }
