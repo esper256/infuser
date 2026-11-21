@@ -299,11 +299,6 @@
   }
 }
 
-@media (max-width: 380px) {
-  [data-theme="funny-pages"] .brand-wordmark img { width: 92px; }
-  [data-theme="funny-pages"] .brand-wordmark { padding: 4px 6px 5px; box-shadow: 3px 3px 0 var(--accent); }
-}
-
 /* Control strip. Areas stay filters, then search, then Add a game. */
 [data-theme="funny-pages"] .library-toolbar {
   padding: 10px;

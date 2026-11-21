@@ -673,18 +673,17 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   }
 
   mixer.addEventListener('beforetoggle',event=>{
-    paint(event.newState==='open');
+    const isOpen=event.newState==='open';
+    paint(isOpen);
+    if(!isOpen&&(mixer.contains(document.activeElement)||document.activeElement===document.body)){
+      mixerAnchor?.focus?.({preventScroll:true});
+    }
   });
   mixer.addEventListener('toggle',()=>{
     const isOpen=mixer.matches(':popover-open');
     paint();
     if(isOpen){positionMixer();startMeterLoop();}
-    else{
-      stopMeterLoop();void stopMicTest();
-      if(mixer.contains(document.activeElement)||document.activeElement===document.body){
-        mixerAnchor?.focus?.({preventScroll:true});
-      }
-    }
+    else{stopMeterLoop();void stopMicTest();}
   });
   mixer.addEventListener('keydown',event=>{
     if(event.key==='Escape'){event.preventDefault();event.stopPropagation();mixer.hidePopover();mixerAnchor?.focus?.({preventScroll:true});}
