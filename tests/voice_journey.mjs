@@ -77,11 +77,16 @@ try{
   await river.page.locator('#voice-mixer').waitFor({state:'visible'});
   const lib360=await river.page.evaluate(()=>{
     const header=document.querySelector('header');
+    const brand=document.querySelector('.brand').getBoundingClientRect();
+    const presence=document.querySelector('.presence-chat').getBoundingClientRect();
+    const wordmark=document.querySelector('.brand-wordmark');
     const pill=document.querySelector('.voice-split').getBoundingClientRect();
     const chat=document.querySelector('#chat-toggle').getBoundingClientRect();
     const pop=document.querySelector('#voice-mixer').getBoundingClientRect();
     return {
       headerOverflow:header.scrollWidth>header.clientWidth,
+      wordmarkHidden:getComputedStyle(wordmark).display==='none',
+      sameRow:Math.abs((brand.top+brand.bottom)/2-(presence.top+presence.bottom)/2)<2,
       pillLeft:pill.left,pillRight:pill.right,
       chatLeft:chat.left,chatRight:chat.right,
       popLeft:pop.left,popRight:pop.right,popTop:pop.top,popBottom:pop.bottom,
@@ -89,6 +94,8 @@ try{
     };
   });
   assert.equal(lib360.headerOverflow,false,'Library header must not overflow at 360px');
+  assert.equal(lib360.wordmarkHidden,true,'Infuser text wordmark hides on mobile to preserve header space');
+  assert.equal(lib360.sameRow,true,'Logo icon, avatars, voice pill, and chat stay on one header row at 360px');
   assert(lib360.pillLeft>=0&&lib360.pillRight<=lib360.vw,'Voice split pill fits inside 360px viewport');
   assert(lib360.chatLeft>=0&&lib360.chatRight<=lib360.vw,'Chat toggle fits inside 360px viewport');
   assert(lib360.pillRight<=lib360.chatLeft,'Voice pill and chat toggle do not overlap');
@@ -97,6 +104,23 @@ try{
   await river.page.screenshot({path:path.join(root,'voice-library-360.png')});
   await river.page.keyboard.press('Escape');
   await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
+
+  // Mobile landscape keeps both the icon and text wordmark on one row.
+  await river.page.setViewportSize({width:640,height:360});
+  const libLand=await river.page.evaluate(()=>{
+    const header=document.querySelector('header');
+    const brand=document.querySelector('.brand').getBoundingClientRect();
+    const presence=document.querySelector('.presence-chat').getBoundingClientRect();
+    const wordmark=document.querySelector('.brand-wordmark');
+    return {
+      overflow:header.scrollWidth>header.clientWidth,
+      wordmarkVisible:getComputedStyle(wordmark).display!=='none'&&wordmark.getBoundingClientRect().width>0,
+      sameRow:Math.abs((brand.top+brand.bottom)/2-(presence.top+presence.bottom)/2)<2,
+    };
+  });
+  assert.equal(libLand.overflow,false,'Library header must not overflow in mobile landscape');
+  assert.equal(libLand.wordmarkVisible,true,'Infuser text wordmark stays visible in mobile landscape');
+  assert.equal(libLand.sameRow,true,'Logo and voice controls stay on one header row in mobile landscape');
 
   // Real 360x800 game-player header check while muted: red mic-slash badge visible, no overflow.
   const launch=await river.page.evaluate(async()=>{

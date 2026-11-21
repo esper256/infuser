@@ -477,7 +477,8 @@ form.admin-region-body { margin: 0; }
   83% { transform: translateY(-1px) rotate(6deg); }
   92% { transform: translateY(0) rotate(-3deg); }
 }
-@media (max-width:380px) { .brand-wordmark img { width: 76px; } header { column-gap: 8px; } }
+@media (max-width:480px), (max-width:650px) and (orientation:portrait) { .brand-wordmark { display: none; } }
+@media (max-width:450px) { header { column-gap: 8px; } }
 @media (min-width:651px) and (max-width:1100px) { header { flex-wrap: wrap; gap: 12px 18px; } }
 @media (max-width:650px) {
   .library-toolbar { gap: 14px 10px; }
