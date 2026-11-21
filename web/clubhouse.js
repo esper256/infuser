@@ -13,7 +13,7 @@ const $ = id => document.getElementById(id);
 const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
 let noticeTimer,adminLoaded=false,adminLoading=false,networkHealthBusy=false;
-let refreshServerUpdates=()=>{};
+let refreshServerUpdates=()=>{},voiceApi=null;
 let me, library, currentReaction, refreshing = false, refreshQueued = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
@@ -607,9 +607,17 @@ function animatePresence(list,before){
 }
 reactionMotion.addEventListener('change',()=>{if(reactionMotion.matches){for(const animation of presenceMotions.values())animation.cancel();presenceMotions.clear();for(const ghost of presenceGhosts)ghost.remove();presenceGhosts.clear();}});
 
+function voiceControlsExtent(cluster,axis,gap){
+  let total=0;
+  for(const control of cluster.querySelectorAll('.voice-control')){
+    if(control.hidden)continue;
+    total+=(axis==='column'?control.offsetHeight:control.offsetWidth)+gap;
+  }
+  return total;
+}
 function columnPresenceCount(people,list,cluster){
-  const voice=$('voice-toggle'),gap=parseFloat(getComputedStyle(cluster).rowGap)||0;
-  const room=cluster.clientHeight-$('chat-toggle').offsetHeight-gap-(voice&&!voice.hidden?voice.offsetHeight+gap:0);
+  const gap=parseFloat(getComputedStyle(cluster).rowGap)||0;
+  const room=cluster.clientHeight-$('chat-toggle').offsetHeight-gap-voiceControlsExtent(cluster,'column',gap);
   const self=list.querySelector('.presence-self');
   const outer=node=>{const style=getComputedStyle(node);return node.offsetHeight+parseFloat(style.marginTop)+parseFloat(style.marginBottom);};
   const base=self?outer(self):0;
@@ -628,8 +636,8 @@ function visiblePresenceCount(people){
   const list=$('friends'),cluster=list.closest('.presence-chat');
   if(!cluster||!people.length)return people.length;
   if(chatDock()?.stack==='column')return columnPresenceCount(people,list,cluster);
-  const voice=$('voice-toggle'),gap=parseFloat(getComputedStyle(cluster).columnGap);
-  const room=cluster.clientWidth-$('chat-toggle').offsetWidth-gap-(voice&&!voice.hidden?voice.offsetWidth+gap:0);
+  const gap=parseFloat(getComputedStyle(cluster).columnGap)||0;
+  const room=cluster.clientWidth-$('chat-toggle').offsetWidth-gap-voiceControlsExtent(cluster,'row',gap);
   const self=list.querySelector('.presence-self');
   const outerWidth=node=>{const style=getComputedStyle(node);return node.offsetWidth+parseFloat(style.marginLeft)+parseFloat(style.marginRight);};
   const base=self?outerWidth(self):0;
@@ -704,6 +712,13 @@ function renderPresence() {
         };
         panel.append(button);
       }
+      voiceApi?.renderFriendControls(person,panel);
+    }
+    function refreshFriendVoice(){
+      if(!menu.open)return;
+      for(const existing of panel.querySelectorAll('.friend-voice'))existing.remove();
+      for(const person of persons)voiceApi?.renderFriendControls(person,panel);
+      position();
     }
     function position(){
       // A transformed ancestor would change the fixed menu's containing block.
@@ -712,7 +727,7 @@ function renderPresence() {
       panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
       panel.style.top=(bounds.bottom+10)+'px';panel.style.maxHeight=Math.max(44,innerHeight-bounds.bottom-26)+'px';
     }
-    trigger.addEventListener('click',position);menu.addEventListener('toggle',position);
+    trigger.addEventListener('click',position);menu.addEventListener('toggle',refreshFriendVoice);
     menu.append(trigger,panel);item.append(menu);nextItems.push(item);presenceItems.set(item,signature);
     if(opened===key)menu.open=true;
   }
@@ -1315,6 +1330,8 @@ function setupAccount(){
   window.addEventListener('scroll',positionMenu,{passive:true});
   const profile=el('button','Change profile picture');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');
   profile.onclick=()=>{menu.open=false;openProfile();};
+  const voiceSettings=el('button','Voice settings');voiceSettings.id='open-voice-settings';voiceSettings.type='button';voiceSettings.hidden=true;voiceSettings.setAttribute('aria-haspopup','dialog');
+  voiceSettings.onclick=()=>{menu.open=false;voiceApi?.openSettings($('account-trigger'));};
   const label=el('label','Theme'),select=el('select');select.id='theme-picker';
   const themes=window.InfuserThemes;
   for(const theme of themes.catalog.filter(theme=>theme.status!=='retired')){
@@ -1326,7 +1343,7 @@ function setupAccount(){
   const out=el('a','Sign out');out.className='sign-out';out.href='/sign-out';
   const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
   const reviewFeedback=initFeedback(feedback,()=>{menu.open=false;},api,me.admin&&!me.inspecting);
-  panel.append(profile,label,feedback,...(reviewFeedback?[reviewFeedback]:[]));
+  panel.append(profile,voiceSettings,label,feedback,...(reviewFeedback?[reviewFeedback]:[]));
   if(me.profile_count>1){
     const switcher=el('button','Switch Profile');switcher.id='switch-profile';switcher.type='button';
     switcher.onclick=async()=>{switcher.disabled=true;try{await clearNotifications();chooser('/library');}catch(error){notice(error.message||'Could not switch profiles. Try again.');switcher.disabled=false;}};
@@ -1437,7 +1454,8 @@ try {
     const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
     if(document.hasFocus()&&!document.hidden)active();
   }
-  initVoice({me,api,notice});
+  voiceApi=initVoice({me,api,notice,onConfiguredChange:configured=>{const btn=$('open-voice-settings');if(btn)btn.hidden=!configured;}});
+  window.addEventListener('infuser-voice-layout',()=>{if(library)renderPresence();});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
   initClientUpdates({api});

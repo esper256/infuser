@@ -2,12 +2,27 @@
 
 Audience: server operators. Game authors do not need to integrate voice.
 
-Voice chat is optional. When configured, the Library shows one headset toggle
-beside text chat. On joins the group's voice conversation and captures the
+Voice chat is optional. When configured, the Library shows a headset toggle
+beside text chat along with a Voice mixer button (and a quick mic mute button
+while connected). On joins the group's voice conversation and captures the
 microphone; off stops capture and listening. A small headset badge identifies
-connected profiles. There are no room menus, individual mute controls, recordings,
+connected profiles, and an active speaking ring highlights who is talking.
+
+Players can adjust their microphone gain (0%–200% with a live level meter and
+optional pre-call mic test), master voice volume (0%–200%), per-participant
+volume and local mute (in the Voice mixer or a friend's avatar card), quick
+mute/deafen, and browser audio options (device selection, auto gain control,
+noise suppression, and echo cancellation). Gain, volume, per-participant mix,
+and processing preferences are saved per profile in SQLite; mic mute and
+deafen reset to unmuted on a fresh join. There are no room menus, recordings,
 video, or game-specific channels. Refreshing or leaving the Library disconnects;
 launching a game in another tab leaves the Library's voice connection running.
+
+While a player has an active voice connection in their Library tab, non-guest
+game tabs show compact Mute and Voice controls in the slim player header bar
+above the game. Adjustments sync to the owning Library tab through
+`/_infuser/voice` and `/api/voice/control`; game origins can never acquire the
+microphone or mint LiveKit tokens.
 
 The connected tab plays a soft rising three-note chime for joins and a falling
 chime for departures, including its own connection/disconnection. These tones are

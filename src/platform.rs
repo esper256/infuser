@@ -449,6 +449,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS runtime_manifests(build_key TEXT PRIMARY KEY, server_start TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS dedicated_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS voice_settings(profile TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL);")?;
         c.execute(
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
             [serde_json::to_string(&Data::default())?],
@@ -540,6 +541,44 @@ impl Database {
         tx.commit()?;
         *cached = Some((revision, std::sync::Arc::new(data)));
         Ok(result)
+    }
+    pub fn voice_settings_load(&self, profile: &str) -> Result<(u64, crate::voice::AudioSettings)> {
+        let c = self.connection.lock().unwrap();
+        let row = c.query_row(
+            "SELECT revision, data FROM voice_settings WHERE profile=?1",
+            [profile],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+        );
+        match row {
+            Ok((rev, raw)) => {
+                let mut settings: crate::voice::AudioSettings =
+                    serde_json::from_str(&raw).unwrap_or_default();
+                settings.normalize();
+                Ok((rev.max(1) as u64, settings))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                Ok((1, crate::voice::AudioSettings::default()))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+    pub fn voice_settings_save(
+        &self,
+        profile: &str,
+        settings: &crate::voice::AudioSettings,
+    ) -> Result<u64> {
+        let mut normalized = settings.clone();
+        normalized.normalize();
+        let encoded = serde_json::to_string(&normalized)?;
+        let c = self.connection.lock().unwrap();
+        let rev: i64 = c.query_row(
+            "INSERT INTO voice_settings(profile, revision, data) VALUES(?1, 2, ?2)
+             ON CONFLICT(profile) DO UPDATE SET revision = revision + 1, data = excluded.data
+             RETURNING revision",
+            rusqlite::params![profile, encoded],
+            |r| r.get(0),
+        )?;
+        Ok(rev.max(1) as u64)
     }
     pub fn record_build_file(&self, key: &str, path: String, size: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();

@@ -49,6 +49,17 @@ try{
   await river.context.setOffline(true);await sleep(2500);await river.context.setOffline(false);
   await river.page.waitForFunction(()=>document.querySelector('#voice-toggle').dataset.state==='on',{},{timeout:20000});
   await river.page.waitForFunction(()=>document.querySelectorAll('.voice-badge').length===2);
+  // Exercise Library voice mixer controls, quick mute, deafen, and slider sync.
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  await river.page.screenshot({path:path.join(root,'voice-mixer.png')});
+  await river.page.locator('#voice-mixer').getByRole('button',{name:'Mute',exact:true}).click();
+  await river.page.waitForFunction(()=>document.querySelector('#voice-mute')?.dataset.muted==='true');
+  await river.page.locator('#voice-mixer').getByRole('button',{name:'Deafen',exact:true}).click();
+  await river.page.waitForFunction(()=>document.querySelector('#voice-toggle')?.dataset.deafened==='true');
+  await river.page.locator('#voice-mute').click();
+  await river.page.waitForFunction(()=>document.querySelector('#voice-mute')?.dataset.muted==='false'&&document.querySelector('#voice-toggle')?.dataset.deafened==='false');
+  await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
   await river.page.screenshot({path:path.join(root,'voice-header.png')});
   // A second tab sees the connection but never opens another microphone.
   const tab=await river.context.newPage();await tab.goto(origin+'/library');

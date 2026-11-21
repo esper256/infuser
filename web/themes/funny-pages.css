@@ -117,7 +117,9 @@
   box-shadow: 3px 3px 0 var(--ink-line);
 }
 [data-theme="funny-pages"] #chat-toggle,
-[data-theme="funny-pages"] #voice-toggle {
+[data-theme="funny-pages"] #voice-toggle,
+[data-theme="funny-pages"] #voice-mute,
+[data-theme="funny-pages"] #voice-mixer-toggle {
   background: var(--caption);
   border: 3px solid var(--ink-line);
   box-shadow: 3px 3px 0 var(--ink-line);

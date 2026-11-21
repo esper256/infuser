@@ -699,7 +699,9 @@
 
 /* Chat is a window in the wall: parchment letters, a steel note of your own. */
 [data-theme="castle-keep"] #chat-toggle,
-[data-theme="castle-keep"] #voice-toggle {
+[data-theme="castle-keep"] #voice-toggle,
+[data-theme="castle-keep"] #voice-mute,
+[data-theme="castle-keep"] #voice-mixer-toggle {
   background-image: var(--steel-face);
   background-color: #d5dce1;
   color: var(--steel-ink);
@@ -708,7 +710,9 @@
 }
 [data-theme="castle-keep"] #chat-toggle[aria-expanded="true"],
 [data-theme="castle-keep"] #chat-toggle:hover,
-[data-theme="castle-keep"] #voice-toggle:hover { background-image: var(--steel-hot); color: var(--steel-ink); }
+[data-theme="castle-keep"] #voice-toggle:hover,
+[data-theme="castle-keep"] #voice-mute:hover,
+[data-theme="castle-keep"] #voice-mixer-toggle:hover { background-image: var(--steel-hot); color: var(--steel-ink); }
 [data-theme="castle-keep"] #chat-unread { color: #fff6ee; border-color: var(--mortar); }
 [data-theme="castle-keep"] #chat-panel {
   border: 4px solid #2a333c;

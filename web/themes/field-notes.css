@@ -384,7 +384,9 @@
 [data-theme="field-notes"] .own .chat-meta strong,
 [data-theme="field-notes"] .chat-meta strong { color: var(--moss-deep); }
 [data-theme="field-notes"] #chat-toggle,
-[data-theme="field-notes"] #voice-toggle {
+[data-theme="field-notes"] #voice-toggle,
+[data-theme="field-notes"] #voice-mute,
+[data-theme="field-notes"] #voice-mixer-toggle {
   background: var(--field);
   color: var(--ink);
   border-color: var(--line);

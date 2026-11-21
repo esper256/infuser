@@ -1,5 +1,6 @@
 import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
+import { initGameVoice } from '/_infuser/player-voice.js';
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
 const viewport=document.getElementById('viewport'),resolutionButton=document.getElementById('resolution');
 const MAX_RENDER_PIXELS=1920*1080;
@@ -82,9 +83,11 @@ const playerFullscreen = () => document.fullscreenElement === document.documentE
 let hideTimer;
 let swipe;
 let keyboardControls = false;
+let voiceMenuOpen = false;
 
 function hideControls() {
   clearTimeout(hideTimer);
+  if (voiceMenuOpen) return;
   header.removeAttribute('data-open');
   header.inert = playerFullscreen();
   if (playerFullscreen() && header.contains(document.activeElement)) game.focus();
@@ -94,7 +97,7 @@ function showControls() {
   clearTimeout(hideTimer);
   header.inert = false;
   header.toggleAttribute('data-open', true);
-  if (!keyboardControls && !game.hidden) hideTimer = setTimeout(hideControls, 3500);
+  if (!keyboardControls && !voiceMenuOpen && !game.hidden) hideTimer = setTimeout(hideControls, 3500);
 }
 // Capture just the top edge. The game iframe owns gestures everywhere else.
 edge.addEventListener('pointerdown', event => {
@@ -240,6 +243,22 @@ try{
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
   if(!session.guest){
+    initGameVoice({
+      header,
+      anchorBefore: resolutionButton,
+      onPopoverChange(isOpen) {
+        voiceMenuOpen = isOpen;
+        if (isOpen) {
+          clearTimeout(hideTimer);
+          if (playerFullscreen()) showControls();
+        } else if (playerFullscreen() && header.hasAttribute('data-open')) {
+          showControls();
+        }
+      },
+      onCloseFocus() {
+        if (!game.hidden) game.contentWindow?.focus();
+      },
+    });
     const report=()=>fetch('/_infuser/input',{method:'POST',credentials:'same-origin'});
     const padActive=watchInput(document,report);
     game.addEventListener('load',()=>{
