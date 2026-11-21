@@ -12,19 +12,22 @@ Players can adjust their microphone gain (0%–200% with a live level meter and
 optional pre-call mic test), master voice volume (0%–200%), per-participant
 volume and local mute (in the Voice mixer or a friend's avatar card), quick
 mute/deafen, and browser audio options (device selection, auto gain control,
-noise suppression, and echo cancellation). Gain, volume, per-participant mix,
-and processing preferences are saved per profile in SQLite; mic mute and
-deafen reset to unmuted on a fresh join. There are no room menus, recordings,
-video, or game-specific channels. Refreshing or leaving the Library disconnects;
-launching a game in another tab leaves the Library's voice connection running.
+and noise suppression; echo cancellation stays on to prevent feedback). Gain,
+volume, per-participant mix, and processing preferences are saved per profile
+in SQLite; mic mute and deafen reset to unmuted on a fresh join. There are no
+room menus, recordings, video, or game-specific channels. Refreshing or leaving
+the Library disconnects; launching a game in another tab leaves the Library's
+voice connection running.
 
 While a player has an active voice connection in their Library tab, non-guest
 game tabs show compact Mute and Voice controls in the slim player header bar
 above the game. Adjustments sync to the owning Library tab through
-`/_infuser/voice` (authenticated by a per-page token consumed by the player shell
-before the game iframe loads) and `/api/voice/control`; the game bar displays
-the state confirmed applied by the Library tab via `/api/voice/ack`, and game
-origins can never acquire the microphone or mint LiveKit tokens.
+`/_infuser/voice` (authenticated by a per-launch token derived from the voice
+secret and consumed by the player shell before the game iframe loads, so open
+game tabs survive controller restarts) and `/api/voice/control`; the game bar
+displays the state confirmed applied by the Library tab via `/api/voice/ack`
+after microphone mute/unmute completes, and game origins can never acquire the
+microphone or mint LiveKit tokens.
 
 The connected tab plays a soft rising three-note chime for joins and a falling
 chime for departures, including its own connection/disconnection. These tones are

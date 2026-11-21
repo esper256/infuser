@@ -13,34 +13,19 @@ use tokio_tungstenite::tungstenite::Message as Wire;
 const PLAYER_VOICE_HEADER: &str = "x-infuser-player-voice";
 
 pub(super) fn routes() -> Router<Platform> {
-    Router::new()
-        .route(
-            "/api/voice",
-            get(status)
-                .post(join)
-                .delete(leave)
-                .layer(DefaultBodyLimit::max(1024)),
-        )
-        .route(
-            "/api/voice/heartbeat",
-            post(heartbeat).layer(DefaultBodyLimit::max(1024)),
-        )
-        .route(
-            "/api/voice/ack",
-            post(ack).layer(DefaultBodyLimit::max(1024)),
-        )
-        .route(
-            "/api/voice/settings",
-            patch(update_settings).layer(DefaultBodyLimit::max(4096)),
-        )
-        .route("/api/voice/control", get(control))
+    let settings_routes = Router::new()
+        .route("/api/voice/settings", patch(update_settings))
         .route(
             "/_infuser/voice",
-            get(game_status)
-                .patch(game_update)
-                .delete(game_leave)
-                .layer(DefaultBodyLimit::max(4096)),
+            get(game_status).patch(game_update).delete(game_leave),
         )
+        .layer(DefaultBodyLimit::max(4096));
+
+    Router::new()
+        .route("/api/voice", get(status).post(join).delete(leave))
+        .route("/api/voice/heartbeat", post(heartbeat))
+        .route("/api/voice/ack", post(ack))
+        .route("/api/voice/control", get(control))
         .route("/voice/rtc", get(signal))
         .route("/voice/rtc/validate", get(validate))
         .route(
@@ -99,6 +84,8 @@ pub(super) fn routes() -> Router<Platform> {
                 )
             }),
         )
+        .layer(DefaultBodyLimit::max(1024))
+        .merge(settings_routes)
 }
 fn service(p: &Platform) -> Result<&Arc<Service>> {
     p.voice
@@ -181,7 +168,8 @@ impl Platform {
         names.dedup();
         names
     }
-    pub async fn wait_for_voice_control_waiter(&self, owner: &str) {
+    #[cfg(test)]
+    pub(crate) async fn wait_for_voice_control_waiter(&self, owner: &str) {
         let Some(v) = &self.voice else { return };
         loop {
             let (count, notify) = v.control_waiters(owner);
@@ -295,16 +283,19 @@ async fn context(
     );
     Ok((owner, channel, visit))
 }
+#[cfg(test)]
 struct WaiterGuard {
     service: Arc<Service>,
     owner: String,
 }
+#[cfg(test)]
 impl WaiterGuard {
     fn enter(service: Arc<Service>, owner: String) -> Self {
         service.enter_control_wait(&owner);
         Self { service, owner }
     }
 }
+#[cfg(test)]
 impl Drop for WaiterGuard {
     fn drop(&mut self) {
         self.service.leave_control_wait(&self.owner);
@@ -567,8 +558,7 @@ async fn update_settings(
     let (owner, _, _) = context(&p, &h, true).await?;
     let v = service(&p)?;
     let (persisted_rev, settings, durable_changed) =
-        p.db.voice_settings_patch(&owner, &body, true)
-            .map_err(|e| fault(422, &e.to_string()))?;
+        p.db.voice_settings_patch(&owner, &body, true)?;
     let healthy = v.healthy(now());
     let (lease_changed, own_summary) = {
         let mut state = v.state.lock().unwrap();
@@ -612,6 +602,7 @@ async fn control(State(p): State<Platform>, h: HeaderMap, Query(q): Query<Contro
         let notified = notify.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
+        #[cfg(test)]
         let _guard = WaiterGuard::enter(v.clone(), owner.clone());
         let (recheck_rev, _) = v.revision_for(&owner, persisted_rev);
         if recheck_rev <= q.since {
@@ -734,8 +725,7 @@ async fn game_update(
         );
     }
     let (persisted_rev, settings, durable_changed) =
-        p.db.voice_settings_patch(&launch.email, &body, false)
-            .map_err(|e| fault(422, &e.to_string()))?;
+        p.db.voice_settings_patch(&launch.email, &body, false)?;
     let (lease_changed, mic_muted, deafened, applied_revision, applied_mic_muted, applied_deafened) = {
         let mut state = v.state.lock().unwrap();
         let l = state
@@ -895,4 +885,91 @@ async fn signal(
         let _=tokio::time::timeout(Duration::from_secs(1),client.close()).await;
         let _=tokio::time::timeout(Duration::from_secs(1),upstream.close(None)).await;
     }).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::Config, controller::Controller, docker::Docker, platform};
+
+    #[tokio::test]
+    async fn control_long_poll_parks_until_owner_bump() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let keys = temp.path().join("voice.json");
+        crate::private_file::replace(
+            &keys,
+            br#"{"api_key":"test-key","api_secret":"a-very-long-disposable-voice-test-secret"}"#,
+        )?;
+        let cfg: Config = toml::from_str(&format!(
+            "[controller]\nstate_dir={:?}\n[controller.voice]\nport=7880\nkey_file={:?}",
+            temp.path().display().to_string(),
+            keys.display().to_string()
+        ))?;
+        platform::member(&cfg, "host@example.com", "host", true, true)?;
+        let controller = Arc::new(Controller::open(
+            cfg.clone(),
+            Arc::new(Docker {
+                settings: cfg.controller.clone(),
+            }),
+        )?);
+        let p = Platform::open(controller)?;
+        let v = p.voice.as_ref().unwrap().clone();
+        let (persisted_rev, _) = p.db.voice_settings_load("host@example.com")?;
+        let (rev_before, _) = v.revision_for("host@example.com", persisted_rev);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "games.example.com".parse()?);
+        headers.insert("origin", "https://games.example.com".parse()?);
+        headers.insert("x-infuser-verified-profile", "host@example.com".parse()?);
+
+        let mut task = tokio::spawn({
+            let p = p.clone();
+            let epoch = v.epoch.clone();
+            async move {
+                control(
+                    State(p),
+                    headers,
+                    Query(ControlQuery {
+                        since: rev_before,
+                        epoch: Some(epoch),
+                    }),
+                )
+                .await
+            }
+        });
+
+        tokio::select! {
+            _ = p.wait_for_voice_control_waiter("host@example.com") => {}
+            early = &mut task => {
+                let res = early?;
+                anyhow::bail!(
+                    "control returned before parking: {:?}",
+                    res.map(|r| r.status()).map_err(|e| e.0)
+                );
+            }
+        }
+        assert!(
+            !task.is_finished(),
+            "control long-poll must stay parked until a change arrives"
+        );
+
+        let patch = AudioSettingsPatch {
+            output_volume: Some(140),
+            ..Default::default()
+        };
+        let (new_persisted, _, _) =
+            p.db.voice_settings_patch("host@example.com", &patch, true)?;
+        let bumped = v.bump_owner("host@example.com", new_persisted);
+
+        let response = task
+            .await?
+            .map_err(|e| anyhow::anyhow!("control handler failed: {}", e.0))?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096).await?;
+        let woke: Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(woke["epoch"], v.epoch);
+        assert_eq!(woke["revision"], bumped);
+        assert_eq!(woke["settings"]["output_volume"], 140);
+        Ok(())
+    }
 }

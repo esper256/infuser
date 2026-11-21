@@ -552,7 +552,7 @@ impl Database {
         match row {
             Ok((rev, raw)) => {
                 let mut settings: crate::voice::AudioSettings =
-                    serde_json::from_str(&raw).unwrap_or_default();
+                    serde_json::from_str(&raw).context("decode saved voice settings")?;
                 settings.normalize();
                 Ok((rev.max(1) as u64, settings))
             }
@@ -577,7 +577,7 @@ impl Database {
         ) {
             Ok((rev, raw)) => {
                 let mut parsed: crate::voice::AudioSettings =
-                    serde_json::from_str(&raw).unwrap_or_default();
+                    serde_json::from_str(&raw).context("decode saved voice settings")?;
                 parsed.normalize();
                 (rev.max(1) as u64, parsed)
             }

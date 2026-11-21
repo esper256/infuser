@@ -32,7 +32,7 @@ export function normalizeSettings(raw) {
     output_volume: clampPercent(src.output_volume ?? 100),
     auto_gain_control: src.auto_gain_control !== false,
     noise_suppression: src.noise_suppression !== false,
-    echo_cancellation: src.echo_cancellation !== false,
+    echo_cancellation: true,
     peer_volumes: peers,
   };
 }

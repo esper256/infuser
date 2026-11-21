@@ -70,11 +70,15 @@ export function initGameVoice({
     };
   }
 
-  function isSyncing() {
+  // Only mute/deafen changes require fast confirmation polling so dragging
+  // gain/volume sliders never triggers a retry storm.
+  function isMuteSyncing() {
     if (!state?.active) return false;
-    const rev = Number(state.revision || 0);
-    const applied = Number(state.applied_revision || 0);
-    return rev > applied;
+    const wantMuted = Boolean(state.mic_muted || state.deafened);
+    const gotMuted = Boolean(state.applied_mic_muted || state.applied_deafened);
+    const wantDeaf = Boolean(state.deafened);
+    const gotDeaf = Boolean(state.applied_deafened);
+    return wantMuted !== gotMuted || wantDeaf !== gotDeaf;
   }
 
   // Reflect what the Library tab has actually applied so the bar never claims
@@ -113,7 +117,7 @@ export function initGameVoice({
       if (open) setOpen(false, false);
       return;
     }
-    const syncing = isSyncing();
+    const syncing = isMuteSyncing();
     const muted = shownMicMuted();
     const deafened = shownDeafened();
     muteBtn.dataset.muted = String(muted);
@@ -189,10 +193,11 @@ export function initGameVoice({
             mic_muted: updated.mic_muted,
             deafened: updated.deafened,
           };
-          syncPolls = 0;
+          const needsConfirm = isMuteSyncing();
+          if (needsConfirm) syncPolls = 0;
           paintBar();
           if (open && !dragging) renderMixer();
-          schedulePoll();
+          if (needsConfirm) schedulePoll();
         }
       } else if (res.status === 409) {
         await poll();
@@ -303,7 +308,7 @@ export function initGameVoice({
   function renderMixer() {
     if (!open || !state?.active) return;
     const peers = (state.participants || []).filter(p => p.id !== state.self_id);
-    const syncing = isSyncing();
+    const syncing = isMuteSyncing();
     const muted = shownMicMuted();
     const deafened = shownDeafened();
     const sig = JSON.stringify([
@@ -528,9 +533,9 @@ export function initGameVoice({
       if (!next.configured) {
         clearInterval(pollTimer);
         pollTimer = null;
-      } else if (isSyncing()) {
+      } else if (isMuteSyncing()) {
         syncPolls++;
-        if (syncPolls > 12) schedulePoll();
+        if (syncPolls > 8) schedulePoll();
       } else if (syncPolls > 0) {
         syncPolls = 0;
         schedulePoll();
@@ -545,7 +550,7 @@ export function initGameVoice({
   function schedulePoll() {
     clearInterval(pollTimer);
     if (!alive || state?.configured === false) return;
-    const ms = isSyncing() && syncPolls <= 12 ? 250 : open ? 2500 : state?.active ? 5000 : 10000;
+    const ms = isMuteSyncing() && !dragging && syncPolls <= 8 ? 300 : open ? 2500 : state?.active ? 5000 : 10000;
     pollTimer = setInterval(() => {
       if (!document.hidden) void poll();
     }, ms);

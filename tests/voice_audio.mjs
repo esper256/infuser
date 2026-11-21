@@ -61,9 +61,11 @@ test('rmsToMeterLevel detects silence, speech, and clipping', () => {
   assert.equal(silent.level, 0);
   assert.equal(silent.clipping, false);
 
-  const mid = new Float32Array(64).fill(0.1);
+  const mid = new Float32Array(64).fill(0.25);
   const midReading = rmsToMeterLevel(mid);
-  assert(midReading.level > 0.5 && midReading.level < 0.9);
+  const expectedDb = 20 * Math.log10(0.25);
+  assert.equal(midReading.db, expectedDb);
+  assert.equal(midReading.level, (expectedDb + 60) / 54);
   assert.equal(midReading.clipping, false);
 
   const hot = new Float32Array(64).fill(0.99);
@@ -126,7 +128,7 @@ test('createVoiceInputProcessor wires gain, limiter, analyser, loopback, and cle
 
   proc.setGain(2.25);
   assert.deepEqual(gainTargets, [[2.25, 1.5, 0.025]]);
-  assert(proc.getMeter().level > 0.7);
+  assert.equal(proc.getMeter().level, (20 * Math.log10(0.25) + 60) / 54);
 
   proc.setLoopback(true);
   assert(edges.some(([a, b]) => a === 'gain' && b === 'speakers'));

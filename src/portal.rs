@@ -1370,7 +1370,7 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let voice_token = if !launch.guest {
         p.voice
             .as_ref()
-            .map(|v| v.issue_player_token(&id))
+            .map(|v| v.player_token(&id))
             .unwrap_or_default()
     } else {
         String::new()

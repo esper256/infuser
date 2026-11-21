@@ -965,6 +965,18 @@ button.feed-row:hover { border-color: var(--accent); }
 .vm-advanced-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
 .vm-test { min-height: 34px; padding: 6px 10px; font-size: 12px; }
 .friend-voice { display: grid; gap: 6px; margin-top: 8px; padding: 10px 8px 4px; border-top: 1px solid var(--line); }
+.presence-chat:has(#voice-toggle:not([hidden])) { flex-basis: 238px; min-width: min(238px, 100%); }
+@media (max-width: 450px) {
+  #voice-mute { display: none; }
+  #voice-mixer-toggle[data-muted="true"],
+  :root[data-theme] #voice-mixer-toggle[data-muted="true"],
+  :root[data-theme] #voice-mixer-toggle[data-muted="true"]:hover {
+    background-image: none;
+    background-color: var(--voice-danger-bg);
+    border-color: var(--voice-danger-border);
+    color: var(--voice-danger-ink);
+  }
+}
 @media (pointer: coarse) {
   #voice-toggle, #voice-mute, #voice-mixer-toggle { width: 44px; height: 44px; min-height: 44px; }
   .vm-action { min-height: 44px; }

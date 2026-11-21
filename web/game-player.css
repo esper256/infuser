@@ -28,7 +28,7 @@
 @media (prefers-reduced-motion:reduce) { :root:fullscreen #player-header { transition:none; } }
 
 /* Slim voice controls inside the game player header bar. */
-header { position:relative; z-index:2; }
+header { position:relative; z-index:2; min-width:0; }
 #voice-mute, #voice-levels {
   display:inline-flex; align-items:center; justify-content:center; gap:4px;
   min-height:32px; padding:5px 7px; border:1px solid #354759; border-radius:6px;
@@ -42,7 +42,7 @@ header { position:relative; z-index:2; }
 #voice-mute[data-syncing="true"], #voice-levels[data-syncing="true"] { border-style:dotted; opacity:.85; }
 #voice-levels[data-connected="false"] { border-style:dashed; }
 #voice-levels .voice-caret { font-size:10px; opacity:.8; }
-@media (max-width:450px) { #voice-mute { display:none; } }
+@media (max-width:450px) { #voice-mute, #fullscreen span { display:none; } }
 
 #game-voice-mixer {
   position:absolute; top:calc(100% + 6px); right:max(10px, env(safe-area-inset-right)); z-index:10;

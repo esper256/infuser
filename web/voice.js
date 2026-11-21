@@ -93,7 +93,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   let audioMod=null;
   let snapshot=null,room=null,lease=null,track=null,phase='off',generation=0,polling=false,heartbeatAt=0,alive=true;
   let settings={input_gain:100,output_volume:100,auto_gain_control:true,noise_suppression:true,echo_cancellation:true,peer_volumes:{}};
-  let serverEpoch='',revision=0,lastAckedKey='',micMuted=false,deafened=false;
+  let serverEpoch='',revision=0,lastAckedKey='',micMuted=false,deafened=false,audioApplySeq=0;
   let voiceCtx=null,inputProcessor=null,outputController=null;
   let identityToPlayer=new Map(),speakingIds=new Set();
   let controlAbort=null,controlRunning=false;
@@ -136,29 +136,54 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     return pctToGain(settings.output_volume)*pctToGain(pref.volume);
   }
 
-  function applyAudioState(){
-    chimes.setVolumeScale(deafened?0:Math.min(1,pctToGain(settings.output_volume)));
+  async function applyAudioState({ack=false}={}){
+    const seq=++audioApplySeq;
+    const targetRev=revision,targetEpoch=serverEpoch,targetLease=lease;
+    const targetMicMuted=Boolean(micMuted),targetDeafened=Boolean(deafened);
+    chimes.setVolumeScale(targetDeafened?0:Math.min(1,pctToGain(settings.output_volume)));
     const inputLinear=pctToGain(settings.input_gain);
     inputProcessor?.setGain(inputLinear);
     testProcessor?.setGain(inputLinear);
-    if(track){
-      const shouldMute=Boolean(micMuted||deafened);
-      if(shouldMute&&!track.isMuted)void track.mute().catch(()=>{});
-      else if(!shouldMute&&track.isMuted)void track.unmute().catch(()=>{});
-    }
     outputController?.applyAll(identity=>gainForIdentity(identity));
+    let muteOk=true;
+    if(track){
+      const shouldMute=Boolean(targetMicMuted||targetDeafened);
+      try{
+        if(shouldMute&&!track.isMuted)await track.mute();
+        else if(!shouldMute&&track.isMuted)await track.unmute();
+        if(Boolean(track.isMuted)!==shouldMute)muteOk=false;
+      }catch{
+        muteOk=false;
+      }
+    }
+    if(!alive||seq!==audioApplySeq)return false;
+    if(!muteOk){
+      if(track){
+        const actualMuted=Boolean(track.isMuted);
+        if(!actualMuted){micMuted=false;deafened=false;}
+        else{micMuted=true;}
+        paint();
+        if(mixer.matches(':popover-open')&&!dragging)renderMixer();
+      }
+      notice('Could not update microphone mute state.');
+      return false;
+    }
+    if(ack&&track&&targetLease&&targetLease===lease&&phase!=='off'){
+      ackApplied({id:targetLease,epoch:targetEpoch,rev:targetRev,mic:targetMicMuted,deaf:targetDeafened});
+    }
+    return true;
   }
 
   async function applyTrackConstraints(){
     if(!track||phase!=='on')return;
     try{
       await track.restartTrack({
-        echoCancellation:settings.echo_cancellation,
+        echoCancellation:true,
         noiseSuppression:settings.noise_suppression,
         autoGainControl:settings.auto_gain_control,
         ...(devices.inputId?{deviceId:devices.inputId}:{}),
       });
-      applyAudioState();
+      await applyAudioState({ack:Boolean(lease&&phase!=='off')});
     }catch{
       notice('Could not update microphone settings.');
     }
@@ -177,12 +202,12 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     if(lease&&me.player_id)identityToPlayer.set(lease,me.player_id);
   }
 
-  function ackApplied(){
-    if(!lease||phase==='off'||!alive)return;
-    const key=`${lease}:${serverEpoch}:${revision}:${micMuted}:${deafened}`;
+  function ackApplied({id=lease,epoch=serverEpoch,rev=revision,mic=micMuted,deaf=deafened}={}){
+    if(!id||phase==='off'||!alive)return;
+    const key=`${id}:${epoch}:${rev}:${mic}:${deaf}`;
     if(key===lastAckedKey)return;
     lastAckedKey=key;
-    void request('/api/voice/ack',{method:'POST',body:JSON.stringify({id:lease,revision,mic_muted:micMuted,deafened})}).catch(()=>{
+    void request('/api/voice/ack',{method:'POST',body:JSON.stringify({id,revision:rev,mic_muted:mic,deafened:deaf})}).catch(()=>{
       if(lastAckedKey===key)lastAckedKey='';
     });
   }
@@ -209,8 +234,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
           micMuted=false;deafened=false;
         }
       }
-      applyAudioState();
-      if(lease&&phase!=='off')ackApplied();
+      void applyAudioState({ack:Boolean(lease&&phase!=='off')});
     }
   }
 
@@ -254,7 +278,6 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     }
     if(typeof patch.auto_gain_control==='boolean')settings.auto_gain_control=patch.auto_gain_control;
     if(typeof patch.noise_suppression==='boolean')settings.noise_suppression=patch.noise_suppression;
-    if(typeof patch.echo_cancellation==='boolean')settings.echo_cancellation=patch.echo_cancellation;
     if(typeof patch.deafened==='boolean')deafened=patch.deafened;
     if(typeof patch.mic_muted==='boolean'){
       micMuted=patch.mic_muted;
@@ -270,7 +293,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
         else settings.peer_volumes[pid]=next;
       }
     }
-    applyAudioState();
+    void applyAudioState();
     paint();
     if(reapplyConstraints)void applyTrackConstraints();
     mergePatch(patch);
@@ -296,6 +319,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     button.disabled=!on&&snapshot?.available===false;
 
     muteBtn.dataset.muted=String(effectiveMuted);
+    mixerBtn.dataset.muted=String(on&&effectiveMuted);
     muteBtn.setAttribute('aria-pressed',String(effectiveMuted));
     muteBtn.innerHTML=effectiveMuted?micOffIcon:micOnIcon;
     const muteLabel=deafened?'Deafened — unmute microphone':effectiveMuted?'Microphone muted — unmute':'Mute microphone';
@@ -365,7 +389,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       audioMod=audioMod||await audioModPromise;
       const stream=await navigator.mediaDevices.getUserMedia({
         audio:{
-          echoCancellation:settings.echo_cancellation,
+          echoCancellation:true,
           noiseSuppression:settings.noise_suppression,
           autoGainControl:settings.auto_gain_control,
           ...(devices.inputId?{deviceId:{exact:devices.inputId}}:{}),
@@ -592,7 +616,6 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     for(const [key,text] of [
       ['auto_gain_control','Auto gain control'],
       ['noise_suppression','Noise suppression'],
-      ['echo_cancellation','Echo cancellation'],
     ]){
       const lbl=document.createElement('label');lbl.className='vm-check';
       const box=document.createElement('input');box.type='checkbox';box.checked=Boolean(settings[key]);
@@ -749,7 +772,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       audioMod=mod;
       if(attempt!==generation)return;
       const mic=await createLocalAudioTrack({
-        echoCancellation:settings.echo_cancellation,
+        echoCancellation:true,
         noiseSuppression:settings.noise_suppression,
         autoGainControl:settings.auto_gain_control,
         ...(devices.inputId?{deviceId:devices.inputId}:{}),
@@ -805,8 +828,8 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       current.on(RoomEvent.Reconnected,()=>{
         if(room!==current)return;
         roster();chimes.quiet();phase='on';
-        if(track&&!track.processor)void attachInputProcessor(track,mod,ensureVoiceContext()).then(applyAudioState);
-        else applyAudioState();
+        if(track&&!track.processor)void attachInputProcessor(track,mod,ensureVoiceContext()).then(()=>applyAudioState({ack:true}));
+        else void applyAudioState({ack:true});
         paint();
       });
       current.on(RoomEvent.Disconnected,()=>{if(room===current)void stop({message:'Voice chat disconnected. Tap the headset to join again.'});});
@@ -819,8 +842,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       if(attempt!==generation)return;
       roster();phase='on';heartbeatAt=0;
       syncIdentityMap();
-      applyAudioState();
-      ackApplied();
+      await applyAudioState({ack:true});
       chimes.play(true);paint();
       void poll();
       void runControlLoop(attempt);

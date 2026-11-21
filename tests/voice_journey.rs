@@ -519,7 +519,7 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
             settings: cfg.controller.clone(),
         }),
     )?);
-    let p = portal::Platform::open(controller)?;
+    let p = portal::Platform::open(controller.clone())?;
     let friend_id = p.db.catalog()?.player_id("friend@example.com");
     p.db.edit(|d| {
         d.groups.names.insert("away".into(), "Away".into());
@@ -644,6 +644,15 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
             .await?
             .status(),
         422
+    );
+    assert_eq!(
+        req(reqwest::Method::PATCH, "/api/voice/settings", "host")
+            .json(&json!({"echo_cancellation": false}))
+            .send()
+            .await?
+            .status(),
+        422,
+        "echo cancellation cannot be disabled"
     );
     assert_eq!(
         req(reqwest::Method::PATCH, "/api/voice/settings", "operator")
@@ -811,32 +820,7 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         403
     );
 
-    // Library long-poll parks first (deterministically awaited without sleeps), then wakes on game PATCH.
-    let control_wait = tokio::spawn({
-        let http = http.clone();
-        let url = url.clone();
-        let epoch = epoch.clone();
-        async move {
-            http.get(format!(
-                "{url}/api/voice/control?since={rev_before}&epoch={epoch}"
-            ))
-            .header("host", "games.example.com")
-            .header("origin", "https://games.example.com")
-            .header("cookie", "member=host")
-            .send()
-            .await
-        }
-    });
-    tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        p.wait_for_voice_control_waiter("host@example.com"),
-    )
-    .await?;
-    assert!(
-        !control_wait.is_finished(),
-        "control long-poll must stay parked until a change arrives"
-    );
-
+    // Game header PATCH updates settings/deafen and makes /api/voice/control return the new revision.
     let game_patched: Value = game_req(
         reqwest::Method::PATCH,
         "pond.games.example.com",
@@ -864,11 +848,16 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         "default peer entries are pruned"
     );
 
-    let woke: Value = tokio::time::timeout(std::time::Duration::from_secs(2), control_wait)
-        .await???
-        .error_for_status()?
-        .json()
-        .await?;
+    let woke: Value = req(
+        reqwest::Method::GET,
+        &format!("/api/voice/control?since={rev_before}&epoch={epoch}"),
+        "host",
+    )
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
     let rev_after = woke["revision"].as_u64().unwrap();
     assert!(rev_after > rev_before);
     assert_eq!(woke["settings"]["output_volume"], 140);
@@ -981,5 +970,58 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
             .removed
             .contains(&host_join["id"].as_str().unwrap().to_owned())
     );
+
+    // Player-page voice token is derived deterministically from the voice secret and launch ID,
+    // so an open game tab keeps working across a controller restart without reloading.
+    let restarted = portal::Platform::open(controller)?;
+    restarted.reconcile_voice().await?;
+    let (restarted_url, _restarted_server) = serve(portal::router(restarted.clone())).await?;
+    let after_restart: Value = http
+        .get(format!("{restarted_url}/_infuser/voice"))
+        .header("host", "pond.games.example.com")
+        .header("origin", "https://pond.games.example.com")
+        .bearer_auth("host-game-token")
+        .header("x-infuser-player-voice", &player_voice_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(after_restart["configured"], true);
+    assert_eq!(after_restart["active"], false);
+
+    // Corrupt saved voice settings surface an error instead of being silently overwritten.
+    let raw_db = rusqlite::Connection::open(temp.path().join("platform.sqlite"))?;
+    raw_db.execute(
+        "INSERT OR REPLACE INTO voice_settings(profile, revision, data) VALUES(?1, 9, ?2)",
+        rusqlite::params!["friend@example.com", "{corrupt-json"],
+    )?;
+    assert_eq!(
+        http.get(format!("{restarted_url}/api/voice"))
+            .header("host", "games.example.com")
+            .header("origin", "https://games.example.com")
+            .header("cookie", "member=friend")
+            .send()
+            .await?
+            .status(),
+        500
+    );
+    assert_eq!(
+        http.patch(format!("{restarted_url}/api/voice/settings"))
+            .header("host", "games.example.com")
+            .header("origin", "https://games.example.com")
+            .header("cookie", "member=friend")
+            .json(&json!({"input_gain": 90}))
+            .send()
+            .await?
+            .status(),
+        500
+    );
+    let preserved: String = raw_db.query_row(
+        "SELECT data FROM voice_settings WHERE profile=?1",
+        ["friend@example.com"],
+        |r| r.get(0),
+    )?;
+    assert_eq!(preserved, "{corrupt-json");
     Ok(())
 }

@@ -610,7 +610,7 @@ reactionMotion.addEventListener('change',()=>{if(reactionMotion.matches){for(con
 function voiceControlsExtent(cluster,axis,gap){
   let total=0;
   for(const control of cluster.querySelectorAll('.voice-control')){
-    if(control.hidden)continue;
+    if(control.hidden||(!control.offsetWidth&&!control.offsetHeight))continue;
     total+=(axis==='column'?control.offsetHeight:control.offsetWidth)+gap;
   }
   return total;
