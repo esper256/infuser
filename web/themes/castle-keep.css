@@ -732,6 +732,8 @@
   border-radius: 10px;
   box-shadow: 0 3px 0 var(--mortar);
 }
+[data-theme="castle-keep"] .voice-split[data-on="true"]::before { border-radius: 14px; }
+[data-theme="castle-keep"] .voice-split[data-on="true"]::after { border-radius: 16px; }
 [data-theme="castle-keep"] .voice-split > button {
   background-image: var(--steel-face);
   background-color: #d5dce1;

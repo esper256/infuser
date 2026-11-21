@@ -893,6 +893,38 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         .await?;
     assert_eq!(confirmed["applied_revision"], rev_after);
     assert_eq!(confirmed["applied_deafened"], true);
+    let roster_with_friend = confirmed["roster"].as_str().unwrap().to_owned();
+    assert!(roster_with_friend.contains(&friend_id));
+
+    // When a friend leaves the same channel, the host's /_infuser/voice/control sees the roster change.
+    req(reqwest::Method::DELETE, "/api/voice", "friend")
+        .json(&json!({"id": friend_join["id"]}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let after_friend_left: Value = http
+        .get(format!(
+            "{url}/_infuser/voice/control?since={rev_after}&applied={rev_after}&active=1&epoch={epoch}&roster={roster_with_friend}"
+        ))
+        .header("host", "pond.games.example.com")
+        .header("origin", "https://pond.games.example.com")
+        .bearer_auth("host-game-token")
+        .header("x-infuser-player-voice", &player_voice_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(
+        !after_friend_left["roster"]
+            .as_str()
+            .unwrap()
+            .contains(&friend_id)
+    );
+    assert_eq!(
+        after_friend_left["participants"].as_array().unwrap().len(),
+        1
+    );
 
     // Concurrent transactional patches from Library and game header preserve both fields.
     let (r1, r2) = tokio::join!(

@@ -905,8 +905,6 @@ button.feed-row:hover { border-color: var(--accent); }
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 40px;
-  min-width: 40px;
   height: 42px;
   min-height: 42px;
   padding: 0;
@@ -916,6 +914,8 @@ button.feed-row:hover { border-color: var(--accent); }
 }
 .voice-split > button:hover { background: var(--surface); }
 .voice-split-toggle {
+  width: 40px;
+  min-width: 40px;
   padding: 9px;
   border-radius: 21px 0 0 21px;
   border-right: 0;
@@ -927,7 +927,9 @@ button.feed-row:hover { border-color: var(--accent); }
   pointer-events: none;
 }
 .voice-split-caret {
-  padding: 11px;
+  width: 24px;
+  min-width: 24px;
+  padding: 0 3px 0 2px;
   border-radius: 0 21px 21px 0;
   border-left: 0;
 }
@@ -946,7 +948,7 @@ button.feed-row:hover { border-color: var(--accent); }
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.voice-split-caret > svg { width: 16px; height: 16px; }
+.voice-split-caret > svg { width: 13px; height: 13px; }
 .voice-split-badge {
   position: absolute;
   top: -4px;
@@ -981,45 +983,39 @@ button.feed-row:hover { border-color: var(--accent); }
 }
 .voice-split[data-deafened="true"] .voice-split-divider { background: var(--voice-danger-border); }
 .voice-split[data-syncing="true"] > button { border-style: dotted; }
-/* Keep capture visible even while connecting/reconnecting or owned by another tab. */
-.voice-split-toggle[aria-pressed="true"]::before,
-.voice-split-toggle[aria-pressed="true"]::after {
+/* Keep capture visible around the whole pill even while connecting/reconnecting or owned by another tab. */
+.voice-split[data-on="true"]::before,
+.voice-split[data-on="true"]::after {
   content: '';
   position: absolute;
-  inset: -5px;
-  border-radius: 50%;
   pointer-events: none;
 }
-.voice-split-toggle[aria-pressed="true"]::after {
-  border-radius: 26px 8px 8px 26px;
-}
-.voice-split-toggle[aria-pressed="true"]::before {
-  border: 3px solid var(--presence-online);
-  border-right-color: transparent;
-  border-bottom-color: color-mix(in srgb, var(--presence-online) 35%, transparent);
+.voice-split[data-on="true"]::before {
+  inset: -4px;
+  border-radius: 25px;
+  border: 2px solid var(--presence-online);
   filter: drop-shadow(0 0 3px var(--presence-online));
-  animation: voice-live-orbit 6s linear infinite;
-}
-.voice-split-toggle[aria-pressed="true"]::after {
-  border: 1px solid color-mix(in srgb, var(--presence-online) 65%, transparent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--presence-online) 45%, transparent);
   animation: voice-live-breathe 4s ease-in-out infinite;
 }
-.voice-split[data-deafened="true"] .voice-split-toggle[aria-pressed="true"]::before {
+.voice-split[data-on="true"]::after {
+  inset: -6px;
+  border-radius: 27px;
+  border: 1px solid color-mix(in srgb, var(--presence-online) 55%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--presence-online) 40%, transparent);
+  animation: voice-live-breathe 4s ease-in-out infinite;
+}
+.voice-split[data-on="true"][data-deafened="true"]::before {
   border-color: var(--voice-danger-border);
-  border-right-color: transparent;
-  border-bottom-color: color-mix(in srgb, var(--voice-danger-border) 35%, transparent);
   filter: drop-shadow(0 0 3px var(--voice-danger-border));
 }
-.voice-split[data-deafened="true"] .voice-split-toggle[aria-pressed="true"]::after {
-  border-color: color-mix(in srgb, var(--voice-danger-border) 65%, transparent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--voice-danger-border) 45%, transparent);
+.voice-split[data-on="true"][data-deafened="true"]::after {
+  border-color: color-mix(in srgb, var(--voice-danger-border) 55%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--voice-danger-border) 40%, transparent);
 }
-@keyframes voice-live-orbit { 0% { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(1.035); } 100% { transform: rotate(360deg) scale(1); } }
-@keyframes voice-live-breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+@keyframes voice-live-breathe { 0%,100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.03); opacity: 1; } }
 @media (forced-colors: active) {
-  .voice-split-toggle[aria-pressed="true"]::before { border-color: Highlight; border-right-color: transparent; }
-  .voice-split-toggle[aria-pressed="true"]::after { border-color: Highlight; }
+  .voice-split[data-on="true"]::before { border-color: Highlight; }
+  .voice-split[data-on="true"]::after { border-color: Highlight; }
 }
 .voice-split-toggle[data-state="connecting"],
 .voice-split-toggle[data-state="reconnecting"] { border-style: dashed; }
@@ -1083,9 +1079,10 @@ button.feed-row:hover { border-color: var(--accent); }
 .vm-footer { display: flex; justify-content: flex-end; padding-top: 8px; border-top: 1px solid var(--line); }
 .vm-test { min-height: 34px; padding: 6px 10px; font-size: 12px; justify-self: start; }
 .friend-voice { display: grid; gap: 6px; margin-top: 8px; padding: 10px 8px 4px; border-top: 1px solid var(--line); }
-.presence-chat:has(.voice-split:not([hidden])) { flex-basis: 234px; min-width: min(234px, 100%); }
+.presence-chat:has(.voice-split:not([hidden])) { flex-basis: 218px; min-width: min(218px, 100%); }
 @media (pointer: coarse) {
-  .voice-split > button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .voice-split-toggle { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .voice-split-caret { width: 28px; min-width: 28px; height: 44px; min-height: 44px; padding: 0 4px 0 3px; }
   .vm-action { min-height: 44px; }
   .vm-peer-mute { width: 38px; height: 38px; min-height: 38px; }
 }

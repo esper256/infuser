@@ -317,7 +317,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     else if(!patchTimer)patchTimer=setTimeout(()=>{void flushPatch();},100);
   }
 
-  function paint(){
+  function paint(expandedOverride){
     const configured=Boolean(snapshot?.configured);
     if(configured!==wasConfigured){wasConfigured=configured;onConfiguredChange(configured);}
     const on=phase!=='off'||Boolean(snapshot?.self);
@@ -333,7 +333,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       syncing:false,
       connected:phase==='on',
       disabled:!on&&snapshot?.available===false,
-      expanded:mixer.matches(':popover-open'),
+      expanded:typeof expandedOverride==='boolean'?expandedOverride:mixer.matches(':popover-open'),
     });
 
     const ids=new Set((snapshot?.participants||[]).map(p=>p.id));
@@ -672,6 +672,9 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     void refreshDevices();
   }
 
+  mixer.addEventListener('beforetoggle',event=>{
+    paint(event.newState==='open');
+  });
   mixer.addEventListener('toggle',()=>{
     const isOpen=mixer.matches(':popover-open');
     paint();

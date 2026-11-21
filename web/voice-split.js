@@ -74,7 +74,16 @@ export function createVoiceSplit({
     root.append(caretBtn);
   }
 
+  let suppressNextOpen = false;
+  caretBtn.addEventListener('pointerdown', () => {
+    suppressNextOpen = expanded;
+  });
   caretBtn.addEventListener('click', () => {
+    if (suppressNextOpen) {
+      suppressNextOpen = false;
+      onClose();
+      return;
+    }
     if (expanded) onClose();
     else onOpen();
   });

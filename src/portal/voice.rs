@@ -276,18 +276,28 @@ impl Platform {
                 }
             }
         }
-        let mut notify_owners = Vec::new();
-        {
+        let mut changed_channels = std::collections::BTreeSet::new();
+        let notify_owners: Vec<String> = {
             let mut state = v.state.lock().unwrap();
             for l in state.leases.values_mut() {
                 let next_connected = connected.contains(&l.id);
                 if l.connected != next_connected {
                     l.connected = next_connected;
-                    notify_owners.push(l.owner.clone());
+                    changed_channels.insert(l.channel.clone());
                 }
             }
             state.checked_at = now();
-        }
+            if changed_channels.is_empty() {
+                Vec::new()
+            } else {
+                state
+                    .leases
+                    .values()
+                    .filter(|l| changed_channels.contains(&l.channel))
+                    .map(|l| l.owner.clone())
+                    .collect()
+            }
+        };
         for owner in notify_owners {
             v.notify_game(&owner);
         }
@@ -498,7 +508,20 @@ async fn join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestI
     };
     let token = v.participant_token(&lease, now());
     let id = lease.id.clone();
-    v.state.lock().unwrap().leases.insert(id.clone(), lease);
+    let channel_peers: Vec<String> = {
+        let mut state = v.state.lock().unwrap();
+        let peers: Vec<String> = state
+            .leases
+            .values()
+            .filter(|l| l.channel == lease.channel && l.owner != owner)
+            .map(|l| l.owner.clone())
+            .collect();
+        state.leases.insert(id.clone(), lease);
+        peers
+    };
+    for peer_owner in channel_peers {
+        v.notify_game(&peer_owner);
+    }
     p.admit(&h).await;
     Ok(reply(
         json!({"id":id,"epoch":v.epoch,"revision":initial_rev,"url":format!("wss://{}/voice",p.domain()),"token":token}),
@@ -565,7 +588,7 @@ async fn ack(State(p): State<Platform>, h: HeaderMap, Json(body): Json<AckBody>)
 }
 async fn remove_owner_lease(p: &Platform, v: &Service, owner: &str, filter_id: Option<&str>) {
     let _gate = v.gate.lock().await;
-    let removed = {
+    let (removed, channel_peers) = {
         let mut state = v.state.lock().unwrap();
         let key = state
             .leases
@@ -574,10 +597,25 @@ async fn remove_owner_lease(p: &Platform, v: &Service, owner: &str, filter_id: O
                 l.owner == owner && filter_id.is_none_or(|id| l.id == id || l.request_id == id)
             })
             .map(|l| l.id.clone());
-        key.and_then(|id| state.leases.remove(&id))
+        let removed = key.and_then(|id| state.leases.remove(&id));
+        let peers = removed
+            .as_ref()
+            .map(|l| {
+                state
+                    .leases
+                    .values()
+                    .filter(|other| other.channel == l.channel)
+                    .map(|other| other.owner.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        (removed, peers)
     };
     if let Some(l) = removed {
         v.bump_owner(owner, 0);
+        for peer_owner in channel_peers {
+            v.notify_game(&peer_owner);
+        }
         // Reconnect is already denied. A failed control call is retried by reconciliation.
         if v.call(
             &p.http,
@@ -683,11 +721,37 @@ async fn control(State(p): State<Platform>, h: HeaderMap, Query(q): Query<Contro
         "self": own_summary
     })))
 }
+fn roster_fingerprint(
+    p: &Platform,
+    v: &Service,
+    data: &crate::platform::Data,
+    email: &str,
+    healthy: bool,
+) -> String {
+    let state = v.state.lock().unwrap();
+    let Some(own) = state
+        .leases
+        .values()
+        .find(|l| l.owner == email && allowed(p, l, now()))
+    else {
+        return String::new();
+    };
+    let mut ids: Vec<String> = state
+        .leases
+        .values()
+        .filter(|l| l.channel == own.channel && l.connected && healthy && allowed(p, l, now()))
+        .map(|l| data.player_id(&l.owner))
+        .collect();
+    ids.sort();
+    format!("{}:{}", u8::from(own.connected && healthy), ids.join(","))
+}
+
 async fn build_game_status(p: &Platform, v: &Service, email: &str) -> Result<Value> {
     let healthy = v.healthy(now());
     let data = p.db.catalog()?;
     let (persisted_rev, settings) = p.db.voice_settings_load(email)?;
     let (rev, _) = v.revision_for(email, persisted_rev);
+    let roster = roster_fingerprint(p, v, &data, email, healthy);
     let (own, people) = {
         let state = v.state.lock().unwrap();
         let own = state
@@ -721,7 +785,8 @@ async fn build_game_status(p: &Platform, v: &Service, email: &str) -> Result<Val
             "active": false,
             "epoch": v.epoch,
             "revision": rev,
-            "applied_revision": 0
+            "applied_revision": 0,
+            "roster": ""
         }));
     };
     Ok(json!({
@@ -737,6 +802,7 @@ async fn build_game_status(p: &Platform, v: &Service, email: &str) -> Result<Val
         "applied_mic_muted": own.applied_mic_muted,
         "applied_deafened": own.applied_deafened,
         "revision": rev,
+        "roster": roster,
         "input_gain": settings.input_gain,
         "output_volume": settings.output_volume,
         "peer_volumes": settings.peer_volumes,
@@ -771,6 +837,8 @@ struct GameControlQuery {
     active: Option<u8>,
     #[serde(default)]
     epoch: Option<String>,
+    #[serde(default)]
+    roster: Option<String>,
 }
 fn game_state_changed(
     p: &Platform,
@@ -778,25 +846,39 @@ fn game_state_changed(
     email: &str,
     persisted_rev: u64,
     q: &GameControlQuery,
-) -> bool {
+) -> Result<bool> {
     if q.epoch.as_deref() != Some(v.epoch.as_str()) {
-        return true;
+        return Ok(true);
     }
     let (rev, _) = v.revision_for(email, persisted_rev);
     if rev > q.since {
-        return true;
+        return Ok(true);
     }
-    let state = v.state.lock().unwrap();
-    let own = state
-        .leases
-        .values()
-        .find(|l| l.owner == email && allowed(p, l, now()));
-    let is_active = u8::from(own.is_some());
+    let (is_active, applied) = {
+        let state = v.state.lock().unwrap();
+        let own = state
+            .leases
+            .values()
+            .find(|l| l.owner == email && allowed(p, l, now()));
+        (
+            u8::from(own.is_some()),
+            own.map_or(0, |l| l.applied_revision),
+        )
+    };
     if q.active.is_some_and(|a| a != is_active) {
-        return true;
+        return Ok(true);
     }
-    let applied = own.map_or(0, |l| l.applied_revision);
-    applied != q.applied
+    if applied != q.applied {
+        return Ok(true);
+    }
+    if let Some(expected_roster) = &q.roster {
+        let data = p.db.catalog()?;
+        let current = roster_fingerprint(p, v, &data, email, v.healthy(now()));
+        if &current != expected_roster {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 async fn game_control(
     State(p): State<Platform>,
@@ -819,17 +901,17 @@ async fn game_control(
     };
     require_player_voice_token(v, &h, &launch_id)?;
     let (persisted_rev, _) = p.db.voice_settings_load(&launch.email)?;
-    if !game_state_changed(&p, v, &launch.email, persisted_rev, &q) {
+    if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
         let notify = v.game_notifier_for(&launch.email);
         let notified = notify.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
-        if !game_state_changed(&p, v, &launch.email, persisted_rev, &q) {
+        if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
             let _ = tokio::time::timeout(Duration::from_secs(25), notified).await;
         }
     }
     let (persisted_rev, _) = p.db.voice_settings_load(&launch.email)?;
-    if !game_state_changed(&p, v, &launch.email, persisted_rev, &q) {
+    if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
         return Ok((StatusCode::NO_CONTENT, [("Cache-Control", "no-store")]).into_response());
     }
     Ok(reply(build_game_status(&p, v, &launch.email).await?))

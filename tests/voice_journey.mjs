@@ -49,7 +49,14 @@ try{
   await river.context.setOffline(true);await sleep(2500);await river.context.setOffline(false);
   await river.page.waitForFunction(()=>document.querySelector('#voice-toggle').dataset.state==='on',{},{timeout:20000});
   await river.page.waitForFunction(()=>document.querySelectorAll('.voice-badge').length===2);
-  // Exercise Library split pill, mixer controls, mute badge, deafen, and focus handling.
+  // Exercise Library split pill, caret open+close click toggle, mute badge, deafen, and focus handling.
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  assert.equal(await river.page.locator('#voice-mixer-toggle').getAttribute('aria-expanded'),'true');
+  // Clicking the caret a second time must close the popover (not light-dismiss + re-open).
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
+  assert.equal(await river.page.locator('#voice-mixer-toggle').getAttribute('aria-expanded'),'false');
   await river.page.locator('#voice-mixer-toggle').click();
   await river.page.locator('#voice-mixer').waitFor({state:'visible'});
   await river.page.screenshot({path:path.join(root,'voice-mixer.png')});
@@ -102,6 +109,13 @@ try{
   await gamePage.setViewportSize({width:360,height:800});
   await gamePage.goto(launch.body.url);
   await gamePage.locator('#voice-levels').waitFor({state:'visible'});
+  // Clicking the game bar pill opens, and clicking it a second time closes cleanly.
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'visible'});
+  assert.equal(await gamePage.locator('#voice-levels').getAttribute('aria-expanded'),'true');
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'hidden'});
+  assert.equal(await gamePage.locator('#voice-levels').getAttribute('aria-expanded'),'false');
   // Mute from the game bar popover and verify the Library confirms it back to the game bar badge.
   await gamePage.locator('#voice-levels').click();
   await gamePage.locator('#game-voice-mixer').waitFor({state:'visible'});

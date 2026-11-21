@@ -109,6 +109,8 @@
   border-radius: 16px;
   box-shadow: 0 3px 0 #120818;
 }
+[data-theme="cartridge-club"] .voice-split[data-on="true"]::before { border-radius: 20px; }
+[data-theme="cartridge-club"] .voice-split[data-on="true"]::after { border-radius: 22px; }
 [data-theme="cartridge-club"] .voice-split > button {
   background: #3a2070;
   color: #fff6e4;

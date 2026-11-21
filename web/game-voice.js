@@ -113,6 +113,11 @@ export function initGameVoice({
     if (mixer.matches(':popover-open')) mixer.hidePopover();
   }
 
+  mixer.addEventListener('beforetoggle', event => {
+    open = event.newState === 'open';
+    paintBar();
+  });
+
   mixer.addEventListener('toggle', () => {
     open = mixer.matches(':popover-open');
     paintBar();
@@ -503,6 +508,7 @@ export function initGameVoice({
     } else if (state && next.active) {
       state.epoch = next.epoch ?? state.epoch;
       state.revision = next.revision ?? state.revision;
+      state.roster = next.roster ?? state.roster;
       state.participants = next.participants;
       state.connected = next.connected;
       state.applied_revision = next.applied_revision;
@@ -535,6 +541,7 @@ export function initGameVoice({
           applied: String(state.applied_revision || 0),
           active: state.active ? '1' : '0',
           epoch: String(state.epoch || ''),
+          roster: String(state.roster || ''),
         });
         const res = await fetchFn('/_infuser/voice/control?' + params.toString(), {
           credentials: 'same-origin',
