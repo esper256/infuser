@@ -10,6 +10,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
+use subtle::ConstantTimeEq;
 use tokio::sync::Notify;
 
 pub const LEASE_SECONDS: u64 = 90;
@@ -238,6 +239,9 @@ pub(crate) struct Lease {
     pub connected: bool,
     pub mic_muted: bool,
     pub deafened: bool,
+    pub applied_revision: u64,
+    pub applied_mic_muted: bool,
+    pub applied_deafened: bool,
 }
 #[derive(Default)]
 pub(crate) struct State {
@@ -245,6 +249,9 @@ pub(crate) struct State {
     pub checked_at: u64,
     pub revisions: BTreeMap<String, u64>,
     pub notifiers: BTreeMap<String, Arc<Notify>>,
+    pub waiter_counts: BTreeMap<String, usize>,
+    pub waiter_notify: Arc<Notify>,
+    pub player_tokens: BTreeMap<String, Vec<String>>,
 }
 pub(crate) struct Service {
     pub port: u16,
@@ -396,5 +403,53 @@ impl Service {
             notify.notify_waiters();
         }
         rev
+    }
+    pub fn issue_player_token(&self, launch_id: &str) -> String {
+        let token = crate::store::secret();
+        let mut state = self.state.lock().unwrap();
+        let tokens = state.player_tokens.entry(launch_id.to_owned()).or_default();
+        tokens.push(token.clone());
+        if tokens.len() > 8 {
+            let excess = tokens.len() - 8;
+            tokens.drain(..excess);
+        }
+        token
+    }
+    pub fn verify_player_token(&self, launch_id: &str, candidate: &str) -> bool {
+        if candidate.is_empty() {
+            return false;
+        }
+        let state = self.state.lock().unwrap();
+        let Some(tokens) = state.player_tokens.get(launch_id) else {
+            return false;
+        };
+        tokens.iter().any(|stored| {
+            stored.len() == candidate.len()
+                && bool::from(stored.as_bytes().ct_eq(candidate.as_bytes()))
+        })
+    }
+    pub fn enter_control_wait(&self, owner: &str) {
+        let notify = {
+            let mut state = self.state.lock().unwrap();
+            *state.waiter_counts.entry(owner.to_owned()).or_insert(0) += 1;
+            state.waiter_notify.clone()
+        };
+        notify.notify_waiters();
+    }
+    pub fn leave_control_wait(&self, owner: &str) {
+        let mut state = self.state.lock().unwrap();
+        if let Some(count) = state.waiter_counts.get_mut(owner) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                state.waiter_counts.remove(owner);
+            }
+        }
+    }
+    pub fn control_waiters(&self, owner: &str) -> (usize, Arc<Notify>) {
+        let state = self.state.lock().unwrap();
+        (
+            state.waiter_counts.get(owner).copied().unwrap_or(0),
+            state.waiter_notify.clone(),
+        )
     }
 }

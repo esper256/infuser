@@ -1,6 +1,11 @@
 import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 import { initGameVoice } from '/_infuser/player-voice.js';
+// Capture fetch and consume the per-page voice token before the game iframe loads.
+const ownFetch = window.fetch.bind(window);
+const voiceTokenMeta = document.querySelector('meta[name="infuser-voice-token"]');
+const playerVoiceToken = voiceTokenMeta?.content || '';
+voiceTokenMeta?.remove();
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
 const viewport=document.getElementById('viewport'),resolutionButton=document.getElementById('resolution');
 const MAX_RENDER_PIXELS=1920*1080;
@@ -246,6 +251,8 @@ try{
     initGameVoice({
       header,
       anchorBefore: resolutionButton,
+      voiceToken: playerVoiceToken,
+      fetchFn: ownFetch,
       onPopoverChange(isOpen) {
         voiceMenuOpen = isOpen;
         if (isOpen) {

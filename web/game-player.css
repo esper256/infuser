@@ -39,6 +39,7 @@ header { position:relative; z-index:2; }
 #voice-mute[data-muted="true"], #voice-levels[data-deafened="true"] {
   color:#ffb4aa; border-color:#8a4343; background:#2e191d;
 }
+#voice-mute[data-syncing="true"], #voice-levels[data-syncing="true"] { border-style:dotted; opacity:.85; }
 #voice-levels[data-connected="false"] { border-style:dashed; }
 #voice-levels .voice-caret { font-size:10px; opacity:.8; }
 @media (max-width:450px) { #voice-mute { display:none; } }

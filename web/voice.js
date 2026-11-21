@@ -93,7 +93,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   let audioMod=null;
   let snapshot=null,room=null,lease=null,track=null,phase='off',generation=0,polling=false,heartbeatAt=0,alive=true;
   let settings={input_gain:100,output_volume:100,auto_gain_control:true,noise_suppression:true,echo_cancellation:true,peer_volumes:{}};
-  let revision=0,micMuted=false,deafened=false;
+  let serverEpoch='',revision=0,lastAckedKey='',micMuted=false,deafened=false;
   let voiceCtx=null,inputProcessor=null,outputController=null;
   let identityToPlayer=new Map(),speakingIds=new Set();
   let controlAbort=null,controlRunning=false;
@@ -177,8 +177,24 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     if(lease&&me.player_id)identityToPlayer.set(lease,me.player_id);
   }
 
+  function ackApplied(){
+    if(!lease||phase==='off'||!alive)return;
+    const key=`${lease}:${serverEpoch}:${revision}:${micMuted}:${deafened}`;
+    if(key===lastAckedKey)return;
+    lastAckedKey=key;
+    void request('/api/voice/ack',{method:'POST',body:JSON.stringify({id:lease,revision,mic_muted:micMuted,deafened})}).catch(()=>{
+      if(lastAckedKey===key)lastAckedKey='';
+    });
+  }
+
   function syncServerState(data){
     if(!data)return;
+    const incomingEpoch=typeof data.epoch==='string'?data.epoch:'';
+    if(incomingEpoch&&incomingEpoch!==serverEpoch){
+      serverEpoch=incomingEpoch;
+      revision=0;
+      lastAckedKey='';
+    }
     const incomingRev=Number(data.revision||0);
     if(incomingRev>=revision||revision===0){
       revision=Math.max(revision,incomingRev);
@@ -194,6 +210,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
         }
       }
       applyAudioState();
+      if(lease&&phase!=='off')ackApplied();
     }
   }
 
@@ -450,7 +467,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     const actions=document.createElement('div');actions.className='vm-actions';
     if(on){
       const effectiveMuted=Boolean(micMuted||deafened);
-      const qMute=document.createElement('button');qMute.type='button';qMute.className='vm-action secondary';
+      const qMute=document.createElement('button');qMute.type='button';qMute.className='vm-action';
       qMute.dataset.active=String(effectiveMuted);qMute.setAttribute('aria-pressed',String(effectiveMuted));
       qMute.innerHTML=(effectiveMuted?micOffIcon:micOnIcon)+`<span>${effectiveMuted?'Unmute':'Mute'}</span>`;
       qMute.onclick=()=>{
@@ -459,7 +476,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
         lastMixerSig='';renderMixer();
       };
 
-      const qDeafen=document.createElement('button');qDeafen.type='button';qDeafen.className='vm-action secondary';
+      const qDeafen=document.createElement('button');qDeafen.type='button';qDeafen.className='vm-action';
       qDeafen.dataset.active=String(deafened);qDeafen.setAttribute('aria-pressed',String(deafened));
       qDeafen.innerHTML=(deafened?deafenIcon:icon)+`<span>${deafened?'Undeafen':'Deafen'}</span>`;
       qDeafen.onclick=()=>{
@@ -467,7 +484,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
         lastMixerSig='';renderMixer();
       };
 
-      const qLeave=document.createElement('button');qLeave.type='button';qLeave.className='vm-action vm-leave secondary';
+      const qLeave=document.createElement('button');qLeave.type='button';qLeave.className='vm-action vm-leave';
       qLeave.textContent='Leave';
       qLeave.onclick=()=>{void stop();mixer.hidePopover();};
       actions.append(qMute,qDeafen,qLeave);
@@ -512,7 +529,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
         const dot=document.createElement('span');dot.className='vm-speak-dot';dot.setAttribute('aria-hidden','true');
         const name=document.createElement('span');name.className='vm-peer-name';name.textContent=peer.name;
         const pct=document.createElement('button');pct.type='button';pct.className='vm-pct';pct.textContent=`${pref.volume}%`;pct.title='Reset to 100%';
-        const pMute=document.createElement('button');pMute.type='button';pMute.className='vm-peer-mute secondary';
+        const pMute=document.createElement('button');pMute.type='button';pMute.className='vm-peer-mute';
         pMute.dataset.muted=String(pref.muted);pMute.setAttribute('aria-pressed',String(pref.muted));
         pMute.setAttribute('aria-label',`${pref.muted?'Unmute':'Mute'} ${peer.name}`);
         pMute.title=pref.muted?`Unmute ${peer.name}`:`Mute ${peer.name}`;
@@ -633,24 +650,37 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     controlAbort?.abort();controlAbort=null;controlRunning=false;
   }
 
+  function waitBackoff(ms,signal){
+    return new Promise(resolve=>{
+      if(signal?.aborted){resolve();return;}
+      const finish=()=>{clearTimeout(id);signal?.removeEventListener('abort',finish);window.removeEventListener('online',finish);resolve();};
+      const id=setTimeout(finish,ms);
+      signal?.addEventListener('abort',finish,{once:true});
+      window.addEventListener('online',finish,{once:true});
+    });
+  }
+
   async function runControlLoop(myGen){
     if(controlRunning)return;
     controlRunning=true;
+    let backoff=0;
     while(alive&&myGen===generation&&phase!=='off'){
       const ac=new AbortController();controlAbort=ac;
       try{
-        const res=await fetch('/api/voice/control?since='+encodeURIComponent(String(revision)),{
+        const query=`since=${encodeURIComponent(String(revision))}&epoch=${encodeURIComponent(serverEpoch)}`;
+        const res=await fetch('/api/voice/control?'+query,{
           credentials:'same-origin',
-          headers:{...(()=>{try{const p=sessionStorage.getItem('infuser.profile');return p?{'X-Infuser-Profile':p}:{};}catch{return {};}})(),...(()=>{try{const v=sessionStorage.getItem('infuser.visit');return v?{'X-Infuser-Visit':v}:{};}catch{return {};}})()},
+          headers:{...(()=>{try{const p=sessionStorage.getItem('infuser.profile')||me.player_id;return p?{'X-Infuser-Profile':p}:{};}catch{return me.player_id?{'X-Infuser-Profile':me.player_id}:{};}})(),...(()=>{try{const v=sessionStorage.getItem('infuser.visit');return v?{'X-Infuser-Visit':v}:{};}catch{return {};}})()},
           signal:AbortSignal.any([ac.signal,AbortSignal.timeout(30000)]),
         });
         if(!alive||myGen!==generation)break;
-        if(res.status===204)continue;
+        if(res.status===204){backoff=0;continue;}
         if(res.status===401||res.status===403){
           await stop({message:'Voice chat ended. Your access changed.'});
           break;
         }
         if(res.ok){
+          backoff=0;
           const data=await res.json();
           syncServerState(data);
           if(lease&&phase!=='connecting'&&data.self?.id!==lease){
@@ -660,11 +690,13 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
           paint();
           if(mixer.matches(':popover-open')&&!dragging)renderMixer();
         }else{
-          await new Promise(r=>setTimeout(r,1500));
+          backoff=Math.min(15000,backoff?backoff*2:1000);
+          await waitBackoff(backoff,ac.signal);
         }
       }catch{
         if(!alive||myGen!==generation||ac.signal.aborted)break;
-        await new Promise(r=>setTimeout(r,1500));
+        backoff=Math.min(15000,backoff?backoff*2:1000);
+        await waitBackoff(backoff,ac.signal);
       }
     }
     controlRunning=false;
@@ -674,6 +706,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     generation++;stopControlLoop();
     const old=lease||snapshot?.self?.id;lease=null;
     const current=room,wasConnected=phase==='on'||phase==='reconnecting';room=null;phase='off';
+    revision=0;serverEpoch='';lastAckedKey='';
     micMuted=false;deafened=false;speakingIds.clear();
     try{await inputProcessor?.destroy();}catch{/* ignore */}
     inputProcessor=null;
@@ -726,6 +759,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       const grant=await request('/api/voice',{method:'POST',body:JSON.stringify({id})});
       if(attempt!==generation){await request('/api/voice',{method:'DELETE',body:JSON.stringify({id})});return;}
       lease=grant.id;
+      if(grant.epoch){serverEpoch=grant.epoch;revision=Number(grant.revision||0);lastAckedKey='';}
       outputController=mod.createOutputController({getAudioContext:ensureVoiceContext});
       if(devices.outputId)void outputController.setSinkId(devices.outputId);
 
@@ -786,6 +820,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       roster();phase='on';heartbeatAt=0;
       syncIdentityMap();
       applyAudioState();
+      ackApplied();
       chimes.play(true);paint();
       void poll();
       void runControlLoop(attempt);
@@ -816,7 +851,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     const top=document.createElement('div');top.className='vm-peer-top';
     const title=document.createElement('span');title.className='quiet';title.textContent='Voice volume';
     const pct=document.createElement('button');pct.type='button';pct.className='vm-pct';pct.textContent=`${pref.volume}%`;pct.title='Reset to 100%';
-    const fMute=document.createElement('button');fMute.type='button';fMute.className='vm-peer-mute secondary';
+    const fMute=document.createElement('button');fMute.type='button';fMute.className='vm-peer-mute';
     fMute.dataset.muted=String(pref.muted);fMute.setAttribute('aria-pressed',String(pref.muted));
     fMute.setAttribute('aria-label',`${pref.muted?'Unmute':'Mute'} ${person.name}`);
     fMute.innerHTML=pref.muted?speakerOffIcon:speakerOnIcon;

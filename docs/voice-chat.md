@@ -21,8 +21,10 @@ launching a game in another tab leaves the Library's voice connection running.
 While a player has an active voice connection in their Library tab, non-guest
 game tabs show compact Mute and Voice controls in the slim player header bar
 above the game. Adjustments sync to the owning Library tab through
-`/_infuser/voice` and `/api/voice/control`; game origins can never acquire the
-microphone or mint LiveKit tokens.
+`/_infuser/voice` (authenticated by a per-page token consumed by the player shell
+before the game iframe loads) and `/api/voice/control`; the game bar displays
+the state confirmed applied by the Library tab via `/api/voice/ack`, and game
+origins can never acquire the microphone or mint LiveKit tokens.
 
 The connected tab plays a soft rising three-note chime for joins and a falling
 chime for departures, including its own connection/disconnection. These tones are

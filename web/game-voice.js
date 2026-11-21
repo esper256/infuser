@@ -1,5 +1,5 @@
 // Slim voice mixer for the isolated game player header bar.
-// Communicates strictly via same-origin /_infuser/voice; never acquires a microphone.
+// Communicates strictly via same-origin /_infuser/voice using the player-page token; never acquires a microphone.
 import { clampPercent } from '/_infuser/voice-audio.js';
 
 const micOnSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></svg>';
@@ -9,7 +9,18 @@ const deafenSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"
 const speakerOnSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M11 5L6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>';
 const speakerOffSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>';
 
-export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}, onCloseFocus = () => {} }) {
+export function initGameVoice({
+  header,
+  anchorBefore,
+  voiceToken = '',
+  fetchFn = window.fetch.bind(window),
+  onPopoverChange = () => {},
+  onCloseFocus = () => {},
+}) {
+  if (!voiceToken) {
+    return { isOpen: () => false, close: () => {} };
+  }
+
   const muteBtn = document.createElement('button');
   muteBtn.id = 'voice-mute';
   muteBtn.type = 'button';
@@ -34,6 +45,11 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
   mixer.hidden = true;
   header.append(mixer);
 
+  const authHeaders = (extra = {}) => ({
+    'X-Infuser-Player-Voice': voiceToken,
+    ...extra,
+  });
+
   let state = null;
   let open = false;
   let alive = true;
@@ -44,6 +60,7 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
   let sending = false;
   let lastRenderSig = '';
   let pollTimer = null;
+  let syncPolls = 0;
 
   function peerSetting(playerId) {
     const raw = state?.peer_volumes?.[playerId];
@@ -51,6 +68,24 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
       volume: clampPercent(raw?.volume ?? 100),
       muted: Boolean(raw?.muted),
     };
+  }
+
+  function isSyncing() {
+    if (!state?.active) return false;
+    const rev = Number(state.revision || 0);
+    const applied = Number(state.applied_revision || 0);
+    return rev > applied;
+  }
+
+  // Reflect what the Library tab has actually applied so the bar never claims
+  // the microphone is muted while it is still live.
+  function shownMicMuted() {
+    if (!state?.active) return false;
+    return Boolean(state.applied_mic_muted || state.applied_deafened);
+  }
+  function shownDeafened() {
+    if (!state?.active) return false;
+    return Boolean(state.applied_deafened);
   }
 
   function setOpen(next, restoreFocus = false) {
@@ -78,19 +113,32 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
       if (open) setOpen(false, false);
       return;
     }
-    const muted = Boolean(state.mic_muted || state.deafened);
-    const deafened = Boolean(state.deafened);
+    const syncing = isSyncing();
+    const muted = shownMicMuted();
+    const deafened = shownDeafened();
     muteBtn.dataset.muted = String(muted);
+    muteBtn.dataset.syncing = String(syncing);
     muteBtn.setAttribute('aria-pressed', String(muted));
     muteBtn.innerHTML = muted ? micOffSvg : micOnSvg;
-    const muteLabel = deafened ? 'Deafened — unmute microphone' : muted ? 'Microphone muted — unmute' : 'Mute microphone';
+    const muteLabel = syncing
+      ? 'Updating voice mute…'
+      : deafened
+        ? 'Deafened — unmute microphone'
+        : muted
+          ? 'Microphone muted — unmute'
+          : 'Mute microphone';
     muteBtn.title = muteLabel;
     muteBtn.setAttribute('aria-label', muteLabel);
 
     levelsBtn.dataset.deafened = String(deafened);
+    levelsBtn.dataset.syncing = String(syncing);
     levelsBtn.dataset.connected = String(Boolean(state.connected));
     levelsBtn.innerHTML = (deafened ? deafenSvg : headsetSvg) + '<span class="voice-caret" aria-hidden="true">▾</span>';
-    const levelsLabel = deafened ? 'Voice controls (deafened)' : 'Voice controls';
+    const levelsLabel = syncing
+      ? 'Voice controls (updating…)'
+      : deafened
+        ? 'Voice controls (deafened)'
+        : 'Voice controls';
     levelsBtn.title = levelsLabel;
     levelsBtn.setAttribute('aria-label', levelsLabel);
   }
@@ -117,27 +165,34 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
     pendingPatch = null;
     sending = true;
     try {
-      const res = await fetch('/_infuser/voice', {
+      const res = await fetchFn('/_infuser/voice', {
         method: 'PATCH',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(5000),
       });
       if (res.ok) {
         const updated = await res.json();
-        if (state && updated.revision >= (state.revision || 0)) {
+        const epochChanged = state && updated.epoch && state.epoch && updated.epoch !== state.epoch;
+        if (state && (epochChanged || updated.revision >= (state.revision || 0))) {
           state = {
             ...state,
+            epoch: updated.epoch ?? state.epoch,
             revision: updated.revision,
+            applied_revision: updated.applied_revision ?? state.applied_revision,
+            applied_mic_muted: updated.applied_mic_muted ?? state.applied_mic_muted,
+            applied_deafened: updated.applied_deafened ?? state.applied_deafened,
             input_gain: updated.input_gain,
             output_volume: updated.output_volume,
             peer_volumes: updated.peer_volumes || {},
             mic_muted: updated.mic_muted,
             deafened: updated.deafened,
           };
+          syncPolls = 0;
           paintBar();
           if (open && !dragging) renderMixer();
+          schedulePoll();
         }
       } else if (res.status === 409) {
         await poll();
@@ -151,7 +206,6 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
   }
 
   function queuePatch(patch, immediate = false) {
-    // Apply optimistically to local snapshot so rapid clicks feel instant.
     if (state) {
       if (typeof patch.input_gain === 'number') state.input_gain = clampPercent(patch.input_gain);
       if (typeof patch.output_volume === 'number') state.output_volume = clampPercent(patch.output_volume);
@@ -184,9 +238,10 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
 
   async function leaveVoice() {
     try {
-      await fetch('/_infuser/voice', {
+      await fetchFn('/_infuser/voice', {
         method: 'DELETE',
         credentials: 'same-origin',
+        headers: authHeaders(),
         signal: AbortSignal.timeout(5000),
       });
     } catch { /* ignore */ }
@@ -248,10 +303,14 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
   function renderMixer() {
     if (!open || !state?.active) return;
     const peers = (state.participants || []).filter(p => p.id !== state.self_id);
+    const syncing = isSyncing();
+    const muted = shownMicMuted();
+    const deafened = shownDeafened();
     const sig = JSON.stringify([
       state.connected,
-      state.mic_muted,
-      state.deafened,
+      syncing,
+      muted,
+      deafened,
       state.input_gain,
       state.output_volume,
       state.peer_volumes,
@@ -264,7 +323,11 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
     const head = document.createElement('div');
     head.className = 'gvm-head';
     const title = document.createElement('strong');
-    title.textContent = state.connected ? 'Voice chat' : 'Voice chat · Connecting';
+    title.textContent = syncing
+      ? 'Voice chat · Syncing…'
+      : state.connected
+        ? 'Voice chat'
+        : 'Voice chat · Connecting';
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'gvm-close';
@@ -276,8 +339,6 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
 
     const quick = document.createElement('div');
     quick.className = 'gvm-actions';
-    const muted = Boolean(state.mic_muted || state.deafened);
-    const deafened = Boolean(state.deafened);
 
     const qMute = document.createElement('button');
     qMute.type = 'button';
@@ -286,7 +347,7 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
     qMute.setAttribute('aria-pressed', String(muted));
     qMute.innerHTML = (muted ? micOffSvg : micOnSvg) + `<span>${muted ? 'Unmute' : 'Mute'}</span>`;
     qMute.onclick = () => {
-      if (deafened) queuePatch({ mic_muted: false, deafened: false }, true);
+      if (state.deafened || deafened) queuePatch({ mic_muted: false, deafened: false }, true);
       else queuePatch({ mic_muted: !state.mic_muted }, true);
       lastRenderSig = '';
       renderMixer();
@@ -299,7 +360,7 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
     qDeafen.setAttribute('aria-pressed', String(deafened));
     qDeafen.innerHTML = (deafened ? deafenSvg : headsetSvg) + `<span>${deafened ? 'Undeafen' : 'Deafen'}</span>`;
     qDeafen.onclick = () => {
-      queuePatch({ deafened: !deafened }, true);
+      queuePatch({ deafened: !(state.deafened || deafened) }, true);
       lastRenderSig = '';
       renderMixer();
     };
@@ -408,7 +469,7 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
 
   muteBtn.addEventListener('click', () => {
     if (!state?.active) return;
-    if (state.deafened) queuePatch({ mic_muted: false, deafened: false }, true);
+    if (state.deafened || shownDeafened()) queuePatch({ mic_muted: false, deafened: false }, true);
     else queuePatch({ mic_muted: !state.mic_muted }, true);
     if (open) {
       lastRenderSig = '';
@@ -439,8 +500,9 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
     if (polling || !alive) return;
     polling = true;
     try {
-      const res = await fetch('/_infuser/voice', {
+      const res = await fetchFn('/_infuser/voice', {
         credentials: 'same-origin',
+        headers: authHeaders(),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {
@@ -456,13 +518,22 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
         paintBar();
         if (open) renderMixer();
       } else if (state && next.active) {
-        // Keep participants list fresh without clobbering active slider drag.
         state.participants = next.participants;
         state.connected = next.connected;
+        state.applied_revision = next.applied_revision;
+        state.applied_mic_muted = next.applied_mic_muted;
+        state.applied_deafened = next.applied_deafened;
+        paintBar();
       }
       if (!next.configured) {
         clearInterval(pollTimer);
         pollTimer = null;
+      } else if (isSyncing()) {
+        syncPolls++;
+        if (syncPolls > 12) schedulePoll();
+      } else if (syncPolls > 0) {
+        syncPolls = 0;
+        schedulePoll();
       }
     } catch {
       /* Transient error; retry on next tick. */
@@ -474,7 +545,7 @@ export function initGameVoice({ header, anchorBefore, onPopoverChange = () => {}
   function schedulePoll() {
     clearInterval(pollTimer);
     if (!alive || state?.configured === false) return;
-    const ms = open ? 2500 : state?.active ? 5000 : 10000;
+    const ms = isSyncing() && syncPolls <= 12 ? 250 : open ? 2500 : state?.active ? 5000 : 10000;
     pollTimer = setInterval(() => {
       if (!document.hidden) void poll();
     }, ms);

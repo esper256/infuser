@@ -59,6 +59,10 @@
   --green: var(--moss);
   --browser-chrome: #f6f0e4;
   --game-ratio: auto;
+  --voice-danger-bg: #b91c1c;
+  --voice-danger-border: #7f1d1d;
+  --voice-danger-ink: #ffffff;
+  --voice-leave-ink: #991b1b;
 }
 
 [data-theme="field-notes"] body {
@@ -307,12 +311,33 @@
 
 /* Recently stays the shared dropdown, dressed as a pressed note. */
 [data-theme="field-notes"] #activity.recent-panel,
-[data-theme="field-notes"] .account-menu {
+[data-theme="field-notes"] .account-menu,
+[data-theme="field-notes"] #voice-mixer {
   background: var(--field);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 3px;
   box-shadow: 3px 4px 0 #00000014;
+}
+[data-theme="field-notes"] #voice-mixer .vm-action,
+[data-theme="field-notes"] #voice-mixer .vm-pct,
+[data-theme="field-notes"] #voice-mixer .vm-peer-mute {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+[data-theme="field-notes"] #voice-mixer .vm-action[data-active="true"],
+[data-theme="field-notes"] #voice-mixer .vm-action[data-active="true"]:hover,
+[data-theme="field-notes"] #voice-mixer .vm-peer-mute[data-muted="true"],
+[data-theme="field-notes"] #voice-mixer .vm-peer-mute[data-muted="true"]:hover,
+[data-theme="field-notes"] #voice-mixer .vm-leave:hover {
+  background: var(--voice-danger-bg);
+  color: var(--voice-danger-ink);
+  border-color: var(--voice-danger-border);
+}
+[data-theme="field-notes"] #voice-mixer .vm-leave {
+  color: var(--voice-leave-ink);
+  border-color: var(--voice-danger-border);
 }
 [data-theme="field-notes"] #activity .feed-entry {
   width: 100%;
@@ -390,6 +415,22 @@
   background: var(--field);
   color: var(--ink);
   border-color: var(--line);
+}
+[data-theme="field-notes"] #voice-toggle[aria-pressed="true"] {
+  background: #e2f1e7;
+  color: var(--moss-deep);
+  border-color: var(--moss);
+}
+[data-theme="field-notes"] #voice-mute[data-muted="true"],
+[data-theme="field-notes"] #voice-toggle[data-deafened="true"] {
+  background: var(--voice-danger-bg);
+  color: var(--voice-danger-ink);
+  border-color: var(--voice-danger-border);
+}
+[data-theme="field-notes"] #voice-mixer-toggle[aria-expanded="true"] {
+  background: #f3d27a;
+  color: var(--ink);
+  border-color: var(--ink);
 }
 [data-theme="field-notes"] .presence-name {
   background: var(--field);

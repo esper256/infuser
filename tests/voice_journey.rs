@@ -551,18 +551,69 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
             .header("origin", "https://games.example.com")
             .header("cookie", format!("member={who}"))
     };
-    let game_req = |method, host_name: &str, token: &str| {
-        http.request(method, format!("{url}/_infuser/voice"))
+    let game_req = |method, host_name: &str, token: &str, player_token: Option<&str>| {
+        let mut r = http
+            .request(method, format!("{url}/_infuser/voice"))
             .header("host", host_name)
             .header("origin", format!("https://{host_name}"))
-            .bearer_auth(token)
+            .bearer_auth(token);
+        if let Some(pt) = player_token {
+            r = r.header("x-infuser-player-voice", pt);
+        }
+        r
     };
+
+    // Fetch /_infuser/play to obtain the player-page-only voice token.
+    let play_html = http
+        .get(format!("{url}/_infuser/play"))
+        .header("host", "pond.games.example.com")
+        .bearer_auth("host-game-token")
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    let marker = "name=\"infuser-voice-token\" content=\"";
+    let start = play_html
+        .find(marker)
+        .expect("player page must embed voice token")
+        + marker.len();
+    let end = play_html[start..].find('"').unwrap() + start;
+    let player_voice_token = play_html[start..end].to_owned();
+    assert!(!player_voice_token.is_empty());
+
+    // Direct game requests without the player-page token are rejected.
+    assert_eq!(
+        game_req(
+            reqwest::Method::GET,
+            "pond.games.example.com",
+            "host-game-token",
+            None
+        )
+        .send()
+        .await?
+        .status(),
+        403
+    );
+    assert_eq!(
+        game_req(
+            reqwest::Method::GET,
+            "pond.games.example.com",
+            "host-game-token",
+            Some("wrong-token")
+        )
+        .send()
+        .await?
+        .status(),
+        403
+    );
 
     // Game origin sees active=false and cannot patch when voice is off.
     let off: Value = game_req(
         reqwest::Method::GET,
         "pond.games.example.com",
         "host-game-token",
+        Some(&player_voice_token),
     )
     .send()
     .await?
@@ -575,7 +626,8 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         game_req(
             reqwest::Method::PATCH,
             "pond.games.example.com",
-            "host-game-token"
+            "host-game-token",
+            Some(&player_voice_token),
         )
         .json(&json!({"output_volume": 80}))
         .send()
@@ -665,6 +717,8 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         .json()
         .await?;
     let rev_before = host_status["revision"].as_u64().unwrap();
+    let epoch = host_status["epoch"].as_str().unwrap().to_owned();
+    assert!(!epoch.is_empty());
     assert!(
         host_status["participants"]
             .as_array()
@@ -675,11 +729,26 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
     assert_eq!(host_status["self"]["mic_muted"], false);
     assert_eq!(host_status["self"]["deafened"], false);
 
+    // A stale boot epoch with a higher revision from before a deploy returns immediately.
+    let stale_epoch_reply: Value = req(
+        reqwest::Method::GET,
+        "/api/voice/control?since=99999&epoch=previous-boot",
+        "host",
+    )
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
+    assert_eq!(stale_epoch_reply["epoch"], epoch);
+    assert_eq!(stale_epoch_reply["revision"], rev_before);
+
     // Guest game tab never sees or controls owner's voice session.
     let guest_view: Value = game_req(
         reqwest::Method::GET,
         "guest-pond.games.example.com",
         "guest-game-token",
+        None,
     )
     .send()
     .await?
@@ -692,7 +761,8 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         game_req(
             reqwest::Method::PATCH,
             "guest-pond.games.example.com",
-            "guest-game-token"
+            "guest-game-token",
+            Some(&player_voice_token),
         )
         .json(&json!({"mic_muted": true}))
         .send()
@@ -701,12 +771,26 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         403
     );
 
-    // Game origin cannot mutate processing flags or cross-origin requests.
+    // Game origin cannot mutate processing flags, omit the player token, or send cross-origin requests.
     assert_eq!(
         game_req(
             reqwest::Method::PATCH,
             "pond.games.example.com",
-            "host-game-token"
+            "host-game-token",
+            None,
+        )
+        .json(&json!({"mic_muted": true}))
+        .send()
+        .await?
+        .status(),
+        403
+    );
+    assert_eq!(
+        game_req(
+            reqwest::Method::PATCH,
+            "pond.games.example.com",
+            "host-game-token",
+            Some(&player_voice_token),
         )
         .json(&json!({"auto_gain_control": true}))
         .send()
@@ -718,6 +802,7 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         http.patch(format!("{url}/_infuser/voice"))
             .header("host", "pond.games.example.com")
             .header("origin", "https://evil.example")
+            .header("x-infuser-player-voice", &player_voice_token)
             .bearer_auth("host-game-token")
             .json(&json!({"mic_muted": true}))
             .send()
@@ -726,25 +811,37 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         403
     );
 
-    // Library long-poll wakes immediately when game header updates mix + deafen.
+    // Library long-poll parks first (deterministically awaited without sleeps), then wakes on game PATCH.
     let control_wait = tokio::spawn({
         let http = http.clone();
         let url = url.clone();
+        let epoch = epoch.clone();
         async move {
-            http.get(format!("{url}/api/voice/control?since={rev_before}"))
-                .header("host", "games.example.com")
-                .header("origin", "https://games.example.com")
-                .header("cookie", "member=host")
-                .send()
-                .await
+            http.get(format!(
+                "{url}/api/voice/control?since={rev_before}&epoch={epoch}"
+            ))
+            .header("host", "games.example.com")
+            .header("origin", "https://games.example.com")
+            .header("cookie", "member=host")
+            .send()
+            .await
         }
     });
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        p.wait_for_voice_control_waiter("host@example.com"),
+    )
+    .await?;
+    assert!(
+        !control_wait.is_finished(),
+        "control long-poll must stay parked until a change arrives"
+    );
 
     let game_patched: Value = game_req(
         reqwest::Method::PATCH,
         "pond.games.example.com",
         "host-game-token",
+        Some(&player_voice_token),
     )
     .json(&json!({
         "output_volume": 140,
@@ -758,6 +855,10 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
     .await?;
     assert_eq!(game_patched["output_volume"], 140);
     assert_eq!(game_patched["deafened"], true);
+    assert_eq!(
+        game_patched["applied_deafened"], false,
+        "applied state remains false until the Library tab confirms"
+    );
     assert!(
         game_patched["peer_volumes"].as_object().unwrap().is_empty(),
         "default peer entries are pruned"
@@ -768,15 +869,67 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         .error_for_status()?
         .json()
         .await?;
-    assert!(woke["revision"].as_u64().unwrap() > rev_before);
+    let rev_after = woke["revision"].as_u64().unwrap();
+    assert!(rev_after > rev_before);
     assert_eq!(woke["settings"]["output_volume"], 140);
     assert_eq!(woke["self"]["deafened"], true);
+
+    // Library confirms applying deafen; game header now sees applied_deafened=true.
+    req(reqwest::Method::POST, "/api/voice/ack", "host")
+        .json(&json!({
+            "id": host_join["id"],
+            "revision": rev_after,
+            "mic_muted": false,
+            "deafened": true
+        }))
+        .send()
+        .await?
+        .error_for_status()?;
+    let confirmed: Value = game_req(
+        reqwest::Method::GET,
+        "pond.games.example.com",
+        "host-game-token",
+        Some(&player_voice_token),
+    )
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
+    assert_eq!(confirmed["applied_revision"], rev_after);
+    assert_eq!(confirmed["applied_deafened"], true);
+
+    // Concurrent transactional patches from Library and game header preserve both fields.
+    let (r1, r2) = tokio::join!(
+        req(reqwest::Method::PATCH, "/api/voice/settings", "host")
+            .json(&json!({"input_gain": 175}))
+            .send(),
+        game_req(
+            reqwest::Method::PATCH,
+            "pond.games.example.com",
+            "host-game-token",
+            Some(&player_voice_token),
+        )
+        .json(&json!({"output_volume": 65}))
+        .send()
+    );
+    r1?.error_for_status()?;
+    r2?.error_for_status()?;
+    let merged: Value = req(reqwest::Method::GET, "/api/voice", "host")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(merged["settings"]["input_gain"], 175);
+    assert_eq!(merged["settings"]["output_volume"], 65);
 
     // Unmuting mic while deafened also undeafens.
     let unmuted: Value = game_req(
         reqwest::Method::PATCH,
         "pond.games.example.com",
         "host-game-token",
+        Some(&player_voice_token),
     )
     .json(&json!({"mic_muted": false}))
     .send()
@@ -787,11 +940,24 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
     assert_eq!(unmuted["mic_muted"], false);
     assert_eq!(unmuted["deafened"], false);
 
-    // Leaving from the game header removes the active lease.
+    // Leaving from the game header requires the player token and removes the active lease.
+    assert_eq!(
+        game_req(
+            reqwest::Method::DELETE,
+            "pond.games.example.com",
+            "host-game-token",
+            None,
+        )
+        .send()
+        .await?
+        .status(),
+        403
+    );
     game_req(
         reqwest::Method::DELETE,
         "pond.games.example.com",
         "host-game-token",
+        Some(&player_voice_token),
     )
     .send()
     .await?
@@ -800,6 +966,7 @@ async fn voice_settings_and_game_header_sync_respect_boundaries() -> Result<()> 
         reqwest::Method::GET,
         "pond.games.example.com",
         "host-game-token",
+        Some(&player_voice_token),
     )
     .send()
     .await?
