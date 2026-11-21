@@ -6,7 +6,7 @@ const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const root=new URL('../',import.meta.url),out=new URL('.local/library-detail-review/',root);
 await mkdir(out,{recursive:true});
 const avatars=[...String(await readFile(new URL('src/portal/avatars.rs',root))).matchAll(/avatar!\("([a-z-]+)", "([^"]+)"\)/g)].map(([,id,name])=>({id,name}));
-const illustrated=[['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises'],['🎨','Beautiful art','art'],['🎵','Great soundtrack','music'],['😄','Made me smile','smile'],['🤝','Fun together','together']];
+const illustrated=[['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises'],['🎨','Beautiful art','art'],['🎵','Great soundtrack','music'],['😄','Made me smile','smile'],['🤝','Fun together','together'],['🔥','On fire!','fire'],['👻','So scary!','spooky'],['🏆','Instant classic','trophy'],['🎉','Total blast','celebrate']];
 const me={name:'KwamiKwami',player_id:'one',admin:true,avatar:'loot-raccoon',avatars};
 const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'OrbitFox',avatar:'ember-raven'};
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
@@ -357,7 +357,7 @@ try {
    }
    await dialog.locator('.creator').click();
    await page.locator('#chosen-reaction').click();
-   assert.equal(await page.getByRole('radio').count(),22);
+   assert.equal(await page.getByRole('radio').count(),26);
    if(width===320)assert(await page.locator('#emoji').evaluate(e=>e.scrollHeight>e.clientHeight),'picker scrolls instead of shrinking emojis');
    await page.screenshot({path:new URL('expanded-reactions-'+theme+'-'+width+'.png',out).pathname});
    await page.locator('#close-reaction').click();await close();
@@ -365,12 +365,13 @@ try {
  }
  // Saved artwork is shared by the review, card stack and Recently. A failed
  // decorative image falls back to its persisted emoji without losing the label.
+ const lastIllustrated='/assets/reactions/'+illustrated.at(-1)[2]+'.webp';
  await open();
- assert.equal(await dialog.locator('.feedback-emoji img').last().getAttribute('src'),'/assets/reactions/together.webp');
+ assert.equal(await dialog.locator('.feedback-emoji img').last().getAttribute('src'),lastIllustrated);
  await close();
- assert.equal(await card().locator('.game-buzz img').first().getAttribute('src'),'/assets/reactions/together.webp');
+ assert.equal(await card().locator('.game-buzz img').first().getAttribute('src'),lastIllustrated);
  await page.locator('#recent-toggle').click();
- assert(await page.locator('#feed .feed-emoji img[src="/assets/reactions/together.webp"]').count()>0);
+ assert(await page.locator('#feed .feed-emoji img[src="'+lastIllustrated+'"]').count()>0);
  await page.locator('#close-recent').click();
  await open();await dialog.getByRole('button',{name:'React: A little gem',exact:true}).click();
  const gemFace=page.locator('#chosen-reaction span');

@@ -1,6 +1,6 @@
 # Illustrated game reactions
 
-Original artwork generated for Infuser with OpenAI image generation.
+Original artwork generated for Infuser.
 The PNGs are 512×512 transparent source exports; lossless 256×256 WebP files
 are embedded by the server. No external image service or font is required.
 
@@ -16,6 +16,10 @@ are embedded by the server. No external image service or font is required.
 | 🎵 | music | Great soundtrack |
 | 😄 | smile | Made me smile |
 | 🤝 | together | Fun together |
+| 🔥 | fire | On fire! |
+| 👻 | spooky | So scary! |
+| 🏆 | trophy | Instant classic |
+| 🎉 | celebrate | Total blast |
 
 Choose affirming labels that help players describe what they enjoyed. The smile
 expresses delight, without tears or embarrassment; the fist bump celebrates
