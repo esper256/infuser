@@ -49,6 +49,9 @@ try{
   await river.context.setOffline(true);await sleep(2500);await river.context.setOffline(false);
   await river.page.waitForFunction(()=>document.querySelector('#voice-toggle').dataset.state==='on',{},{timeout:20000});
   await river.page.waitForFunction(()=>document.querySelectorAll('.voice-badge').length===2);
+  // Voice badges stay inside their avatar's paint order so overlapping profiles stack cleanly above them.
+  const badgeZ=await river.page.evaluate(()=>[...document.querySelectorAll('#friends .voice-badge')].map(el=>getComputedStyle(el).zIndex));
+  assert.deepEqual(badgeZ,['auto','auto'],'voice badges must not set a positive z-index above sibling profiles');
   // Exercise Library split pill, caret open+close click toggle, mute badge, deafen, and focus handling.
   await river.page.locator('#voice-mixer-toggle').click();
   await river.page.locator('#voice-mixer').waitFor({state:'visible'});

@@ -1024,7 +1024,7 @@ button.feed-row:hover { border-color: var(--accent); }
 .voice-split-toggle[data-state="reconnecting"] { border-style: dashed; }
 .presence-person > details > summary { position: relative; }
 .presence-person.voice-speaking .avatar { box-shadow: 0 0 0 2px var(--page), 0 0 0 4px var(--presence-online); }
-.voice-badge { position: absolute; right: -3px; top: -3px; width: 17px; height: 17px; padding: 2px; border: 1px solid var(--line); border-radius: 50%; color: var(--accent); background: var(--panel); pointer-events: none; z-index: 2; }
+.voice-badge { position: absolute; right: -3px; top: -3px; width: 17px; height: 17px; padding: 2px; border: 1px solid var(--line); border-radius: 50%; color: var(--accent); background: var(--panel); pointer-events: none; }
 
 /* Voice Mixer Popover (top-layer popover shared across all themes). */
 #voice-mixer {
