@@ -128,6 +128,7 @@ try {
   await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).waitFor();
   await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).click();
   await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).waitFor();
+  assert.equal(await page.locator('.profile-menu .account-menu').evaluate(el=>el.lastElementChild?.classList.contains('sign-out')),true,'Sign out stays at the bottom of the profile menu');
   await page.getByRole('link',{name:'Sign out',exact:true}).click();await page.waitForURL('**/oauth2/sign_out?rd=%2F');
   assert.equal(await page.evaluate(()=>localStorage.getItem('test-push')),null);
   assert.equal(await worker.evaluate(async()=>(await self.registration.getNotifications()).length),0);

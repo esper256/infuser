@@ -687,6 +687,16 @@
 }
 [data-theme="castle-keep"] .account-menu > button:hover,
 [data-theme="castle-keep"] .account-menu > a:hover { background: #8e1730; color: #fff6ee; }
+[data-theme="castle-keep"] .account-menu > a.sign-out {
+  background: #9e2028;
+  border: 1px solid #d95b62;
+  color: #fff5f5;
+}
+[data-theme="castle-keep"] .account-menu > a.sign-out:hover {
+  background: #b8242e;
+  border-color: #f0767d;
+  color: #fff;
+}
 [data-theme="castle-keep"] .account-menu label { color: var(--gold); font-weight: 700; }
 [data-theme="castle-keep"] .account-menu select {
   background-color: var(--manuscript);

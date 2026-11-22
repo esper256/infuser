@@ -701,6 +701,15 @@
 [data-theme="funny-pages"] .account-menu > a { color: var(--ink-line); border-radius: 10px; }
 [data-theme="funny-pages"] .account-menu > button:hover,
 [data-theme="funny-pages"] .account-menu > a:hover { background: var(--burst); color: var(--ink-line); }
+[data-theme="funny-pages"] .account-menu > a.sign-out {
+  border: 2px solid var(--ink-line);
+  background: #b8232d;
+  color: #fff;
+}
+[data-theme="funny-pages"] .account-menu > a.sign-out:hover {
+  background: #d32834;
+  color: #fff;
+}
 [data-theme="funny-pages"] .account-menu label { color: var(--ink); }
 [data-theme="funny-pages"] .account-menu select {
   border: 3px solid var(--ink-line);

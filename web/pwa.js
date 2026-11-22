@@ -32,10 +32,12 @@ export function setupPwa({panel,me,api,notice}) {
     if(installPrompt){const prompt=installPrompt;installPrompt=null;await prompt.prompt();await prompt.userChoice;installState();}
     else notice(iphone()?'Tap Share → Add to Home Screen → Add. Then open Infuser from your Home Screen.':'Use your browser menu → Install app or Add to Home Screen.');
   };
-  panel.append(install);
+  const before=panel.querySelector('a.sign-out');
+  const add=node=>before?panel.insertBefore(node,before):panel.append(node);
+  add(install);
   const button=document.createElement('button');button.type='button';button.textContent='Group Chat notifications';
   const hint=document.createElement('small');hint.className='notification-hint';hint.setAttribute('role','status');
-  button.hidden=!!me.inspecting;panel.append(button,hint);
+  button.hidden=!!me.inspecting;add(button);add(hint);
   const sound=document.createElement('button');sound.type='button';sound.hidden=true;
   const test=document.createElement('button');test.type='button';test.hidden=true;test.textContent='Send test notification';
   panel.insertBefore(sound,hint);panel.insertBefore(test,hint);
