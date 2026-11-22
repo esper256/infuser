@@ -1,5 +1,5 @@
 import { initChatEmoji } from '/assets/chat-emoji.js';
-import { seenLimit, advancedRead } from '/assets/chat-reads.js';
+import { seenLimit, advancedRead, placeReads } from '/assets/chat-reads.js';
 import { attachmentIcon, attachmentDraft, screenshotTile } from '/assets/screenshots.js';
 import { openHomeChat } from '/assets/groups.js';
 // A theme opts in from CSS. Unset means the horizontal row and the upward tails.
@@ -382,20 +382,15 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     considerRead();
   }
   function paintReads() {
+    const stick=bottom();
     const rows=[...log.querySelectorAll('.chat-message')].map(node=>({id:Number(node.dataset.id),node}));
-    const buckets=new Map();
-    for(const read of reads){
-      if(!read||read.id===me.player_id)continue;
-      let target=null;
-      for(const row of rows)if(row.id<=read.message&&(!target||row.id>target.id))target=row;
-      if(!target)continue;
-      const list=buckets.get(target.id)||[];list.push(read);buckets.set(target.id,list);
-    }
+    const buckets=placeReads(rows.map(row=>row.id),reads);
+    let changed=false;
     for(const row of rows){
-      const people=(buckets.get(row.id)||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+      const people=buckets.get(row.id)||[];
       const existing=row.node.querySelector('.chat-reads');
       const signature=people.map(person=>person.id+':'+person.message).join(',');
-      if(!people.length){existing?.remove();continue;}
+      if(!people.length){if(existing){existing.remove();changed=true;}continue;}
       if(existing?.dataset.reads===signature)continue;
       const box=document.createElement('div');box.className='chat-reads';box.dataset.reads=signature;
       for(const person of people){
@@ -405,7 +400,9 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
         mark.append(face);box.append(mark);
       }
       existing?existing.replaceWith(box):row.node.append(box);
+      changed=true;
     }
+    if(changed&&isOpen()&&stick&&!document.hidden)scrollLatest();
   }
   function considerRead() {
     if(readHold||readFlight||me.inspecting)return;
@@ -420,7 +417,16 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     if(next===readAck)return;
     const sent=next;readFlight=sent;
     request('/api/chat/read',{method:'POST',body:JSON.stringify({message:sent})})
-      .then(body=>{readAck=Math.max(readAck,Number(body.message)||sent);})
+      .then(body=>{
+        const stored=Number(body?.message)||sent;
+        readAck=Math.max(readAck,stored);
+        if(me.player_id){
+          const mine=reads.find(read=>read&&read.id===me.player_id);
+          if(mine)mine.message=Math.max(mine.message,readAck);
+          else reads=[...reads,{id:me.player_id,name:me.name||'',avatar:me.avatar??null,message:readAck}];
+          paintReads();
+        }
+      })
       .catch(()=>{readHold=true;})
       .finally(()=>{if(readFlight===sent)readFlight=0;});
   }
@@ -428,7 +434,15 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     clearTimeout(timer);
     if(busy||document.hidden)return;
     busy=true;
-    try{const data=await request('/api/chat');reads=data.reads||[];readHold=false;render(data.messages);setText($('connection'),'');}
+    try{
+      const data=await request('/api/chat');
+      reads=data.reads||[];
+      const ownRead=reads.find(read=>read&&read.id===me.player_id);
+      if(ownRead)readAck=Math.max(readAck,Number(ownRead.message)||0);
+      readHold=false;
+      render(data.messages);
+      setText($('connection'),'');
+    }
     catch(error){$('connection').textContent=error.status===401||error.status===403?'Sign in again to chat.':'Reconnecting…';}
     finally{busy=false;timer=setTimeout(poll,isOpen()?3000:10000);}
   }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { seenLimit, advancedRead } from '../web/chat-reads.js';
+import { seenLimit, advancedRead, placeReads } from '../web/chat-reads.js';
 
 const boxes = [
   {id: 1, top: 0, bottom: 40, height: 40},
@@ -21,4 +21,25 @@ test('the cursor moves forward only while chat is open and the page is visible',
   assert.equal(advancedRead(4, 2, true), 4);
   assert.equal(advancedRead(4, 4, true), 4);
   assert.equal(advancedRead(1, 4, false), 1);
+});
+
+test('read receipts include every reader at the latest visible message at or before their cursor', () => {
+  const buckets = placeReads(
+    [1, 3, 5],
+    [
+      {id: 'self', name: 'River', message: 4},
+      {id: 'friend', name: 'Alex', message: 5},
+      {id: 'other', name: 'Sky', message: 3},
+      {id: 'old', name: 'BeforeHistory', message: 0},
+    ],
+  );
+  assert.deepEqual([...buckets.keys()], [3, 5]);
+  assert.deepEqual(
+    buckets.get(3).map(person => person.id),
+    ['self', 'other'],
+  );
+  assert.deepEqual(
+    buckets.get(5).map(person => person.id),
+    ['friend'],
+  );
 });

@@ -12,3 +12,21 @@ export function advancedRead(sent, seen, active) {
   if (!active || !(seen > sent)) return sent;
   return seen;
 }
+
+// Place every reader (including the current user) on the latest visible message at or before their cursor.
+export function placeReads(messageIds, reads) {
+  const buckets = new Map();
+  for (const read of reads || []) {
+    if (!read) continue;
+    let target = 0;
+    for (const id of messageIds) if (id <= read.message && id > target) target = id;
+    if (!target) continue;
+    const list = buckets.get(target) || [];
+    list.push(read);
+    buckets.set(target, list);
+  }
+  for (const list of buckets.values()) {
+    list.sort((a, b) => (a.name || '').localeCompare(b.name || '') || (a.id || '').localeCompare(b.id || ''));
+  }
+  return buckets;
+}
