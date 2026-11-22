@@ -87,7 +87,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   let identityToPlayer=new Map(),speakingIds=new Set();
   let controlAbort=null,controlRunning=false;
   let pendingPatch=null,patchTimer=null,sendingPatch=false,dragging=false;
-  let mixerAnchor=null,lastMixerSig='',meterFrame=0,lastMeterAt=0,meterFill=null;
+  let mixerAnchor=null,lastMixerSig='',renderedDevicesSig='',meterFrame=0,lastMeterAt=0,meterFill=null;
   let testStream=null,testProcessor=null,testingMic=false;
   let devices=readDevices(),deviceList={inputs:[],outputs:[]},optionsOpen=false;
   let wasConfigured=false;
@@ -373,7 +373,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       };
       if(devices.inputId&&!deviceList.inputs.some(d=>d.deviceId===devices.inputId)){devices.inputId='';saveDevices(devices);}
       if(devices.outputId&&!deviceList.outputs.some(d=>d.deviceId===devices.outputId)){devices.outputId='';saveDevices(devices);}
-      if(mixer.matches(':popover-open')&&optionsOpen){lastMixerSig='';renderMixer();}
+      if(mixer.matches(':popover-open')&&optionsOpen)renderMixer();
     }catch{/* Permission or device enumeration unavailable. */}
   }
   if(navigator.mediaDevices?.addEventListener){
@@ -480,17 +480,30 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     return wrap;
   }
 
+  function devicesSig(){
+    return JSON.stringify([
+      deviceList.inputs.map(d=>[d.deviceId,d.label]),
+      deviceList.outputs.map(d=>[d.deviceId,d.label]),
+    ]);
+  }
+
+  function mixerSig(peers=(snapshot?.participants||[]).filter(p=>p.id!==me.player_id)){
+    return JSON.stringify([
+      phase,Boolean(snapshot?.self),micMuted,deafened,testingMic,optionsOpen,
+      settings,peers.map(p=>[p.id,p.name,speakingIds.has(p.id)]),
+      devices,devicesSig(),
+    ]);
+  }
+
   function renderMixer(){
     if(!mixer.matches(':popover-open'))return;
     const on=phase!=='off'||Boolean(snapshot?.self);
     const peers=(snapshot?.participants||[]).filter(p=>p.id!==me.player_id);
-    const sig=JSON.stringify([
-      phase,Boolean(snapshot?.self),micMuted,deafened,testingMic,optionsOpen,
-      settings,peers.map(p=>[p.id,p.name,speakingIds.has(p.id)]),
-      devices,deviceList.inputs.length,deviceList.outputs.length
-    ]);
+    const curDevicesSig=devicesSig();
+    const sig=mixerSig(peers);
     if(sig===lastMixerSig)return;
     lastMixerSig=sig;
+    renderedDevicesSig=curDevicesSig;
 
     mixer.replaceChildren();
     const head=document.createElement('div');head.className='vm-head';
@@ -595,8 +608,18 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     const advanced=document.createElement('details');advanced.className='vm-advanced';advanced.open=optionsOpen;
     const sum=document.createElement('summary');sum.textContent='Audio options';
     advanced.addEventListener('toggle',()=>{
+      if(advanced.open===optionsOpen)return;
       optionsOpen=advanced.open;
-      if(optionsOpen)void refreshDevices();
+      if(optionsOpen){
+        if(devicesSig()!==renderedDevicesSig){
+          renderMixer();
+        }else{
+          lastMixerSig=mixerSig();
+        }
+        void refreshDevices();
+      }else{
+        lastMixerSig=mixerSig();
+      }
       positionMixer();
     });
     const body=document.createElement('div');body.className='vm-advanced-body';

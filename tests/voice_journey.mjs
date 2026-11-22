@@ -59,6 +59,17 @@ try{
   assert.equal(await river.page.locator('#voice-mixer-toggle').getAttribute('aria-expanded'),'false');
   await river.page.locator('#voice-mixer-toggle').click();
   await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  // Expanding Audio options must not re-render in a loop and must collapse on a normal desktop click.
+  const audioDetails=river.page.locator('#voice-mixer .vm-advanced');
+  const audioSummary=audioDetails.locator('> summary');
+  await audioSummary.click();
+  await river.page.waitForFunction(()=>document.querySelector('#voice-mixer .vm-advanced')?.open===true);
+  const summaryBox=await audioSummary.boundingBox();
+  await river.page.mouse.move(summaryBox.x+summaryBox.width/2,summaryBox.y+summaryBox.height/2);
+  await river.page.mouse.down();
+  await sleep(120);
+  await river.page.mouse.up();
+  await river.page.waitForFunction(()=>document.querySelector('#voice-mixer .vm-advanced')?.open===false);
   await river.page.screenshot({path:path.join(root,'voice-mixer.png')});
   await river.page.locator('#voice-mixer').getByRole('button',{name:'Mute',exact:true}).click();
   await river.page.waitForFunction(()=>document.querySelector('.voice-split')?.dataset.muted==='true'&&!document.querySelector('.voice-split-badge')?.hidden);
