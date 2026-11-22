@@ -361,6 +361,15 @@
 [data-theme="field-notes"] .account-menu > a { color: var(--ink); }
 [data-theme="field-notes"] .account-menu > button:hover,
 [data-theme="field-notes"] .account-menu > a:hover { background: #f3d27a; color: var(--ink); }
+[data-theme="field-notes"] .account-menu > a.sign-out {
+  background: #a5242c;
+  border: 1px solid #7d181e;
+  color: #fffaf7;
+}
+[data-theme="field-notes"] .account-menu > a.sign-out:hover {
+  background: #bf2a33;
+  color: #fff;
+}
 
 [data-theme="field-notes"] dialog,
 [data-theme="field-notes"] #game-detail {

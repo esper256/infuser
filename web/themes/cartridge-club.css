@@ -479,6 +479,15 @@
   background: #ffe14a;
   color: #2a1248;
 }
+[data-theme="cartridge-club"] .account-menu > a.sign-out {
+  border: 2px solid #120818;
+  background: #b01e2b;
+  color: #fff5f5;
+}
+[data-theme="cartridge-club"] .account-menu > a.sign-out:hover {
+  background: #cf2433;
+  color: #fff;
+}
 [data-theme="cartridge-club"] .friend-actions .friend-portrait { border: 3px solid #120818; box-shadow: 0 0 0 3px #ffe14a; }
 [data-theme="cartridge-club"] .account-menu label { color: #fff6e4; }
 [data-theme="cartridge-club"] .account-menu select {
