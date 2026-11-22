@@ -103,7 +103,12 @@ manifest title over it. Description accepts
 `game_metadata.description_max_chars`. Read existing metadata before editing.
 `art_prompt` (up to 4000 characters, or null to cancel) stores a private pending
 art request when `game_metadata.art_prompt_max_chars` is advertised. Prompts are
-not included in player responses. Descriptions, prompts, and overrides survive
+not included in player responses. Optional model authorship fields —
+`author_model` (1–120 characters), `effort_level` (1–40 characters), and
+cumulative `estimated_prompts` (integer `1`–`1000000`), each nullable to clear —
+are accepted when advertised in `game_metadata` and shown on the Library game
+detail popup; agents should omit any field they do not reliably know rather than
+guessing. Descriptions, model authorship, prompts, and overrides survive
 later publications; none requires a manifest field.
 
 Publishing keys inherit their creator’s [private group](private-groups.md).

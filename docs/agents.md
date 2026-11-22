@@ -205,6 +205,14 @@ author's description unless the game has changed. This gives future agents conte
 for artwork and updates. Cover, description, and Library-title edits do not require
 a new build.
 
+Optionally, if `capabilities.game_metadata` advertises `author_model_max_chars`,
+you may also record `author_model`, `effort_level`, and cumulative
+`estimated_prompts` through the [metadata API](game-metadata.md#model-authorship-optional).
+**Only set fields you actually know** from your runtime context or the user;
+omit any field you are unsure about rather than guessing or writing placeholders
+like `"unknown"`. On updates, read existing `estimated_prompts` first and add
+your new prompts to keep the total cumulative.
+
 **Next:** publish using the command from your recipe, then verify and hand off below.
 
 ## Publish and verify

@@ -752,6 +752,10 @@ button.feed-row:hover { border-color: var(--accent); }
 .game-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 0 0 22px; }
 .detail-info > .actions { width: fit-content; margin: 0 0 18px; }
 .detail-info .play-menu-items { top: calc(100% + 6px); bottom: auto; left: 0; right: auto; max-height: min(300px,50dvh); }
+.game-build-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+.game-build-meta > div { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 5px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--feedback-bubble); font-size: 12px; line-height: 1.4; }
+.game-build-meta dt { color: var(--quiet); font-weight: 500; flex: none; }
+.game-build-meta dd { margin: 0; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
 .game-updated { display: block; color: var(--quiet); font-size: 13px; margin: 0 0 26px; }
 .game-feedback { border-top: 1px solid var(--line); padding-top: 20px; outline-offset: 4px; }
 .game-feedback h3 { margin: 0 0 14px; font-size: 20px; }

@@ -456,6 +456,17 @@ function renderGameDetail(){
     const playing=el('section',undefined,'detail-playing');playing.setAttribute('aria-label','Playing now');
     playing.append(el('h3','Playing now'),playerRows(game,players,info));info.append(playing);
   }
+  const buildMeta=[];
+  if(game.author_model)buildMeta.push(['Model',game.author_model]);
+  if(game.effort_level)buildMeta.push(['Effort',game.effort_level]);
+  if(Number.isInteger(game.estimated_prompts)&&game.estimated_prompts>0)buildMeta.push(['Est. prompts',game.estimated_prompts.toLocaleString()]);
+  if(buildMeta.length){
+    const metaList=el('dl',undefined,'game-build-meta');metaList.setAttribute('aria-label','Model authorship');
+    for(const [label,value] of buildMeta){
+      const item=el('div');item.append(el('dt',label),el('dd',value));metaList.append(item);
+    }
+    info.append(metaList);
+  }
   if(Number.isFinite(game.updated)&&game.updated>0){const time=el('time','Updated '+new Date(game.updated*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}),'game-updated');time.dateTime=new Date(game.updated*1000).toISOString();info.append(time);}
   const feedback=el('section',undefined,'game-feedback');feedback.id='game-feedback';feedback.tabIndex=-1;feedback.setAttribute('aria-labelledby','game-feedback-title');
   const heading=el('h3','Feedback');heading.id='game-feedback-title';feedback.append(heading);
