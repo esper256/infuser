@@ -6,7 +6,9 @@ Use the game's existing publisher connection. These edits do not rebuild the
 game, restart sessions, or change saves. Check `GET /api/publisher/capabilities`
 for `game_metadata.version: 1`; descriptions additionally require
 `game_metadata.description_max_chars`. Art requests require
-`game_metadata.art_prompt_max_chars`.
+`game_metadata.art_prompt_max_chars`. Optional model authorship fields require
+`game_metadata.author_model_max_chars`, `game_metadata.effort_level_max_chars`,
+and `game_metadata.estimated_prompts_max`.
 
 The metadata response also includes the active build’s `orientation`. To change
 it, set `orientation` to `landscape` or `portrait` in `infuser.game.json` and
@@ -21,8 +23,8 @@ Authenticate with the connection's bearer token, scoped to its `app_id`.
 
 | Method | Path | Effect |
 | --- | --- | --- |
-| GET | `/api/publisher/apps/APP/metadata` | Read title, description, art prompt, cover, tags, slug, build, and visibility |
-| PATCH | `/api/publisher/apps/APP/metadata` | Set any of `title`, `description`, `art_prompt` |
+| GET | `/api/publisher/apps/APP/metadata` | Read title, description, model authorship, art prompt, cover, tags, slug, build, and visibility |
+| PATCH | `/api/publisher/apps/APP/metadata` | Set any of `title`, `description`, `art_prompt`, `author_model`, `effort_level`, `estimated_prompts` |
 | PUT | `/api/publisher/apps/APP/card-art` | Replace the independent cover with raw `image/webp` bytes |
 | DELETE | `/api/publisher/apps/APP/card-art` | Remove the override; use build art or the fallback |
 | PUT | `/api/publisher/apps/APP/tags` | Set `{"tags":["chill","arcade"]}` |
@@ -48,6 +50,29 @@ Example patch:
 
 ```json
 {"description":"Race tiny hovercraft through moonlit canals, alone or with friends. Low-poly boats and glowing buoys define the scene."}
+```
+
+## Model authorship (optional)
+
+When an AI model builds or updates a game, it can optionally record three
+public fields shown on the game's detail popup card in the Library:
+
+- `author_model`: 1–120 characters, outer whitespace trimmed, no control characters (for example, `"Claude Opus 4.6"` or `"GPT-5.4"`).
+- `effort_level`: 1–40 characters, outer whitespace trimmed, no control characters (for example, `"low"`, `"medium"`, `"high"`, or `"max"`).
+- `estimated_prompts`: integer from `1` to `1000000` representing the **cumulative** estimated number of user prompts across initial creation and later updates. On updates, read existing metadata first and add the new prompts from the current session to the existing `estimated_prompts` value.
+
+**Leave unknown fields blank (omit them).** Many models do not reliably know
+their exact model name, effort setting, or previous prompt count. Only send
+fields you know directly from your runtime/harness context or from the user.
+Never guess, infer from training cutoffs, or submit misleading placeholders
+such as `"unknown"`, `"default"`, or `"N/A"`. Each field is independent: you
+may send only the fields you know and omit the rest. Passing `null` clears a
+previously stored field.
+
+Example patch:
+
+```json
+{"author_model":"Claude Opus 4.6","effort_level":"high","estimated_prompts":18}
 ```
 
 ## Either an image or a prompt
@@ -85,6 +110,9 @@ Every mutation returns the same shape as GET:
   "title": "Moon Racers",
   "title_override": null,
   "description": "Race tiny hovercraft through moonlit canals.",
+  "author_model": "Claude Opus 4.6",
+  "effort_level": "high",
+  "estimated_prompts": 18,
   "art_prompt": null,
   "art_prompt_revision": null,
   "art_prompt_pending": false,
@@ -131,7 +159,7 @@ require player membership; a publisher token is not a browser login.
 
 ## Persistence
 
-Descriptions, art prompts and their completion state, and title/cover overrides survive publications, restarts, and
+Descriptions, model authorship fields, art prompts and their completion state, and title/cover overrides survive publications, restarts, and
 unpublishing. An explicit cover overrides build art until DELETE clears it.
 Ordinary cover uploads do not complete a pending request. The [art-agent completion
 request](art-agent.md#fulfill-a-request) uploads and marks its matching prompt fulfilled
