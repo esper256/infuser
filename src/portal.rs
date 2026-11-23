@@ -842,8 +842,9 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
         .account_profiles(&data.identities.profiles[&email].account_id)?
         .len();
     let appearance = p.db.appearance_load(&email)?;
+    let home_group = data.groups.member(&email);
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatar_prompt_seen":member.avatar_prompt_seen,"avatars":avatars::catalog(),"portraits":avatars::portraits(),"game_ports_admitted":admitted,"appearance":appearance}),
+        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":home_group,"home_group_name":data.groups.names.get(home_group),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatar_prompt_seen":member.avatar_prompt_seen,"avatars":avatars::catalog(),"portraits":avatars::portraits(),"game_ports_admitted":admitted,"appearance":appearance}),
     ))
 }
 #[derive(Deserialize)]

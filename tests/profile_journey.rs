@@ -788,6 +788,7 @@ async fn per_profile_appearance_isolation_and_cleanup() -> Result<()> {
         .json()
         .await?;
     assert_eq!(home_me["appearance"], Value::Null);
+    assert_eq!(home_me["home_group_name"], "Home");
     let away_me: Value = req(Method::GET, "/api/me", Some(&away_id))
         .send()
         .await?
@@ -795,6 +796,7 @@ async fn per_profile_appearance_isolation_and_cleanup() -> Result<()> {
         .json()
         .await?;
     assert_eq!(away_me["appearance"], Value::Null);
+    assert_eq!(away_me["home_group_name"], "Away");
 
     // Save Field Notes on Home profile; Away profile stays unset.
     let saved_home: Value = req(Method::PUT, "/api/profile/appearance", Some(&home_id))

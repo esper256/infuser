@@ -14,6 +14,8 @@ const profiles = {
     admin: true,
     profile_count: 2,
     group: {id: 'home', name: 'Home Family'},
+    home_group: 'home',
+    home_group_name: 'Home Family',
     appearance: null,
     avatars: [{id: 'circuit-fox', name: 'Circuit Fox'}, {id: 'moss-knight', name: 'Moss Knight'}],
   },
@@ -25,6 +27,8 @@ const profiles = {
     admin: false,
     profile_count: 2,
     group: {id: 'away', name: 'Cousins Club'},
+    home_group: 'away',
+    home_group_name: 'Cousins Club',
     appearance: null,
     avatars: [{id: 'circuit-fox', name: 'Circuit Fox'}, {id: 'moss-knight', name: 'Moss Knight'}],
   },
@@ -60,6 +64,14 @@ try {
           headers: {'x-infuser-profile-required': '1'},
           json: {error: 'Choose your profile.'},
         });
+      }
+      const visit = request.headers()['x-infuser-visit'];
+      const inspect = request.headers()['x-infuser-inspect-group'];
+      if (visit) {
+        return route.fulfill({json: {...active, group: {id: 'away', name: 'Cousins Club'}}});
+      }
+      if (inspect) {
+        return route.fulfill({json: {...active, inspecting: true, group: {id: 'away', name: 'Cousins Club'}}});
       }
       return route.fulfill({json: active});
     }
@@ -107,15 +119,19 @@ try {
   const errors = [];
   page.on('pageerror', err => errors.push(err.message));
 
-  // Seed a per-device mic/speaker selection before entering the chooser.
+  // Seed a per-device mic/speaker selection and a stale deleted-profile cache entry before entering the chooser.
   await page.goto('https://library.test/profiles');
   await page.locator('.profile-choice').first().waitFor();
   const initialDevices = {inputId: 'usb-mic-42', outputId: 'desk-speakers-7'};
   await page.evaluate(devices => {
     localStorage.setItem('infuser.voice.devices.v1', JSON.stringify(devices));
+    localStorage.setItem('infuser.appearance.pDeleted', JSON.stringify({theme: 'castle-keep', schemes: {}, custom: {}}));
   }, initialDevices);
+  await page.reload();
+  await page.locator('.profile-choice').first().waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('infuser.appearance.pDeleted')), null, 'deleted profile cache is pruned on /profiles');
 
-  // 1. Enter Profile A (Home Family): starts on default Nightglass, shows group name in menu & Profile settings.
+  // 1. Enter Profile A (Home Family): starts on default Nightglass, shows group name above Visits in menu & Profile settings.
   await page.getByRole('button', {name: /Home Alex/}).click();
   await page.waitForURL('**/library');
   await page.locator('#account-trigger').waitFor();
@@ -125,6 +141,11 @@ try {
   await page.locator('#account-trigger').click();
   assert.equal(await page.locator('#account-group').isVisible(), true, 'group name shown in profile menu for 2+ profiles');
   assert.match(await page.locator('#account-group').innerText(), /Home Family/);
+  const menuOrder = await page.locator('.profile-menu .account-menu').evaluate(menu => {
+    const kids = [...menu.children].map(el => el.id);
+    return {group: kids.indexOf('account-group'), visits: kids.indexOf('visits-button')};
+  });
+  assert.ok(menuOrder.group >= 0 && menuOrder.visits > menuOrder.group, 'group name sits above Visits in profile menu');
   await page.locator('#open-settings').click();
   await page.locator('#user-settings').waitFor({state: 'visible'});
   assert.match(await page.locator('#settings-profile-summary').innerText(), /Home Family/);
@@ -215,8 +236,40 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'nightglass', 'Profile B tab ignores Profile A change');
   assert.equal(await page.evaluate(() => document.documentElement.dataset.themeScheme), 'amber-hearth');
 
+  // 6. Visiting another group still names the home group in Appearance & Profile copy.
+  const visitTab = await context.newPage();
+  await visitTab.goto('https://library.test/profiles');
+  await visitTab.evaluate(() => {
+    sessionStorage.setItem('infuser.profile', 'pHome');
+    sessionStorage.setItem('infuser.visit', 'visit-1');
+  });
+  await visitTab.goto('https://library.test/library');
+  await visitTab.locator('#account-trigger').waitFor();
+  await visitTab.locator('#account-trigger').click();
+  await visitTab.locator('#open-settings').click();
+  await visitTab.locator('#user-settings').waitFor({state: 'visible'});
+  assert.match(await visitTab.locator('#settings-appearance-scope').innerText(), /Saved for Home Family/);
+  assert.match(await visitTab.locator('#settings-profile-summary').innerText(), /Group: Home Family/);
+  await visitTab.close();
+
+  // 7. Read-only operator inspection disables appearance pickers and explains why.
+  const inspectTab = await context.newPage();
+  await inspectTab.goto('https://library.test/profiles');
+  await inspectTab.evaluate(() => {
+    sessionStorage.setItem('infuser.profile', 'pHome');
+    sessionStorage.setItem('infuser.group-inspection', JSON.stringify({group: 'away', expires: Date.now() + 600000}));
+  });
+  await inspectTab.goto('https://library.test/library');
+  await inspectTab.locator('#account-trigger').waitFor();
+  await inspectTab.locator('#account-trigger').click();
+  await inspectTab.locator('#open-settings').click();
+  await inspectTab.locator('#user-settings').waitFor({state: 'visible'});
+  assert.equal(await inspectTab.locator('#theme-picker').isDisabled(), true, 'theme picker disabled during inspection');
+  assert.match(await inspectTab.locator('#settings-appearance-scope').innerText(), /Read-only inspection/);
+  await inspectTab.close();
+
   assert.deepEqual(errors, []);
-  console.log('PASS: Switch A -> B -> A -> B preserves per-profile looks, keeps mic/speaker per device, shows group labels, and isolates cross-tab sync.');
+  console.log('PASS: Switch A -> B -> A -> B preserves per-profile looks, keeps mic/speaker per device, shows group labels, handles visits & inspection, prunes stale caches, and isolates cross-tab sync.');
 } finally {
   await browser.close();
 }

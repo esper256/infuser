@@ -364,6 +364,21 @@
       if (!playerId || !appearance || typeof appearance !== 'object') return;
       writeJson(profileKey(playerId), normalizeAppearance(appearance));
     },
+    pruneProfiles(activeIds) {
+      if (!Array.isArray(activeIds)) return;
+      const keep = new Set(activeIds.filter(id => typeof id === 'string' && id));
+      try {
+        if (typeof localStorage.length !== 'number' || typeof localStorage.key !== 'function' || typeof localStorage.removeItem !== 'function') return;
+        const stale = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const storageKey = localStorage.key(i);
+          if (storageKey && storageKey.startsWith(profilePrefix) && !keep.has(storageKey.slice(profilePrefix.length))) {
+            stale.push(storageKey);
+          }
+        }
+        for (const storageKey of stale) localStorage.removeItem(storageKey);
+      } catch { /* Ignore blocked storage. */ }
+    },
     bindProfile(playerId, serverAppearance) {
       activeProfileId = typeof playerId === 'string' && playerId ? playerId : null;
       if (!activeProfileId) return Promise.resolve(null);

@@ -313,7 +313,13 @@ test('nightglass color schemes persist, validate, sync across tabs, and stay col
       addEventListener(){},
     };
     const values=new Map(savedMap);
-    const localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v)};
+    const localStorage={
+      get length(){return values.size;},
+      key:i=>[...values.keys()][i]??null,
+      getItem:k=>values.get(k)??null,
+      setItem:(k,v)=>values.set(k,v),
+      removeItem:k=>values.delete(k),
+    };
     let changes=0;
     const window={addEventListener:(name,fn)=>events.set(name,fn),dispatchEvent:()=>{changes++;}};
     vm.runInNewContext(source,{window,document,localStorage,Event:class {}});
@@ -426,7 +432,13 @@ test('per-profile appearance caches by player_id, migrates once, and isolates cr
       },
       addEventListener(){},
     };
-    const localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v)};
+    const localStorage={
+      get length(){return values.size;},
+      key:i=>[...values.keys()][i]??null,
+      getItem:k=>values.get(k)??null,
+      setItem:(k,v)=>values.set(k,v),
+      removeItem:k=>values.delete(k),
+    };
     const session=new Map(profile?[['infuser.profile',profile]]:[]);
     const sessionStorage={getItem:k=>session.get(k)??null,setItem:(k,v)=>session.set(k,v)};
     const window={addEventListener:(name,fn)=>events.set(name,fn),dispatchEvent:()=>{}};
@@ -483,4 +495,11 @@ test('per-profile appearance caches by player_id, migrates once, and isolates cr
   const tabC=makeTab({profile:'pC',values:clean});
   assert.equal(tabC.themes.current,'nightglass');
   assert.equal(tabC.themes.currentScheme,'deep-ocean');
+
+  // Pruning removes cached appearance entries for deleted profiles while keeping active ones and last theme.
+  chooserTab.themes.pruneProfiles(['pA','pC']);
+  assert.equal(clean.has('infuser.appearance.pA'),true);
+  assert.equal(clean.has('infuser.appearance.pC'),true);
+  assert.equal(clean.has('infuser.appearance.pB'),false,'deleted profile cache is removed');
+  assert.equal(clean.has('infuser.theme.last'),true,'browser last theme stays intact');
 });

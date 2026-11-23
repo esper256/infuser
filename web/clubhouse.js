@@ -1371,22 +1371,36 @@ function renderAccount(){
   const name=el('span',me.name+' · you','presence-name');name.setAttribute('aria-hidden','true');
   $('account-trigger').title=me.name+' · Profile menu';
   $('account-trigger').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),name);
-  const groupName=me.group?.name||'';
+  const activeGroupName=me.group?.name||'';
+  const homeGroupName=me.home_group_name||activeGroupName;
+  const visiting=Boolean(me.home_group&&me.group?.id&&me.group.id!==me.home_group&&!me.inspecting);
   const menuGroup=$('account-group');
   if(menuGroup){
-    menuGroup.hidden=!(me.profile_count>1&&groupName);
-    if(!menuGroup.hidden)menuGroup.replaceChildren(el('span','Group','account-group-label'),el('strong',groupName));
+    menuGroup.hidden=!(me.profile_count>1&&homeGroupName);
+    if(!menuGroup.hidden){
+      const label=visiting&&activeGroupName?homeGroupName+' · visiting '+activeGroupName:homeGroupName;
+      menuGroup.replaceChildren(el('span','Group','account-group-label'),el('strong',label));
+    }
   }
   const appearanceScope=$('settings-appearance-scope');
   if(appearanceScope){
-    setText(appearanceScope,groupName?'Saved for '+groupName+' across your devices.':'Saved for this group across your devices.');
+    const text=me.inspecting
+      ?'Read-only inspection. Return home to change appearance.'
+      :visiting&&homeGroupName
+        ?'Saved for '+homeGroupName+' across your devices'+(activeGroupName?' (visiting '+activeGroupName+')':'')+'.'
+        :homeGroupName
+          ?'Saved for '+homeGroupName+' across your devices.'
+          :'Saved for this group across your devices.';
+    setText(appearanceScope,text);
   }
   const summary=$('settings-profile-summary');
   if(summary){
     const text=el('div',undefined,'settings-profile-text');
     const detail=me.inspecting
-      ?(groupName?'Viewing '+groupName+' · Read only':'Read-only inspection')
-      :(groupName?'Group: '+groupName+' · Saved for this group':'Saved for this group');
+      ?(activeGroupName?'Viewing '+activeGroupName+' · Read only':'Read-only inspection')
+      :visiting
+        ?(homeGroupName?'Group: '+homeGroupName+(activeGroupName?' · Visiting '+activeGroupName:''):'Visiting '+activeGroupName)
+        :(homeGroupName?'Group: '+homeGroupName+' · Saved for this group':'Saved for this group');
     text.append(el('strong',me.name,'settings-profile-name'),el('span',detail,'quiet'));
     summary.replaceChildren(profileAvatar(me.name,me.player_id,me.avatar,128),text);
   }
@@ -1487,6 +1501,12 @@ function setupUserSettings(signOut){
     Promise.resolve(themes.select(chosen)).then(()=>{scheduleAppearanceSave(true);},()=>{themeSelect.value=themes.current;});
   };
   schemeSelect.onchange=()=>{themes.selectScheme(schemeSelect.value);scheduleAppearanceSave(true);};
+  if(me.inspecting){
+    themeSelect.disabled=true;
+    schemeSelect.disabled=true;
+    resetCustom.disabled=true;
+    for(const pair of Object.values(customInputs))pair.input.disabled=true;
+  }
   window.addEventListener('infuser-theme-change',syncAppearance);
   syncAppearance();
 
@@ -1652,6 +1672,7 @@ $('profile-form').onsubmit=async event=>{
 
 try {
   me=await api('/api/me');pinProfile(me.player_id);
+  if(me.profile_count===1)window.InfuserThemes.pruneProfiles([me.player_id]);
   const migratedAppearance=await window.InfuserThemes.bindProfile(me.player_id,me.appearance);
   if(migratedAppearance&&!me.inspecting){
     void api('/api/profile/appearance',{method:'PUT',body:JSON.stringify(migratedAppearance),signal:AbortSignal.timeout(12000)}).catch(()=>{});
