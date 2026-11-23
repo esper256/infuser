@@ -408,6 +408,19 @@ fn encode_catalog(tx: &Transaction<'_>, data: &mut Data) -> Result<String> {
             tx.execute("DELETE FROM dedicated_manifests WHERE build_key=?1", [key])?;
         }
     }
+    let appearance_profiles = {
+        let mut stmt = tx.prepare("SELECT profile FROM appearance_settings")?;
+        stmt.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for profile in appearance_profiles {
+        if !data.members.contains_key(&profile) {
+            tx.execute(
+                "DELETE FROM appearance_settings WHERE profile=?1",
+                [profile],
+            )?;
+        }
+    }
     Ok(serde_json::to_string(&value)?)
 }
 pub struct Database {
@@ -450,6 +463,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS runtime_manifests(build_key TEXT PRIMARY KEY, server_start TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS dedicated_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS voice_settings(profile TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS appearance_settings(profile TEXT PRIMARY KEY, data TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS starred_games(profile TEXT NOT NULL, app TEXT NOT NULL, starred_at INTEGER NOT NULL, PRIMARY KEY(profile, app)) WITHOUT ROWID;")?;
         c.execute(
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
@@ -604,6 +618,40 @@ impl Database {
         };
         tx.commit()?;
         Ok((rev, settings, changed))
+    }
+    pub fn appearance_load(
+        &self,
+        profile: &str,
+    ) -> Result<Option<crate::portal::themes::Appearance>> {
+        let c = self.connection.lock().unwrap();
+        let row = c.query_row(
+            "SELECT data FROM appearance_settings WHERE profile=?1",
+            [profile],
+            |r| r.get::<_, String>(0),
+        );
+        match row {
+            Ok(raw) => {
+                let parsed: crate::portal::themes::Appearance =
+                    serde_json::from_str(&raw).context("decode saved appearance settings")?;
+                Ok(Some(parsed))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+    pub fn appearance_save(
+        &self,
+        profile: &str,
+        appearance: &crate::portal::themes::Appearance,
+    ) -> Result<()> {
+        let c = self.connection.lock().unwrap();
+        let encoded = serde_json::to_string(appearance)?;
+        c.execute(
+            "INSERT INTO appearance_settings(profile, data) VALUES(?1, ?2)
+             ON CONFLICT(profile) DO UPDATE SET data = excluded.data",
+            params![profile, encoded],
+        )?;
+        Ok(())
     }
     pub fn record_build_file(&self, key: &str, path: String, size: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();

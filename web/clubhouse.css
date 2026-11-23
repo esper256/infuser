@@ -354,6 +354,8 @@ img.avatar { object-fit: cover; }
 #settings-pwa button { font-size: 13px; }
 #settings-pwa button[aria-pressed="true"] { border-color: var(--accent); }
 #settings-pwa .notification-hint { flex: 1 0 100%; max-width: none; }
+.settings-scope { flex: 1 0 100%; margin: 0 0 10px; }
+#settings-pwa .settings-scope { margin-bottom: 2px; }
 .admin-region { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; }
 .admin-region > summary { padding: 14px 16px; color: var(--ink); font-size: 16px; font-weight: 600; border-radius: inherit; }
 .admin-region > summary:hover { background: var(--surface); }
@@ -494,6 +496,8 @@ form.admin-region-body { margin: 0; }
 .presence-self summary:focus-visible .presence-name { visibility: visible; }
 .profile-menu > summary::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border: 2px solid var(--page); border-radius: 50% 50% 0 50%; background: var(--player-status,var(--presence-online)); transform: rotate(45deg); box-shadow: 0 0 0 1px var(--page); }
 .account-menu { position: fixed; z-index: 20; width: 260px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); overflow-y: auto; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 16px 40px #0008; }
+.account-group { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 6px; padding: 6px 12px 10px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.account-group-label { color: var(--quiet); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; flex: none; }
 .account-menu > button, .account-menu > a { display: block; width: 100%; min-height: 44px; padding: 12px; text-align: left; border-radius: 8px; color: var(--ink); background: transparent; font-size: 13px; text-decoration: none; }
 .account-menu > button:hover, .account-menu > a:hover { background: #aabbcc14; }
 .account-menu > a.sign-out { margin-top: 8px; border: 1px solid #d95b62; background: #9e2028; color: #fff5f5; font-weight: 600; }

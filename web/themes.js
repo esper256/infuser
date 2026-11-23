@@ -5,6 +5,9 @@
   const key = 'infuser.theme';
   const schemesKey = 'infuser.theme.schemes';
   const customKey = 'infuser.theme.custom';
+  const lastKey = 'infuser.theme.last';
+  const profilePrefix = 'infuser.appearance.';
+  const sessionProfileKey = 'infuser.profile';
   const defaultId = 'nightglass';
   const defaultCustom = Object.freeze({primary: '#122128', accent: '#b5ead6', secondary: '#e8d5a4'});
   const hexColor = /^#[0-9a-f]{6}$/i;
@@ -51,17 +54,26 @@
     if (!schemes.length) return '';
     return schemes.find(scheme => scheme.id === schemeId)?.id || schemes[0].id;
   };
-  const read = () => { try { return localStorage.getItem(key); } catch { return null; } };
+  const readKey = storageKey => { try { return localStorage.getItem(storageKey); } catch { return null; } };
   function readJson(storageKey) {
     try {
       const raw = localStorage.getItem(storageKey);
-      if (!raw) return {};
+      if (!raw) return null;
       const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch { return {}; }
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch { return null; }
+  }
+  function writeKey(storageKey, value) {
+    try { localStorage.setItem(storageKey, value); } catch { /* Still usable this visit. */ }
   }
   function writeJson(storageKey, value) {
-    try { localStorage.setItem(storageKey, JSON.stringify(value)); } catch { /* Still usable this visit. */ }
+    writeKey(storageKey, JSON.stringify(value));
+  }
+  function readSessionProfile() {
+    try {
+      const value = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(sessionProfileKey) : null;
+      return typeof value === 'string' && value ? value : null;
+    } catch { return null; }
   }
   const cleanHex = (value, fallback) => typeof value === 'string' && hexColor.test(value.trim()) ? value.trim().toLowerCase() : fallback;
   const cleanCustom = raw => ({
@@ -69,8 +81,71 @@
     accent: cleanHex(raw?.accent, defaultCustom.accent),
     secondary: cleanHex(raw?.secondary, defaultCustom.secondary),
   });
-  let savedSchemes = readJson(schemesKey);
-  let savedCustom = readJson(customKey);
+  function normalizeAppearance(raw) {
+    const theme = resolve(raw?.theme);
+    const schemes = {};
+    if (raw?.schemes && typeof raw.schemes === 'object' && !Array.isArray(raw.schemes)) {
+      for (const [themeId, schemeId] of Object.entries(raw.schemes)) {
+        const known = resolve(themeId);
+        if (known !== themeId || !schemesOf(known).length) continue;
+        const resolved = resolveScheme(known, schemeId);
+        if (resolved && resolved !== 'default') schemes[known] = resolved;
+      }
+    }
+    const custom = {};
+    if (raw?.custom && typeof raw.custom === 'object' && !Array.isArray(raw.custom)) {
+      for (const [themeId, colors] of Object.entries(raw.custom)) {
+        const known = resolve(themeId);
+        if (known !== themeId || !schemesOf(known).some(scheme => scheme.id === 'custom')) continue;
+        if (colors && typeof colors === 'object' && !Array.isArray(colors)) custom[known] = cleanCustom(colors);
+      }
+    }
+    return {theme, schemes, custom};
+  }
+  function isNonDefault(appearance) {
+    return appearance.theme !== defaultId || Object.keys(appearance.schemes).length > 0 || Object.keys(appearance.custom).length > 0;
+  }
+  function readLegacy() {
+    const rawTheme = readKey(key);
+    const rawSchemes = readJson(schemesKey);
+    const rawCustom = readJson(customKey);
+    if (rawTheme === null && rawSchemes === null && rawCustom === null) return null;
+    return normalizeAppearance({theme: rawTheme, schemes: rawSchemes || {}, custom: rawCustom || {}});
+  }
+  const profileKey = id => profilePrefix + id;
+  function readProfileCache(playerId) {
+    if (!playerId) return null;
+    const raw = readJson(profileKey(playerId));
+    return raw ? normalizeAppearance(raw) : null;
+  }
+  function readLast() {
+    const raw = readJson(lastKey);
+    return raw ? normalizeAppearance(raw) : null;
+  }
+  let activeProfileId = readSessionProfile();
+  function resolveInitialState() {
+    if (activeProfileId) {
+      return readProfileCache(activeProfileId) || readLegacy() || normalizeAppearance(null);
+    }
+    return readLast() || readLegacy() || normalizeAppearance(null);
+  }
+  const bootState = resolveInitialState();
+  let savedSchemes = {...bootState.schemes};
+  let savedCustom = {...bootState.custom};
+  function currentSnapshot(themeId = document.documentElement.dataset.theme) {
+    return normalizeAppearance({theme: themeId, schemes: savedSchemes, custom: savedCustom});
+  }
+  function persist(themeId = document.documentElement.dataset.theme) {
+    const snap = currentSnapshot(themeId);
+    if (activeProfileId) {
+      writeJson(profileKey(activeProfileId), snap);
+      writeJson(lastKey, snap);
+    } else {
+      writeKey(key, snap.theme);
+      writeJson(schemesKey, snap.schemes);
+      writeJson(customKey, snap.custom);
+    }
+  }
   function schemeFor(themeId) {
     const id = resolve(themeId);
     return resolveScheme(id, savedSchemes[id]);
@@ -252,8 +327,20 @@
     window.dispatchEvent(new Event('infuser-theme-change'));
   }
   let generation = 0;
-  function remember(id) {
-    try { localStorage.setItem(key, id); } catch { /* Still usable this visit. */ }
+  function applyState(state, shouldPersist = false) {
+    const normalized = normalizeAppearance(state);
+    const mine = ++generation;
+    const href = hrefFor(normalized.theme);
+    const finish = () => {
+      if (mine !== generation) return;
+      savedSchemes = {...normalized.schemes};
+      savedCustom = {...normalized.custom};
+      if (shouldPersist) persist(normalized.theme);
+      applyNow(normalized.theme);
+    };
+    if (href == null) return Promise.reject(new Error('theme'));
+    if (!href || sheetReady(existingLink(normalized.theme))) { finish(); return Promise.resolve(); }
+    return ensure(normalized.theme, href).then(finish);
   }
   if (typeof document.addEventListener === 'function' && document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', paintChrome);
@@ -262,6 +349,8 @@
     catalog, defaultId, defaultCustom,
     get current() { return document.documentElement.dataset.theme; },
     get currentScheme() { return schemeFor(document.documentElement.dataset.theme); },
+    get profileId() { return activeProfileId; },
+    snapshot() { return currentSnapshot(); },
     schemesFor(themeId = document.documentElement.dataset.theme) {
       return schemesOf(resolve(themeId));
     },
@@ -271,13 +360,50 @@
     customColorsFor(themeId = document.documentElement.dataset.theme) {
       return customColorsFor(themeId);
     },
+    cacheProfile(playerId, appearance) {
+      if (!playerId || !appearance || typeof appearance !== 'object') return;
+      writeJson(profileKey(playerId), normalizeAppearance(appearance));
+    },
+    pruneProfiles(activeIds) {
+      if (!Array.isArray(activeIds)) return;
+      const keep = new Set(activeIds.filter(id => typeof id === 'string' && id));
+      try {
+        if (typeof localStorage.length !== 'number' || typeof localStorage.key !== 'function' || typeof localStorage.removeItem !== 'function') return;
+        const stale = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const storageKey = localStorage.key(i);
+          if (storageKey && storageKey.startsWith(profilePrefix) && !keep.has(storageKey.slice(profilePrefix.length))) {
+            stale.push(storageKey);
+          }
+        }
+        for (const storageKey of stale) localStorage.removeItem(storageKey);
+      } catch { /* Ignore blocked storage. */ }
+    },
+    bindProfile(playerId, serverAppearance) {
+      activeProfileId = typeof playerId === 'string' && playerId ? playerId : null;
+      if (!activeProfileId) return Promise.resolve(null);
+      let target;
+      let migrated = null;
+      if (serverAppearance && typeof serverAppearance === 'object') {
+        target = normalizeAppearance(serverAppearance);
+      } else {
+        const legacy = readLegacy();
+        if (legacy && isNonDefault(legacy)) {
+          target = legacy;
+          migrated = legacy;
+        } else {
+          target = normalizeAppearance(null);
+        }
+      }
+      return applyState(target, true).then(() => migrated, () => migrated);
+    },
     select(id) {
       const selected = resolve(id);
       const mine = ++generation;
       const href = hrefFor(selected);
       const finish = () => {
         if (mine !== generation) return;
-        remember(selected);
+        persist(selected);
         applyNow(selected);
       };
       if (href == null) return Promise.reject(new Error('theme'));
@@ -291,7 +417,7 @@
       const resolved = resolveScheme(target, schemeId);
       if (resolved === 'default') delete savedSchemes[target];
       else savedSchemes[target] = resolved;
-      writeJson(schemesKey, savedSchemes);
+      persist();
       if (target === document.documentElement.dataset.theme) {
         applySchemeFor(target);
         paintChrome();
@@ -305,9 +431,8 @@
       if (!schemes.some(scheme => scheme.id === 'custom')) return customColorsFor(target);
       const next = cleanCustom({...customColorsFor(target), ...(colors || {})});
       savedCustom[target] = next;
-      writeJson(customKey, savedCustom);
       savedSchemes[target] = 'custom';
-      writeJson(schemesKey, savedSchemes);
+      persist();
       if (target === document.documentElement.dataset.theme) {
         applySchemeFor(target);
         paintChrome();
@@ -318,7 +443,7 @@
     resetCustomColors(themeId = document.documentElement.dataset.theme) {
       const target = resolve(themeId);
       delete savedCustom[target];
-      writeJson(customKey, savedCustom);
+      persist();
       if (target === document.documentElement.dataset.theme && schemeFor(target) === 'custom') {
         applySchemeFor(target);
         paintChrome();
@@ -327,20 +452,18 @@
       return customColorsFor(target);
     },
   });
-  const initial = resolve(read());
-  const initialHref = hrefFor(initial);
-  if (initialHref) preloadInitial(initial, initialHref);
-  applyNow(initialHref == null ? defaultId : initial);
+  const initialHref = hrefFor(bootState.theme);
+  if (initialHref) preloadInitial(bootState.theme, initialHref);
+  applyNow(initialHref == null ? defaultId : bootState.theme);
   window.addEventListener('storage', event => {
-    if (event.key !== key && event.key !== schemesKey && event.key !== customKey && event.key !== null) return;
-    savedSchemes = readJson(schemesKey);
-    savedCustom = readJson(customKey);
-    const selected = resolve(read());
-    const mine = ++generation;
-    const href = hrefFor(selected);
-    const finish = () => { if (mine !== generation) return; applyNow(selected); };
-    if (href == null) return;
-    if (!href || sheetReady(existingLink(selected))) { finish(); return; }
-    ensure(selected, href).then(finish, () => {});
+    if (activeProfileId) {
+      if (event.key !== profileKey(activeProfileId) && event.key !== null) return;
+      const next = readProfileCache(activeProfileId) || normalizeAppearance(null);
+      applyState(next, false).catch(() => {});
+      return;
+    }
+    if (event.key !== lastKey && event.key !== key && event.key !== schemesKey && event.key !== customKey && event.key !== null) return;
+    const next = readLast() || readLegacy() || normalizeAppearance(null);
+    applyState(next, false).catch(() => {});
   });
 })();

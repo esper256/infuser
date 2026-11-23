@@ -11,6 +11,7 @@ async function choose(profile,multiple){
   try{
     // A push endpoint belongs to one profile. Never carry it into a different one.
     if(pushOwner()!==profile.player_id)await clearNotifications();
+    window.InfuserThemes?.cacheProfile(profile.player_id,profile.appearance);
     forgetProfile();pinProfile(profile.player_id,multiple);
     location.replace(next);
   }catch(error){status.textContent=error.message||'Could not switch profiles. Try again.';busy=false;buttons.forEach(b=>b.disabled=false);}
@@ -25,6 +26,7 @@ try{
     if(response.status===401){const signin=document.getElementById('profile-signin');signin.hidden=false;signin.href='/oauth2/start?rd='+encodeURIComponent(location.pathname+location.search);}
     throw Error(result.error||'Could not load your profiles.');
   }
+  window.InfuserThemes?.pruneProfiles(result.profiles.map(p=>p.player_id));
   const notification=new URLSearchParams(location.search).get('notification')==='chat'
     ?result.profiles.find(p=>p.player_id===pushOwner()):null;
   if(result.profiles.length===1)await choose(result.profiles[0],false);

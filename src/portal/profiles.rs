@@ -77,11 +77,15 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         !profiles.is_empty(),
         fault(403, "Ask your admin for an Infuser invitation.")
     );
-    Ok(reply(
-        json!({"profiles":profiles.iter().map(|(key,profile)| {
-        let member=&d.members[*key];let group=d.groups.member(key);
-        json!({"player_id":profile.id,"name":member.name,"avatar":member.avatar,
-            "group":{"id":group,"name":d.groups.names.get(group)}})
-    }).collect::<Vec<_>>()}),
-    ))
+    let mut items = Vec::with_capacity(profiles.len());
+    for (key, profile) in &profiles {
+        let member = &d.members[*key];
+        let group = d.groups.member(key);
+        let appearance = p.db.appearance_load(key)?;
+        items.push(
+            json!({"player_id":profile.id,"name":member.name,"avatar":member.avatar,
+            "group":{"id":group,"name":d.groups.names.get(group)},"appearance":appearance}),
+        );
+    }
+    Ok(reply(json!({"profiles":items})))
 }

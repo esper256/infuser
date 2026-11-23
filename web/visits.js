@@ -17,7 +17,8 @@ export function updateVisit(visit){
 }
 export async function initVisits({me,api}){
   if(me.inspecting)return;
-  const panel=document.querySelector('.account-menu'),button=el('button','Visits');button.id='visits-button';button.type='button';panel.prepend(button);
+  const panel=document.querySelector('.account-menu'),button=el('button','Visits');button.id='visits-button';button.type='button';
+  const group=panel.querySelector('#account-group');if(group)group.after(button);else panel.prepend(button);
   const dialog=el('dialog');dialog.id='visits-dialog';dialog.setAttribute('aria-label','Visits');
   const heading=el('div');heading.className='panel-heading';const close=el('button','×');close.className='close';close.setAttribute('aria-label','Close visits');close.onclick=()=>dialog.close();heading.append(el('h2','Visits'),close);
   const list=el('div'),error=el('p');error.setAttribute('role','status');dialog.append(heading,list,error);document.body.append(dialog);

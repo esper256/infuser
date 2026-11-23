@@ -313,7 +313,13 @@ test('nightglass color schemes persist, validate, sync across tabs, and stay col
       addEventListener(){},
     };
     const values=new Map(savedMap);
-    const localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v)};
+    const localStorage={
+      get length(){return values.size;},
+      key:i=>[...values.keys()][i]??null,
+      getItem:k=>values.get(k)??null,
+      setItem:(k,v)=>values.set(k,v),
+      removeItem:k=>values.delete(k),
+    };
     let changes=0;
     const window={addEventListener:(name,fn)=>events.set(name,fn),dispatchEvent:()=>{changes++;}};
     vm.runInNewContext(source,{window,document,localStorage,Event:class {}});
@@ -398,4 +404,102 @@ test('nightglass color schemes persist, validate, sync across tabs, and stay col
   assert.match(sharedCss,/\.text-button\s*\{[^}]*color:\s*var\(--text-button-ink,\s*#b4c9c9\)/);
   assert.match(sharedCss,/#notice\s*\{[^}]*color:\s*var\(--notice-ink,\s*#e0f3e8\)/);
   assert.match(sharedCss,/\.close\s*\{[^}]*color:\s*var\(--close-ink,\s*#b2c9c4\)/);
+});
+test('per-profile appearance caches by player_id, migrates once, and isolates cross-tab sync',async()=>{
+  function makeTab({profile=null,values=new Map()}={}){
+    const events=new Map(),styles=new Map(),links=[];
+    const documentElement={
+      dataset:{},
+      style:{
+        setProperty:(k,v)=>styles.set(k,v),
+        removeProperty:k=>styles.delete(k),
+      },
+    };
+    const makeLink=()=>({
+      rel:'',href:'',dataset:{},sheet:null,blocking:'',
+      setAttribute(){},
+      addEventListener(type,fn){if(type==='load')queueMicrotask(()=>{this.sheet={};fn({});});},
+      remove(){},
+    });
+    const document={
+      readyState:'interactive',
+      documentElement,
+      head:{appendChild(node){links.push(node);}},
+      createElement:()=>makeLink(),
+      querySelector:selector=>{
+        const id=/data-infuser-theme="([^"]+)"/.exec(selector);
+        return id?links.find(link=>link.dataset.infuserTheme===id[1])||null:null;
+      },
+      addEventListener(){},
+    };
+    const localStorage={
+      get length(){return values.size;},
+      key:i=>[...values.keys()][i]??null,
+      getItem:k=>values.get(k)??null,
+      setItem:(k,v)=>values.set(k,v),
+      removeItem:k=>values.delete(k),
+    };
+    const session=new Map(profile?[['infuser.profile',profile]]:[]);
+    const sessionStorage={getItem:k=>session.get(k)??null,setItem:(k,v)=>session.set(k,v)};
+    const window={addEventListener:(name,fn)=>events.set(name,fn),dispatchEvent:()=>{}};
+    vm.runInNewContext(source,{window,document,localStorage,sessionStorage,Event:class {}});
+    return {
+      themes:window.InfuserThemes,documentElement,styles,values,
+      storage:event=>events.get('storage')(event),
+    };
+  }
+
+  // Legacy migration: an unset profile adopts a pre-deploy browser theme once.
+  const shared=new Map([['infuser.theme','cartridge-club']]);
+  const first=makeTab({profile:'pA',values:shared});
+  assert.equal(first.themes.current,'cartridge-club','pre-paint uses legacy theme before bindProfile');
+  const migrated=await first.themes.bindProfile('pA',null);
+  assert.equal(migrated.theme,'cartridge-club');
+  assert.equal(JSON.parse(shared.get('infuser.appearance.pA')).theme,'cartridge-club');
+
+  // A profile with no saved look and no legacy keys stays exact default Nightglass (no migration needed).
+  const clean=new Map();
+  const fresh=makeTab({profile:'pClean',values:clean});
+  const migratedClean=await fresh.themes.bindProfile('pClean',null);
+  assert.equal(migratedClean,null);
+  assert.equal(fresh.themes.current,'nightglass');
+  assert.equal(fresh.documentElement.dataset.themeScheme,undefined);
+
+  // Two open tabs on different profiles stay isolated; tabs on the same profile sync.
+  const tabA1=makeTab({profile:'pA',values:clean});
+  const tabA2=makeTab({profile:'pA',values:clean});
+  const tabB=makeTab({profile:'pB',values:clean});
+  await tabA1.themes.bindProfile('pA',{theme:'field-notes',schemes:{},custom:{}});
+  await tabA2.themes.bindProfile('pA',{theme:'field-notes',schemes:{},custom:{}});
+  await tabB.themes.bindProfile('pB',{theme:'nightglass',schemes:{nightglass:'amber-hearth'},custom:{}});
+  assert.equal(tabA1.themes.current,'field-notes');
+  assert.equal(tabB.themes.current,'nightglass');
+  assert.equal(tabB.themes.currentScheme,'amber-hearth');
+
+  // Tab A1 changes Profile A -> Tab A2 syncs, Tab B ignores it!
+  await tabA1.themes.select('funny-pages');
+  tabA2.storage({key:'infuser.appearance.pA'});
+  tabB.storage({key:'infuser.appearance.pA'});
+  tabB.storage({key:'infuser.theme.last'});
+  await new Promise(r=>setTimeout(r,5));
+  assert.equal(tabA2.themes.current,'funny-pages','same-profile tab syncs');
+  assert.equal(tabB.themes.current,'nightglass','different-profile tab ignores other profile');
+  assert.equal(tabB.themes.currentScheme,'amber-hearth');
+
+  // Unpinned /profiles chooser tab uses browser's last theme (infuser.theme.last).
+  const chooserTab=makeTab({profile:null,values:clean});
+  assert.equal(chooserTab.themes.current,'funny-pages','chooser uses browser last theme');
+
+  // Switching to a freshly cached profile paints its theme on boot without flashing last theme.
+  chooserTab.themes.cacheProfile('pC',{theme:'nightglass',schemes:{nightglass:'deep-ocean'},custom:{}});
+  const tabC=makeTab({profile:'pC',values:clean});
+  assert.equal(tabC.themes.current,'nightglass');
+  assert.equal(tabC.themes.currentScheme,'deep-ocean');
+
+  // Pruning removes cached appearance entries for deleted profiles while keeping active ones and last theme.
+  chooserTab.themes.pruneProfiles(['pA','pC']);
+  assert.equal(clean.has('infuser.appearance.pA'),true);
+  assert.equal(clean.has('infuser.appearance.pC'),true);
+  assert.equal(clean.has('infuser.appearance.pB'),false,'deleted profile cache is removed');
+  assert.equal(clean.has('infuser.theme.last'),true,'browser last theme stays intact');
 });

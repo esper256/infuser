@@ -13,6 +13,8 @@ const me = {
   avatar_prompt_seen: true,
   admin: true,
   profile_count: 2,
+  group: {id: 'home', name: 'Home'},
+  appearance: null,
   avatars: [
     {id: 'circuit-fox', name: 'Circuit Fox'},
     {id: 'moss-knight', name: 'Moss Knight'},
@@ -58,6 +60,13 @@ try {
   await context.route('https://library.test/**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/me') return route.fulfill({json: me});
+    if (path === '/api/profile/appearance') {
+      if (route.request().method() === 'PUT') {
+        me.appearance = route.request().postDataJSON();
+        return route.fulfill({json: {appearance: me.appearance}});
+      }
+      return route.fulfill({json: {appearance: me.appearance}});
+    }
     if (path === '/api/library') return route.fulfill({json: {apps, friends, tags}});
     if (path === '/api/chat') return route.fulfill({json: {messages: []}});
     if (path === '/api/voice') return route.fulfill({json: {configured: true, available: true, participants: [], self: null, settings: {}}});
