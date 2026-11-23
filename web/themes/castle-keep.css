@@ -866,21 +866,25 @@
 [data-theme="castle-keep"] #chat-empty,
 [data-theme="castle-keep"] .chat-empty { color: var(--quiet); }
 
-/* Admin tools are a chamber in the same keep. */
-[data-theme="castle-keep"] #admin {
+/* Admin tools and user settings are chambers in the same keep. */
+[data-theme="castle-keep"] #admin,
+[data-theme="castle-keep"] #user-settings {
   background-color: #141c26;
   background-image: url("/assets/themes/castle-keep/stone.svg");
   background-size: 160px 92px;
   color: var(--ink);
   border-color: var(--gold);
 }
-[data-theme="castle-keep"] #admin > .panel-heading {
+[data-theme="castle-keep"] #admin > .panel-heading,
+[data-theme="castle-keep"] #user-settings > .panel-heading {
   background: #0e141a;
   color: var(--gold);
   border-bottom: 5px solid var(--heart);
 }
-[data-theme="castle-keep"] #admin-title { color: var(--gold); }
-[data-theme="castle-keep"] #admin-status { background: var(--manuscript); color: var(--manuscript-ink); }
+[data-theme="castle-keep"] #admin-title,
+[data-theme="castle-keep"] #settings-title { color: var(--gold); }
+[data-theme="castle-keep"] #admin-status,
+[data-theme="castle-keep"] #settings-status { background: var(--manuscript); color: var(--manuscript-ink); }
 [data-theme="castle-keep"] .admin-region {
   background: var(--manuscript) url("/assets/themes/castle-keep/parchment.svg");
   color: var(--manuscript-ink);
@@ -890,7 +894,12 @@
 [data-theme="castle-keep"] .admin-region > summary { color: var(--manuscript-ink); font-size: 18px; }
 [data-theme="castle-keep"] .admin-region > summary:hover { background: #f8e0a8; }
 [data-theme="castle-keep"] .admin-region label,
-[data-theme="castle-keep"] .admin-region .quiet { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .admin-region .quiet,
+[data-theme="castle-keep"] .settings-dialog .settings-profile-name,
+[data-theme="castle-keep"] .settings-dialog .color-hex { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .settings-subpanel { border-color: #c9b48a; background: #f8e8c399; }
+[data-theme="castle-keep"] .custom-color-card { border-color: #c9b48a; background: #fbf0d6; }
+[data-theme="castle-keep"] .settings-dialog .notification-hint { color: var(--manuscript-ink); }
 [data-theme="castle-keep"] .admin h3,
 [data-theme="castle-keep"] #members > div,
 [data-theme="castle-keep"] #credentials > div,
