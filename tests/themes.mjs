@@ -287,3 +287,115 @@ test('a slower theme sheet does not paint over a newer choice',async()=>{
   assert.equal(themes.current,'funny-pages');
   assert.equal(values.get('infuser.theme'),'funny-pages');
 });
+test('nightglass color schemes persist, validate, sync across tabs, and stay color-only',async()=>{
+  const styles=new Map();
+  const makeEnv=(savedMap=[])=>{
+    const events=new Map(),links=[];
+    const documentElement={
+      dataset:{},
+      style:{
+        setProperty:(k,v)=>styles.set(k,v),
+        removeProperty:k=>styles.delete(k),
+      },
+    };
+    const makeLink=()=>({
+      rel:'',href:'',dataset:{},sheet:null,blocking:'',
+      setAttribute(){},
+      addEventListener(type,fn){if(type==='load')queueMicrotask(()=>{this.sheet={};fn({});});},
+      remove(){},
+    });
+    const document={
+      readyState:'interactive',
+      documentElement,
+      head:{appendChild(node){links.push(node);}},
+      createElement:()=>makeLink(),
+      querySelector:()=>null,
+      addEventListener(){},
+    };
+    const values=new Map(savedMap);
+    const localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v)};
+    let changes=0;
+    const window={addEventListener:(name,fn)=>events.set(name,fn),dispatchEvent:()=>{changes++;}};
+    vm.runInNewContext(source,{window,document,localStorage,Event:class {}});
+    return {
+      themes:window.InfuserThemes,documentElement,values,
+      storage:event=>events.get('storage')(event),
+      get changes(){return changes;},
+    };
+  };
+
+  const env=makeEnv();
+  assert.equal(env.themes.current,'nightglass');
+  assert.equal(env.themes.currentScheme,'default');
+  assert.equal(env.documentElement.dataset.themeScheme,undefined);
+  assert.ok(env.themes.schemesFor('nightglass').length>=12);
+  assert.deepEqual([...env.themes.schemesFor('funny-pages')],[]);
+  assert.deepEqual([...env.themes.schemesFor('cartridge-club')],[]);
+
+  // Selecting a curated scheme updates dataset and persists cleanly.
+  assert.equal(env.themes.selectScheme('twilight-violet'),'twilight-violet');
+  assert.equal(env.themes.currentScheme,'twilight-violet');
+  assert.equal(env.documentElement.dataset.themeScheme,'twilight-violet');
+  assert.equal(styles.size,0);
+  assert.equal(JSON.parse(env.values.get('infuser.theme.schemes')).nightglass,'twilight-violet');
+
+  // Unknown schemes safely fall back to default.
+  assert.equal(env.themes.selectScheme('not-a-scheme'),'default');
+  assert.equal(env.themes.currentScheme,'default');
+  assert.equal(env.documentElement.dataset.themeScheme,undefined);
+
+  // Custom colors apply inline CSS tokens, sanitize bad values, and reset cleanly.
+  const custom=env.themes.setCustomColors({primary:'#1a1025',accent:'#ff88cc',secondary:'not-a-color'});
+  assert.deepEqual({...custom},{primary:'#1a1025',accent:'#ff88cc',secondary:'#e8d5a4'});
+  assert.equal(env.themes.currentScheme,'custom');
+  assert.equal(env.documentElement.dataset.themeScheme,'custom');
+  assert.equal(styles.get('--panel'),'#1a1025');
+  assert.equal(styles.get('--accent'),'#ff88cc');
+  assert.equal(styles.get('--warm'),'#e8d5a4');
+
+  // Switching to a theme without schemes clears data-theme-scheme and custom tokens.
+  await env.themes.select('field-notes');
+  assert.equal(env.themes.current,'field-notes');
+  assert.equal(env.themes.currentScheme,'');
+  assert.equal(env.documentElement.dataset.themeScheme,undefined);
+  assert.equal(styles.size,0);
+
+  // Switching back to Nightglass restores the saved custom scheme and tokens.
+  await env.themes.select('nightglass');
+  assert.equal(env.themes.currentScheme,'custom');
+  assert.equal(env.documentElement.dataset.themeScheme,'custom');
+  assert.equal(styles.get('--accent'),'#ff88cc');
+
+  // Resetting custom colors restores defaults while staying in custom mode.
+  const reset=env.themes.resetCustomColors();
+  assert.deepEqual({...reset},{...env.themes.defaultCustom});
+  assert.equal(styles.get('--accent'),env.themes.defaultCustom.accent);
+
+  // Cross-tab storage sync applies updated schemes.
+  env.values.set('infuser.theme.schemes',JSON.stringify({nightglass:'deep-ocean'}));
+  env.storage({key:'infuser.theme.schemes'});
+  assert.equal(env.themes.currentScheme,'deep-ocean');
+  assert.equal(env.documentElement.dataset.themeScheme,'deep-ocean');
+  assert.equal(styles.size,0);
+
+  // Every Nightglass scheme rule in nightglass.css is scoped and sets only CSS custom properties.
+  const css=readFileSync(new URL('../web/themes/nightglass.css',import.meta.url),'utf8').replace(/\/\*[\s\S]*?\*\//g,'');
+  const schemeBlocks=[...css.matchAll(/([^{}]*\[data-theme-scheme(?:="([^"]+)")?\][^{}]*)\{([^}]*)\}/g)];
+  assert.ok(schemeBlocks.length>=13,'expected curated Nightglass scheme blocks');
+  const defined=new Set();
+  for(const [,selector,id,body] of schemeBlocks){
+    assert.ok(selector.includes('[data-theme="nightglass"]'),selector);
+    if(id)defined.add(id);
+    for(const decl of body.split(';').map(s=>s.trim()).filter(Boolean)){
+      assert.ok(decl.startsWith('--'),`Nightglass scheme "${id||'shared'}" must set color custom properties only, found: ${decl}`);
+    }
+  }
+  for(const scheme of env.themes.schemesFor('nightglass')){
+    if(scheme.id!=='default'&&scheme.id!=='custom')assert.ok(defined.has(scheme.id),`missing CSS block for ${scheme.id}`);
+  }
+  // Shared CSS keeps default Nightglass colors exact when no scheme is selected.
+  const sharedCss=readFileSync(new URL('../web/clubhouse.css',import.meta.url),'utf8');
+  assert.match(sharedCss,/\.text-button\s*\{[^}]*color:\s*var\(--text-button-ink,\s*#b4c9c9\)/);
+  assert.match(sharedCss,/#notice\s*\{[^}]*color:\s*var\(--notice-ink,\s*#e0f3e8\)/);
+  assert.match(sharedCss,/\.close\s*\{[^}]*color:\s*var\(--close-ink,\s*#b2c9c4\)/);
+});

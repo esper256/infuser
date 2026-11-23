@@ -120,6 +120,7 @@ document.fonts.ready.then(()=>{for(const state of tagRows.values())state.layoutK
 
 function notice(message) {
   if($('admin').open){$('admin-status').textContent=message;return;}
+  if($('user-settings')?.open){$('settings-status').textContent=message;return;}
   clearTimeout(noticeTimer);
   const toast=$('notice');toast.textContent=message;toast.classList.add('visible');
   noticeTimer=setTimeout(()=>{toast.classList.remove('visible');toast.textContent='';},5000);
@@ -1370,6 +1371,118 @@ function renderAccount(){
   const name=el('span',me.name+' · you','presence-name');name.setAttribute('aria-hidden','true');
   $('account-trigger').title=me.name+' · Profile menu';
   $('account-trigger').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),name);
+  const summary=$('settings-profile-summary');
+  if(summary){
+    const text=el('div',undefined,'settings-profile-text');
+    text.append(el('strong',me.name,'settings-profile-name'),el('span',me.inspecting?'Read-only inspection':'Signed in','quiet'));
+    summary.replaceChildren(profileAvatar(me.name,me.player_id,me.avatar,128),text);
+  }
+}
+function setupUserSettings(signOut){
+  const dialog=$('user-settings'),themes=window.InfuserThemes;
+  const appearance=$('settings-appearance'),profileBody=$('settings-profile'),pwaBody=$('settings-pwa'),voiceBody=$('settings-voice');
+  const themeLabel=el('label','Theme','settings-field'),themeSelect=el('select');themeSelect.id='theme-picker';
+  for(const theme of themes.catalog.filter(theme=>theme.status!=='retired')){
+    const option=el('option',theme.name+(theme.status==='preview'?' · Preview':''));option.value=theme.id;themeSelect.append(option);
+  }
+  themeLabel.append(themeSelect);
+  const schemeGroup=el('div',undefined,'settings-subpanel');schemeGroup.id='theme-scheme-group';schemeGroup.hidden=true;
+  const schemeLabel=el('label','Color scheme','settings-field'),schemeSelect=el('select');schemeSelect.id='theme-scheme-picker';
+  schemeLabel.append(schemeSelect);
+  const schemeHint=el('p','Changes colors only — layout and spacing stay the same.','quiet settings-hint');
+  const swatchRow=el('div',undefined,'scheme-swatches');swatchRow.id='theme-scheme-swatches';swatchRow.setAttribute('aria-hidden','true');
+  const swatchNames=['Background','Panels','Primary accent','Secondary accent'];
+  const swatchChips=swatchNames.map(label=>{
+    const chip=el('span',undefined,'scheme-swatch');
+    const dot=el('span',undefined,'scheme-swatch-dot');
+    chip.append(dot,el('span',label,'scheme-swatch-label'));
+    swatchRow.append(chip);
+    return dot;
+  });
+  const customPanel=el('div',undefined,'custom-colors-panel');customPanel.id='theme-custom-colors';customPanel.hidden=true;
+  const customGrid=el('div',undefined,'custom-color-grid');
+  const customInputs={};
+  for(const [field,labelText] of [['primary','Base & panels'],['accent','Primary accent'],['secondary','Secondary accent']]){
+    const card=el('label',undefined,'custom-color-card');
+    const heading=el('span',labelText,'custom-color-title');
+    const control=el('span',undefined,'custom-color-control');
+    const input=el('input');input.type='color';input.id='custom-color-'+field;input.setAttribute('aria-label',labelText+' color');
+    const hex=el('code',undefined,'color-hex');
+    input.oninput=()=>{
+      hex.textContent=input.value.toUpperCase();
+      themes.setCustomColors({[field]:input.value});
+    };
+    control.append(input,hex);card.append(heading,control);customGrid.append(card);
+    customInputs[field]={input,hex};
+  }
+  const resetCustom=el('button','Reset custom colors','secondary');resetCustom.id='reset-custom-colors';resetCustom.type='button';
+  resetCustom.onclick=()=>{themes.resetCustomColors();};
+  customPanel.append(customGrid,resetCustom);
+  schemeGroup.append(schemeLabel,schemeHint,swatchRow,customPanel);
+  appearance.replaceChildren(themeLabel,schemeGroup);
+
+  let renderedSchemeTheme='';
+  function syncAppearance(){
+    const activeTheme=themes.current;
+    themeSelect.value=activeTheme;
+    const schemes=themes.schemesFor(activeTheme);
+    schemeGroup.hidden=!schemes.length;
+    if(!schemes.length){customPanel.hidden=true;return;}
+    if(renderedSchemeTheme!==activeTheme){
+      renderedSchemeTheme=activeTheme;
+      schemeSelect.replaceChildren();
+      for(const scheme of schemes){
+        const option=el('option',scheme.name);option.value=scheme.id;schemeSelect.append(option);
+      }
+    }
+    const activeScheme=themes.currentScheme||schemes[0].id;
+    schemeSelect.value=activeScheme;
+    const custom=themes.customColorsFor(activeTheme);
+    const activeEntry=schemes.find(item=>item.id===activeScheme)||schemes[0];
+    const preview=activeScheme==='custom'
+      ?[getComputedStyle(document.documentElement).getPropertyValue('--page').trim()||custom.primary,custom.primary,custom.accent,custom.secondary]
+      :activeEntry.swatches;
+    swatchChips.forEach((dot,index)=>{dot.style.background=preview[index]||'transparent';});
+    customPanel.hidden=activeScheme!=='custom';
+    for(const [field,pair] of Object.entries(customInputs)){
+      if(pair.input.value.toLowerCase()!==custom[field])pair.input.value=custom[field];
+      pair.hex.textContent=custom[field].toUpperCase();
+    }
+  }
+  themeSelect.onchange=()=>{const chosen=themeSelect.value;Promise.resolve(themes.select(chosen)).catch(()=>{themeSelect.value=themes.current;});};
+  schemeSelect.onchange=()=>{themes.selectScheme(schemeSelect.value);};
+  window.addEventListener('infuser-theme-change',syncAppearance);
+  syncAppearance();
+
+  const profileRow=el('div',undefined,'settings-profile-row');
+  const profileSummary=el('div',undefined,'settings-profile-summary');profileSummary.id='settings-profile-summary';
+  const profile=el('button','Change profile picture','secondary');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');
+  profile.onclick=()=>{dialog.close();openProfile();};
+  profileRow.append(profileSummary,profile);
+  profileBody.replaceChildren(profileRow);
+
+  pwaBody.replaceChildren();
+  setupPwa({panel:pwaBody,signOut,me,api,notice});
+  for(const button of pwaBody.querySelectorAll('button'))button.classList.add('secondary');
+
+  const voiceSettings=el('button','Voice settings','secondary');voiceSettings.id='open-voice-settings';voiceSettings.type='button';voiceSettings.hidden=true;voiceSettings.setAttribute('aria-haspopup','dialog');
+  voiceSettings.onclick=()=>{dialog.close();voiceApi?.openSettings($('account-trigger'));};
+  const voiceRow=el('div',undefined,'settings-action-row');
+  voiceRow.append(el('p','Adjust microphone, speaker, and per-player voice volumes.','quiet'),voiceSettings);
+  voiceBody.replaceChildren(voiceRow);
+
+  $('close-settings').onclick=()=>dialog.close();
+  dialog.addEventListener('click',event=>{
+    if(event.target===dialog){
+      const r=dialog.getBoundingClientRect();
+      if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();
+    }
+  });
+  dialog.addEventListener('close',()=>{
+    $('settings-status').textContent='';
+    if(!document.querySelector('dialog[open]'))$('account-trigger')?.focus({preventScroll:true});
+  });
+  return ()=>{syncAppearance();$('settings-status').textContent='';dialog.showModal();};
 }
 function setupAccount(){
   const menu=el('details',undefined,'header-menu profile-menu'),trigger=el('summary',undefined,'profile-button'),panel=el('div',undefined,'account-menu');
@@ -1389,22 +1502,13 @@ function setupAccount(){
   menu.addEventListener('toggle',positionMenu);
   window.addEventListener('resize',positionMenu);
   window.addEventListener('scroll',positionMenu,{passive:true});
-  const profile=el('button','Change profile picture');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');
-  profile.onclick=()=>{menu.open=false;openProfile();};
-  const voiceSettings=el('button','Voice settings');voiceSettings.id='open-voice-settings';voiceSettings.type='button';voiceSettings.hidden=true;voiceSettings.setAttribute('aria-haspopup','dialog');
-  voiceSettings.onclick=()=>{menu.open=false;voiceApi?.openSettings($('account-trigger'));};
-  const label=el('label','Theme'),select=el('select');select.id='theme-picker';
-  const themes=window.InfuserThemes;
-  for(const theme of themes.catalog.filter(theme=>theme.status!=='retired')){
-    const option=el('option',theme.name+(theme.status==='preview'?' · Preview':''));option.value=theme.id;select.append(option);
-  }
-  select.value=themes.current;select.onchange=()=>{const chosen=select.value;Promise.resolve(themes.select(chosen)).catch(()=>{select.value=themes.current;});};
-  window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
-  label.append(select);
   const out=el('a','Sign out');out.className='sign-out';out.href='/sign-out';
+  const openSettings=setupUserSettings(out);
+  const settingsButton=el('button','User settings');settingsButton.id='open-settings';settingsButton.type='button';settingsButton.setAttribute('aria-haspopup','dialog');settingsButton.setAttribute('aria-controls','user-settings');
+  settingsButton.onclick=()=>{menu.open=false;openSettings();};
   const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
   const reviewFeedback=initFeedback(feedback,()=>{menu.open=false;},api,me.admin&&!me.inspecting);
-  panel.append(profile,voiceSettings,label,feedback,...(reviewFeedback?[reviewFeedback]:[]));
+  panel.append(settingsButton,feedback,...(reviewFeedback?[reviewFeedback]:[]));
   if(me.profile_count>1){
     const switcher=el('button','Switch Profile');switcher.id='switch-profile';switcher.type='button';
     switcher.onclick=async()=>{switcher.disabled=true;try{await clearNotifications();chooser('/library');}catch(error){notice(error.message||'Could not switch profiles. Try again.');switcher.disabled=false;}};
@@ -1416,7 +1520,7 @@ function setupAccount(){
   }
   refreshServerUpdates=initServerUpdates({panel:$('admin').querySelector('.admin-panel'),api,me});
   const ownGames=el('p',undefined,'friend-status');ownGames.id='account-playing';ownGames.hidden=true;panel.prepend(ownGames);
-  panel.append(out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
+  panel.append(out);menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;
@@ -1515,7 +1619,11 @@ try {
     const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
     if(document.hasFocus()&&!document.hidden)active();
   }
-  voiceApi=initVoice({me,api,notice,onConfiguredChange:configured=>{const btn=$('open-voice-settings');if(btn)btn.hidden=!configured;}});
+  voiceApi=initVoice({me,api,notice,onConfiguredChange:configured=>{
+    const btn=$('open-voice-settings'),region=$('settings-voice-region');
+    if(btn)btn.hidden=!configured;
+    if(region)region.hidden=!configured;
+  }});
   window.addEventListener('infuser-voice-layout',()=>{if(library)renderPresence();});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));

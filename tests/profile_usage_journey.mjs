@@ -32,7 +32,7 @@ try{
  });
  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
  const dialog=page.locator('#profile-dialog'),option=id=>dialog.locator('label').filter({has:page.locator(`input[value="${id}"]`)});
- const open=async()=>{await page.locator('#account-trigger').click();await page.locator('#open-profile').click();};
+ const open=async()=>{await page.locator('#account-trigger').click();await page.locator('#open-settings').click();await page.locator('#open-profile').click();};
  const close=()=>page.locator('#close-profile').click();
  await page.goto('https://library.test/library');
  for(const theme of ['nightglass','cartridge-club'])for(const width of [1200,390,320]){

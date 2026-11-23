@@ -63,6 +63,14 @@
   --voice-danger-border: #7f1d1d;
   --voice-danger-ink: #ffffff;
   --voice-leave-ink: #991b1b;
+  --label-ink: var(--ink);
+  --placeholder-ink: var(--pencil);
+  --input-hover-border: var(--moss);
+  --input-focus-border: var(--moss-deep);
+  --close-ink: var(--pencil);
+  --close-hover-bg: var(--surface);
+  --close-hover-ink: var(--ink);
+  --text-button-ink: var(--pencil);
 }
 
 [data-theme="field-notes"] body {
@@ -376,6 +384,15 @@
   background: var(--field);
   color: var(--ink);
   border-color: var(--line);
+}
+[data-theme="field-notes"] .secondary {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+[data-theme="field-notes"] .secondary:hover {
+  background: #f3d27a;
+  color: var(--ink);
 }
 [data-theme="field-notes"] .detail-info h2 { font-family: Caveat, Newsreader, serif; }
 [data-theme="field-notes"] .feedback-bubble {

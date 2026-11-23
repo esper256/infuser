@@ -23,7 +23,7 @@ export async function clearNotifications(){
   try{localStorage.removeItem('infuser-push-owner');}catch{/* No stored owner. */}
 }
 
-export function setupPwa({panel,me,api,notice}) {
+export function setupPwa({panel,signOut,me,api,notice}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const install=document.createElement('button');install.type='button';install.textContent='Install Infuser';
   function installState(){install.hidden=standalone();}
@@ -127,7 +127,7 @@ export function setupPwa({panel,me,api,notice}) {
   refresh().catch(()=>{hint.textContent='Could not check notifications. Try again.';}).finally(()=>{button.disabled=false;});
   // Unsubscribe before signing out on a shared device. If it fails, keep the
   // session available for a retry instead of leaving a hidden subscription.
-  const out=panel.querySelector('a.sign-out');
+  const out=signOut||panel.querySelector('a.sign-out');
   out?.addEventListener('click',async event=>{
     if(!supported()){forgetProfile();return;}
     event.preventDefault();
@@ -145,6 +145,10 @@ export function setupPwa({panel,me,api,notice}) {
       const notifications=await reg?.getNotifications()||[];for(const n of notifications)n.close();
       forgetProfile();
       location.assign(out.href);
-    }catch{hint.textContent='Could not turn off notifications before signing out. Reconnect and try again.';}
+    }catch{
+      const message='Could not turn off notifications before signing out. Reconnect and try again.';
+      hint.textContent=message;
+      if(signOut)notice(message);
+    }
   });
 }

@@ -3,16 +3,162 @@
  * Nightglass is linked by the page. Any other active theme is inserted here. */
 (() => {
   const key = 'infuser.theme';
+  const schemesKey = 'infuser.theme.schemes';
+  const customKey = 'infuser.theme.custom';
   const defaultId = 'nightglass';
+  const defaultCustom = Object.freeze({primary: '#122128', accent: '#b5ead6', secondary: '#e8d5a4'});
+  const hexColor = /^#[0-9a-f]{6}$/i;
+  const nightglassSchemes = Object.freeze([
+    Object.freeze({id: 'default', name: 'Smoked Mint (Default)', swatches: Object.freeze(['#080f15', '#122128', '#b5ead6', '#e8d5a4'])}),
+    Object.freeze({id: 'deep-ocean', name: 'Deep Ocean', swatches: Object.freeze(['#07101c', '#102033', '#7dd3fc', '#fde68a'])}),
+    Object.freeze({id: 'twilight-violet', name: 'Twilight Violet', swatches: Object.freeze(['#0d0a18', '#1b1430', '#c4b5fd', '#f9a8d4'])}),
+    Object.freeze({id: 'amber-hearth', name: 'Amber Hearth', swatches: Object.freeze(['#140e09', '#251a11', '#fbbf24', '#fb923c'])}),
+    Object.freeze({id: 'rose-quartz', name: 'Rose Quartz', swatches: Object.freeze(['#160b12', '#281522', '#fda4af', '#fcd34d'])}),
+    Object.freeze({id: 'cobalt-pulse', name: 'Cobalt Pulse', swatches: Object.freeze(['#080d1e', '#121c38', '#60a5fa', '#67e8f9'])}),
+    Object.freeze({id: 'forest-moss', name: 'Forest Moss', swatches: Object.freeze(['#09120c', '#14251a', '#86efac', '#fde047'])}),
+    Object.freeze({id: 'crimson-velvet', name: 'Crimson Velvet', swatches: Object.freeze(['#16090c', '#291218', '#f87171', '#fbbf24'])}),
+    Object.freeze({id: 'northern-aurora', name: 'Northern Aurora', swatches: Object.freeze(['#071316', '#0f252b', '#5eead4', '#c084fc'])}),
+    Object.freeze({id: 'copper-forge', name: 'Copper Forge', swatches: Object.freeze(['#140d0a', '#261913', '#f59e6b', '#fcd34d'])}),
+    Object.freeze({id: 'glacier-frost', name: 'Glacier Frost', swatches: Object.freeze(['#0a1118', '#152230', '#bae6fd', '#e2e8f0'])}),
+    Object.freeze({id: 'sunset-dusk', name: 'Sunset Dusk', swatches: Object.freeze(['#150b16', '#271529', '#f472b6', '#fbbf24'])}),
+    Object.freeze({id: 'neon-berry', name: 'Neon Berry', swatches: Object.freeze(['#120818', '#22102e', '#e879f9', '#38bdf8'])}),
+    Object.freeze({id: 'obsidian-gold', name: 'Obsidian Gold', swatches: Object.freeze(['#0e0d0a', '#1d1a13', '#eab308', '#f5d08a'])}),
+    Object.freeze({id: 'custom', name: 'Custom colors…', swatches: Object.freeze(['#080f15', '#122128', '#b5ead6', '#e8d5a4'])}),
+  ]);
+  const emptySchemes = Object.freeze([]);
   const catalog = Object.freeze([
-    Object.freeze({id: 'nightglass', name: 'Nightglass', status: 'stable'}),
+    Object.freeze({id: 'nightglass', name: 'Nightglass', status: 'stable', schemes: nightglassSchemes}),
     Object.freeze({id: 'cartridge-club', name: 'Cartridge Club', status: 'stable'}),
     Object.freeze({id: 'funny-pages', name: 'Funny Pages', status: 'preview'}),
     Object.freeze({id: 'field-notes', name: 'Field Notes', status: 'preview'}),
     Object.freeze({id: 'castle-keep', name: 'Castle Keep', status: 'preview'}),
   ]);
+  const customProps = Object.freeze([
+    '--page', '--field', '--detail-panel', '--panel', '--surface', '--feedback-bubble',
+    '--line', '--ink', '--quiet', '--accent', '--accent-hover', '--accent-pressed',
+    '--button-ink', '--green', '--presence-online', '--warm', '--focus', '--glass',
+    '--card-dock', '--browser-chrome', '--page-glow-1', '--page-glow-2',
+    '--secondary-bg', '--secondary-hover', '--add-bg', '--add-border',
+    '--add-hover-bg', '--add-hover-border', '--header-line', '--search-bg',
+    '--search-border', '--dock-border', '--dock-top-border', '--self-glow-1',
+    '--self-glow-2', '--dialog-border', '--dialog-top-border', '--notice-bg',
+    '--notice-border', '--own-bubble-tint', '--own-meta-ink', '--tag-pill-bg',
+  ]);
   const resolve = id => catalog.find(theme => theme.id === id && theme.status !== 'retired')?.id || defaultId;
+  const schemesOf = id => catalog.find(theme => theme.id === id && theme.status !== 'retired')?.schemes || emptySchemes;
+  const resolveScheme = (themeId, schemeId) => {
+    const schemes = schemesOf(themeId);
+    if (!schemes.length) return '';
+    return schemes.find(scheme => scheme.id === schemeId)?.id || schemes[0].id;
+  };
   const read = () => { try { return localStorage.getItem(key); } catch { return null; } };
+  function readJson(storageKey) {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
+  }
+  function writeJson(storageKey, value) {
+    try { localStorage.setItem(storageKey, JSON.stringify(value)); } catch { /* Still usable this visit. */ }
+  }
+  const cleanHex = (value, fallback) => typeof value === 'string' && hexColor.test(value.trim()) ? value.trim().toLowerCase() : fallback;
+  const cleanCustom = raw => ({
+    primary: cleanHex(raw?.primary, defaultCustom.primary),
+    accent: cleanHex(raw?.accent, defaultCustom.accent),
+    secondary: cleanHex(raw?.secondary, defaultCustom.secondary),
+  });
+  let savedSchemes = readJson(schemesKey);
+  let savedCustom = readJson(customKey);
+  function schemeFor(themeId) {
+    const id = resolve(themeId);
+    return resolveScheme(id, savedSchemes[id]);
+  }
+  function customColorsFor(themeId) {
+    const id = resolve(themeId);
+    return cleanCustom(savedCustom[id]);
+  }
+  function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function rgbToHex(r, g, b) {
+    const part = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return '#' + part(r) + part(g) + part(b);
+  }
+  function mix(a, b, amount) {
+    const [ar, ag, ab] = hexToRgb(a), [br, bg, bb] = hexToRgb(b);
+    return rgbToHex(ar + (br - ar) * amount, ag + (bg - ag) * amount, ab + (bb - ab) * amount);
+  }
+  function contrastInk(hex) {
+    const [r, g, b] = hexToRgb(hex).map(c => {
+      const s = c / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.34 ? '#0c161b' : '#f4f8fa';
+  }
+  function customTokens({primary, accent, secondary}) {
+    const page = mix(primary, '#000000', 0.36);
+    const field = mix(primary, '#000000', 0.22);
+    const detail = mix(primary, '#000000', 0.14);
+    const surface = mix(primary, '#ffffff', 0.08);
+    const line = mix(primary, accent, 0.28);
+    return {
+      '--page': page,
+      '--field': field,
+      '--detail-panel': detail,
+      '--panel': primary,
+      '--surface': surface,
+      '--feedback-bubble': mix(primary, accent, 0.12),
+      '--line': line,
+      '--ink': mix('#f3f6f8', accent, 0.07),
+      '--quiet': mix('#a3b0b8', accent, 0.12),
+      '--accent': accent,
+      '--accent-hover': mix(accent, '#ffffff', 0.22),
+      '--accent-pressed': mix(accent, '#000000', 0.18),
+      '--button-ink': contrastInk(accent),
+      '--green': accent,
+      '--presence-online': mix(accent, '#4ade80', 0.45),
+      '--warm': secondary,
+      '--focus': secondary,
+      '--glass': 'linear-gradient(135deg, ' + mix(primary, accent, 0.1) + 'ee, ' + mix(primary, '#000000', 0.18) + 'f6)',
+      '--card-dock': 'linear-gradient(125deg, ' + mix(primary, accent, 0.16) + '92, ' + mix(primary, '#000000', 0.32) + 'ec)',
+      '--browser-chrome': page,
+      '--page-glow-1': accent + '24',
+      '--page-glow-2': secondary + '1a',
+      '--secondary-bg': mix(primary, accent, 0.1),
+      '--secondary-hover': mix(primary, accent, 0.2),
+      '--add-bg': mix(primary, accent, 0.14),
+      '--add-border': mix(primary, accent, 0.42),
+      '--add-hover-bg': mix(primary, accent, 0.22),
+      '--add-hover-border': mix(accent, '#ffffff', 0.1),
+      '--header-line': accent + '1c',
+      '--search-bg': field,
+      '--search-border': line,
+      '--dock-border': accent + '38',
+      '--dock-top-border': accent + '5c',
+      '--self-glow-1': accent + '18',
+      '--self-glow-2': accent + '28',
+      '--dialog-border': mix(primary, accent, 0.42),
+      '--dialog-top-border': mix(accent, '#ffffff', 0.1),
+      '--notice-bg': mix(primary, accent, 0.18) + 'f5',
+      '--notice-border': mix(primary, accent, 0.55),
+      '--own-bubble-tint': secondary,
+      '--own-meta-ink': mix(secondary, '#ffffff', 0.25),
+      '--tag-pill-bg': mix(primary, '#000000', 0.34) + 'cf',
+    };
+  }
+  function clearCustomTokens() {
+    const style = document.documentElement.style;
+    if (!style || typeof style.removeProperty !== 'function') return;
+    for (const prop of customProps) style.removeProperty(prop);
+  }
+  function applyCustomTokens(colors) {
+    const style = document.documentElement.style;
+    if (!style || typeof style.setProperty !== 'function') return;
+    for (const [prop, value] of Object.entries(customTokens(colors))) style.setProperty(prop, value);
+  }
   // Empty string: no extra sheet (Nightglass). Null: the registry has no sheet for this id.
   function hrefFor(id) {
     if (id === defaultId) return '';
@@ -92,8 +238,16 @@
     const chrome = getComputedStyle(document.documentElement).getPropertyValue('--browser-chrome').trim();
     if (chrome) meta.content = chrome;
   }
+  function applySchemeFor(id) {
+    const scheme = schemeFor(id);
+    if (!scheme || scheme === 'default') delete document.documentElement.dataset.themeScheme;
+    else document.documentElement.dataset.themeScheme = scheme;
+    if (scheme === 'custom') applyCustomTokens(customColorsFor(id));
+    else clearCustomTokens();
+  }
   function applyNow(id) {
     document.documentElement.dataset.theme = id;
+    applySchemeFor(id);
     paintChrome();
     window.dispatchEvent(new Event('infuser-theme-change'));
   }
@@ -105,8 +259,18 @@
     document.addEventListener('DOMContentLoaded', paintChrome);
   }
   window.InfuserThemes = Object.freeze({
-    catalog, defaultId,
+    catalog, defaultId, defaultCustom,
     get current() { return document.documentElement.dataset.theme; },
+    get currentScheme() { return schemeFor(document.documentElement.dataset.theme); },
+    schemesFor(themeId = document.documentElement.dataset.theme) {
+      return schemesOf(resolve(themeId));
+    },
+    schemeFor(themeId = document.documentElement.dataset.theme) {
+      return schemeFor(themeId);
+    },
+    customColorsFor(themeId = document.documentElement.dataset.theme) {
+      return customColorsFor(themeId);
+    },
     select(id) {
       const selected = resolve(id);
       const mine = ++generation;
@@ -120,13 +284,57 @@
       if (!href || sheetReady(existingLink(selected))) { finish(); return Promise.resolve(); }
       return ensure(selected, href).then(finish);
     },
+    selectScheme(schemeId, themeId = document.documentElement.dataset.theme) {
+      const target = resolve(themeId);
+      const schemes = schemesOf(target);
+      if (!schemes.length) return '';
+      const resolved = resolveScheme(target, schemeId);
+      if (resolved === 'default') delete savedSchemes[target];
+      else savedSchemes[target] = resolved;
+      writeJson(schemesKey, savedSchemes);
+      if (target === document.documentElement.dataset.theme) {
+        applySchemeFor(target);
+        paintChrome();
+        window.dispatchEvent(new Event('infuser-theme-change'));
+      }
+      return resolved;
+    },
+    setCustomColors(colors, themeId = document.documentElement.dataset.theme) {
+      const target = resolve(themeId);
+      const schemes = schemesOf(target);
+      if (!schemes.some(scheme => scheme.id === 'custom')) return customColorsFor(target);
+      const next = cleanCustom({...customColorsFor(target), ...(colors || {})});
+      savedCustom[target] = next;
+      writeJson(customKey, savedCustom);
+      savedSchemes[target] = 'custom';
+      writeJson(schemesKey, savedSchemes);
+      if (target === document.documentElement.dataset.theme) {
+        applySchemeFor(target);
+        paintChrome();
+        window.dispatchEvent(new Event('infuser-theme-change'));
+      }
+      return next;
+    },
+    resetCustomColors(themeId = document.documentElement.dataset.theme) {
+      const target = resolve(themeId);
+      delete savedCustom[target];
+      writeJson(customKey, savedCustom);
+      if (target === document.documentElement.dataset.theme && schemeFor(target) === 'custom') {
+        applySchemeFor(target);
+        paintChrome();
+        window.dispatchEvent(new Event('infuser-theme-change'));
+      }
+      return customColorsFor(target);
+    },
   });
   const initial = resolve(read());
   const initialHref = hrefFor(initial);
   if (initialHref) preloadInitial(initial, initialHref);
   applyNow(initialHref == null ? defaultId : initial);
   window.addEventListener('storage', event => {
-    if (event.key !== key && event.key !== null) return;
+    if (event.key !== key && event.key !== schemesKey && event.key !== customKey && event.key !== null) return;
+    savedSchemes = readJson(schemesKey);
+    savedCustom = readJson(customKey);
     const selected = resolve(read());
     const mine = ++generation;
     const href = hrefFor(selected);
