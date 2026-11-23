@@ -79,6 +79,10 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .tag-filter, .tag-chip { border: 1px solid #334b50; background: #13262d; color: #bdcfce; padding: 6px 12px; min-height: 32px; border-radius: 20px; font-size: 12px; font-weight: 550; }
 .tag-filter:hover, .tag-chip:hover { border-color: #7aab98; background: #213c3c; }
 .tag-filter.selected, .tag-chip.selected { background: #244b40; border-color: #7cba9f; color: #d6f4e2; box-shadow: inset 0 1px #d4f2df0d; }
+.tag-filter.tag-starred { display: inline-flex; align-items: center; gap: 6px; }
+.tag-filter.tag-starred .star-icon { width: 14px; height: 14px; flex: none; fill: #f5b82e; stroke: #c4850a; stroke-width: 1.5; stroke-linejoin: round; }
+.tag-filter.tag-starred.selected .star-icon { fill: currentColor; stroke: currentColor; }
+.tag-starred-count { font-size: 11px; font-weight: 700; opacity: .82; font-variant-numeric: tabular-nums; }
 
 /* Nightglass: sculptural color loops for missing art, without game-specific imagery. */
 .games { display: grid; align-items: stretch; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 22px; }
@@ -750,7 +754,18 @@ button.feed-row:hover { border-color: var(--accent); }
 .detail-tags .tag-chip + .tag-chip::before { content: '·'; margin-right: 10px; }
 .detail-tags .text-button { margin-left: auto; }
 .game-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 0 0 22px; }
-.detail-info > .actions { width: fit-content; margin: 0 0 18px; }
+.detail-info > .actions { width: fit-content; margin: 0 0 16px; }
+.detail-star-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 18px; }
+.detail-star-btn {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--feedback-bubble); color: var(--ink);
+  font-size: 13px; font-weight: 600;
+}
+.detail-star-btn:hover { border-color: var(--accent); background: var(--surface); }
+.detail-star-btn .star-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linejoin: round; }
+.detail-star-btn[data-starred="true"] { border-color: #d99b1e; background: color-mix(in srgb, #f5b82e 16%, var(--feedback-bubble)); }
+.detail-star-btn[data-starred="true"] .star-icon { fill: #f5b82e; stroke: #c4850a; }
+.detail-star-note { font-size: 12px; color: var(--quiet); }
 .detail-info .play-menu-items { top: calc(100% + 6px); bottom: auto; left: 0; right: auto; max-height: min(300px,50dvh); }
 .game-build-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
 .game-build-meta > div { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 5px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--feedback-bubble); font-size: 12px; line-height: 1.4; }

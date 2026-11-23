@@ -17,7 +17,9 @@ let refreshServerUpdates=()=>{},voiceApi=null;
 let me, library, currentReaction, refreshing = false, refreshQueued = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
-let entryGame, detailGameId, detailReturnFocus, detailSignature, removingReaction=null;
+let entryGame, detailGameId, detailReturnFocus, detailSignature, removingReaction=null, starringGame=null;
+const STARRED_FILTER='__starred__';
+const starSvg='<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2.75l2.86 5.8 6.4.93-4.63 4.51 1.09 6.37L12 17.35l-5.72 3.01 1.09-6.37-4.63-4.51 6.4-.93L12 2.75z"/></svg>';
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
 const entryApp=new URLSearchParams(location.search).get('app');
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
@@ -267,7 +269,7 @@ function renderGames() {
   }
   if(!library.apps.length)nextCards.push(emptyState('No games yet','Add a game to get started.'));
   const query=$('game-search').value.trim().toLowerCase();
-  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?gameAuthors(g).some(author=>author.id===selectedAuthor):!query||(g.title+' '+authorNames(g)+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(activeTag===STARRED_FILTER?g.starred:(g.tags||[]).includes(activeTag)))&&(selectedAuthor?gameAuthors(g).some(author=>author.id===selectedAuthor):!query||(g.title+' '+authorNames(g)+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   // Stable sort keeps equal timestamps in catalog order across refreshes.
   matching.sort((a,b)=>(b.updated||0)-(a.updated||0));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
@@ -429,7 +431,7 @@ function renderGameDetail(){
   detailSignature=signature;
   const oldScroll=dialog.querySelector('.detail-info')?.scrollTop||0,oldPageScroll=dialog.scrollTop;
   const focused=document.activeElement,oldReaction=focused?.dataset.reaction;
-  const oldControl=dialog.querySelector('.detail-info')?.contains(focused)&&focused.matches('button,summary')?{tag:focused.tagName,label:focused.getAttribute('aria-label'),text:focused.textContent}:null;
+  const oldControl=dialog.querySelector('.detail-info')?.contains(focused)&&focused.matches('button,summary')?{tag:focused.tagName,label:focused.getAttribute('aria-label'),text:focused.textContent,star:focused.classList.contains('detail-star-btn')}:null;
   const content=$('game-detail-content'),info=el('section',undefined,'detail-info');
   const artSource=gameArtSource(game);let art=content.querySelector('.detail-art');
   if(!art||art.querySelector('img')?.getAttribute('src')!==(artSource||undefined)){
@@ -451,6 +453,39 @@ function renderGameDetail(){
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags','text-button');edit.type='button';edit.onclick=()=>openTags(game);tags.append(edit);}if(tags.childElementCount)info.append(tags);
   if(game.description)info.append(el('p',game.description,'game-description'));
   info.append(gameActions(game,info));
+  if(!me.inspecting){
+    const starRow=el('div',undefined,'detail-star-row');
+    const starred=!!game.starred;
+    const starBtn=el('button',undefined,'detail-star-btn');
+    starBtn.type='button';
+    starBtn.dataset.starred=String(starred);
+    starBtn.setAttribute('aria-pressed',String(starred));
+    starBtn.title=starred?'Remove from your starred games':'Add to your starred games';
+    starBtn.disabled=starringGame===game.id;
+    starBtn.innerHTML=starSvg;
+    starBtn.append(el('span',starred?'Starred':'Not starred'));
+    starBtn.onclick=async()=>{
+      if(starringGame===game.id)return;
+      const next=!game.starred;
+      starringGame=game.id;
+      game.starred=next;
+      detailSignature=null;
+      renderFilters();renderGames();renderGameDetail();
+      try{
+        await api(`/api/apps/${encodeURIComponent(game.id)}/star`,{method:next?'PUT':'DELETE',signal:AbortSignal.timeout(12000)});
+      }catch(error){
+        game.starred=!next;
+        notice(error.message||'Could not update starred state.');
+      }finally{
+        starringGame=null;
+        detailSignature=null;
+        renderFilters();renderGames();renderGameDetail();
+      }
+    };
+    const note=el('span','Only visible to you','detail-star-note');
+    starRow.append(starBtn,note);
+    info.append(starRow);
+  }
   const players=gamePlayers(game);
   if(players.length){
     const playing=el('section',undefined,'detail-playing');playing.setAttribute('aria-label','Playing now');
@@ -511,7 +546,7 @@ function renderGameDetail(){
   if(content.firstElementChild!==art)content.replaceChildren(art,info);else content.lastElementChild.replaceWith(info);
   info.scrollTop=oldScroll;dialog.scrollTop=oldPageScroll;
   if(oldReaction)[...feedback.querySelectorAll('[data-reaction]')].find(row=>row.dataset.reaction===oldReaction)?.focus({preventScroll:true});
-  else if(oldControl)([...info.querySelectorAll('button,summary')].find(node=>node.tagName===oldControl.tag&&node.getAttribute('aria-label')===oldControl.label&&node.textContent===oldControl.text)||$('close-game-detail')).focus({preventScroll:true});
+  else if(oldControl)((oldControl.star&&info.querySelector('.detail-star-btn'))||[...info.querySelectorAll('button,summary')].find(node=>node.tagName===oldControl.tag&&node.getAttribute('aria-label')===oldControl.label&&node.textContent===oldControl.text)||$('close-game-detail')).focus({preventScroll:true});
 }
 $('close-game-detail').onclick=()=>$('game-detail').close();
 $('game-detail').addEventListener('click',event=>{if(event.target===$('game-detail')){const r=event.target.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)event.target.close();}});
@@ -1535,11 +1570,25 @@ $('another-game').onclick=()=>{if(setupPending)return;newGameConnection=null;pre
 function tagLabel(id){return library?.tags?.find(t=>t.id===id)?.label||id.split('-').map(w=>w[0]?.toUpperCase()+w.slice(1)).join(' ');}
 function renderFilters(){
   const nav=$('tag-filters');if(nav.querySelector('.tag-overflow-panel:popover-open'))return;
+  const starredCount=(library.apps||[]).filter(g=>g.starred).length;
+  if(activeTag===STARRED_FILTER&&!starredCount)activeTag='';
   const tags=(library.tags||[]).filter(tag=>tag.count||activeTag===tag.id);
-  const signature=JSON.stringify([activeTag,tags.map(({id,label})=>[id,label])]);
+  const signature=JSON.stringify([activeTag,starredCount,tags.map(({id,label})=>[id,label])]);
   if(signature===filterSignature)return;filterSignature=signature;
   const focused=document.activeElement,focusedId=focused.dataset.tag;
   nav.replaceChildren();
+  if(starredCount>0){
+    const selected=activeTag===STARRED_FILTER;
+    const button=el('button',undefined,'tag-filter tag-starred'+(selected?' selected':''));
+    button.type='button';
+    button.dataset.tag=STARRED_FILTER;
+    button.setAttribute('aria-pressed',String(selected));
+    button.setAttribute('aria-label',`Starred (${starredCount})`);
+    button.innerHTML=starSvg;
+    button.append(el('span','Starred'),el('span',String(starredCount),'tag-starred-count'));
+    button.onclick=()=>{activeTag=activeTag===STARRED_FILTER?'':STARRED_FILTER;renderFilters();renderGames();};
+    nav.append(button);
+  }
   for(const tag of [{id:'',label:'All games'},...tags]){
     const selected=activeTag===tag.id,button=el('button',tag.label,'tag-filter'+(selected?' selected':''));
     button.dataset.tag=tag.id;button.setAttribute('aria-pressed',String(selected));

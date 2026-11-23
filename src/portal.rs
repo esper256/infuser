@@ -616,6 +616,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/apps/{app}/updates/{publication}/reaction", put(update_reactions::set))
         .route("/api/platform-updates/{batch}/reaction", put(platform_updates::set))
         .route("/api/apps/{app}/reaction", put(react).delete(unreact))
+        .route("/api/apps/{app}/star", put(star_game).delete(unstar_game))
         .route("/api/admin/apps/{app}/reactions/{player}", delete(remove_game_reaction))
         .route("/api/admin/game-authors", get(authors::inventory))
         .route("/api/admin/apps/{app}/authors", put(authors::set).layer(DefaultBodyLimit::max(16384)))
@@ -1119,6 +1120,18 @@ async fn unreact(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMa
         platform::screenshots::prune(tx, d, &email)
     })?;
     Ok(reply(json!({"ok":true})))
+}
+async fn star_game(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMap) -> Answer {
+    let email = p.member(&h, true).await?;
+    p.visible_app(&h, &email, &app)?;
+    p.db.set_starred(&email, &app, true)?;
+    Ok(reply(json!({"ok":true,"starred":true})))
+}
+async fn unstar_game(State(p): State<Platform>, Path(app): Path<String>, h: HeaderMap) -> Answer {
+    let email = p.member(&h, true).await?;
+    p.visible_app(&h, &email, &app)?;
+    p.db.set_starred(&email, &app, false)?;
+    Ok(reply(json!({"ok":true,"starred":false})))
 }
 async fn remove_game_reaction(
     State(p): State<Platform>,

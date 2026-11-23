@@ -10,6 +10,7 @@ struct View<'a> {
     moderates_reactions: bool,
     time: u64,
     activity: presence::LibraryActivity,
+    starred: std::collections::BTreeSet<String>,
 }
 impl View<'_> {
     fn includes(&self, id: &str) -> bool {
@@ -234,6 +235,7 @@ impl View<'_> {
             "join_targets":join_targets,
             "tags":data.tags.get(id).cloned().unwrap_or_default(),
             "can_edit_tags":!self.inspecting && data.groups.allows(self.email,id) && (data.members[self.email].admin || data.owners.get(id).is_some_and(|owner|owner==self.email)),
+            "starred":self.starred.contains(id),
         })
     }
 
@@ -277,6 +279,11 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         p.db.see_member(&email, time)?;
     }
     let data = p.db.read()?;
+    let starred = if inspecting {
+        std::collections::BTreeSet::new()
+    } else {
+        p.db.starred_apps(&email)?
+    };
     let view = View {
         data: &data,
         email: &email,
@@ -287,6 +294,7 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
             && data.members[&email].admin,
         time,
         activity: presence::LibraryActivity::read(&p.db)?,
+        starred,
     };
     let mut apps: Vec<_> = data
         .apps
