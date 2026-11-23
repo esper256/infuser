@@ -690,7 +690,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     mixer.showPopover();
     lastMixerSig='';
     renderMixer();
-    mixer.querySelector('.vm-action, .vm-join')?.focus({preventScroll:true});
+    mixer.querySelector('.vm-action:not(:disabled), .vm-join:not(:disabled), .vm-close')?.focus({preventScroll:true});
     startMeterLoop();
     void refreshDevices();
   }

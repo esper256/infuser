@@ -1537,7 +1537,7 @@ function setupUserSettings(signOut){
   dialog.addEventListener('close',()=>{
     if(saveTimer){clearTimeout(saveTimer);saveTimer=null;void persistAppearance();}
     $('settings-status').textContent='';
-    if(!document.querySelector('dialog[open]'))$('account-trigger')?.focus({preventScroll:true});
+    if(!document.querySelector('dialog[open]')&&!$('voice-mixer')?.matches(':popover-open'))$('account-trigger')?.focus({preventScroll:true});
   });
   return ()=>{syncAppearance();$('settings-status').textContent='';dialog.showModal();};
 }

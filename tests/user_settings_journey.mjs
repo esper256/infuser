@@ -186,6 +186,37 @@ try {
   assert.deepEqual(customTokens, {panel: '#102030', accent: '#ff77aa', warm: '#ffd166'});
   if (shotDir) await page.screenshot({path: `${shotDir}/04-nightglass-custom.png`});
 
+  // White custom base switches to dark high-contrast ink so all Settings controls stay readable.
+  await page.locator('#custom-color-primary').fill('#ffffff');
+  const whiteContrast = await page.evaluate(() => {
+    const parseRgb = value => (value.match(/\d+/g) || [0, 0, 0]).slice(0, 3).map(Number);
+    const lum = ([r, g, b]) => {
+      const [rl, gl, bl] = [r, g, b].map(c => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); });
+      return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+    };
+    const ratio = (fg, bg) => {
+      const a = lum(parseRgb(fg)), b = lum(parseRgb(bg));
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    };
+    const panelBg = getComputedStyle(document.getElementById('user-settings')).backgroundColor;
+    const titleFg = getComputedStyle(document.getElementById('settings-title')).color;
+    const selectEl = document.getElementById('theme-scheme-picker');
+    const resetEl = document.getElementById('reset-custom-colors');
+    return {
+      colorScheme: getComputedStyle(document.documentElement).colorScheme,
+      titleRatio: ratio(titleFg, panelBg),
+      selectRatio: ratio(getComputedStyle(selectEl).color, getComputedStyle(selectEl).backgroundColor),
+      resetRatio: ratio(getComputedStyle(resetEl).color, getComputedStyle(resetEl).backgroundColor),
+    };
+  });
+  assert.equal(whiteContrast.colorScheme, 'light');
+  assert.ok(whiteContrast.titleRatio >= 7, `title contrast on white: ${whiteContrast.titleRatio}`);
+  assert.ok(whiteContrast.selectRatio >= 7, `select contrast on white: ${whiteContrast.selectRatio}`);
+  assert.ok(whiteContrast.resetRatio >= 7, `reset button contrast on white: ${whiteContrast.resetRatio}`);
+  if (shotDir) await page.screenshot({path: `${shotDir}/10-nightglass-custom-white.png`});
+  // Restore dark custom base before continuing theme-switch checks.
+  await page.locator('#custom-color-primary').fill('#102030');
+
   // 5. Switching to non-scheme themes hides color scheme sub-options & clears scheme styling.
   for (const [themeId, shotName] of [
     ['field-notes', '05-field-notes.png'],
@@ -237,11 +268,16 @@ try {
   assert.ok(mobileFold.profileTop < mobileFold.panelBottom, 'Profile section stays visible above the fold on mobile');
   if (shotDir) await page.screenshot({path: `${shotDir}/09-mobile-custom.png`});
 
-  // 8. Voice settings button closes User settings and opens the voice mixer.
-  await page.locator('#open-voice-settings').click();
+  // 8. Opening Voice settings with keyboard closes User settings and keeps focus inside #voice-mixer.
+  await page.locator('#open-voice-settings').focus();
+  await page.keyboard.press('Enter');
   await dialog.waitFor({state: 'hidden'});
   await page.locator('#voice-mixer:popover-open').waitFor({state: 'visible'});
+  // Wait a tick so dialog's async 'close' event has fired and verified not to steal focus.
+  await page.waitForTimeout(50);
+  assert.equal(await page.evaluate(() => document.getElementById('voice-mixer').contains(document.activeElement)), true, 'focus lands and stays inside #voice-mixer');
   await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.activeElement?.id === 'account-trigger');
 
   // 9. Reopen and verify Escape returns focus to #account-trigger.
   await page.locator('#account-trigger').click();
