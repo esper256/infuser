@@ -17,7 +17,9 @@ let refreshServerUpdates=()=>{},voiceApi=null;
 let me, library, currentReaction, refreshing = false, refreshQueued = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
-let entryGame, detailGameId, detailReturnFocus, detailSignature, removingReaction=null, starringGame=null;
+let entryGame, detailGameId, detailReturnFocus, detailSignature, removingReaction=null;
+const pendingStars=new Map();
+let starSettlements=0;
 const STARRED_FILTER='__starred__';
 const starSvg='<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2.75l2.86 5.8 6.4.93-4.63 4.51 1.09 6.37L12 17.35l-5.72 3.01 1.09-6.37-4.63-4.51 6.4-.93L12 2.75z"/></svg>';
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
@@ -133,8 +135,15 @@ function showError(error) { notice(error.message); }
 async function refresh(afterWrite = false) {
   if (refreshing) { if (afterWrite === true) refreshQueued = true; return; }
   refreshing = true;
+  const starsAtRequest=starSettlements;
   try {
-    library = await api('/api/library',{signal:AbortSignal.timeout(12000)});
+    const nextLibrary=await api('/api/library',{signal:AbortSignal.timeout(12000)});
+    // A pre-settlement response can be stale; the write already queued a fresh read.
+    if(starsAtRequest!==starSettlements)return;
+    for(const game of nextLibrary.apps){
+      if(pendingStars.has(game.id))game.starred=pendingStars.get(game.id);
+    }
+    library=nextLibrary;
     updateVisit(library.visit);
     const self=(library.friends||[]).find(person=>person.id===me.player_id);
     if(self&&self.name!==me.name){me.name=self.name;renderAccount();}
@@ -461,25 +470,31 @@ function renderGameDetail(){
     starBtn.dataset.starred=String(starred);
     starBtn.setAttribute('aria-pressed',String(starred));
     starBtn.title=starred?'Remove from your starred games':'Add to your starred games';
-    starBtn.disabled=starringGame===game.id;
+    starBtn.setAttribute('aria-disabled',String(pendingStars.has(game.id)));
     starBtn.innerHTML=starSvg;
     starBtn.append(el('span',starred?'Starred':'Not starred'));
     starBtn.onclick=async()=>{
-      if(starringGame===game.id)return;
-      const next=!game.starred;
-      starringGame=game.id;
-      game.starred=next;
+      const id=game.id,current=library.apps.find(g=>g.id===id);
+      if(!current||pendingStars.has(id))return;
+      const previous=Boolean(current.starred),next=!previous;
+      pendingStars.set(id,next);
+      current.starred=next;
       detailSignature=null;
       renderFilters();renderGames();renderGameDetail();
+      let settled=previous;
       try{
-        await api(`/api/apps/${encodeURIComponent(game.id)}/star`,{method:next?'PUT':'DELETE',signal:AbortSignal.timeout(12000)});
+        const result=await api(`/api/apps/${encodeURIComponent(id)}/star`,{method:next?'PUT':'DELETE',signal:AbortSignal.timeout(12000)});
+        settled=result.starred;
       }catch(error){
-        game.starred=!next;
         notice(error.message||'Could not update starred state.');
       }finally{
-        starringGame=null;
+        pendingStars.delete(id);
+        starSettlements++;
+        const refreshed=library.apps.find(g=>g.id===id);
+        if(refreshed)refreshed.starred=settled;
         detailSignature=null;
         renderFilters();renderGames();renderGameDetail();
+        void refresh(true);
       }
     };
     const note=el('span','Only visible to you','detail-star-note');

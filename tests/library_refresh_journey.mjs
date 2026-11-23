@@ -9,7 +9,7 @@ const me={player_id:'self',name:'Alex',admin:true,avatars:[]};
 const tags=['Arcade','Chill','Cooperative','Adventure','Puzzle','Racing','Strategy','Long category label'].map((label,i)=>({id:'tag-'+i,label,count:40}));
 const friends=Array.from({length:40},(_,i)=>({id:'friend-'+i,name:'Friend '+i}));
 let apps=Array.from({length:40},(_,i)=>({id:'game-'+i,title:'Game '+i,description:'Original description',author:friends[i],card_art_url:'/art',tags:tags.map(t=>t.id),can_edit_tags:true,players:[],join_targets:[],reactions:[],updated:1}));
-let messages=[],heldLibrary=[],heldHealth=[],holdLibrary=false,holdHealth=false,libraryRequests=0,healthRequests=0;
+let messages=[],heldStars=new Map(),heldLibrary=[],heldHealth=[],holdLibrary=false,holdHealth=false,libraryRequests=0,healthRequests=0;
 try{
  const context=await browser.newContext({viewport:{width:1200,height:850},serviceWorkers:'block'});
  await context.route('https://library.test/**',async route=>{
@@ -18,6 +18,9 @@ try{
   if(path==='/api/library'){
    libraryRequests++;if(holdLibrary){heldLibrary.push(route);return;}
    return route.fulfill({json:{apps,friends,tags}});
+  }
+  if(/^\/api\/apps\/[^/]+\/star$/.test(path)){
+   heldStars.set(path.split('/')[3],route);return;
   }
   if(path==='/api/admin/peer-health'){
    healthRequests++;if(holdHealth){heldHealth.push(route);return;}
@@ -34,7 +37,7 @@ try{
    let body=await readFile(new URL(file,root));
    if(file==='web/clubhouse.js'){
     if(process.env.INFUSER_CLUBHOUSE_SOURCE)body=await readFile(process.env.INFUSER_CLUBHOUSE_SOURCE);
-    body=body.toString()+'\nwindow.refreshLibrary=refresh;window.refreshHealth=refreshNetworkHealth;';
+    body=body.toString()+'\nwindow.refreshLibrary=refresh;window.refreshHealth=refreshNetworkHealth;window.libraryRefreshing=()=>refreshing;';
    }
    return route.fulfill({body,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webp')?'image/webp':'text/html'});
   }catch{}
@@ -107,6 +110,55 @@ try{
  await first.locator('.play-menu summary').click();apps[0].players=[];
  await page.evaluate(()=>refreshLibrary());assert(await first.locator('.play-menu').evaluate(e=>e.open));
  await first.locator('.play-menu summary').click();await page.evaluate(()=>refreshLibrary());assert.equal(await first.locator('.game-live').count(),0);
+ // Star requests for different dialogs are independent, and old Library snapshots
+ // cannot override a pending or newly acknowledged star.
+ const star=page.locator('#game-detail .detail-star-btn');
+ const openGame=async card=>{await card.locator('.game-open').click();await star.waitFor();};
+ const closeGame=()=>page.locator('#close-game-detail').click();
+ const waitForHeld=async get=>{
+  for(let i=0;i<100;i++){
+   const route=get();if(route)return route;
+   await new Promise(resolve=>setTimeout(resolve,10));
+  }
+  assert.fail('Fixture request was not intercepted');
+ };
+ const toggle=async id=>{
+  const request=page.waitForRequest(req=>req.url().endsWith('/api/apps/'+id+'/star')&&req.method()==='PUT');
+  await star.click();await request;await waitForHeld(()=>heldStars.get(id));
+ };
+ const holdRefresh=async()=>{
+  const request=page.waitForRequest('**/api/library');
+  await page.evaluate(()=>{window.starRefresh=refreshLibrary();});await request;
+  await waitForHeld(()=>heldLibrary[0]);
+ };
+ const starState=(value,pending)=>page.waitForFunction(([value,pending])=>{
+  const star=document.querySelector('#game-detail .detail-star-btn');
+  return star?.dataset.starred===String(value)&&star.getAttribute('aria-disabled')===String(pending);
+ },[value,pending]);
+ await openGame(first);await toggle('game-0');await starState(true,true);
+ assert(await star.evaluate(button=>button===document.activeElement),'pending star retains keyboard focus');
+ await closeGame();await openGame(other);await toggle('game-1');await starState(true,true);
+ assert.deepEqual([...heldStars.keys()],['game-0','game-1']);
+ const staleApps=structuredClone(apps);
+ holdLibrary=true;await holdRefresh();
+ await heldLibrary.shift().fulfill({json:{apps:staleApps,friends,tags}});
+ await page.evaluate(()=>starRefresh);
+ await starState(true,true);
+ await closeGame();await openGame(first);await starState(true,true);
+ await holdRefresh();
+ apps[0].starred=true;
+ await heldStars.get('game-0').fulfill({json:{ok:true,starred:true}});
+ await starState(true,false);
+ const followup=page.waitForRequest('**/api/library');
+ await heldLibrary.shift().fulfill({json:{apps:staleApps,friends,tags}});
+ await followup;await waitForHeld(()=>heldLibrary[0]);
+ await starState(true,false); // Before the post-write request is allowed to return.
+ await closeGame();await openGame(other);await starState(true,true);
+ holdLibrary=false;await heldLibrary.shift().fulfill({json:{apps,friends,tags}});
+ await page.evaluate(()=>starRefresh);
+ await heldStars.get('game-1').fulfill({status:503,json:{error:'Could not star Game 1.'}});
+ await starState(false,false);await closeGame();await openGame(first);await starState(true,false);await closeGame();
+ await page.waitForFunction(()=>!libraryRefreshing());
  // Slow requests cannot accumulate; timeout/failure keeps the mounted library.
  holdLibrary=true;const beforeRequests=libraryRequests;
  const waiting=page.waitForRequest('**/api/library');
