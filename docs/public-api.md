@@ -175,7 +175,11 @@ be used as a player login.
   sessions, combining duplicate signed-in sessions and labeling guests separately.
   `player_id` matches `join_targets[].player_id`, including each guest’s distinct
   session identity; `id` remains the profile ID used for the portrait.
-  `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog.
+  `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog,
+  and `appearance`, the profile's saved look (`null` until saved, or
+  `{"theme":"nightglass","schemes":{"nightglass":"amber-hearth"},"custom":{"nightglass":{"primary":"#122128","accent":"#b5ead6","secondary":"#e8d5a4"}}}`).
+  `GET /api/profiles` includes each profile's `appearance` as well so the
+  profile chooser can pre-cache the selected profile's theme before navigation.
   Its mixed display order is stable across sessions; new pictures slot in without
   changing existing pictures' relative order. Clients should preserve this order.
   Library games include `description` (nullable plain text) and `card_art_url`
@@ -201,6 +205,17 @@ be used as a player login.
   There is no target-user field, file upload, or remote image URL.
   `GET /assets/avatars/ID/128.webp` and `256.webp` serve embedded public artwork.
   Member updates preserve the selection; accounts without one show initials.
+- `GET /api/profile/appearance` — returns `{"appearance": ...}` (`null` if unset)
+  for the active profile (selected via `X-Infuser-Profile` when the account holds
+  multiple profiles).
+- `PUT /api/profile/appearance` with `{"theme":"nightglass","schemes":{},"custom":{}}` —
+  saves the active profile's theme, optional Nightglass color scheme, and optional
+  custom `#RRGGBB` colors (`primary`, `accent`, `secondary`). Unknown theme IDs,
+  unknown scheme IDs, themes that do not support schemes or custom colors, invalid
+  hex colors, and unknown JSON fields return 400. Authentication, active
+  membership, and the exact HTTPS Origin are required; read-only operator
+  inspection returns 403. Saved rows are isolated per profile and removed if the
+  profile is deleted.
 - `POST /api/my-games` with `{}` — reserves a publishing connection for an existing
   project without asking the user for a name. Returns `app_id`, `api_url`,
   `setup_code`, `expires_at` (Unix seconds), `supported_engines`, and `tag_catalog`;

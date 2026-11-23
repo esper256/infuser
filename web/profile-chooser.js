@@ -11,6 +11,7 @@ async function choose(profile,multiple){
   try{
     // A push endpoint belongs to one profile. Never carry it into a different one.
     if(pushOwner()!==profile.player_id)await clearNotifications();
+    window.InfuserThemes?.cacheProfile(profile.player_id,profile.appearance);
     forgetProfile();pinProfile(profile.player_id,multiple);
     location.replace(next);
   }catch(error){status.textContent=error.message||'Could not switch profiles. Try again.';busy=false;buttons.forEach(b=>b.disabled=false);}

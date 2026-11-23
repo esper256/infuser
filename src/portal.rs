@@ -59,7 +59,7 @@ mod screenshots;
 mod sdk_v1;
 mod server_builds;
 mod server_diagnostics;
-mod themes;
+pub(crate) mod themes;
 mod update_reactions;
 mod urls;
 mod visits;
@@ -581,6 +581,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/assets/avatars/{id}/{size}", get(avatars::image))
         .route("/assets/reactions/{file}", get(reaction_art::image))
         .route("/api/profile/picture-prompt", post(avatars::picture_prompt))
+        .route("/api/profile/appearance", get(themes::get_appearance).put(themes::put_appearance).layer(DefaultBodyLimit::max(2048)))
         .route("/api/profile", get(avatars::usage).put(avatars::update).layer(DefaultBodyLimit::max(1024)))
         .route("/api/presence/input", post(presence::library_input))
         .route("/_infuser/input", post(presence::game_input))
@@ -840,8 +841,9 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let profile_count = data
         .account_profiles(&data.identities.profiles[&email].account_id)?
         .len();
+    let appearance = p.db.appearance_load(&email)?;
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatar_prompt_seen":member.avatar_prompt_seen,"avatars":avatars::catalog(),"portraits":avatars::portraits(),"game_ports_admitted":admitted}),
+        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":data.groups.member(&email),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatar_prompt_seen":member.avatar_prompt_seen,"avatars":avatars::catalog(),"portraits":avatars::portraits(),"game_ports_admitted":admitted,"appearance":appearance}),
     ))
 }
 #[derive(Deserialize)]

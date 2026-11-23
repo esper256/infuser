@@ -1371,16 +1371,47 @@ function renderAccount(){
   const name=el('span',me.name+' · you','presence-name');name.setAttribute('aria-hidden','true');
   $('account-trigger').title=me.name+' · Profile menu';
   $('account-trigger').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),name);
+  const groupName=me.group?.name||'';
+  const menuGroup=$('account-group');
+  if(menuGroup){
+    menuGroup.hidden=!(me.profile_count>1&&groupName);
+    if(!menuGroup.hidden)menuGroup.replaceChildren(el('span','Group','account-group-label'),el('strong',groupName));
+  }
+  const appearanceScope=$('settings-appearance-scope');
+  if(appearanceScope){
+    setText(appearanceScope,groupName?'Saved for '+groupName+' across your devices.':'Saved for this group across your devices.');
+  }
   const summary=$('settings-profile-summary');
   if(summary){
     const text=el('div',undefined,'settings-profile-text');
-    text.append(el('strong',me.name,'settings-profile-name'),el('span',me.inspecting?'Read-only inspection':'Signed in','quiet'));
+    const detail=me.inspecting
+      ?(groupName?'Viewing '+groupName+' · Read only':'Read-only inspection')
+      :(groupName?'Group: '+groupName+' · Saved for this group':'Saved for this group');
+    text.append(el('strong',me.name,'settings-profile-name'),el('span',detail,'quiet'));
     summary.replaceChildren(profileAvatar(me.name,me.player_id,me.avatar,128),text);
   }
 }
 function setupUserSettings(signOut){
   const dialog=$('user-settings'),themes=window.InfuserThemes;
   const appearance=$('settings-appearance'),profileBody=$('settings-profile'),pwaBody=$('settings-pwa'),voiceBody=$('settings-voice');
+  let saveTimer=null,saveSeq=0;
+  async function persistAppearance(){
+    if(me.inspecting)return;
+    const seq=++saveSeq;
+    const body=JSON.stringify(themes.snapshot());
+    try{
+      await api('/api/profile/appearance',{method:'PUT',body,signal:AbortSignal.timeout(12000)});
+    }catch(error){
+      if(seq===saveSeq)notice(error.message||'Could not save appearance for this group.');
+    }
+  }
+  function scheduleAppearanceSave(immediate=true){
+    if(me.inspecting)return;
+    clearTimeout(saveTimer);saveTimer=null;
+    if(immediate)void persistAppearance();
+    else saveTimer=setTimeout(()=>{saveTimer=null;void persistAppearance();},250);
+  }
+  const appearanceScope=el('p','Saved for this group across your devices.','quiet settings-scope');appearanceScope.id='settings-appearance-scope';
   const themeLabel=el('label','Theme','settings-field'),themeSelect=el('select');themeSelect.id='theme-picker';
   for(const theme of themes.catalog.filter(theme=>theme.status!=='retired')){
     const option=el('option',theme.name+(theme.status==='preview'?' · Preview':''));option.value=theme.id;themeSelect.append(option);
@@ -1411,15 +1442,17 @@ function setupUserSettings(signOut){
     input.oninput=()=>{
       hex.textContent=input.value.toUpperCase();
       themes.setCustomColors({[field]:input.value});
+      scheduleAppearanceSave(false);
     };
+    input.onchange=()=>{scheduleAppearanceSave(true);};
     control.append(input,hex);card.append(heading,control);customGrid.append(card);
     customInputs[field]={input,hex};
   }
   const resetCustom=el('button','Reset custom colors','secondary');resetCustom.id='reset-custom-colors';resetCustom.type='button';
-  resetCustom.onclick=()=>{themes.resetCustomColors();};
+  resetCustom.onclick=()=>{themes.resetCustomColors();scheduleAppearanceSave(true);};
   customPanel.append(customGrid,resetCustom);
   schemeGroup.append(schemeLabel,schemeHint,swatchRow,customPanel);
-  appearance.replaceChildren(themeLabel,schemeGroup);
+  appearance.replaceChildren(appearanceScope,themeLabel,schemeGroup);
 
   let renderedSchemeTheme='';
   function syncAppearance(){
@@ -1449,8 +1482,11 @@ function setupUserSettings(signOut){
       pair.hex.textContent=custom[field].toUpperCase();
     }
   }
-  themeSelect.onchange=()=>{const chosen=themeSelect.value;Promise.resolve(themes.select(chosen)).catch(()=>{themeSelect.value=themes.current;});};
-  schemeSelect.onchange=()=>{themes.selectScheme(schemeSelect.value);};
+  themeSelect.onchange=()=>{
+    const chosen=themeSelect.value;
+    Promise.resolve(themes.select(chosen)).then(()=>{scheduleAppearanceSave(true);},()=>{themeSelect.value=themes.current;});
+  };
+  schemeSelect.onchange=()=>{themes.selectScheme(schemeSelect.value);scheduleAppearanceSave(true);};
   window.addEventListener('infuser-theme-change',syncAppearance);
   syncAppearance();
 
@@ -1461,14 +1497,14 @@ function setupUserSettings(signOut){
   profileRow.append(profileSummary,profile);
   profileBody.replaceChildren(profileRow);
 
-  pwaBody.replaceChildren();
+  pwaBody.replaceChildren(el('p','Applies to this device only. Switching profiles turns notifications off.','quiet settings-scope'));
   setupPwa({panel:pwaBody,signOut,me,api,notice});
   for(const button of pwaBody.querySelectorAll('button'))button.classList.add('secondary');
 
   const voiceSettings=el('button','Voice settings','secondary');voiceSettings.id='open-voice-settings';voiceSettings.type='button';voiceSettings.hidden=true;voiceSettings.setAttribute('aria-haspopup','dialog');
   voiceSettings.onclick=()=>{dialog.close();voiceApi?.openSettings($('account-trigger'));};
   const voiceRow=el('div',undefined,'settings-action-row');
-  voiceRow.append(el('p','Adjust microphone, speaker, and per-player voice volumes.','quiet'),voiceSettings);
+  voiceRow.append(el('p','Volumes are saved for this group. Microphone and speaker choices stay on this device.','quiet'),voiceSettings);
   voiceBody.replaceChildren(voiceRow);
 
   $('close-settings').onclick=()=>dialog.close();
@@ -1479,6 +1515,7 @@ function setupUserSettings(signOut){
     }
   });
   dialog.addEventListener('close',()=>{
+    if(saveTimer){clearTimeout(saveTimer);saveTimer=null;void persistAppearance();}
     $('settings-status').textContent='';
     if(!document.querySelector('dialog[open]'))$('account-trigger')?.focus({preventScroll:true});
   });
@@ -1519,7 +1556,9 @@ function setupAccount(){
     admin.onclick=()=>{menu.open=false;openAdmin();};panel.append(admin);
   }
   refreshServerUpdates=initServerUpdates({panel:$('admin').querySelector('.admin-panel'),api,me});
-  const ownGames=el('p',undefined,'friend-status');ownGames.id='account-playing';ownGames.hidden=true;panel.prepend(ownGames);
+  const ownGames=el('p',undefined,'friend-status');ownGames.id='account-playing';ownGames.hidden=true;
+  const menuGroup=el('p',undefined,'account-group');menuGroup.id='account-group';menuGroup.hidden=true;
+  panel.prepend(menuGroup,ownGames);
   panel.append(out);menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
@@ -1612,7 +1651,12 @@ $('profile-form').onsubmit=async event=>{
 };
 
 try {
-  me=await api('/api/me');pinProfile(me.player_id);$('welcome').hidden=true;$('clubhouse').hidden=false;
+  me=await api('/api/me');pinProfile(me.player_id);
+  const migratedAppearance=await window.InfuserThemes.bindProfile(me.player_id,me.appearance);
+  if(migratedAppearance&&!me.inspecting){
+    void api('/api/profile/appearance',{method:'PUT',body:JSON.stringify(migratedAppearance),signal:AbortSignal.timeout(12000)}).catch(()=>{});
+  }
+  $('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api, profileAvatar,onSpeakerContext:arrangeChatParticipants});
   if(!me.inspecting){

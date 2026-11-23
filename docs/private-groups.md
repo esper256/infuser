@@ -2,15 +2,18 @@
 
 Audience: server operators.
 
-One Infuser installation can host separate families. Each account belongs to one
-private group. Members see that group’s games, players, chat, reactions, and tags.
-A family’s admins manage only its invitations, game visibility, author credits, and agent
-connections. They cannot browse or administer other groups.
+One Infuser installation can host separate families. An account can hold one
+profile per private group, each with its own handle, picture, appearance, games,
+saves, chat, reactions, stars, and voice volumes. Members see only their active
+group’s games, players, chat, reactions, and tags. A family’s admins manage only
+its invitations, game visibility, author credits, and agent connections. They
+cannot browse or administer other groups.
 
 Existing accounts, games, saves, and publishing connections belong to **Home**.
-No republishing or credential replacement is needed. An account already assigned
-to a group cannot be invited into another one. Temporary visits can share selected
-games without moving accounts or giving them permanent membership elsewhere.
+No republishing or credential replacement is needed. Inviting an email already
+used in another group creates a separate profile in the new group (see
+[profiles](profiles.md)); temporary visits can still share selected games
+between groups without creating permanent membership.
 
 ## Operator setup
 
