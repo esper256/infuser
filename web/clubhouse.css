@@ -28,16 +28,16 @@ button:active:not(:disabled) { background: var(--accent-pressed); }
 button:disabled { opacity: .6; cursor: wait; }
 :where(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
 input, textarea { display: block; width: 100%; min-width: 0; margin-top: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); font-size: 16px; line-height: 1.5; }
-input::placeholder, textarea::placeholder { color: #8da3aa; }
-input:hover, textarea:hover { border-color: #4b696a; }
-input:focus, textarea:focus { border-color: #9bcab8; }
-label { display: block; margin: 18px 0; font-size: 13px; color: #bdcdcd; }
+input::placeholder, textarea::placeholder { color: var(--placeholder-ink, #8da3aa); }
+input:hover, textarea:hover { border-color: var(--input-hover-border, #4b696a); }
+input:focus, textarea:focus { border-color: var(--input-focus-border, #9bcab8); }
+label { display: block; margin: 18px 0; font-size: 13px; color: var(--label-ink, #bdcdcd); }
 h1, h2, h3 { overflow-wrap: anywhere; }
 .quiet { color: var(--quiet); font-size: 12px; line-height: 1.5; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .secondary { background: var(--secondary-bg, #1e3037); border-color: var(--line); color: var(--secondary-ink, #d6e5e1); }
 .secondary:hover { background: var(--secondary-hover, #2a4448); }
-.text-button { background: transparent; color: var(--quiet); padding: 8px 0; font-size: 12px; }
+.text-button { background: transparent; color: var(--text-button-ink, #b4c9c9); padding: 8px 0; font-size: 12px; }
 .text-button:hover { background: transparent; color: var(--accent); }
 
 /* The same compact header shelf serves players and admins. */
@@ -197,7 +197,7 @@ body:has(#welcome:not([hidden])) > main { max-width: none; min-height: 100svh; p
 .feed-emoji { font-family: "Segoe UI Emoji", "Apple Color Emoji", "DejaVu Sans", "Noto Color Emoji", sans-serif; font-size: 22px; flex: none; line-height: 1.3; }
 .feed-row small { color: #c0d1d0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .feed-row p { color: #9db3b7; font-size: 12px; line-height: 1.5; margin: 6px 0 0; overflow-wrap: anywhere; }
-#notice { display: none; position: sticky; z-index: 12; bottom: 16px; margin: 24px auto 0; padding: 13px 17px; width: fit-content; max-width: 100%; border: 1px solid var(--notice-border, #82ac94); border-radius: 12px 12px 12px 4px; background: var(--notice-bg, #17362ff5); color: var(--ink); box-shadow: 0 10px 32px #0006; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+#notice { display: none; position: sticky; z-index: 12; bottom: 16px; margin: 24px auto 0; padding: 13px 17px; width: fit-content; max-width: 100%; border: 1px solid var(--notice-border, #82ac94); border-radius: 12px 12px 12px 4px; background: var(--notice-bg, #17362ff5); color: var(--notice-ink, #e0f3e8); box-shadow: 0 10px 32px #0006; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 #notice.visible { display: block; }
 body:has(#notice.visible) #games > .loading { display: none; }
 
@@ -277,8 +277,8 @@ img.avatar { object-fit: cover; }
 .profile-actions { display: flex; justify-content: flex-end; margin-top: 22px; }
 @media (max-width:540px) { .profile-options { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media (max-width:400px) { .profile-options { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-.close { float: right; display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; padding: 0; margin: -7px -8px 0 0; border-radius: 50%; color: #b2c9c4; background: transparent; font-size: 25px; font-weight: 400; line-height: 1; }
-.close:hover { background: #39534d; color: #edfaf1; }
+.close { float: right; display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; padding: 0; margin: -7px -8px 0 0; border-radius: 50%; color: var(--close-ink, #b2c9c4); background: transparent; font-size: 25px; font-weight: 400; line-height: 1; }
+.close:hover { background: var(--close-hover-bg, #39534d); color: var(--close-hover-ink, #edfaf1); }
 #reaction-dialog { width: min(600px, calc(100% - 24px)); border-radius: 25px 25px 25px 7px; box-shadow: 4px 5px 0 #29473c, 0 30px 90px #0009; }
 #reaction-dialog h2 { font-size: 23px; }
 #emoji { display: grid; grid-template-columns: repeat(auto-fit,minmax(70px,1fr)); gap: 12px 9px; padding: 6px; border: 0; margin: 16px -6px 6px; min-width: 0; max-height: min(44dvh,340px); overflow-y: auto; overscroll-behavior: contain; scroll-padding: 6px; scrollbar-color: var(--line) transparent; }
@@ -340,7 +340,7 @@ img.avatar { object-fit: cover; }
 .custom-color-card { display: grid; gap: 8px; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); cursor: pointer; }
 .custom-color-title { font-size: 12px; font-weight: 600; color: var(--ink); }
 .custom-color-control { display: flex; align-items: center; gap: 10px; }
-.custom-color-control input[type="color"] { width: 42px; height: 36px; min-height: 36px; padding: 2px; margin: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); flex: none; cursor: pointer; }
+.custom-color-control input[type="color"] { width: 44px; height: 44px; min-height: 44px; padding: 2px; margin: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); flex: none; cursor: pointer; }
 .color-hex { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--quiet); letter-spacing: .03em; }
 #reset-custom-colors { justify-self: start; }
 .settings-profile-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; }
@@ -416,7 +416,18 @@ form.admin-region-body { margin: 0; }
   #user-settings { width: calc(100% - 24px); max-height: calc(100dvh - 24px); }
   #admin > .panel-heading, #admin-status, #user-settings > .panel-heading, #settings-status { padding: 14px 18px; }
   .admin-panel { padding: 18px; }
-  .custom-color-grid { grid-template-columns: 1fr; }
+  .settings-panel { padding: 12px; }
+  .settings-dialog .admin-region { margin-bottom: 8px; }
+  .settings-dialog .admin-region > summary { padding: 11px 14px; font-size: 15px; }
+  .settings-dialog .admin-region-body { padding: 12px; }
+  .settings-subpanel { gap: 8px; margin-top: 10px; padding: 10px; }
+  #theme-scheme-group:has(#theme-custom-colors:not([hidden])) .scheme-swatches { display: none; }
+  .custom-colors-panel { gap: 8px; padding-top: 2px; }
+  .custom-color-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .custom-color-card { padding: 8px 6px; gap: 6px; justify-items: center; text-align: center; }
+  .custom-color-title { font-size: 11px; line-height: 1.2; }
+  .custom-color-control { flex-direction: column; gap: 4px; }
+  .color-hex { font-size: 11px; }
   #members > div, #credentials > div { flex-wrap: wrap; }
   .new-tag-form { gap: 7px; }
 }
@@ -648,8 +659,8 @@ form.admin-region-body { margin: 0; }
 #chat-form { position: relative; flex: 1; min-width: 0; margin: 0; }
 /* The textarea keeps native LTR editing; a synced native scrollport sits left. */
 #chat-input-scroll { position: relative; height: 64px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--field); }
-#chat-input-scroll:hover { border-color: #4b696a; }
-#chat-input-scroll:focus-within { border-color: #9bcab8; outline: 2px solid var(--focus); outline-offset: 4px; }
+#chat-input-scroll:hover { border-color: var(--input-hover-border, #4b696a); }
+#chat-input-scroll:focus-within { border-color: var(--input-focus-border, #9bcab8); outline: 2px solid var(--focus); outline-offset: 4px; }
 #chat-text { margin: 0; resize: none; height: 100%; border: 0; border-radius: 0; padding: 10px 102px 10px 22px; line-height: 1.35; direction: ltr; unicode-bidi: plaintext; text-align: left; outline: none; scrollbar-width: none; }
 #chat-text::-webkit-scrollbar { display: none; }
 #chat-scrollbar { position: absolute; inset: 0 auto 0 0; width: 16px; overflow-x: hidden; overflow-y: scroll; direction: rtl; }

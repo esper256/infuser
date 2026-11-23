@@ -380,17 +380,22 @@ test('nightglass color schemes persist, validate, sync across tabs, and stay col
 
   // Every Nightglass scheme rule in nightglass.css is scoped and sets only CSS custom properties.
   const css=readFileSync(new URL('../web/themes/nightglass.css',import.meta.url),'utf8').replace(/\/\*[\s\S]*?\*\//g,'');
-  const schemeBlocks=[...css.matchAll(/([^{}]*\[data-theme-scheme="([^"]+)"\][^{}]*)\{([^}]*)\}/g)];
-  assert.ok(schemeBlocks.length>=12,'expected curated Nightglass scheme blocks');
+  const schemeBlocks=[...css.matchAll(/([^{}]*\[data-theme-scheme(?:="([^"]+)")?\][^{}]*)\{([^}]*)\}/g)];
+  assert.ok(schemeBlocks.length>=13,'expected curated Nightglass scheme blocks');
   const defined=new Set();
   for(const [,selector,id,body] of schemeBlocks){
     assert.ok(selector.includes('[data-theme="nightglass"]'),selector);
-    defined.add(id);
+    if(id)defined.add(id);
     for(const decl of body.split(';').map(s=>s.trim()).filter(Boolean)){
-      assert.ok(decl.startsWith('--'),`Nightglass scheme "${id}" must set color custom properties only, found: ${decl}`);
+      assert.ok(decl.startsWith('--'),`Nightglass scheme "${id||'shared'}" must set color custom properties only, found: ${decl}`);
     }
   }
   for(const scheme of env.themes.schemesFor('nightglass')){
     if(scheme.id!=='default'&&scheme.id!=='custom')assert.ok(defined.has(scheme.id),`missing CSS block for ${scheme.id}`);
   }
+  // Shared CSS keeps default Nightglass colors exact when no scheme is selected.
+  const sharedCss=readFileSync(new URL('../web/clubhouse.css',import.meta.url),'utf8');
+  assert.match(sharedCss,/\.text-button\s*\{[^}]*color:\s*var\(--text-button-ink,\s*#b4c9c9\)/);
+  assert.match(sharedCss,/#notice\s*\{[^}]*color:\s*var\(--notice-ink,\s*#e0f3e8\)/);
+  assert.match(sharedCss,/\.close\s*\{[^}]*color:\s*var\(--close-ink,\s*#b2c9c4\)/);
 });

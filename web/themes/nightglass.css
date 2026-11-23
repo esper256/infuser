@@ -39,6 +39,19 @@
 [data-theme="nightglass"] .game-tags .tag-more { background: none; border-color: transparent; padding-inline: 3.75px; }
 
 /* Nightglass color schemes: pure color tokens only, never layout or sizing. */
+[data-theme="nightglass"][data-theme-scheme] {
+  --text-button-ink: var(--quiet);
+  --notice-ink: var(--ink);
+  --secondary-ink: var(--ink);
+  --label-ink: color-mix(in srgb, var(--ink) 80%, var(--quiet));
+  --placeholder-ink: var(--quiet);
+  --input-hover-border: color-mix(in srgb, var(--accent) 42%, var(--line));
+  --input-focus-border: var(--accent);
+  --close-ink: var(--quiet);
+  --close-hover-bg: var(--surface);
+  --close-hover-ink: var(--ink);
+}
+
 [data-theme="nightglass"][data-theme-scheme="deep-ocean"] {
   --page: #07101c;
   --field: #091726;

@@ -60,8 +60,8 @@ try {
     if (path === '/api/me') return route.fulfill({json: me});
     if (path === '/api/library') return route.fulfill({json: {apps, friends, tags}});
     if (path === '/api/chat') return route.fulfill({json: {messages: []}});
-    if (path === '/api/voice/config') return route.fulfill({json: {enabled: true, url: 'wss://voice.test'}});
-    if (path === '/api/voice/participants') return route.fulfill({json: {participants: []}});
+    if (path === '/api/voice') return route.fulfill({json: {configured: true, available: true, participants: [], self: null, settings: {}}});
+    if (path === '/api/voice/settings') return route.fulfill({json: {}});
     if (path === '/api/visits') return route.fulfill({json: {enabled: false}});
     if (path === '/api/feedback') return route.fulfill({json: {entries: []}});
     if (path === '/api/client-updates') return route.fulfill({json: {}});
@@ -114,6 +114,27 @@ try {
   assert.equal(await page.locator('#theme-custom-colors').isVisible(), false, 'custom pickers stay hidden for presets');
   assert.equal(await page.locator('#settings-profile-summary').innerText().then(t => t.includes('Alex')), true);
 
+  // Default Nightglass colors for shared controls remain unchanged when no scheme is active.
+  const defaultColors = await page.evaluate(() => {
+    const tb = document.createElement('button');
+    tb.className = 'text-button';
+    document.body.append(tb);
+    const textButton = getComputedStyle(tb).color;
+    tb.remove();
+    const notice = getComputedStyle(document.getElementById('notice')).color;
+    const close = getComputedStyle(document.getElementById('close-settings')).color;
+    return {textButton, notice, close};
+  });
+  assert.deepEqual(defaultColors, {
+    textButton: 'rgb(180, 201, 201)',
+    notice: 'rgb(224, 243, 232)',
+    close: 'rgb(178, 201, 196)',
+  }, 'default Nightglass colors stay unchanged');
+
+  // Voice settings section appears inside User settings when voice is configured.
+  await page.locator('#settings-voice-region').waitFor({state: 'visible'});
+  assert.equal(await page.locator('#open-voice-settings').isVisible(), true, 'Voice settings button visible when configured');
+
   if (shotDir) {
     await mkdir(shotDir, {recursive: true});
     await page.emulateMedia({reducedMotion: 'reduce'});
@@ -138,9 +159,13 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.themeScheme), 'amber-hearth');
   if (shotDir) await page.screenshot({path: `${shotDir}/03-nightglass-amber.png`});
 
-  // 4. Custom color picker reveals 3 color inputs and updates live.
+  // 4. Custom color picker reveals 3 color inputs (>= 44px touch targets) and updates live.
   await page.locator('#theme-scheme-picker').selectOption('custom');
   await page.locator('#theme-custom-colors').waitFor({state: 'visible'});
+  for (const id of ['#custom-color-primary', '#custom-color-accent', '#custom-color-secondary']) {
+    const box = await page.locator(id).boundingBox();
+    assert.ok(box && box.height >= 44 && box.width >= 44, `${id} should be at least 44x44px`);
+  }
   await page.locator('#custom-color-primary').fill('#102030');
   await page.locator('#custom-color-accent').fill('#ff77aa');
   await page.locator('#custom-color-secondary').fill('#ffd166');
@@ -187,7 +212,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'nightglass');
   assert.equal(await page.evaluate(() => document.documentElement.dataset.themeScheme), 'northern-aurora');
 
-  // 7. Mobile viewport (360x780) layout check.
+  // 7. Mobile viewport (360x780) layout check: compact custom picker leaves Profile visible above the fold.
   await page.setViewportSize({width: 360, height: 780});
   await page.locator('#account-trigger').click();
   await page.locator('#open-settings').click();
@@ -195,9 +220,24 @@ try {
   await page.locator('#theme-scheme-picker').selectOption('custom');
   await page.locator('#theme-custom-colors').waitFor({state: 'visible'});
   assert.equal(await dialog.evaluate(d => d.scrollWidth <= d.clientWidth), true, 'mobile dialog has no horizontal overflow');
+  const mobileFold = await page.evaluate(() => {
+    const panel = document.querySelector('#user-settings .settings-panel').getBoundingClientRect();
+    const profile = document.getElementById('settings-profile-region').getBoundingClientRect();
+    return {panelBottom: panel.bottom, profileTop: profile.top};
+  });
+  assert.ok(mobileFold.profileTop < mobileFold.panelBottom, 'Profile section stays visible above the fold on mobile');
   if (shotDir) await page.screenshot({path: `${shotDir}/09-mobile-custom.png`});
 
-  // 8. Closing returns focus to #account-trigger.
+  // 8. Voice settings button closes User settings and opens the voice mixer.
+  await page.locator('#open-voice-settings').click();
+  await dialog.waitFor({state: 'hidden'});
+  await page.locator('#voice-mixer:popover-open').waitFor({state: 'visible'});
+  await page.keyboard.press('Escape');
+
+  // 9. Reopen and verify Escape returns focus to #account-trigger.
+  await page.locator('#account-trigger').click();
+  await page.locator('#open-settings').click();
+  await dialog.waitFor({state: 'visible'});
   await page.keyboard.press('Escape');
   await dialog.waitFor({state: 'hidden'});
   await page.waitForFunction(() => document.activeElement?.id === 'account-trigger');

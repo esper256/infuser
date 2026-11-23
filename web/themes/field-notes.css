@@ -63,6 +63,14 @@
   --voice-danger-border: #7f1d1d;
   --voice-danger-ink: #ffffff;
   --voice-leave-ink: #991b1b;
+  --label-ink: var(--ink);
+  --placeholder-ink: var(--pencil);
+  --input-hover-border: var(--moss);
+  --input-focus-border: var(--moss-deep);
+  --close-ink: var(--pencil);
+  --close-hover-bg: var(--surface);
+  --close-hover-ink: var(--ink);
+  --text-button-ink: var(--pencil);
 }
 
 [data-theme="field-notes"] body {
