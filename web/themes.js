@@ -37,6 +37,7 @@
     Object.freeze({id: 'castle-keep', name: 'Castle Keep', status: 'preview'}),
   ]);
   const customProps = Object.freeze([
+    'color-scheme',
     '--page', '--field', '--detail-panel', '--panel', '--surface', '--feedback-bubble',
     '--line', '--ink', '--quiet', '--accent', '--accent-hover', '--accent-pressed',
     '--button-ink', '--green', '--presence-online', '--warm', '--focus', '--glass',
@@ -166,20 +167,89 @@
     const [ar, ag, ab] = hexToRgb(a), [br, bg, bb] = hexToRgb(b);
     return rgbToHex(ar + (br - ar) * amount, ag + (bg - ag) * amount, ab + (bb - ab) * amount);
   }
-  function contrastInk(hex) {
+  function luminance(hex) {
     const [r, g, b] = hexToRgb(hex).map(c => {
       const s = c / 255;
       return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
     });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.34 ? '#0c161b' : '#f4f8fa';
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  function contrastRatio(a, b) {
+    const la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+  function contrastInk(hex) {
+    return contrastRatio(hex, '#0c161b') >= contrastRatio(hex, '#f4f8fa') ? '#0c161b' : '#f4f8fa';
   }
   function customTokens({primary, accent, secondary}) {
+    const baseLum = luminance(primary);
+    const isLight = baseLum > 0.18;
+    if (isLight) {
+      const veryLight = baseLum > 0.5;
+      const page = veryLight ? mix(primary, '#000000', 0.06) : mix(primary, '#ffffff', 0.12);
+      const field = veryLight ? mix(primary, '#ffffff', 0.65) : mix(primary, '#ffffff', 0.42);
+      const detail = veryLight ? mix(primary, '#ffffff', 0.35) : mix(primary, '#ffffff', 0.24);
+      const surface = veryLight ? mix(primary, '#000000', 0.07) : mix(primary, '#ffffff', 0.22);
+      const line = veryLight ? mix(primary, '#000000', 0.28) : mix(primary, '#000000', 0.36);
+      const ink = veryLight ? mix('#111a1f', primary, 0.03) : '#080e12';
+      const quiet = veryLight ? mix('#415058', primary, 0.05) : '#182228';
+      const accentReadable = contrastRatio(accent, primary) >= 4.5;
+      const focusColor = contrastRatio(secondary, primary) >= 3 ? secondary : mix(secondary, '#000000', 0.55);
+      return {
+        'color-scheme': 'light',
+        '--page': page,
+        '--field': field,
+        '--detail-panel': detail,
+        '--panel': primary,
+        '--surface': surface,
+        '--feedback-bubble': veryLight ? mix(primary, '#000000', 0.06) : mix(primary, '#ffffff', 0.3),
+        '--line': line,
+        '--ink': ink,
+        '--quiet': quiet,
+        '--accent': accent,
+        '--accent-hover': mix(accent, '#000000', 0.14),
+        '--accent-pressed': mix(accent, '#000000', 0.26),
+        '--button-ink': contrastInk(accent),
+        '--green': accent,
+        '--presence-online': mix(accent, '#15803d', 0.55),
+        '--warm': secondary,
+        '--focus': focusColor,
+        '--glass': 'linear-gradient(135deg, ' + mix(primary, '#ffffff', 0.25) + 'f4, ' + page + 'fa)',
+        '--card-dock': 'linear-gradient(125deg, ' + mix(primary, '#ffffff', 0.3) + 'ec, ' + surface + 'f4)',
+        '--browser-chrome': page,
+        '--page-glow-1': accent + '26',
+        '--page-glow-2': secondary + '22',
+        '--secondary-bg': veryLight ? mix(primary, '#000000', 0.09) : mix(primary, '#ffffff', 0.32),
+        '--secondary-hover': veryLight ? mix(primary, '#000000', 0.16) : mix(primary, '#ffffff', 0.46),
+        '--add-bg': accentReadable ? mix(primary, accent, 0.12) : '#1b262c',
+        '--add-border': accentReadable ? mix(primary, accent, 0.45) : '#1b262c',
+        '--add-hover-bg': accentReadable ? mix(primary, accent, 0.22) : '#27363e',
+        '--add-hover-border': accentReadable ? mix(accent, '#000000', 0.2) : '#27363e',
+        '--header-line': line,
+        '--search-bg': field,
+        '--search-border': line,
+        '--dock-border': line,
+        '--dock-top-border': line,
+        '--self-glow-1': accent + '28',
+        '--self-glow-2': accent + '40',
+        '--dialog-border': line,
+        '--dialog-top-border': contrastRatio(accent, primary) >= 2.5 ? accent : mix(accent, '#000000', 0.35),
+        '--notice-bg': field + 'f5',
+        '--notice-border': line,
+        '--own-bubble-tint': secondary,
+        '--own-meta-ink': mix(secondary, '#000000', 0.5),
+        '--tag-pill-bg': field + 'e8',
+      };
+    }
     const page = mix(primary, '#000000', 0.36);
     const field = mix(primary, '#000000', 0.22);
     const detail = mix(primary, '#000000', 0.14);
     const surface = mix(primary, '#ffffff', 0.08);
     const line = mix(primary, accent, 0.28);
+    const ink = baseLum > 0.06 ? '#ffffff' : mix('#f3f6f8', accent, 0.07);
+    const quiet = baseLum > 0.06 ? '#e5eef2' : mix('#a3b0b8', accent, 0.12);
     return {
+      'color-scheme': 'dark',
       '--page': page,
       '--field': field,
       '--detail-panel': detail,
@@ -187,8 +257,8 @@
       '--surface': surface,
       '--feedback-bubble': mix(primary, accent, 0.12),
       '--line': line,
-      '--ink': mix('#f3f6f8', accent, 0.07),
-      '--quiet': mix('#a3b0b8', accent, 0.12),
+      '--ink': ink,
+      '--quiet': quiet,
       '--accent': accent,
       '--accent-hover': mix(accent, '#ffffff', 0.22),
       '--accent-pressed': mix(accent, '#000000', 0.18),

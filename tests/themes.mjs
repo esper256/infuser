@@ -377,6 +377,28 @@ test('nightglass color schemes persist, validate, sync across tabs, and stay col
   assert.deepEqual({...reset},{...env.themes.defaultCustom});
   assert.equal(styles.get('--accent'),env.themes.defaultCustom.accent);
 
+  // Light, mid-gray, and white custom bases keep WCAG AA contrast on panels, surfaces, and inputs.
+  const lum=hex=>{
+    const n=parseInt(hex.slice(1),16);
+    const [r,g,b]=[(n>>16)&255,(n>>8)&255,n&255].map(c=>{const s=c/255;return s<=0.03928?s/12.92:Math.pow((s+0.055)/1.055,2.4);});
+    return 0.2126*r+0.7152*g+0.0722*b;
+  };
+  const ratio=(a,b)=>{const la=lum(a),lb=lum(b);return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05);};
+  for(const primary of ['#ffffff','#f5efe6','#ffd700','#808080','#555555','#122128','#000000']){
+    env.themes.setCustomColors({primary,accent:'#b5ead6',secondary:'#e8d5a4'});
+    const ink=styles.get('--ink'),quiet=styles.get('--quiet');
+    const panel=styles.get('--panel'),surface=styles.get('--surface'),field=styles.get('--field'),secBg=styles.get('--secondary-bg');
+    assert.ok(ratio(ink,panel)>=4.5,`ink contrast on panel for ${primary}: ${ratio(ink,panel)}`);
+    assert.ok(ratio(ink,surface)>=4.5,`ink contrast on surface for ${primary}: ${ratio(ink,surface)}`);
+    assert.ok(ratio(ink,field)>=4.5,`ink contrast on field for ${primary}: ${ratio(ink,field)}`);
+    assert.ok(ratio(ink,secBg)>=4.5,`ink contrast on secondary button for ${primary}: ${ratio(ink,secBg)}`);
+    assert.ok(ratio(quiet,panel)>=4.0,`quiet contrast on panel for ${primary}: ${ratio(quiet,panel)}`);
+    assert.ok(ratio(quiet,surface)>=4.0,`quiet contrast on surface for ${primary}: ${ratio(quiet,surface)}`);
+  }
+  assert.equal(styles.get('color-scheme'),'dark');
+  env.themes.setCustomColors({primary:'#ffffff',accent:'#b5ead6',secondary:'#e8d5a4'});
+  assert.equal(styles.get('color-scheme'),'light');
+
   // Cross-tab storage sync applies updated schemes.
   env.values.set('infuser.theme.schemes',JSON.stringify({nightglass:'deep-ocean'}));
   env.storage({key:'infuser.theme.schemes'});
