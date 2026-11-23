@@ -588,6 +588,39 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
             .json(&json!({"emoji":"🚀","text":"Our game"})),
     )
     .await?;
+    // Per-user starred games stay private to the user, respect group boundaries, and toggle cleanly.
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["starred"],
+        false
+    );
+    assert_eq!(
+        ok(c.member("user", Method::PUT, &format!("/api/apps/{away}/star"))).await?["starred"],
+        true
+    );
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["starred"],
+        true
+    );
+    // Another member in the same group (or another group) does not see user's star, nor can user star a foreign game.
+    assert_eq!(
+        ok(c.member("frizz", Method::GET, "/api/library")).await?["apps"][0]["starred"],
+        false
+    );
+    assert_eq!(
+        c.member("user", Method::PUT, &format!("/api/apps/{home}/star"))
+            .send()
+            .await?
+            .status(),
+        404
+    );
+    assert_eq!(
+        ok(c.member("user", Method::DELETE, &format!("/api/apps/{away}/star"))).await?["starred"],
+        false
+    );
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["starred"],
+        false
+    );
     for (who, own, foreign, own_tag, foreign_tag) in [
         ("frizz", &home, &away, "home-special", "away-special"),
         ("user", &away, &home, "away-special", "home-special"),

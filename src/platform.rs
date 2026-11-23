@@ -450,6 +450,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS runtime_manifests(build_key TEXT PRIMARY KEY, server_start TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS dedicated_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS voice_settings(profile TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS starred_games(profile TEXT NOT NULL, app TEXT NOT NULL, starred_at INTEGER NOT NULL, PRIMARY KEY(profile, app)) WITHOUT ROWID;")?;
         c.execute(
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
             [serde_json::to_string(&Data::default())?],
@@ -758,6 +759,32 @@ impl Database {
         tx.execute("INSERT INTO saves(owner,app,slot,version,body) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(owner,app,slot) DO UPDATE SET version=excluded.version,body=excluded.body",params![owner,app,slot,version+1,body])?;
         tx.commit()?;
         Ok(version + 1)
+    }
+    pub fn starred_apps(&self, profile: &str) -> Result<std::collections::BTreeSet<String>> {
+        let c = self.connection.lock().unwrap();
+        let mut statement = c.prepare("SELECT app FROM starred_games WHERE profile=?1")?;
+        let rows = statement
+            .query_map([profile], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<std::collections::BTreeSet<_>>>()?;
+        Ok(rows)
+    }
+    pub fn set_starred(&self, profile: &str, app: &str, starred: bool) -> Result<()> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if starred {
+            tx.execute(
+                "INSERT INTO starred_games(profile, app, starred_at) VALUES(?1, ?2, ?3)
+                 ON CONFLICT(profile, app) DO NOTHING",
+                params![profile, app, now()],
+            )?;
+        } else {
+            tx.execute(
+                "DELETE FROM starred_games WHERE profile=?1 AND app=?2",
+                params![profile, app],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
     pub fn cleanup(&self) -> Result<()> {
         let mut c = self.connection.lock().unwrap();

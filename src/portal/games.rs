@@ -409,6 +409,7 @@ fn purge(data: &mut platform::Data, tx: &rusqlite::Transaction<'_>, app: &str) -
     }
     tx.execute("DELETE FROM game_metadata WHERE app=?1", [app])?;
     tx.execute("DELETE FROM game_urls WHERE app=?1", [app])?;
+    tx.execute("DELETE FROM starred_games WHERE app=?1", [app])?;
     let raw: String = tx.query_row("SELECT data FROM native_v1 WHERE id=1", [], |row| {
         row.get(0)
     })?;
