@@ -1,0 +1,16 @@
+[
+  ["game.js", true],
+  ["engine.min.cjs", true],
+  ["Core_2-a.wasm", true],
+  ["view.tsx", true],
+  ["shared.mjs", true],
+  ["game.js?token=hidden", false],
+  ["game.js#fragment", false],
+  ["../private.js", false],
+  ["folder/main.js", false],
+  ["a192.0.2.1.js", false],
+  ["bundle-0123456789abcdef0123456789abcdef.js", false],
+  [".secret.js", false],
+  ["main.js\n", false],
+  ["level.json", false]
+]

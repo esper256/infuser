@@ -118,3 +118,38 @@ test('error locations keep only code basenames and coordinates from browser fram
   assert.deepEqual(JSON.parse(JSON.stringify(locations('https://example.org/bundle.min.js?x=hidden',stack))),{
     file:'bundle.min.js',frames:['bundle.min.js:11:3','core.wasm:19:4']});
 });
+
+test('browser code basenames match the shared server fixtures',()=>{
+  const codeFile=vm.runInNewContext(source+';codeFile',{URL});
+  const cases=JSON.parse(readFileSync(new URL('./fixtures/diagnostic-basenames.json',import.meta.url)));
+  for(const [name,valid] of cases)assert.equal(codeFile(name),valid?name:undefined,name);
+});
+
+test('repeated console strings capture one caller and fold into its first row',async()=>{
+  let captures=0,tick;
+  class TracedError extends Error {
+    static captureStackTrace(caller){
+      captures++;caller.stack='Error\n    at draw (https://example.org/game.js:12:3)';
+    }
+  }
+  const window=new EventTarget(),document=new EventTarget(),requests=[];
+  Object.assign(window,{document,Error:TracedError,console:{error(){}},fetch:async(_,opts)=>{
+    requests.push(...JSON.parse(opts.body).events);
+    return {ok:true,json:async()=>({server_ms:1000})};
+  }});
+  document.querySelector=()=>null;
+  const storage=()=>({getItem(k){return this[k]},setItem(k,v){this[k]=v},removeItem(k){delete this[k]}});
+  const start=vm.runInNewContext(source+';recorder',{window,document,URL,crypto,performance,Error:TracedError,
+    navigator:{onLine:true,userAgent:'Firefox/120'},sessionStorage:storage(),localStorage:storage(),
+    AbortSignal,queueMicrotask,setInterval(fn){tick=fn;}});
+  start({scope:'fixture',source:'player',endpoint:'/events',now:()=>1000});
+  for(let i=0;i<50;i++)window.console.error('repeated message');
+  await new Promise(setImmediate);
+  tick();
+  await new Promise(setImmediate);
+  const rows=requests.filter(e=>e.kind==='console.error');
+  assert.equal(captures,1);
+  assert.equal(new Set(rows.map(e=>e.seq)).size,1);
+  assert.equal(rows.at(-1).data.count,50);
+  assert.deepEqual(rows.at(-1).data.frames,['game.js:12:3']);
+});

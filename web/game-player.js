@@ -82,7 +82,8 @@ resolutionButton?.addEventListener('click',()=>{
 function onViewportResize(){syncResolutionButton();fitViewport();}
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(onViewportResize).observe(viewport);
 addEventListener('resize',onViewportResize);
-function message(text){status.textContent=text;status.hidden=!text;}
+let sessionEnded=false;
+function message(text){if(!sessionEnded){status.textContent=text;status.hidden=!text;}}
 const header = document.getElementById('player-header');
 const edge = document.getElementById('controls-edge');
 const playerFullscreen = () => document.fullscreenElement === document.documentElement;
@@ -93,6 +94,7 @@ let voiceMenuOpen = false;
 
 function hideControls() {
   clearTimeout(hideTimer);
+  if (sessionEnded) { showControls(); return; }
   if (voiceMenuOpen) return;
   header.removeAttribute('data-open');
   header.inert = playerFullscreen();
@@ -103,7 +105,7 @@ function showControls() {
   clearTimeout(hideTimer);
   header.inert = false;
   header.toggleAttribute('data-open', true);
-  if (!keyboardControls && !voiceMenuOpen && !game.hidden) hideTimer = setTimeout(hideControls, 3500);
+  if (!sessionEnded && !keyboardControls && !voiceMenuOpen && !game.hidden) hideTimer = setTimeout(hideControls, 3500);
 }
 // Capture just the top edge. The game iframe owns gestures everywhere else.
 edge.addEventListener('pointerdown', event => {
@@ -273,7 +275,7 @@ try{
         });
       }).catch(() => { /* Voice controls are optional and must never block game launch. */ });
     }
-    const report=()=>playerFetch('/_infuser/input',{method:'POST',credentials:'same-origin'});
+    const report=async()=>{if(!sessionEnded)await playerFetch('/_infuser/input',{method:'POST',credentials:'same-origin'});};
     const padActive=watchInput(document,report);
     game.addEventListener('load',()=>{
       const doc=game.contentDocument;
@@ -296,21 +298,39 @@ try{
   }
   const initialDoc=game.contentDocument;
   const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc){diagnostics?.hook(game.contentWindow,'game');tuneGraphics(game.contentWindow);}},5);
-  game.addEventListener('load',()=>{clearInterval(hookTimer);diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
+  let watchTimer,checkTimer;
+  function endSession(){
+    if(sessionEnded)return;
+    sessionEnded=true;
+    diagnostics?.link('launch').set('ended',session.visit?'visit_end':'access_lost');
+    if(session.visit){
+      clearInterval(hookTimer);clearInterval(watchTimer);clearInterval(checkTimer);
+      gameOrientation=null;releaseOrientation();game.hidden=true;game.removeAttribute('src');
+      button.disabled=true;document.getElementById('screenshot').disabled=true;
+    }
+    const back=document.createElement('a');
+    back.href=session.library_url;back.textContent='Return to your Library.';
+    status.replaceChildren('This game session ended. ',back);
+    status.hidden=false;showControls();
+  }
+  window.addEventListener('message',event=>{
+    if(event.origin===location.origin && event.source===game.contentWindow &&
+       event.data?.type==='infuser-session-error' && [401,403,404,410].includes(event.data.status))endSession();
+  });
+  game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded&&session.visit)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
   if(session.visit){
-    let checked=performance.now(),checkedWall=Date.now(),ended=false,checking=false;
-    const end=()=>{if(ended)return;ended=true;diagnostics?.link('launch').set('ended','visit_end');gameOrientation=null;releaseOrientation();game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;showControls();message('This visit has ended. Return to your Library.');};
-    const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)end();};
+    let checked=performance.now(),checkedWall=Date.now(),checking=false;
+    const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)endSession();};
     async function check(){
-      watch();if(ended||checking)return;checking=true;
+      watch();if(sessionEnded||checking)return;checking=true;
       try{
         const r=await playerFetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
-        if([401,403,404,410].includes(r.status)){end();return;}
-        if(r.ok){const state=await r.json();watch();if(!ended){checked=performance.now();checkedWall=Date.now();if(state.visit){const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);message(left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'');}}}
+        if([401,403,404,410].includes(r.status)){endSession();return;}
+        if(r.ok){const state=await r.json();watch();if(!sessionEnded){checked=performance.now();checkedWall=Date.now();if(state.visit){const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);message(left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'');}}}
       }catch{watch();}finally{checking=false;}
     }
-    setInterval(watch,500);setInterval(check,5000);
+    watchTimer=setInterval(watch,500);checkTimer=setInterval(check,5000);
     document.addEventListener('visibilitychange',()=>{watch();if(!document.hidden)check();});
   }
 }catch(error){diagnostics?.loadFailed(error);title.textContent='Game unavailable';message(error.message);}

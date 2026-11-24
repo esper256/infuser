@@ -34,19 +34,36 @@ export class InfuserError extends Error {
 }
 async function request(path, options = {}) {
   const response = await fetch('/_infuser/' + path, { credentials: 'same-origin', ...options });
-  const result = await response.json();
-  if (!response.ok) throw new InfuserError(result.error || 'Infuser request failed', response.status);
-  return result;
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw new InfuserError(result?.error || 'Infuser request failed', response.status);
+  }
+  return response.json();
 }
 export const ready = request('context');
 // An embedding game can listen for infuser-session-error and show a return-to-Library action.
 let stopped = false;
+function stopHeartbeat() {
+  stopped = true;
+  clearInterval(timer);
+}
+function sessionError(error) {
+  if (stopped) return;
+  if ([401, 403, 404, 410].includes(error.status)) {
+    stopHeartbeat();
+    // Window events stay inside the iframe. Forward only the terminal status to the player.
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({type: 'infuser-session-error', status: error.status}, location.origin);
+    }
+  }
+  window.dispatchEvent(new CustomEvent('infuser-session-error', {detail: error}));
+}
 async function heartbeat() {
   if (stopped) return;
   try { await request('heartbeat', { method: 'POST' }); }
-  catch (error) { window.dispatchEvent(new CustomEvent('infuser-session-error', { detail: error })); }
+  catch (error) { sessionError(error); }
 }
-ready.then(heartbeat).catch(error => window.dispatchEvent(new CustomEvent('infuser-session-error', { detail: error })));
+ready.then(heartbeat, sessionError);
 const timer = setInterval(heartbeat, 25000);
 export const saves = {
   load: (slot = 'progress') => request('saves/' + encodeURIComponent(slot)),
@@ -55,7 +72,7 @@ export const saves = {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data, version })
   })
 };
-export async function leave() { stopped = true; clearInterval(timer); await request('heartbeat', { method: 'DELETE' }); }
+export async function leave() { stopHeartbeat(); await request('heartbeat', { method: 'DELETE' }); }
 // Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
 export const peers = { join: async options => (await import('/_infuser/peers.js')).join(options) };
 const checkpoint = method => async (...args) => (await import('/_infuser/cloud-v1.js')).cloud[method](...args);

@@ -68,6 +68,26 @@ async function run(){
     assert.equal(endedLink.data.prev,'down');
     assert.equal(endedLink.data.down_ms,endedLink.data.held_ms);
     assert.equal((await endedRequest.response()).status(),200);
+    const fresh=await player('river');
+    await fresh.page.evaluate(async()=>{
+      const {Room,RoomEvent,DisconnectReason}=await import('/assets/vendor/livekit-2.24.1.js');
+      const once=Room.prototype.once;
+      Room.prototype.once=function(event,...args){
+        if(event===RoomEvent.Disconnected)this.connect=async()=>{
+          this.emit(event,DisconnectReason.SIGNAL_CLOSE);
+          document.dispatchEvent(new Event('freeze'));
+        };
+        return once.call(this,event,...args);
+      };
+    });
+    const [failedJoin]=await Promise.all([
+      fresh.page.waitForRequest(req=>req.url().endsWith('/api/telemetry')&&req.method()==='POST'&&
+        req.postDataJSON().events.some(e=>e.kind==='op'&&e.data.name==='voice.join')),
+      fresh.page.locator('#voice-toggle').click(),
+    ]);
+    const joins=failedJoin.postDataJSON().events.filter(e=>e.kind==='op'&&e.data.name==='voice.join');
+    assert.deepEqual(joins.map(({data})=>[data.outcome,data.reason,data.stage]),[['fail','network','connect']]);
+    assert.equal((await failedJoin.response()).status(),200);
     passed=true;return;
   }
   for(const {page} of [river,sky]){

@@ -321,7 +321,7 @@ fallback. Targeted peer joins can supply both `expected_epoch` and `expected_pla
 
 - `GET /_infuser/api/v1/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.
-- `POST /_infuser/api/v1/heartbeat` — renew every 25 seconds, including startup.
+- `POST /_infuser/api/v1/heartbeat` — renew at startup and every 25 seconds. A 401, 403, 404 or 410 ends the session. The browser SDK stops its timer and signals the game once with `infuser-session-error` on `window`. The player page supplies the link back to the Library. Temporary failures keep the normal heartbeat schedule.
 - `DELETE /_infuser/api/v1/heartbeat` — explicit leave. Closing a tab is handled by expiry.
 - `GET /_infuser/api/v1/saves/SLOT` — `{version:0,data:null}` for an empty slot.
 - `PUT /_infuser/api/v1/saves/SLOT` — `{version:EXPECTED,data:JSON}`; returns new version.

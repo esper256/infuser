@@ -24,6 +24,17 @@ try {
     });
   });
   const page=await ctx.newPage();
+  await page.addInitScript(()=>{
+    if(window===parent)return;
+    const interval=window.setInterval,clear=window.clearInterval;
+    const probe=window.heartbeatProbe={clears:0,errors:0};
+    window.setInterval=function(fn,ms,...args){
+      if(ms!==25000)return interval.call(this,fn,ms,...args);
+      probe.tick=fn;return -25000;
+    };
+    window.clearInterval=function(id){if(id===-25000)probe.clears++;else clear.call(this,id);};
+    addEventListener('infuser-session-error',e=>{if(e.detail.status===401)probe.errors++;});
+  });
   page.on('response',r=>{if(r.status()>=400)console.error('fixture HTTP',new URL(r.url()).pathname,r.status());});
   await page.goto('https://'+host+'/_infuser/play');
   await page.waitForFunction(()=>document.querySelector('#game')?.contentDocument?.title==='Moon v1');
@@ -45,5 +56,24 @@ try {
   const frozen=page.waitForRequest(req=>req.url().endsWith('/_infuser/telemetry')&&req.method()==='POST'&&req.postDataJSON()?.events?.some(e=>e.kind==='page.freeze'));
   await page.evaluate(()=>document.dispatchEvent(new Event('freeze')));
   assert.equal((await (await frozen).response()).status(),200);
+  let heartbeatPosts=0;
+  await page.route('**/_infuser/heartbeat',route=>{
+    assert.equal(route.request().method(),'POST');heartbeatPosts++;
+    return route.fulfill({status:401,contentType:'text/plain',body:'Expired'});
+  });
+  const frame=page.frameLocator('#game').locator('body');
+  await frame.evaluate(async()=>{await window.heartbeatProbe.tick();await window.heartbeatProbe.tick();});
+  const notice=page.locator('#status');
+  await notice.getByRole('link',{name:'Return to your Library.'}).waitFor();
+  assert.equal(await notice.textContent(),'This game session ended. Return to your Library.');
+  assert.equal(await notice.locator('a').getAttribute('href'),await page.locator('#library').getAttribute('href'));
+  assert.ok(await notice.evaluate(el=>{
+    const link=el.firstElementChild;
+    window.dispatchEvent(new MessageEvent('message',{origin:location.origin,source:document.querySelector('#game').contentWindow,
+      data:{type:'infuser-session-error',status:401}}));
+    return el.firstElementChild===link;
+  }));
+  assert.deepEqual(await frame.evaluate(()=>[window.heartbeatProbe.clears,window.heartbeatProbe.errors]),[1,1]);
+  assert.equal(heartbeatPosts,1);
   await page.close();
 }finally{await browser.close();}
