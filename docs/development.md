@@ -165,3 +165,42 @@ managed dedicated-server fixture before claiming compiled socket support.
 Record actual Editor version, build options, browser/device, and outcomes in
 [the Unity review](proposals/unity-agent-experience.md). A C# or JS harness pass
 must never be substituted for these acceptance results.
+
+## Library heap soak
+
+Use the existing Playwright 1.65.1 installation (or the same overrides as the
+Library journeys). No live server, account, browser extensions, or extra leak
+framework is needed:
+
+```sh
+INFUSER_PLAYWRIGHT="$PWD/services/peerjs/node_modules/playwright/index.mjs" \
+INFUSER_CHROMIUM=/path/to/chromium node tests/leak_soak_journey.mjs
+```
+
+The fixture intercepts all traffic at `https://library.test`, blocks other
+origins and service workers, and serves real `web/` assets. First run the
+unchanged-refresh and detail Library journeys; their zero-mutation and 320px
+Cartridge Club title/Play alignment checks remain prerequisites.
+
+After 20 warmup cycles, it fixes a post-GC baseline and invokes the production
+Library refresh, client-state check and closed-chat poll functions 200 times
+each. Checkpoints occur every 50 cycles. Cycles 101–150 simulate a hidden
+document through visibility getters and the visibility event, without changing
+clocks. Chat intentionally has zero live poll timers while hidden and exactly
+one again on return; Library and client-state keep one each throughout. Real
+intervals remain running. Test-served module instrumentation only exposes and
+observes the existing functions and live timer handles; it does not replace
+polling logic, cache history, retry work, or wait with sleeps.
+
+Every measurement collects garbage three times through CDP, then reads
+`Performance.getMetrics`. Nodes, event listeners, documents and frames must equal
+the baseline exactly. Post-GC JS heap must stay within a fixed 1 MiB of baseline,
+and the last three checkpoints cannot be strictly increasing. No
+`performance.memory` or percentage tolerance is used as an oracle.
+
+Each checkpoint writes a heap snapshot under `.local/leak-soak/run-*`. Failures
+also write `failure.heapsnapshot` and `failure.json`, print the checkpoint table,
+constructor counts that grew, and a strong-reference path from a GC root to the
+node with the largest increase in self size (including array backing storage).
+These artifacts are ignored by Git. The first slice covers idle polling only;
+player iframes, voice sessions, and a scheduled workflow are separate work.
