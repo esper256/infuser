@@ -28,6 +28,7 @@ try{
   }
   if(path==='/api/admin/game-authors')return route.fulfill({json:{games:[],members:[]}});
   if(path==='/api/admin/members')return route.fulfill({json:{members:Object.fromEntries(friends.map(p=>[p.id,{name:p.name,enabled:true}]))}});
+  if(path==='/api/admin/games')return route.fulfill({json:{games:[]}});
   if(path==='/api/admin/credentials')return route.fulfill({json:{credentials:friends.map(p=>({id:p.id,label:p.name,app:'game-0'}))}});
   if(path==='/api/chat')return route.fulfill({json:{messages}});
   if(path==='/api/feedback')return route.fulfill({json:{available:false}});
@@ -59,7 +60,7 @@ try{
  const cdp=await context.newCDPSession(page);await cdp.send('Performance.enable');
  const metrics=async()=>Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(m=>[m.name,m.value]));
  for(const theme of ['nightglass','cartridge-club'])for(const width of [1200,650,390,320]){
-  await page.setViewportSize({width,height:850});await page.evaluate(theme=>InfuserThemes.select(theme),theme);
+  await page.setViewportSize({width,height:850});await page.evaluate(async theme=>{await InfuserThemes.select(theme);await document.fonts.ready;},theme);
   await page.waitForTimeout(350);await reset();
   await page.waitForTimeout(180);
   assert.deepEqual(await page.evaluate(()=>work),{resize:0,mutations:0,loops:0,shifts:0},`${theme} ${width}: observers must settle at idle`);
@@ -173,8 +174,8 @@ try{
  holdLibrary=false;await page.evaluate(()=>refreshLibrary());assert.equal(libraryRequests-beforeRequests,2,'polling recovers after timeout');
  holdHealth=true;const beforeHealth=healthRequests,health=page.waitForRequest('**/api/admin/peer-health');
  await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
- await page.locator('#members > div').last().waitFor({state:'attached'});
- assert.equal(await page.locator('#admin .admin-region').count(),6);
+ await page.locator('#admin-controls').waitFor();
+ assert.equal(await page.locator('#admin .admin-region').count(),7);
  assert.equal(await page.locator('#admin .admin-region[open]').count(),0,'admin regions start folded');
  assert.equal(await page.locator('#members').isVisible(),false);assert.equal(await page.locator('#credentials').isVisible(),false);
  await page.evaluate(()=>refreshHealth());assert.equal(healthRequests,beforeHealth,'folded diagnostics do not poll');

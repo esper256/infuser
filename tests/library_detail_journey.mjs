@@ -313,7 +313,7 @@ try {
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);
-   assert.equal(await dialog.locator('.reaction-choice').count(),22);
+   assert.equal(await dialog.locator('.reaction-choice').count(),26);
    assert(await dialog.locator('.reaction-face').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=44));
    assert.equal(await dialog.locator('.feedback-author img').first().getAttribute('src'),'/assets/avatars/ember-raven/128.webp');
    assert(await dialog.locator('.game-updated').textContent());
@@ -430,9 +430,9 @@ try {
  assert(await update().locator('svg.feed-react-outline').isVisible());
  assert.equal(await update().locator('.feed-reaction-face').count(),0);
  await update().click();
- assert.equal(await picker.getByRole('button').count(),22);
+ assert.equal(await picker.getByRole('button').count(),26);
  assert.equal(await picker.locator('input,textarea,small').count(),0);
- assert.equal(await picker.locator('img.reaction-image').count(),10,'all illustrated reactions are available');
+ assert.equal(await picker.locator('img.reaction-image').count(),14,'all illustrated reactions are available');
  assert.equal(await picker.getByRole('button',{name:'React: Fun together',exact:true}).count(),1);
  await page.keyboard.press('Escape');assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await update().evaluate(e=>e===document.activeElement));
  const panel=page.locator('#activity');
@@ -449,7 +449,7 @@ try {
  await update().click();
  const reactionsBefore=writes.length;failReaction=true;
  await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
- await page.waitForFunction(()=>document.querySelectorAll('#feed-reaction-picker button[aria-disabled="true"]').length===22);
+ await page.waitForFunction(()=>document.querySelectorAll('#feed-reaction-picker button[aria-disabled="true"]').length===26);
  await page.evaluate(()=>refreshTestLibrary());
  assert(await picker.isVisible(),'polling keeps the picker open');
  await picker.getByRole('button',{name:'React: Great job',exact:true}).dispatchEvent('click');
@@ -516,6 +516,7 @@ try {
   await recent.click();assert.equal(await page.locator('#feed time').count(),1);assert.equal(await page.locator('#feed .feed-row').first().locator('time').count(),1);await page.screenshot({path:new URL('recent-open-'+theme+'-phone.png',out).pathname});await page.waitForFunction(()=>!document.querySelector('#recent-toggle').classList.contains('has-updates'));await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
  }
  if(process.env.INFUSER_TOUCH!=='1'){
+  await page.evaluate(()=>InfuserThemes.select('nightglass'));
   await page.setViewportSize({width:1500,height:1000});await page.mouse.move(1,1);await page.waitForTimeout(300);const before=await card().boundingBox();
   await card().hover();await page.waitForTimeout(300);const after=await card().boundingBox();
   assert(after.width>before.width&&after.height>before.height);assert(Math.abs((before.x+before.width/2)-(after.x+after.width/2))<1);assert(Math.abs((before.y+before.height/2)-(after.y+after.height/2))<1);
@@ -592,7 +593,7 @@ try {
  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transitionDuration),'0s');
  await page.emulateMedia({forcedColors:'active'});await open();assert(await dialog.isVisible());await close();await page.emulateMedia({forcedColors:'none'});
  // The same detail UI works read-only in operator inspection.
- me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),22);await close();
+ me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),26);await close();
  await page.locator('#recent-toggle').click();assert.equal(await page.locator('#feed .feed-react-toggle').count(),0,'read-only inspection cannot react to updates');await page.locator('#close-recent').click();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);
