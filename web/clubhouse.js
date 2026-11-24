@@ -1700,7 +1700,7 @@ try {
   window.addEventListener('infuser-voice-layout',()=>{if(library)renderPresence();});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
-  initClientUpdates({markUpdate:()=>diagnostics?.markUpdate(),api});
+  initClientUpdates({voiceInUse:voiceApi.inUse,markUpdate:()=>diagnostics?.markUpdate(),api});
   await refresh();void offerProfilePicture();setInterval(()=>{if(!document.hidden)refresh();},25000);
 } catch(error) {
   if(error.profileRequired){/* The profile selector owns this navigation. */}

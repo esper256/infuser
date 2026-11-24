@@ -1,3 +1,4 @@
+import { clientUpdateAction } from '/_infuser/client-updates.js';
 import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 // Capture fetch and consume the per-page voice token before the game iframe loads.
@@ -322,14 +323,35 @@ try{
     status.replaceChildren(session.visit?'This visit has ended. ':'This game session ended. ',back);
     status.hidden=false;showControls();
   }
-  function updateAvailable(){
-    if(updateMessage || sessionEnded)return;
-    updateMessage=`A new version of ${session.manifest.title} is ready. Reopen it at your next break.`;
-    if(status.hidden)message('');
+  const stamp=document.querySelector('meta[name="infuser-client-version"]');
+  let reloading=false,gameUpdate=false,platformUpdate=false;
+  function updateNotice(){
+    const showingUpdate=status.hidden || status.textContent===updateMessage;
+    const title=session.manifest.title;
+    if(gameUpdate && platformUpdate)updateMessage=`Infuser and ${title} have been updated. Reopen the game at your next break.`;
+    else if(gameUpdate)updateMessage=`A new version of ${title} is ready. Reopen it at your next break.`;
+    else if(platformUpdate)updateMessage='Infuser has been updated. Reopen this game at your next break.';
+    else updateMessage='';
+    if(showingUpdate)message('');
   }
+  function clientUpdate(state){
+    if(!state || reloading)return;
+    const action=clientUpdateAction(stamp,state);
+    if(action==='reload'){
+      reloading=true;diagnostics?.markUpdate();location.reload();
+    }else if(platformUpdate!==(action==='available')){
+      platformUpdate=action==='available';updateNotice();
+    }
+  }
+  function updateAvailable(){
+    if(gameUpdate)return;
+    gameUpdate=true;updateNotice();
+  }
+  clientUpdate(session.runtime?.client_update);
   if(session.runtime?.update_available)updateAvailable();
   window.addEventListener('message',event=>{
     if(event.origin!==location.origin || event.source!==game.contentWindow)return;
+    if(event.data?.type==='infuser-client-update'){clientUpdate(event.data);return;}
     if(event.data?.type==='infuser-update-available'){updateAvailable();return;}
     if(event.data?.type!=='infuser-session-error')return;
     const {status}=event.data;
@@ -353,6 +375,7 @@ try{
             visitMessage=left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'';
             message('');
           }
+          clientUpdate(state.client_update);
           if(state.update_available)updateAvailable();
         }
       }catch{watch();}finally{checking=false;}
