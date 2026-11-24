@@ -115,23 +115,25 @@ async fn queue_orders_retries_and_keeps_visit_details_private() -> Result<()> {
 }
 
 #[test]
-fn delayed_502s_match_only_a_nearby_activated_controller() -> Result<()> {
+fn delayed_failures_match_only_the_stop_start_window() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("events.sqlite");
     let db = open(&path)?;
     let now = 1_800_000_000_000i64;
     for (offset, kind, data) in [
-        (0, "controller.start", json!({"version":"A"})),
+        (0, "controller.stop", json!({"version":"A"})),
         (
-            2000,
-            "deploy.outcome",
+            14_000,
+            "controller.start",
             json!({"release":"A","result":"activated"}),
         ),
-        (12_000, "api.fail", json!({"status":502})),
-        (13_000, "api.fail", json!({"status":503})),
-        (32_000, "api.fail", json!({"status":502})),
+        (0, "fetch.fail", json!({"status":502})),
+        (14_000, "fetch.fail", json!({"status":502})),
+        (12_000, "fetch.fail", json!({"status":502})),
+        (13_000, "fetch.fail", json!({"status":503})),
+        (32_000, "fetch.fail", json!({"status":502})),
         (60_000, "controller.start", json!({"version":"B"})),
-        (61_000, "api.fail", json!({"status":502})),
+        (61_000, "fetch.fail", json!({"status":502})),
     ] {
         let e = json!({"at":now+offset,"received_at":now+80_000,"kind":kind,"data":data});
         db.execute(
@@ -147,6 +149,13 @@ fn delayed_502s_match_only_a_nearby_activated_controller() -> Result<()> {
         .filter(|e| e["data"]["deploy_restart"] == true)
         .map(|e| e["at"].as_i64().unwrap())
         .collect();
-    assert_eq!(tagged, [now + 12_000]);
+    assert_eq!(tagged, [now, now + 12_000, now + 13_000]);
+    assert_eq!(
+        incident_windows(&path, now + 1, now + 2)?,
+        [(now, now + 14_000)]
+    );
+    let pages: i64 = db.query_row("PRAGMA max_page_count", [], |r| r.get(0))?;
+    let size: i64 = db.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+    assert_eq!(pages * size, 512 * 1024 * 1024);
     Ok(())
 }

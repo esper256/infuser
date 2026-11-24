@@ -128,8 +128,7 @@ function notice(message) {
 let diagnostics;
 async function api(path, options = {}) {
   if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
-  let r;try{r = await profileFetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });}catch(error){diagnostics?.emit('api.fail',{class:error.name,method:options.method||'GET'});throw error;}
-  if(!r.ok)diagnostics?.emit('api.fail',{status:r.status,request:r.headers.get('x-infuser-request-id'),method:options.method||'GET'});
+  const r = await profileFetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });
   const result = await r.json();
   if(!r.ok) { if(selectedVisit && r.status===403 && String(result.error).includes('visit has ended'))returnHome(); const error = new Error(result.error || 'Please try again.'); error.status = r.status; error.code = result.code || ''; error.updating = result.code === 'updating'; throw error; }
   return result;
@@ -1674,22 +1673,22 @@ $('profile-form').onsubmit=async event=>{
 
 try {
   me=await api('/api/me');pinProfile(me.player_id);
-  void import('/assets/telemetry.js').then(({recorder})=>{
-    diagnostics=recorder({source:'library',endpoint:'/api/telemetry',scope:me.player_id,headers:{'X-Infuser-Profile':me.player_id,...(!inspection?visitHeaders():{}),...inspectionHeaders()}});
-  }).catch(()=>{});
   if(me.profile_count===1)window.InfuserThemes.pruneProfiles([me.player_id]);
   const migratedAppearance=await window.InfuserThemes.bindProfile(me.player_id,me.appearance);
+  await import('/assets/telemetry.js').then(({recorder})=>{
+    diagnostics=recorder({source:'library',endpoint:'/api/telemetry',scope:me.player_id,appearance:window.InfuserThemes.diagnosticAppearance,headers:{'X-Infuser-Profile':me.player_id,...(!inspection?visitHeaders():{}),...inspectionHeaders()}});
+  }).catch(()=>{});
   if(migratedAppearance&&!me.inspecting){
     void api('/api/profile/appearance',{method:'PUT',body:JSON.stringify(migratedAppearance),signal:AbortSignal.timeout(12000)}).catch(()=>{});
   }
   $('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
-  initChat({me, api, profileAvatar,onSpeakerContext:arrangeChatParticipants});
+  initChat({me, api,diagnostics, profileAvatar,onSpeakerContext:arrangeChatParticipants});
   if(!me.inspecting){
     const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
     if(document.hasFocus()&&!document.hidden)active();
   }
-  voiceApi=initVoice({me,api,notice,onFailedCall:data=>diagnostics?.emit('api.fail',data),onConfiguredChange:configured=>{
+  voiceApi=initVoice({me,api,notice,diagnostics,onConfiguredChange:configured=>{
     const btn=$('open-voice-settings'),region=$('settings-voice-region');
     if(btn)btn.hidden=!configured;
     if(region)region.hidden=!configured;
@@ -1697,7 +1696,7 @@ try {
   window.addEventListener('infuser-voice-layout',()=>{if(library)renderPresence();});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
-  initClientUpdates({api});
+  initClientUpdates({markUpdate:()=>diagnostics?.markUpdate(),api});
   await refresh();void offerProfilePicture();setInterval(()=>{if(!document.hidden)refresh();},25000);
 } catch(error) {
   if(error.profileRequired){/* The profile selector owns this navigation. */}

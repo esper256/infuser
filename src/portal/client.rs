@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::OnceLock;
 
-pub(super) fn version() -> &'static str {
+pub fn version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| {
         hash(&format!(

@@ -34,6 +34,7 @@ impl Relay {
 }
 #[derive(Clone)]
 pub struct Identity {
+    pub diagnostics: crate::timeline::ContextFields,
     pub launch: String,
     pub player: String,
     pub name: String,
@@ -64,6 +65,7 @@ struct Room {
     build: String,
     host: String,
     peers: BTreeMap<String, Peer>,
+    paths: BTreeMap<(String, String), (String, String)>,
     sequence: u64,
     max_players: u32,
     // None preserves legacy admission, but never advertises a joinable session.
@@ -73,12 +75,7 @@ struct Room {
 pub struct Rooms {
     rooms: Mutex<BTreeMap<String, Room>>,
     resume_after: u64,
-}
-fn reap(rooms: &mut BTreeMap<String, Room>, time: u64) {
-    rooms.retain(|_, r| {
-        r.peers.retain(|_, p| p.expires > time);
-        r.peers.contains_key(&r.host)
-    });
+    timeline: Option<std::sync::Arc<crate::timeline::Timeline>>,
 }
 fn view(r: &Room, peer: &str) -> Value {
     json!({"epoch":r.epoch,"build_id":r.build,"host_id":r.host,"self_id":peer,"role":if r.host==peer{"host"}else{"member"},"lease_ms":25000,"accepting_players":r.accepting_players,"max_players":r.max_players,"peers":r.peers.iter().map(|(id,p)|json!({"id":id,"player_id":p.identity.player,"name":p.identity.name,"guest":p.identity.guest})).collect::<Vec<_>>()})
@@ -102,6 +99,69 @@ fn member<'a>(
     Ok(room)
 }
 impl Rooms {
+    pub fn observed(mut self, timeline: std::sync::Arc<crate::timeline::Timeline>) -> Self {
+        self.timeline = Some(timeline);
+        self
+    }
+    fn record(&self, r: &Room, id: &str, kind: &str, mut data: Value) {
+        let Some(t) = &self.timeline else {
+            return;
+        };
+        let Some(peer) = r.peers.get(id) else {
+            return;
+        };
+        data["room"] = r.epoch.clone().into();
+        t.record(crate::timeline::Event::server(
+            kind,
+            peer.identity.diagnostics.clone(),
+            data,
+            false,
+        ));
+    }
+    fn membership(&self, r: &Room, id: &str, event: &str, reason: &str) {
+        self.record(
+            r,
+            id,
+            "mp.room",
+            json!({
+                "event": event,
+                "role": if id == r.host {"host"} else {"member"},
+                "reason": reason,
+                "peers": r.peers.len().saturating_sub(usize::from(event != "join")),
+            }),
+        );
+    }
+    fn remove_members(
+        &self,
+        room: &mut Room,
+        remove: impl Fn(&str, &Peer) -> bool,
+        event: &str,
+        reason: &str,
+    ) {
+        let ids: Vec<_> = room
+            .peers
+            .iter()
+            .filter(|(id, p)| remove(id, p))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            self.membership(room, &id, event, reason);
+            room.peers.remove(&id);
+            room.paths.retain(|(a, b), _| a != &id && b != &id);
+        }
+        if !room.peers.contains_key(&room.host) {
+            for id in room.peers.keys() {
+                self.membership(room, id, "reaped", "host_left");
+            }
+            room.peers.clear();
+        }
+    }
+    fn reap(&self, rooms: &mut BTreeMap<String, Room>, time: u64) {
+        rooms.retain(|_, r| {
+            self.remove_members(r, |_, p| p.expires <= time, "expired", "lease_expired");
+            !r.peers.is_empty()
+        });
+    }
     /// Authorize signaling without extending the coordinator lease.
     pub fn authorize(
         &self,
@@ -113,7 +173,7 @@ impl Rooms {
         time: u64,
     ) -> Result<()> {
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         let room = member(&mut rooms, app, peer, launch)?;
         ensure!(room.epoch == epoch, fault(409, "stale shared session"));
         if let Some(to) = to {
@@ -131,13 +191,18 @@ impl Rooms {
     pub fn retain_launches(&self, app: &str, live: &BTreeSet<String>, time: u64) {
         let mut rooms = self.rooms.lock().unwrap();
         for room in rooms.values_mut().filter(|r| r.app == app) {
-            room.peers.retain(|_, p| live.contains(&p.identity.launch));
+            self.remove_members(
+                room,
+                |_, p| !live.contains(&p.identity.launch),
+                "reaped",
+                "access_lost",
+            );
         }
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
     }
     pub fn discover_all(&self, app: &str, build: &str, time: u64) -> Vec<Value> {
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         rooms
             .values()
             .filter(|room| room.app == app)
@@ -170,7 +235,7 @@ impl Rooms {
         time: u64,
     ) -> Result<Value> {
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         let room = member(&mut rooms, app, peer, launch)?;
         ensure!(
             room.host == peer,
@@ -188,7 +253,7 @@ impl Rooms {
     }
     pub fn active(&self, app: &str, time: u64) -> bool {
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         rooms.values().any(|r| r.app == app)
     }
     pub fn join(&self, who: Identity, request: Join<'_>, time: u64) -> Result<Value> {
@@ -205,7 +270,7 @@ impl Rooms {
             fault(400, "invalid connection ID")
         );
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         ensure!(
             !request.create
                 || (request.expected_epoch.is_none() && request.expected_player.is_none()),
@@ -275,6 +340,7 @@ impl Rooms {
             build: request.build.into(),
             host: peer.clone(),
             peers: BTreeMap::new(),
+            paths: Default::default(),
             sequence: 0,
             max_players: request.max_players.min(8),
             accepting_players: request.joinable.or(request.create.then_some(true)),
@@ -308,6 +374,9 @@ impl Rooms {
                 health_seen: 0,
             })
             .expires = time + 30;
+        if !existing {
+            self.membership(room, &peer, "join", "user");
+        }
         Ok(view(room, &peer))
     }
     pub fn poll(
@@ -319,7 +388,7 @@ impl Rooms {
         time: u64,
     ) -> Result<Value> {
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         let room = member(&mut rooms, app, peer, launch)?;
         let p = room.peers.get_mut(peer).unwrap();
         p.expires = time + 30;
@@ -348,7 +417,7 @@ impl Rooms {
             fault(413, "signaling message too large")
         );
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         let room = member(&mut rooms, app, peer, launch)?;
         ensure!(
             body["epoch"] == room.epoch,
@@ -384,18 +453,25 @@ impl Rooms {
     }
     pub fn leave(&self, app: &str, peer: &str, launch: &str, time: u64) -> Result<()> {
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         let room = member(&mut rooms, app, peer, launch)?;
-        if room.host == peer {
-            let epoch = room.epoch.clone();
+        let epoch = room.epoch.clone();
+        self.remove_members(room, |id, _| id == peer, "leave", "user");
+        if room.peers.is_empty() {
             rooms.remove(&epoch);
-        } else {
-            room.peers.remove(peer);
         }
         Ok(())
     }
     pub fn end(&self, app: &str) {
-        self.rooms.lock().unwrap().retain(|_, r| r.app != app);
+        self.rooms.lock().unwrap().retain(|_, r| {
+            if r.app != app {
+                return true;
+            }
+            for id in r.peers.keys() {
+                self.membership(r, id, "reaped", "server_ended");
+            }
+            false
+        });
     }
     pub fn health(
         &self,
@@ -413,18 +489,61 @@ impl Rooms {
             fault(400, "invalid network report")
         );
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
-        let p = member(&mut rooms, app, peer, launch)?
-            .peers
-            .get_mut(peer)
-            .unwrap();
-        p.health = report;
+        self.reap(&mut rooms, time);
+        let room = member(&mut rooms, app, peer, launch)?;
+        let mut connections = Vec::new();
+        for path in report["connections"].as_array().into_iter().flatten() {
+            let Some(remote) = path["peer"]
+                .as_str()
+                .filter(|id| *id != peer && room.peers.contains_key(*id))
+            else {
+                continue;
+            };
+            let candidate =
+                |v: &Value| matches!(v.as_str(), Some("host" | "srflx" | "prflx" | "relay"));
+            let mut clean = json!({"peer":remote});
+            for k in ["bytesSent", "bytesReceived", "round_trip_ms"] {
+                if let Some(n) = path[k].as_u64() {
+                    clean[k] = n.into();
+                }
+            }
+            if matches!(
+                path["state"].as_str(),
+                Some("new" | "connecting" | "connected" | "disconnected" | "failed" | "closed")
+            ) {
+                clean["state"] = path["state"].clone();
+            }
+            if candidate(&path["local"]) && candidate(&path["remote"]) {
+                let local = path["local"].as_str().unwrap();
+                let far = path["remote"].as_str().unwrap();
+                clean["local"] = local.into();
+                clean["remote"] = far.into();
+                let (key, types) = if peer < remote {
+                    (
+                        (peer.to_owned(), remote.to_owned()),
+                        (local.to_owned(), far.to_owned()),
+                    )
+                } else {
+                    (
+                        (remote.to_owned(), peer.to_owned()),
+                        (far.to_owned(), local.to_owned()),
+                    )
+                };
+                if room.paths.get(&key) != Some(&types) {
+                    self.record(room,peer,"mp.path",json!({"peer_pair":[key.0,key.1],"local":types.0,"remote":types.1,"rtt_ms":clean["round_trip_ms"]}));
+                    room.paths.insert(key, types);
+                }
+            }
+            connections.push(clean);
+        }
+        let p = room.peers.get_mut(peer).unwrap();
+        p.health = json!({"connections":connections});
         p.health_seen = time;
         Ok(())
     }
     pub fn diagnostics(&self, time: u64) -> Value {
         let mut rooms = self.rooms.lock().unwrap();
-        reap(&mut rooms, time);
+        self.reap(&mut rooms, time);
         json!({"sessions":rooms.values().map(|r|json!({"app_id":r.app,"session_id":r.epoch,"build_id":r.build,"peers":r.peers.iter().map(|(id,p)|json!({"id":id,"name":p.identity.name,"host":*id==r.host,"reported_at":p.health_seen,"health":p.health})).collect::<Vec<_>>()})).collect::<Vec<_>>()})
     }
     pub fn leave_launch(&self, app: &str, launch: &str) {
@@ -433,7 +552,12 @@ impl Rooms {
             if room.app != app {
                 return true;
             }
-            room.peers.retain(|_, p| p.identity.launch != launch);
+            self.remove_members(
+                room,
+                |_, p| p.identity.launch == launch,
+                "leave",
+                "server_ended",
+            );
             room.peers.contains_key(&room.host)
         });
     }

@@ -39,7 +39,7 @@ fn fault(status: u16, message: &str) -> anyhow::Error {
 }
 
 pub struct Controller {
-    pub timeline: crate::timeline::Timeline,
+    pub timeline: Arc<crate::timeline::Timeline>,
     pub deployment: crate::deployment::Tracker,
     pub maintenance: Arc<crate::maintenance::Gate>,
     pub probation: Arc<crate::probation::Gate>,
@@ -120,7 +120,7 @@ impl Controller {
         store.save(&state)?;
         let probation = crate::probation::Gate::load(&config.controller.state_dir);
         Ok(Self {
-            timeline: crate::timeline::Timeline::new(&config.controller),
+            timeline: Arc::new(crate::timeline::Timeline::new(&config.controller)),
             deployment: crate::deployment::Tracker::open(&config.controller.state_dir)?,
             maintenance: Default::default(),
             probation,

@@ -140,6 +140,7 @@ impl Platform {
                     };
                     if status.is_none_or(|s| !(200..300).contains(&s)) {
                         // Endpoints and subscription keys are credentials: never log them.
+                        self.controller.timeline.record(crate::timeline::Event::server("push.result",Default::default(),json!({"status_class":status.map(|s| s/100),"gone":matches!(status,Some(404|410))}),false));
                         tracing::warn!(status, "chat push was not accepted");
                     }
                     self.db.push_result(&endpoint, id, status)

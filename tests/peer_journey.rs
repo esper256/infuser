@@ -11,6 +11,11 @@ use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 fn identity(id: &str) -> Identity {
     Identity {
+        diagnostics: infuser::timeline::ContextFields {
+            app: "pond".into(),
+            guest: true,
+            ..Default::default()
+        },
         launch: id.into(),
         player: id.into(),
         name: "Player".into(),
@@ -700,5 +705,80 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
     .await?
     .error_for_status()?;
     task.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn diagnostic_room_and_path_events_follow_changes_only() -> Result<()> {
+    use infuser::timeline::{Event, Filter, Timeline, read};
+    let dir = tempfile::tempdir()?;
+    let store = Arc::new(Timeline::new(&infuser::config::Settings {
+        diagnostics_dir: Some(dir.path().join("diag")),
+        state_dir: dir.path().join("state"),
+        ..Default::default()
+    }));
+    let rooms = Rooms::default().observed(store.clone());
+    let a = rooms.join(identity("private-a"), join("pond", "one"), 100)?;
+    let b = rooms.join(identity("private-b"), join("pond", "one"), 100)?;
+    rooms.join(identity("private-a"), join("pond", "one"), 101)?;
+    let host = a["self_id"].as_str().unwrap();
+    let guest = b["self_id"].as_str().unwrap();
+    let metrics = |other: &str, local: &str, remote: &str, rtt: u64| json!({"connections":[{"peer":other,"local":local,"remote":remote,"round_trip_ms":rtt,"address":"192.0.2.100"}]});
+    rooms.health(
+        "pond",
+        host,
+        "private-a",
+        metrics(guest, "host", "srflx", 7),
+        101,
+    )?;
+    rooms.health(
+        "pond",
+        guest,
+        "private-b",
+        metrics(host, "srflx", "host", 9),
+        102,
+    )?;
+    rooms.health(
+        "pond",
+        host,
+        "private-a",
+        metrics(guest, "relay", "relay", 15),
+        103,
+    )?;
+    rooms.poll("pond", guest, "private-b", 0, 120)?;
+    rooms.diagnostics(131);
+    assert!(
+        store
+            .submit(vec![Event::server(
+                "barrier",
+                Default::default(),
+                json!({}),
+                false
+            )])
+            .await
+    );
+    let data = read(store.path(), &Filter::default(), Some("pond"), None, false)?;
+    let events = data["events"].as_array().unwrap();
+    let kinds: Vec<_> = events
+        .iter()
+        .map(|e| (e["kind"].as_str().unwrap(), e["data"]["event"].as_str()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("mp.room", Some("join")),
+            ("mp.room", Some("join")),
+            ("mp.path", None),
+            ("mp.path", None),
+            ("mp.room", Some("expired")),
+            ("mp.room", Some("reaped"))
+        ]
+    );
+    assert_eq!(events[5]["data"]["reason"], "host_left");
+    assert_eq!(events[3]["data"]["rtt_ms"], 15);
+    assert!(events.iter().all(|e| e["data"]["room"] == a["epoch"]));
+    for protected in ["private-a", "private-b", "192.0.2.100", "Player"] {
+        assert!(!data.to_string().contains(protected));
+    }
     Ok(())
 }

@@ -255,6 +255,7 @@ async fn activation_names_an_open_game_and_does_not_wait_for_its_check_in() -> R
 
     p.peer_rooms().join(
         peers::Identity {
+            diagnostics: Default::default(),
             launch: "active".into(),
             player: "player-1".into(),
             name: "Alex".into(),

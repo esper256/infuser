@@ -128,7 +128,28 @@ pub(super) async fn put_appearance(
         p.db.catalog()?.profile_enabled(&email),
         fault(403, "Your invitation is no longer active.")
     );
-    p.db.appearance_save(&email, &appearance)?;
+    if p.db.appearance_save(&email, &appearance)?
+        && let Ok(d) = p.db.catalog()
+    {
+        let custom = appearance
+            .schemes
+            .get(&appearance.theme)
+            .is_some_and(|s| s == "custom");
+        p.controller.timeline.record(crate::timeline::Event::server(
+            "settings.saved",
+            crate::timeline::ContextFields {
+                profile: d.player_id(&email),
+                group: d.groups.member(&email).into(),
+                ..Default::default()
+            },
+            json!({
+                "theme": appearance.theme,
+                "scheme_kind": if custom { "custom" } else { "builtin" },
+                "revision": crate::timeline::ms()
+            }),
+            false,
+        ));
+    }
     Ok(reply(json!({"appearance": appearance})))
 }
 

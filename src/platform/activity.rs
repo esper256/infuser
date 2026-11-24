@@ -231,9 +231,10 @@ impl Database {
         tx.commit()?;
         Ok(intent)
     }
-    pub fn expire_launch(&self, id: &str, time: u64) -> Result<()> {
+    pub fn expire_launch(&self, id: &str, time: u64) -> Result<bool> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut changed = false;
         if let Some(raw) = tx
             .query_row("SELECT data FROM runtime_launches WHERE id=?1", [id], |r| {
                 r.get::<_, String>(0)
@@ -241,6 +242,7 @@ impl Database {
             .optional()?
         {
             let mut launch: Launch = serde_json::from_str(&raw)?;
+            changed = launch.seen != 0 && launch.expires > time;
             launch.expires = time;
             launch.seen = 0;
             tx.execute(
@@ -249,7 +251,7 @@ impl Database {
             )?;
         }
         tx.commit()?;
-        Ok(())
+        Ok(changed)
     }
     pub fn renew_launch(&self, id: &str, time: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();

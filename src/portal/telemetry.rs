@@ -18,17 +18,24 @@ pub(super) fn routes() -> Router<Platform> {
         .route("/api/publisher/apps/{app}/diagnostic-events", get(author))
         .layer(DefaultBodyLimit::max(32 * 1024))
 }
-pub(super) fn launch_ref(id: &str) -> String {
+pub(crate) fn launch_ref(id: &str) -> String {
     hash(&format!("diagnostics/launch/{id}"))[..20].into()
 }
 fn launch_fields(p: &Platform, id: &str, l: &Launch) -> Result<ContextFields> {
-    let d = p.db.catalog()?;
+    Ok(launch_context(p, id, l, p.db.catalog()?.as_ref()))
+}
+pub(super) fn launch_context(
+    p: &Platform,
+    id: &str,
+    l: &Launch,
+    d: &platform::Data,
+) -> ContextFields {
     let profile = d.player_id(&l.email);
     let attempt = p
         .controller
         .runtime_attempt(l.runtime_id())
         .unwrap_or_default();
-    Ok(ContextFields {
+    ContextFields {
         profile,
         group: d.deployment_group(l.runtime_id()).into(),
         app: l.app.clone(),
@@ -38,13 +45,16 @@ fn launch_fields(p: &Platform, id: &str, l: &Launch) -> Result<ContextFields> {
         guest: l.guest,
         attempt,
         ..Default::default()
-    })
+    }
 }
-pub(super) fn launch_event(p: &Platform, id: &str, l: &Launch, kind: &str) {
+pub(super) fn launch_event(p: &Platform, id: &str, l: &Launch, kind: &str, reason: Option<&str>) {
     if let Ok(c) = launch_fields(p, id, l) {
-        p.controller
-            .timeline
-            .record(Event::server(kind, c, json!({}), true));
+        p.controller.timeline.record(Event::server(
+            kind,
+            c,
+            reason.map_or(json!({}), |r| json!({"reason":r})),
+            true,
+        ));
     }
 }
 pub(super) fn connection_event(a: &crate::connections::Attempt, kind: &str) -> Event {
@@ -60,7 +70,7 @@ pub(super) fn connection_event(a: &crate::connections::Attempt, kind: &str) -> E
             guest: i.guest,
             ..Default::default()
         },
-        json!({"state":if kind=="connection.open"{"connected"}else{a.error.as_deref().unwrap_or("closed")}}),
+        json!({"state":if kind=="connection.open"{"connected"}else if a.error.is_some(){"error"}else{"closed"}}),
         true,
     );
     if a.error.is_some() {
@@ -74,8 +84,9 @@ pub(super) fn voice_event(p: &Platform, l: &crate::voice::Lease, kind: &str, tim
     {
         let mut data = json!({"session":launch_ref(&l.id),"channel":l.channel});
         if kind != "voice.grant" {
-            data["heartbeat_age_s"] = time
+            data["heartbeat_age_ms"] = time
                 .saturating_sub(l.expires.saturating_sub(crate::voice::LEASE_SECONDS))
+                .saturating_mul(1000)
                 .into();
         }
         p.controller.timeline.record(Event::server(
@@ -149,51 +160,31 @@ async fn game(State(p): State<Platform>, h: HeaderMap, Json(b): Json<Batch>) -> 
 fn id(s: &str) -> bool {
     (8..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
 }
-fn scrub(s: &str, limit: usize) -> String {
-    // Drop complete URLs, identifiers, credential-like words and query/fragment values.
-    // Never stringify objects supplied by the game or accept entire arbitrary JSON.
-    let mut out = String::new();
-    let mut secret_next = false;
-    for word in s.split_whitespace().take(100) {
-        let sensitive = [
-            "bearer",
-            "cookie",
-            "authorization",
-            "password",
-            "secret",
-            "token",
-            "credential",
-        ]
-        .iter()
-        .any(|x| word.to_ascii_lowercase().contains(x));
-        let opaque = word
-            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
-            .any(|s| s.len() >= 24);
-        let hide = secret_next
-            || sensitive
-            || opaque
-            || word.contains(['@', '?', '#', '='])
-            || word.contains("://")
-            || word.starts_with('/')
-            || word.parse::<IpAddr>().is_ok()
-            || word.contains("\\");
-        secret_next = sensitive;
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        if hide {
-            out.push_str("[redacted]");
-        } else {
-            out.extend(word.chars().filter(|c| !c.is_control()).take(120));
-        }
-        if out.len() >= limit {
-            break;
-        }
+// Browser IDs are diagnostic UUIDs. Preserve them across upgrades. Older
+// non-UUID identifiers still deduplicate without retaining their raw value.
+fn page_ref(s: &str) -> String {
+    if s.len() == 36
+        && s.bytes().enumerate().all(|(i, b)| {
+            if [8, 13, 18, 23].contains(&i) {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        })
+    {
+        s.to_owned()
+    } else {
+        hash(&format!("diagnostics/page/{s}"))[..32].to_owned()
     }
-    out.chars().take(limit).collect()
 }
 fn kind_level(k: &str, data: &Value) -> Option<&'static str> {
     Some(match k {
+        "link" if matches!(data["state"].as_str(), Some("down" | "degraded")) => "warn",
+        "op" if data["outcome"] == "fail" => "error",
+        "fetch.fail" => "warn",
+        "op" | "link" | "page.vitals" => "info",
+        // Old open tabs still post this poll every second. Discard it at ingestion.
+        "mp.connected" | "mp.connecting" | "mp.ended" => return None,
         "voice.disconnected"
             if !matches!(
                 data["stop_reason"].as_str(),
@@ -203,66 +194,223 @@ fn kind_level(k: &str, data: &Value) -> Option<&'static str> {
             "warn"
         }
         "js.error" | "js.rejection" | "console.error" | "webgl.lost" => "error",
-        "api.fail" | "resource.error" | "net.offline" | "mp.ended" | "voice.fail"
-        | "voice.reconnecting" | "page.discarded" | "recorder.dropped" => "warn",
+        "api.fail" | "resource.error" | "net.offline" | "voice.fail" | "voice.reconnecting"
+        | "page.discarded" | "recorder.dropped" => "warn",
         "page.load" | "page.show" | "page.hide" | "page.freeze" | "page.resume" | "page.exit"
         | "page.restore" | "net.online" | "game.frame_loaded" | "webgl.restored"
-        | "mp.connected" | "mp.connecting" | "voice.connected" | "voice.disconnected"
-        | "voice.stopped" | "voice.reconnected" | "mem.sample" | "error.repeat" => "info",
+        | "voice.connected" | "voice.disconnected" | "voice.stopped" | "voice.reconnected"
+        | "mem.sample" | "error.repeat" => "info",
         _ => return None,
     })
 }
-fn clean(data: &Value) -> Value {
+fn one(value: &Value, allowed: &[&str]) -> Option<Value> {
+    value
+        .as_str()
+        .filter(|s| allowed.contains(s))
+        .map(Value::from)
+}
+const LINKS: &[&str] = &["voice", "voice-control", "chat", "mp", "launch"];
+const OPS: &[&str] = &["voice.join", "game.load", "mp.join"];
+const STATES: &[&str] = &["none", "connecting", "up", "degraded", "down", "ended"];
+const STAGES: &[&str] = &[
+    "frame",
+    "engine",
+    "first_frame",
+    "microphone",
+    "grant",
+    "connect",
+    "publish",
+    "playback",
+    "admission",
+];
+const ERRORS: &[&str] = &[
+    "Error",
+    "TypeError",
+    "SyntaxError",
+    "ReferenceError",
+    "RangeError",
+    "RuntimeError",
+    "AbortError",
+    "TimeoutError",
+    "NetworkError",
+    "NotAllowedError",
+    "NotFoundError",
+    "SecurityError",
+    "InvalidStateError",
+    "CompileError",
+    "LinkError",
+    "ResourceError",
+];
+fn clean(kind: &str, data: &Value) -> Value {
     let mut out = json!({});
-    for k in [
+    for key in [
         "line",
         "col",
         "status",
         "count",
         "duration_ms",
+        "held_ms",
+        "down_ms",
+        "flaps",
         "heap_bytes",
-        "uptime_ms",
+        "wasm_bytes",
+        "dom_nodes",
+        "fps_low",
+        "bytes",
+        "cached_ratio",
+        "largest_ms",
         "uncertainty_ms",
     ] {
-        if let Some(n) = data[k].as_u64()
-            && n < (1 << 45)
-        {
-            out[k] = n.into();
+        if let Some(n) = data[key].as_u64().filter(|n| *n < 1 << 45) {
+            out[key] = n.into();
         }
     }
-    for k in [
-        "message",
-        "class",
-        "stack",
-        "file",
-        "client",
-        "version",
-        "state",
-        "route",
-        "method",
-        "request",
-        "session",
-        "tab",
-        "stop_reason",
-        "fingerprint",
+    for (key, allowed) in [
+        ("class", ERRORS),
+        ("name", if kind == "link" { LINKS } else { OPS }),
+        ("prev", STATES),
+        (
+            "state",
+            if kind == "page.exit" {
+                &["departed", "cached"][..]
+            } else {
+                STATES
+            },
+        ),
+        ("outcome", &["ok", "fail", "abandoned"]),
+        ("stage", STAGES),
+        (
+            "cause",
+            &["reload_update", "discarded", "navigate", "reload"],
+        ),
+        (
+            "method",
+            &[
+                "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "OTHER",
+            ],
+        ),
     ] {
-        if let Some(s) = data[k].as_str() {
-            if k == "version" {
-                if s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()) {
-                    out[k] = s.into();
-                }
-                continue;
+        if let Some(v) = one(&data[key], allowed) {
+            out[key] = v;
+        }
+    }
+    if let Some(s) = data["reason"].as_str()
+        && ([
+            "user",
+            "page_exit",
+            "access_lost",
+            "server_ended",
+            "lease_expired",
+            "network",
+            "deploy",
+            "visit_end",
+            "host_left",
+            "timeout",
+            "error",
+        ]
+        .contains(&s)
+            || s.strip_prefix("error:")
+                .is_some_and(|e| ERRORS.contains(&e)))
+    {
+        out["reason"] = s.into();
+    }
+    if let Some(r) = one(
+        &data["down_reason"],
+        &[
+            "network",
+            "user",
+            "access_lost",
+            "server_ended",
+            "timeout",
+            "visit_end",
+            "error",
+        ],
+    ) {
+        out["down_reason"] = r;
+    }
+    for (key, len) in [
+        ("fingerprint", 8),
+        ("session", 20),
+        ("room", 32),
+        ("version", 64),
+    ] {
+        if let Some(s) = data[key]
+            .as_str()
+            .filter(|s| s.len() == len && s.bytes().all(|c| c.is_ascii_hexdigit()))
+        {
+            out[key] = s.into();
+        }
+    }
+    if let Some(s) = data["tab"].as_str().filter(|s| id(s)) {
+        out["tab"] = page_ref(s).into();
+    }
+    if let Some(route) = data["route"].as_str() {
+        const PARTS: &str = "api _infuser v1 v2 voice control heartbeat profile appearance settings chat presence peers health context launch sessions saves cloud groups joinability ack input apps runtime signals ice player-pages close :id";
+        let valid_template = route.len() < 160
+            && route.strip_prefix('/').is_some_and(|path| {
+                path.split('/')
+                    .all(|part| PARTS.split_whitespace().any(|p| p == part))
+            });
+        if valid_template || ["asset", "external", "unknown"].contains(&route) {
+            out["route"] = route.into();
+        }
+    }
+    if kind == "page.load"
+        && let Some(client) = data["client"].as_str()
+        && let Some((browser, os)) = client.split_once(' ')
+        && [
+            "Android",
+            "iPhone",
+            "iPad",
+            "Windows",
+            "CrOS",
+            "Macintosh",
+            "Linux",
+            "",
+        ]
+        .contains(&os)
+        && (browser == "browser"
+            || browser.split_once('/').is_some_and(|(brand, major)| {
+                ["Firefox", "Edg", "Chrome", "Version"].contains(&brand)
+                    && !major.is_empty()
+                    && major.len() <= 3
+                    && major.bytes().all(|c| c.is_ascii_digit())
+            }))
+    {
+        out["client"] = client.into();
+    }
+    if kind == "page.exit"
+        && let Some(names) = data["links"].as_array()
+    {
+        out["links"] = names
+            .iter()
+            .take(LINKS.len())
+            .filter_map(|v| one(v, LINKS))
+            .collect();
+    }
+    if kind == "page.load"
+        && let Some(theme) = one(
+            &data["appearance"]["theme"],
+            &[
+                "nightglass",
+                "castle-keep",
+                "funny-pages",
+                "field-notes",
+                "cartridge-club",
+            ],
+        )
+        && let Some(source) = one(
+            &data["appearance"]["source"],
+            &["server", "legacy", "default", "other_tab"],
+        )
+    {
+        out["appearance"] = json!({"theme":theme,"source":source});
+    }
+    for (key, fields) in [("stages_ms", STAGES), ("stalls", &["count", "max_ms"])] {
+        for &f in fields {
+            if let Some(n) = data[key][f].as_u64().filter(|n| *n < 1 << 45) {
+                out[key][f] = n.into();
             }
-            if matches!(k, "request" | "session" | "tab" | "fingerprint") {
-                if id(s) {
-                    out[k] = s.into();
-                }
-                continue;
-            }
-            if k == "file" && (s.contains(['/', '\\', '?', '#', '@']) || s.len() > 100) {
-                continue;
-            }
-            out[k] = scrub(s, if k == "stack" { 900 } else { 250 }).into();
         }
     }
     out
@@ -298,18 +446,23 @@ async fn ingest(p: &Platform, mut ctx: ContextFields, b: Batch, is_game: bool) -
         } else {
             "player"
         };
-        let visible =
-            is_game && (src == "game" || e.kind.starts_with("game.") || e.kind.starts_with("mp."));
+        let data = clean(&e.kind, &e.data);
+        let game_signal = match e.kind.as_str() {
+            "link" => matches!(data["name"].as_str(), Some("mp" | "launch")),
+            "op" => matches!(data["name"].as_str(), Some("mp.join" | "game.load")),
+            _ => src == "game" || e.kind.starts_with("game."),
+        };
+        let visible = is_game && game_signal;
         events.push(Event {
             at: at.min(received_at),
             received_at,
             context: ctx.clone(),
-            page: e.page,
+            page: page_ref(&e.page),
             seq: Some(e.seq),
             src: src.into(),
             level: level.into(),
             kind: e.kind,
-            data: clean(&e.data),
+            data,
             author_visible: visible,
         });
     }
@@ -376,29 +529,7 @@ pub(super) async fn observe(
     let mut response = next.run(request).await;
     let status = response.status();
     let slow = started.elapsed().as_secs() >= 2 && !route.ends_with("/control");
-    let operation = [
-        "/saves",
-        "/cloud",
-        "/admissions",
-        "/join",
-        "/host",
-        "/runtime/v1",
-        "/connections",
-        "/launch-intent",
-        "/sessions",
-    ]
-    .iter()
-    .any(|part| route.contains(part));
-    if status.is_client_error()
-        || status.is_server_error()
-        || slow
-        || (game
-            && ((operation && method != axum::http::Method::GET)
-                || route == "/_infuser/peers"
-                || route == "/_infuser/saves/{slot}"
-                || (route == "/_infuser/cloud/v1/groups/{group}"
-                    && method == axum::http::Method::GET)))
-    {
+    if status.is_client_error() || status.is_server_error() || slow {
         let mut context = if game {
             p.game(&h)
                 .ok()
@@ -433,7 +564,8 @@ pub(super) async fn observe(
             ctx.build = active.build.clone();
             ctx.attempt = p.controller.runtime_attempt(runtime).unwrap_or_default();
         }
-        if let Some(context) = context {
+        {
+            let context = context.unwrap_or_default();
             let request_id = secret()[..16].to_owned();
             response
                 .headers_mut()
@@ -444,7 +576,7 @@ pub(super) async fn observe(
             let mut e = Event::server(
                 "api.result",
                 context,
-                json!({"route":route,"method":method.as_str(),"status":status.as_u16(),"duration_ms":started.elapsed().as_millis() as u64,"request":request_id}),
+                json!({"route":route,"method":match method.as_str(){m @ ("GET"|"POST"|"PUT"|"PATCH"|"DELETE"|"OPTIONS"|"HEAD")=>m,_=>"OTHER"},"status":status.as_u16(),"duration_ms":started.elapsed().as_millis() as u64,"request":request_id}),
                 visible,
             );
             if !status.is_success() {
@@ -459,4 +591,22 @@ pub(super) async fn observe(
         }
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn batch_fields_accept_measurements_and_drop_free_text() {
+        let dirty = json!({"class":"TypeError", "route":"/api/chat/customer?secret#home",
+            "message":"message body", "stack":"stack body", "access_token":"abc123",
+            "file":"https://192.0.2.1/", "device":"device label", "line":4, "reason":"unknown user input",
+            "appearance":{"theme":"nightglass","source":"server","colour":"#123456"},
+            "client":"Firefox/125 Linux", "session":"not-an-issued-ref"});
+        assert_eq!(
+            clean("page.load", &dirty),
+            json!({"class":"TypeError","line":4,"appearance":{"theme":"nightglass","source":"server"},"client":"Firefox/125 Linux"})
+        );
+        assert_eq!(kind_level("mp.connected", &json!({})), None);
+    }
 }

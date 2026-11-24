@@ -13,20 +13,22 @@ use std::{
 #[path = "timeline_reports.rs"]
 mod reports;
 
-const HELP: &str = "Usage: infuser logs CONFIG [summary | memory --leaks] [OPTIONS]
-       infuser-logs [summary | memory --leaks] [OPTIONS]
+const HELP: &str = "Usage: infuser logs CONFIG [summary | memory --leaks | incident --profile NAME --at TIME [--window 10m]] [OPTIONS]
+       infuser-logs [summary | memory --leaks | incident --profile NAME --at TIME [--window 10m]] [OPTIONS]
 
   --profile NAME|ID       Include this player and events without a profile
   --game APP_ID           Only this game
+  --at TIME               Centre of the incident window (incident only)
+  --window DURATION       Time on each side of --at (default: 10m)
   --no-shared             Exclude events without a profile
   --since TIME            Start of window (default: 48h)
   --until TIME            End of window (default: now)
                           TIME: 30s, 5m, 2h, 1d, Unix ms, or ISO time (Pacific unless offset given)
   --kind GLOB             Match event kinds (quote globs, repeat for alternatives)
   --level LEVEL           debug, info, warn, or error
-  --source SOURCE         client or server
+  --src, --source SOURCE  client or server
   --json                  JSON array, or structured report
-  --jsonl                 One raw event per line (timeline only)
+  --jsonl                 One row per line (timeline or incident)
   -h, --help              Show help";
 
 fn time_arg(value: &str, now: i64) -> Result<i64> {
@@ -92,6 +94,8 @@ struct Options {
     jsonl: bool,
     mode: Mode,
     leaks: bool,
+    at: Option<i64>,
+    window: Option<i64>,
 }
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
 enum Mode {
@@ -99,6 +103,7 @@ enum Mode {
     Timeline,
     Summary,
     Memory,
+    Incident,
 }
 
 impl Options {
@@ -120,6 +125,20 @@ impl Options {
                         Mode::Memory
                     }
                 }
+                "incident" if opts.mode == Mode::Timeline => opts.mode = Mode::Incident,
+                "--at" => opts.at = Some(time_arg(value()?, now)?),
+                "--window" => {
+                    let v = value()?;
+                    ensure!(
+                        v.trim_end_matches(['s', 'm', 'h', 'd'])
+                            .parse::<u64>()
+                            .is_ok()
+                            && v.ends_with(['s', 'm', 'h', 'd']),
+                        "window requires a duration"
+                    );
+                    let n = time_arg(v, now)?;
+                    opts.window = Some(now.checked_sub(n).context("invalid window")?);
+                }
                 "--leaks" => opts.leaks = true,
                 "--json" => opts.json = true,
                 "--jsonl" => opts.jsonl = true,
@@ -139,7 +158,7 @@ impl Options {
                     );
                     opts.level = Some(v.clone());
                 }
-                "--source" => {
+                "--src" | "--source" => {
                     let v = value()?;
                     ensure!(
                         matches!(v.as_str(), "client" | "server"),
@@ -150,12 +169,28 @@ impl Options {
                 _ => bail!("unknown logs argument '{arg}'; see logs --help"),
             }
         }
+        if opts.mode == Mode::Incident {
+            let at = opts.at.context("incident requires --at")?;
+            ensure!(opts.player.is_some(), "incident requires --profile");
+            let width = opts.window.unwrap_or(600_000);
+            ensure!(
+                (1..=172_800_000).contains(&width),
+                "window must be positive and at most 48h"
+            );
+            opts.query.since_ms = Some(at.saturating_sub(width));
+            opts.query.until_ms = Some(at.saturating_add(width).min(now));
+        } else {
+            ensure!(
+                opts.at.is_none() && opts.window.is_none(),
+                "--at and --window require incident"
+            );
+        }
         ensure!(
             !opts.leaks || opts.mode == Mode::Memory,
             "--leaks requires memory"
         );
         ensure!(
-            !opts.jsonl || (!opts.json && opts.mode == Mode::Timeline),
+            !opts.jsonl || (!opts.json && matches!(opts.mode, Mode::Timeline | Mode::Incident)),
             "--jsonl requires timeline output and cannot be combined with --json"
         );
         ensure!(
@@ -260,8 +295,8 @@ fn line(out: &mut impl Write, e: &Value, names: &Names, zone: &TimeZone) -> Resu
     if let Some(data) = e["data"].as_object() {
         for (key, v) in data {
             match key.as_str() {
-                "version" | "release" => continue,
-                "session" | "tab" | "request" => {
+                "version" | "client_version" | "release" => continue,
+                "session" | "room" | "tab" | "request" => {
                     write!(out, " {key}={}", short(v.as_str().unwrap_or("")))?
                 }
                 _ => write!(out, " {key}={v}")?,
@@ -272,6 +307,75 @@ fn line(out: &mut impl Write, e: &Value, names: &Names, zone: &TimeZone) -> Resu
     Ok(())
 }
 
+fn write_event(
+    out: &mut impl Write,
+    e: &Value,
+    opts: &Options,
+    count: &mut usize,
+    names: &Names,
+    zone: &TimeZone,
+) -> Result<()> {
+    if opts.json {
+        if *count != 0 {
+            write!(out, ",")?;
+        }
+        write!(out, "{e}")?;
+    } else if opts.jsonl {
+        writeln!(out, "{e}")?;
+    } else {
+        line(out, e, names, zone)?;
+    }
+    *count += 1;
+    Ok(())
+}
+
+fn incident_note(e: &Value) -> Option<Value> {
+    let d = &e["data"];
+    let (kind, data) = match field(e, "kind") {
+        "link"
+            if d["down_ms"].as_u64().unwrap_or(0) > 0
+                || matches!(field(d, "state"), "down" | "degraded") =>
+        {
+            (
+                "link.outage",
+                serde_json::json!({"link":d["name"], "duration_ms":d["down_ms"], "state":d["state"], "reason":d.get("down_reason").filter(|_|d["down_ms"].as_u64().unwrap_or(0)>0).unwrap_or(&d["reason"])}),
+            )
+        }
+        "op" if matches!(field(d, "outcome"), "abandoned" | "fail") => (
+            "operation.failure",
+            serde_json::json!({"operation":d["name"], "outcome":d["outcome"], "stage":d["stage"], "reason":d["reason"]}),
+        ),
+        _ => return None,
+    };
+    Some(derived(e, kind, data))
+}
+fn derived(e: &Value, kind: &str, data: Value) -> Value {
+    let mut note = serde_json::json!({"at":e["at"], "src":"derived", "kind":kind, "level":e["level"], "derived":true, "data":data});
+    for key in ["profile", "app", "launch", "page", "attempt"] {
+        if let Some(value) = e.get(key) {
+            note[key] = value.clone();
+        }
+    }
+    note
+}
+fn runtime_report(c: &Config, catalog: &platform::Data, app: &str, attempt: &str) -> Result<Value> {
+    for id in std::iter::once(app).chain(
+        catalog
+            .deployments
+            .iter()
+            .filter(|(_, d)| d.app == app)
+            .map(|(k, _)| k.as_str()),
+    ) {
+        for r in crate::docker::retained_at(&c.controller.state_dir, id)? {
+            if r["attempt"] == attempt {
+                return Ok(
+                    serde_json::json!({"exit_code":r["exit_code"],"health":r["health"],"oom_killed":r["oom_killed"],"container_state":r["container_state"],"captured_at":r["captured_at"]}),
+                );
+            }
+        }
+    }
+    Ok(Value::Null)
+}
 pub fn run(args: &[String]) -> Result<()> {
     if args.is_empty() || args.iter().any(|a| matches!(a.as_str(), "-h" | "--help")) {
         println!("{HELP}");
@@ -322,15 +426,25 @@ pub fn run(args: &[String]) -> Result<()> {
         path.display()
     );
     let mut out = io::BufWriter::new(io::stdout().lock());
-    let zone = if !opts.json && !opts.jsonl && opts.mode == Mode::Timeline {
+    let zone = if !opts.json && !opts.jsonl && matches!(opts.mode, Mode::Timeline | Mode::Incident)
+    {
         TimeZone::get("America/Los_Angeles")?
     } else {
         TimeZone::UTC
     };
+    let mut attempts = std::collections::BTreeSet::new();
+    let since = opts
+        .query
+        .since_ms
+        .unwrap_or(now - 172_800_000)
+        .max(now - 172_800_000);
+    let mut windows = if opts.mode == Mode::Incident && !opts.no_shared && opts.source.as_deref() != Some("client") && opts.kinds.is_empty() && opts.level.is_none() {
+        timeline::incident_windows(&path,since,opts.query.until_ms.unwrap_or(now))?
+    } else { Vec::new() }.into_iter().map(|(start,end)| serde_json::json!({"at":start.max(since),"src":"derived","level":"info","kind":"deploy.window","derived":true,"data":{"stop_ms":start,"start_ms":end,"duration_ms":end-start}})).peekable();
     let mut report = reports::Report::default();
     let mut count = 0;
     let mut personal = false;
-    if opts.json && opts.mode == Mode::Timeline {
+    if opts.json && matches!(opts.mode, Mode::Timeline | Mode::Incident) {
         write!(out, "[")?;
     }
     loop {
@@ -349,26 +463,58 @@ pub fn run(args: &[String]) -> Result<()> {
             .filter(|e| opts.matches(e))
         {
             personal |= e["profile"].is_string();
-            match opts.mode {
-                Mode::Summary => report.add_summary(e),
-                Mode::Memory => report.add_sample(e),
-                Mode::Timeline if opts.json => {
-                    if count > 0 {
-                        write!(out, ",")?;
-                    }
-                    write!(out, "{e}")?;
-                }
-                Mode::Timeline if opts.jsonl => writeln!(out, "{e}")?,
-                Mode::Timeline => line(&mut out, e, &names, &zone)?,
+            while windows
+                .peek()
+                .is_some_and(|w| w["at"].as_i64() <= e["at"].as_i64())
+            {
+                write_event(
+                    &mut out,
+                    &windows.next().unwrap(),
+                    &opts,
+                    &mut count,
+                    &names,
+                    &zone,
+                )?;
             }
-            count += 1;
+            match opts.mode {
+                Mode::Summary => {
+                    report.add_summary(e);
+                    count += 1;
+                }
+                Mode::Memory => {
+                    report.add_sample(e);
+                    count += 1;
+                }
+                Mode::Timeline | Mode::Incident => {
+                    write_event(&mut out, e, &opts, &mut count, &names, &zone)?;
+                    if opts.mode == Mode::Incident {
+                        if let Some(note) = incident_note(e) {
+                            write_event(&mut out, &note, &opts, &mut count, &names, &zone)?;
+                        }
+                        if let (Some(app), Some(attempt)) =
+                            (e["app"].as_str(), e["attempt"].as_str())
+                            && attempts.insert((app.to_owned(), attempt.to_owned()))
+                        {
+                            let note = derived(
+                                e,
+                                "runtime.report",
+                                serde_json::json!({"report":runtime_report(&c,&catalog,app,attempt)?}),
+                            );
+                            write_event(&mut out, &note, &opts, &mut count, &names, &zone)?;
+                        }
+                    }
+                }
+            }
         }
         let Some(next) = batch["next"].as_str() else {
             break;
         };
         opts.query.cursor = Some(next.into());
     }
-    if opts.mode != Mode::Timeline {
+    for note in windows {
+        write_event(&mut out, &note, &opts, &mut count, &names, &zone)?;
+    }
+    if matches!(opts.mode, Mode::Memory | Mode::Summary) {
         report.print(&mut out, &opts, &names)?;
     } else if opts.json {
         writeln!(out, "]")?;
@@ -461,6 +607,22 @@ mod tests {
         for (kind, data) in [
             ("voice.stopped", json!({"state":"user_toggle"})),
             (
+                "link",
+                json!({"name":"voice","state":"up","down_ms":1810,"down_reason":"network"}),
+            ),
+            (
+                "op",
+                json!({"name":"voice.join","outcome":"fail","duration_ms":10}),
+            ),
+            (
+                "op",
+                json!({"name":"voice.join","outcome":"ok","duration_ms":70}),
+            ),
+            (
+                "fetch.fail",
+                json!({"route":"/api/chat","method":"GET","status":502,"count":4,"deploy_restart":true}),
+            ),
+            (
                 "voice.disconnected",
                 json!({"state":"CLIENT_INITIATED","stop_reason":"user_toggle"}),
             ),
@@ -479,6 +641,42 @@ mod tests {
         assert_eq!(v["voice_drops"], json!({"SIGNAL_CLOSE":1}));
         assert_eq!(v["voice_stops"], json!({"user_toggle":1}));
         assert_eq!(v["failed_calls"], json!({"503":1}));
+        assert_eq!(v["link_downtime_ms"]["voice / network"], 1810);
+        assert_eq!(
+            v["operations"]["voice.join"],
+            json!({"count":2,"failed":1,"abandoned":0,"failure_rate":0.5,"p50_ms":10,"p90_ms":70})
+        );
+        assert_eq!(
+            v["unreached_fetches"]["GET /api/chat 502 (deploy window)"],
+            4
+        );
+        let opts = options(
+            "incident --profile Player --at 1000000 --window 1m --jsonl",
+            2_000_000,
+        )?;
+        assert_eq!(
+            (opts.query.since_ms, opts.query.until_ms),
+            (Some(940000), Some(1060000))
+        );
+        let event = json!({"at":1,"kind":"op","level":"error","profile":"p","data":{"name":"game.load","outcome":"fail","stage":"engine","reason":"error:TypeError"}});
+        let note = incident_note(&event).unwrap();
+        let mut stream = vec![];
+        let mut count = 0;
+        for v in [&event, &note] {
+            write_event(
+                &mut stream,
+                v,
+                &opts,
+                &mut count,
+                &Names::new(),
+                &TimeZone::UTC,
+            )?;
+        }
+        let items: Vec<Value> = serde_json::Deserializer::from_slice(&stream)
+            .into_iter()
+            .collect::<Result<_, _>>()?;
+        assert_eq!(items[1]["kind"], "operation.failure");
+        assert_eq!(items[1]["profile"], "p");
         assert_eq!(v["deploy_restart_502"], 1);
         for (page, at, bytes) in [
             ("a", 0, 100),
@@ -486,7 +684,7 @@ mod tests {
             ("a", 3_600_000, 1_048_676),
             ("b", 3_600_100, 1),
         ] {
-            r.add_sample(&json!({"kind":"mem.sample","page":page,"at":at,"data":{"tab":"t","heap_bytes":bytes}}));
+            r.add_sample(&json!({"kind":"page.vitals","page":page,"at":at,"data":{"tab":"t","heap_bytes":bytes}}));
         }
         buf.clear();
         r.print(

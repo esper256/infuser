@@ -63,7 +63,7 @@ function saveDevices(devices){
   try{localStorage.setItem(DEVICE_STORAGE_KEY,JSON.stringify(devices));}catch{/* Ignore storage quota errors. */}
 }
 
-export function initVoice({me,api,notice,onFailedCall=()=>{},onConfiguredChange=()=>{}}) {
+export function initVoice({me,api,notice,diagnostics,onConfiguredChange=()=>{}}) {
   if(me.inspecting)return {stop:async()=>{},openSettings:()=>{},renderFriendControls:()=>{}};
 
   const splitSlot=document.createElement('span');
@@ -735,7 +735,7 @@ export function initVoice({me,api,notice,onFailedCall=()=>{},onConfiguredChange=
           signal:AbortSignal.any([ac.signal,AbortSignal.timeout(30000)]),
         });
         if(!alive||myGen!==generation)break;
-        if(!res.ok)onFailedCall({method:'GET',status:res.status,request:res.headers.get('x-infuser-request-id')});
+        diagnostics?.link('voice-control').set(res.ok?'up':'down',res.ok?undefined:'network');
         if(res.status===204)continue;
         if(res.status===401||res.status===403){
           await stop({reason:'access_lost',message:'Voice chat ended. Your access changed.'});
@@ -755,18 +755,18 @@ export function initVoice({me,api,notice,onFailedCall=()=>{},onConfiguredChange=
           break;
         }
       }catch{
+        if(!ac.signal.aborted)diagnostics?.link('voice-control').set('down','network');
         break;
       }
     }
     controlRunning=false;
   }
 
-  const closingRooms=new WeakMap();
+
   async function stop({reason,remote=true,message}){
-    if(reason!=='livekit_disconnect'&&(phase!=='off'||(reason==='user_toggle'&&snapshot?.self))){
-      voiceState('stopped',reason);
-      if(room)closingRooms.set(room,reason);
-    }
+    if(phase!=='off'&&reason!=='pagehide'&&reason!=='livekit_disconnect')diagnostics?.link('voice').set('ended',reason==='user_toggle'?'user':reason,{session:diagnosticSession});
+    if(reason!=='pagehide')diagnostics?.link('voice-control').set('ended',reason==='user_toggle'?'user':'server_ended');
+    if(reason!=='pagehide')joinOp?.end('abandoned',reason==='user_toggle'?'user':'server_ended');
     generation++;stopControlLoop();
     const old=lease||snapshot?.self?.id;lease=null;
     const current=room,wasConnected=phase==='on'||phase==='reconnecting';room=null;phase='off';
@@ -798,11 +798,10 @@ export function initVoice({me,api,notice,onFailedCall=()=>{},onConfiguredChange=
     }catch{/* Fallback to unprocessed mic track if Web Audio processor fails. */}
   }
 
-  let diagnosticSession;
-  function voiceState(state,reason,session=diagnosticSession,stopReason){window.dispatchEvent(new CustomEvent('infuser-voice-state',{detail:{state,reason,session,stopReason}}));}
+  let diagnosticSession,joinOp;
   async function start(){
     diagnosticSession=undefined;
-    let stage='microphone';
+    joinOp=diagnostics?.op('voice.join');joinOp?.stage('microphone');diagnostics?.link('voice').set('connecting');
     await stopMicTest();
     // Start audio in the button's user gesture, before microphone/network awaits.
     chimes.unlock();
@@ -824,7 +823,7 @@ export function initVoice({me,api,notice,onFailedCall=()=>{},onConfiguredChange=
       });
       if(attempt!==generation){mic.stop();return;}track=mic;
       const id=crypto.randomUUID();lease=id;
-      stage='grant';
+      joinOp?.stage('grant');
       const grant=await request('/api/voice',{method:'POST',body:JSON.stringify({id})});
       if(attempt!==generation){await request('/api/voice',{method:'DELETE',body:JSON.stringify({id})});return;}
       lease=grant.id;diagnosticSession=grant.diagnostic_session;
@@ -870,32 +869,31 @@ export function initVoice({me,api,notice,onFailedCall=()=>{},onConfiguredChange=
         paint();
         if(mixer.matches(':popover-open')&&!dragging)renderMixer();
       });
-      current.on(RoomEvent.Reconnecting,()=>{if(room===current){phase='reconnecting';voiceState('reconnecting');chimes.quiet();paint();}});
+      current.on(RoomEvent.Reconnecting,()=>{if(room===current){phase='reconnecting';diagnostics?.link('voice').set('degraded','network',{session:diagnosticSession});chimes.quiet();paint();}});
       current.on(RoomEvent.Reconnected,()=>{
         if(room!==current)return;
-        roster();chimes.quiet();phase='on';voiceState('reconnected');
+        roster();chimes.quiet();phase='on';diagnostics?.link('voice').set('up',undefined,{session:diagnosticSession});
         if(track&&!track.processor)void attachInputProcessor(track,mod,ensureVoiceContext()).then(()=>applyAudioState({ack:true}));
         else void applyAudioState({ack:true});
         paint();
       });
       const session=diagnosticSession;
       current.once(RoomEvent.Disconnected,reason=>{
-        const localReason=closingRooms.get(current);
-        if(room!==current&&!localReason)return;
-        voiceState('disconnected',DisconnectReason[reason]??String(reason??'unknown'),session,localReason);
+        if(room!==current)return;
+        diagnostics?.link('voice').set('down',DisconnectReason[reason]==='ROOM_DELETED'?'server_ended':'network',{session});
         if(room===current)void stop({reason:'livekit_disconnect',message:'Voice chat disconnected. Tap the headset to join again.'});
       });
-      stage='connect';
+      joinOp?.stage('connect');
       await current.connect(grant.url,grant.token,{autoSubscribe:true,maxRetries:1});
       if(attempt!==generation){void current.disconnect();return;}
-      stage='publish';
+      joinOp?.stage('publish');
       await current.localParticipant.publishTrack(mic);
-      stage='playback';
+      joinOp?.stage('playback');
       await current.startAudio();
       if(attempt!==generation)return;
       await attachInputProcessor(mic,mod,ctx);
       if(attempt!==generation)return;
-      roster();phase='on';voiceState('connected');heartbeatAt=0;
+      roster();phase='on';joinOp?.end('ok',undefined,{session:diagnosticSession});diagnostics?.link('voice').set('up',undefined,{session:diagnosticSession});heartbeatAt=0;
       syncIdentityMap();
       await applyAudioState({ack:true});
       chimes.play(true);paint();
@@ -904,7 +902,7 @@ export function initVoice({me,api,notice,onFailedCall=()=>{},onConfiguredChange=
       if(mixer.matches(':popover-open')){lastMixerSig='';renderMixer();startMeterLoop();}
     }catch(error){
       if(attempt!==generation)return;
-      voiceState('fail',stage+' '+(error.name||'Error'));
+      joinOp?.end('fail','error:'+error.name,{session:diagnosticSession});
       const message=error.name==='NotAllowedError'?'Allow microphone access in your browser to use voice chat.':error.name==='NotFoundError'?'Connect a microphone to use voice chat.':error.message||'Could not connect to voice chat.';
       await stop({reason:'error',message});
     }

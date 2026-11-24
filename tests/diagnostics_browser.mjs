@@ -28,7 +28,7 @@ try {
   const recorded=page.waitForRequest(req=>req.url().endsWith('/_infuser/telemetry')&&req.method()==='POST'&&req.postDataJSON()?.events?.some(e=>e.kind==='js.error'&&e.src==='game'));
   await page.waitForFunction(()=>document.querySelector('#game')?.contentWindow?.console.error.toString().includes('original.apply'));
   await page.frameLocator('#game').locator('body').evaluate(()=>setTimeout(()=>{throw new TypeError('Browser fixture crash');},0));
-  // Lifecycle flush sends events buffered behind the initial clock handshake.
+  // A lifecycle flush sends pending events before departure.
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));
   const req=await recorded;
   assert.equal((await req.response()).status(),200);

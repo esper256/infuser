@@ -380,7 +380,7 @@ async fn main() -> Result<()> {
     controller.timeline.record(infuser::timeline::Event::server(
         "controller.start",
         Default::default(),
-        serde_json::json!({"version":infuser::BUILD_SHA}),
+        serde_json::json!({"version":infuser::BUILD_SHA,"client_version":infuser::portal::client_version()}),
         false,
     ));
     platform.recover_packaging().await?;
@@ -433,7 +433,7 @@ async fn main() -> Result<()> {
                 let Ok(_work) = p.controller.maintenance.enter() else {
                     return Ok(());
                 };
-                p.db.cleanup()?;
+                p.cleanup_launches()?;
                 if p.cleanup_feedback().is_err() {
                     tracing::warn!("feedback retention cleanup failed");
                 }
@@ -470,14 +470,24 @@ async fn main() -> Result<()> {
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     });
+    let stopping = controller.clone();
     let app = api::router_with_peers(controller, token, Some(platform.peer_rooms()))
         .merge(infuser::operations::routes(platform.clone(), token))
         .merge(infuser::portal::router(platform));
-    let server = axum::serve(listener, app).with_graceful_shutdown(async {
+    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 .expect("signal handler");
         tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+        stopping
+            .timeline
+            .submit(vec![infuser::timeline::Event::server(
+                "controller.stop",
+                Default::default(),
+                serde_json::json!({"version":infuser::BUILD_SHA}),
+                false,
+            )])
+            .await;
     });
     tokio::select! {
         result = voice_worker => { result?; bail!("voice worker stopped"); },

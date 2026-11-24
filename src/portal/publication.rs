@@ -591,11 +591,41 @@ impl Platform {
             tracing::warn!(%error, "precompression backfill did not start");
         }
     }
+    fn publication_event(&self, app: &str, build: &str, state: &str, reason: &str) {
+        let mut previous = self.publication_events.lock().unwrap();
+        if state == "published" {
+            previous.remove(app);
+        } else {
+            let value = (build.to_owned(), state.to_owned(), reason.to_owned());
+            if previous.get(app) == Some(&value) {
+                return;
+            }
+            previous.insert(app.into(), value);
+        }
+        let mut data = json!({"state":state});
+        if state == "queued" {
+            data["queued_reason"] = reason.into();
+        } else if state == "failed" {
+            data["reason"] = reason.into();
+        }
+        self.controller
+            .timeline
+            .record(crate::timeline::Event::server(
+                "game.publication",
+                crate::timeline::ContextFields {
+                    app: app.into(),
+                    build: build.into(),
+                    ..Default::default()
+                },
+                data,
+                true,
+            ));
+    }
     // Callers hold the publication lock, also used by player launches. Never switch
     // the client pointer while its shared server is still on the previous build.
     fn promote(&self, app: &str, build: &str, listed: bool) -> Result<&'static str> {
         let key = build_key(app, build);
-        let state = self.db.edit(|d| {
+        let (state, reason) = self.db.edit(|d| {
             let b = d
                 .builds
                 .get(&key)
@@ -639,7 +669,14 @@ impl Platform {
                         queued_at: now(),
                     },
                 );
-                return Ok("queued");
+                return Ok((
+                    "queued",
+                    if changes_server && running {
+                        "server_running"
+                    } else {
+                        "peers_active"
+                    },
+                ));
             }
             if let Some(server) = b.server {
                 let keys = self.config().controller.state_dir.join("server-keys");
@@ -684,20 +721,9 @@ impl Platform {
                 },
             );
             d.pending_promotions.remove(app);
-            Ok("published")
+            Ok(("published", ""))
         })?;
-        self.controller
-            .timeline
-            .record(crate::timeline::Event::server(
-                "game.publication",
-                crate::timeline::ContextFields {
-                    app: app.into(),
-                    build: build.into(),
-                    ..Default::default()
-                },
-                json!({"state":state}),
-                true,
-            ));
+        self.publication_event(app, build, state, reason);
         Ok(state)
     }
     /// The catalog is publication intent; controller state is recoverable runtime
@@ -772,6 +798,7 @@ impl Platform {
             }
             // Persisted requests survive restarts; failed activation remains queued.
             if let Err(error) = self.validate_promotion(&app, &promotion.build) {
+                self.publication_event(&app, &promotion.build, "failed", "validation");
                 tracing::warn!(app, %error, "Queued game update failed validation");
                 continue;
             }
@@ -792,6 +819,7 @@ impl Platform {
                 }
                 Ok(_) => {}
                 Err(error) => {
+                    self.publication_event(&app, &promotion.build, "failed", "activation");
                     tracing::warn!(app,error=%error,"Queued game update could not activate")
                 }
             }
