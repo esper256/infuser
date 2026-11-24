@@ -733,11 +733,14 @@ function renderPresence() {
   }
   const self=list.querySelector('.presence-self'),ownStatus=library.friends?.find(p=>p.id===me.player_id)?.status;
   if(self&&!me.inspecting){
-    self.dataset.status=ownStatus||'active';
+    if(self.dataset.status!==(ownStatus||'active'))self.dataset.status=ownStatus||'active';
     const label=me.name+' · '+presenceLabel(ownStatus)+' · Profile menu';
-    $('account-trigger').setAttribute('aria-label',label);$('account-trigger').title=label;
+    const trigger=$('account-trigger');
+    if(trigger.getAttribute('aria-label')!==label)trigger.setAttribute('aria-label',label);
+    if(trigger.title!==label)trigger.title=label;
     const ownGames=$('account-playing');
-    setText(ownGames,(playing.get(me.player_id)||[]).join('\n'));ownGames.hidden=!ownGames.textContent;
+    setText(ownGames,(playing.get(me.player_id)||[]).join('\n'));
+    if(ownGames.hidden!==!ownGames.textContent)ownGames.hidden=!ownGames.textContent;
   }
   let people=(library.friends||[]).filter(person=>person.id!==me.player_id).map(person=>({...person,playing:playing.get(person.id)||[]}));
   // Leave menus and keyboard focus intact when a poll has no presence changes.
