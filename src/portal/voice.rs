@@ -221,11 +221,21 @@ impl Platform {
     }
     async fn reconcile_voice_locked(&self, v: &Service) -> Result<()> {
         let time = now();
-        v.state
-            .lock()
-            .unwrap()
-            .leases
-            .retain(|_, l| allowed(self, l, time));
+        v.state.lock().unwrap().leases.retain(|_, l| {
+            let keep = allowed(self, l, time);
+            if !keep {
+                super::telemetry::voice_event(
+                    self,
+                    l,
+                    if time >= l.expires {
+                        "voice.expired"
+                    } else {
+                        "voice.access_ended"
+                    },
+                );
+            }
+            keep
+        });
         let rooms = v.call(&self.http, "ListRooms", None, json!({})).await?;
         let rooms = rooms["rooms"].as_array().cloned().unwrap_or_default();
         let mut connected = std::collections::BTreeSet::new();
@@ -482,7 +492,7 @@ async fn join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestI
             )
         );
         return Ok(reply(
-            json!({"id":existing.id,"epoch":v.epoch,"url":format!("wss://{}/voice",p.domain()),"token":v.participant_token(&existing,now())}),
+            json!({"id":existing.id,"diagnostic_session":super::telemetry::launch_ref(&existing.id),"epoch":v.epoch,"url":format!("wss://{}/voice",p.domain()),"token":v.participant_token(&existing,now())}),
         ));
     }
     ensure!(
@@ -507,6 +517,7 @@ async fn join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestI
         applied_deafened: false,
     };
     let token = v.participant_token(&lease, now());
+    super::telemetry::voice_event(&p, &lease, "voice.grant");
     let id = lease.id.clone();
     let channel_peers: Vec<String> = {
         let mut state = v.state.lock().unwrap();
@@ -524,7 +535,7 @@ async fn join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestI
     }
     p.admit(&h).await;
     Ok(reply(
-        json!({"id":id,"epoch":v.epoch,"revision":initial_rev,"url":format!("wss://{}/voice",p.domain()),"token":token}),
+        json!({"id":id,"diagnostic_session":super::telemetry::launch_ref(&id),"epoch":v.epoch,"revision":initial_rev,"url":format!("wss://{}/voice",p.domain()),"token":token}),
     ))
 }
 async fn heartbeat(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestId>) -> Answer {
@@ -612,6 +623,7 @@ async fn remove_owner_lease(p: &Platform, v: &Service, owner: &str, filter_id: O
         (removed, peers)
     };
     if let Some(l) = removed {
+        super::telemetry::voice_event(p, &l, "voice.release");
         v.bump_owner(owner, 0);
         for peer_owner in channel_peers {
             v.notify_game(&peer_owner);

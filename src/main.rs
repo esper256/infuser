@@ -17,6 +17,9 @@ async fn main() -> Result<()> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "logs") {
+        return infuser::timeline_cli::run(&args[1..]);
+    }
     if args.first().is_some_and(|s| s == "doctor") {
         let settings = infuser::host_health::Settings::load(Path::new(
             args.get(1).context("operations config required")?,
@@ -371,6 +374,12 @@ async fn main() -> Result<()> {
         "Infuser API listening on loopback"
     );
     let platform = infuser::portal::Platform::open(controller.clone())?;
+    controller.timeline.record(infuser::timeline::Event::server(
+        "controller.start",
+        Default::default(),
+        serde_json::json!({"version":infuser::BUILD_SHA}),
+        false,
+    ));
     platform.recover_packaging().await?;
     // The listener is already bound. Compression of existing builds stays off
     // this thread so /healthz can answer before those copies exist.

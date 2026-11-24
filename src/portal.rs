@@ -59,6 +59,7 @@ mod screenshots;
 mod sdk_v1;
 mod server_builds;
 mod server_diagnostics;
+mod telemetry;
 pub(crate) mod themes;
 mod update_reactions;
 mod urls;
@@ -524,7 +525,7 @@ pub fn router(platform: Platform) -> Router {
         .merge(native::routes())
         .merge(groups::routes())
         .merge(profiles::routes())
-        .merge(voice::routes())
+        .merge(voice::routes()).merge(telemetry::routes())
         .merge(screenshots::routes())
         .merge(visits::routes())
         .route("/assets/visits.js",get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/visits.js")) }))
@@ -679,7 +680,7 @@ pub fn router(platform: Platform) -> Router {
         )
         .fallback(game_file)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
-        .layer(axum::middleware::from_fn_with_state(platform.clone(),session_auth))
+        .layer(axum::middleware::from_fn_with_state(platform.clone(),telemetry::observe)).layer(axum::middleware::from_fn_with_state(platform.clone(),session_auth))
         .layer(axum::middleware::from_fn_with_state(
             platform.controller.maintenance.clone(),
             crate::maintenance::admission,
@@ -993,6 +994,7 @@ async fn launch(
             .map(str::to_owned),
     };
     p.db.insert_launch(&id, &l)?;
+    telemetry::launch_event(&p, &id, &l, "launch.create");
     Ok(reply(
         json!({"launch_id":id,"url":format!("https://{gamehost}/_infuser/launch#infuser={token}"),"state":lease.as_ref().map(|l|&l["state"]).unwrap_or(&json!("ready"))}),
     ))
@@ -1373,7 +1375,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         d.player_id(&l.email)
     };
     Ok(reply(
-        json!({"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"diagnostic_launch":telemetry::launch_ref(&id),"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1397,6 +1399,8 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     };
     let html = include_str!("../web/game-player.html")
         .replace("PLAYER_PAGE_ID", &page)
+        .replace("PLAYER_CLIENT_VERSION", client::version())
+        .replace("DIAGNOSTIC_LAUNCH", &telemetry::launch_ref(&id))
         .replace("PLAYER_VOICE_TOKEN", &voice_token);
     let mut response = (
         [
@@ -1655,6 +1659,7 @@ async fn leave(State(p): State<Platform>, h: HeaderMap) -> Answer {
             .lease(l.runtime_id(), lease, token, "delete", now());
     }
     p.db.expire_launch(&id, now())?;
+    telemetry::launch_event(&p, &id, &l, "launch.end");
     Ok(reply(json!({"ok":true})))
 }
 async fn save_get(State(p): State<Platform>, Path(slot): Path<String>, h: HeaderMap) -> Answer {

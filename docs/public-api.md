@@ -48,6 +48,7 @@ inspect build status before deciding whether to repeat an operation.
 | PUT | `/api/publisher/apps/APP/builds/BUILD/server/files/PATH` | Upload private managed-server source |
 | POST / GET | `/api/publisher/apps/APP/builds/BUILD/server-build` | Seal/queue server packaging, or inspect its state/logs |
 | GET | `/api/publisher/apps/APP/server-diagnostics` | Private live/recent runtime logs, health, exit status and build correlation |
+| GET | `/api/publisher/apps/APP/diagnostic-events` | Read this game’s recent [browser and server events](server-diagnostics.md#browser-and-game-timeline) |
 | POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for admin-only preview. The first publish of a new game can return 409 `duplicate_title` |
 | DELETE | `/api/publisher/apps/APP/builds/BUILD` | Remove an unused build |
 | DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |
