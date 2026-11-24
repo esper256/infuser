@@ -299,10 +299,14 @@ try{
   const initialDoc=game.contentDocument;
   const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc){diagnostics?.hook(game.contentWindow,'game');tuneGraphics(game.contentWindow);}},5);
   let watchTimer,checkTimer;
-  function endSession(){
+  // A missing or unrecognized launch (401/404) can already have been cleaned up.
+  // Keep the observed status without guessing why it disappeared.
+  const heartbeatEndReasons=new Map([[401,undefined],[403,session.visit?'visit_end':'access_lost'],
+    [404,undefined],[409,'server_ended'],[410,'timeout']]);
+  function endSession(reason,httpStatus){
     if(sessionEnded)return;
     sessionEnded=true;
-    diagnostics?.link('launch').set('ended',session.visit?'visit_end':'access_lost');
+    diagnostics?.link('launch').set('ended',reason,{status:httpStatus});
     if(session.visit){
       clearInterval(hookTimer);clearInterval(watchTimer);clearInterval(checkTimer);
       gameOrientation=null;releaseOrientation();game.hidden=true;game.removeAttribute('src');
@@ -310,23 +314,24 @@ try{
     }
     const back=document.createElement('a');
     back.href=session.library_url;back.textContent='Return to your Library.';
-    status.replaceChildren('This game session ended. ',back);
+    status.replaceChildren(session.visit?'This visit has ended. ':'This game session ended. ',back);
     status.hidden=false;showControls();
   }
   window.addEventListener('message',event=>{
-    if(event.origin===location.origin && event.source===game.contentWindow &&
-       event.data?.type==='infuser-session-error' && [401,403,404,410].includes(event.data.status))endSession();
+    if(event.origin!==location.origin || event.source!==game.contentWindow || event.data?.type!=='infuser-session-error')return;
+    const {status}=event.data;
+    if(heartbeatEndReasons.has(status))endSession(heartbeatEndReasons.get(status),status);
   });
   game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded&&session.visit)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
   if(session.visit){
     let checked=performance.now(),checkedWall=Date.now(),checking=false;
-    const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)endSession();};
+    const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)endSession('timeout');};
     async function check(){
       watch();if(sessionEnded||checking)return;checking=true;
       try{
         const r=await playerFetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
-        if([401,403,404,410].includes(r.status)){endSession();return;}
+        if(heartbeatEndReasons.has(r.status)){endSession(heartbeatEndReasons.get(r.status),r.status);return;}
         if(r.ok){const state=await r.json();watch();if(!sessionEnded){checked=performance.now();checkedWall=Date.now();if(state.visit){const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);message(left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'');}}}
       }catch{watch();}finally{checking=false;}
     }

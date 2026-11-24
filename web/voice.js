@@ -884,7 +884,7 @@ export function initVoice({me,api,notice,diagnostics,onConfiguredChange=()=>{}})
       current.once(RoomEvent.Disconnected,reason=>{
         if(room!==current)return;
         const cause=DisconnectReason[reason]==='ROOM_DELETED'?'server_ended':'network';
-        joinOp?.end('fail','network',{session});
+        joinOp?.end('fail',cause,{session});
         diagnostics?.link('voice').set('down',cause,{session});
         void stop({reason:cause,message:'Voice chat disconnected. Tap the headset to join again.'});
       });

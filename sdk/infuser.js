@@ -49,7 +49,7 @@ function stopHeartbeat() {
 }
 function sessionError(error) {
   if (stopped) return;
-  if ([401, 403, 404, 410].includes(error.status)) {
+  if ([401, 403, 404, 409, 410].includes(error.status)) {
     stopHeartbeat();
     // Window events stay inside the iframe. Forward only the terminal status to the player.
     if (window.parent && window.parent !== window) {

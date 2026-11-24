@@ -125,7 +125,7 @@ test('browser code basenames match the shared server fixtures',()=>{
   for(const [name,valid] of cases)assert.equal(codeFile(name),valid?name:undefined,name);
 });
 
-test('repeated console strings capture one caller and fold into its first row',async()=>{
+test('repeated console strings and objects each capture one caller and fold into their first row',async()=>{
   let captures=0,tick;
   class TracedError extends Error {
     static captureStackTrace(caller){
@@ -144,12 +144,14 @@ test('repeated console strings capture one caller and fold into its first row',a
     AbortSignal,queueMicrotask,setInterval(fn){tick=fn;}});
   start({scope:'fixture',source:'player',endpoint:'/events',now:()=>1000});
   for(let i=0;i<50;i++)window.console.error('repeated message');
+  for(let i=0;i<20;i++)window.console.error({privateValue:i});
   await new Promise(setImmediate);
   tick();
   await new Promise(setImmediate);
   const rows=requests.filter(e=>e.kind==='console.error');
-  assert.equal(captures,1);
-  assert.equal(new Set(rows.map(e=>e.seq)).size,1);
-  assert.equal(rows.at(-1).data.count,50);
-  assert.deepEqual(rows.at(-1).data.frames,['game.js:12:3']);
+  assert.equal(captures,2);
+  const latest=new Map(rows.map(e=>[e.seq,e.data]));
+  assert.deepEqual([...latest.values()].map(d=>d.count).sort((a,b)=>a-b),[20,50]);
+  for(const data of latest.values())assert.deepEqual(data.frames,['game.js:12:3']);
+  assert.doesNotMatch(JSON.stringify(rows),/privateValue/);
 });
