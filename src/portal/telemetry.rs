@@ -202,7 +202,7 @@ fn kind_level(k: &str, data: &Value) -> Option<&'static str> {
             "warn"
         }
         "js.error" | "js.rejection" | "console.error" | "webgl.lost" => "error",
-        "api.fail" | "resource.error" | "net.offline" | "voice.fail" | "voice.reconnecting"
+        "resource.error" | "net.offline" | "voice.fail" | "voice.reconnecting"
         | "page.discarded" | "recorder.dropped" => "warn",
         "page.load" | "page.show" | "page.hide" | "page.freeze" | "page.resume" | "page.exit"
         | "page.restore" | "net.online" | "game.frame_loaded" | "webgl.restored"
@@ -634,6 +634,16 @@ pub(super) async fn observe(
 mod tests {
     use super::*;
     #[test]
+    fn code_basenames_match_the_browser_fixtures() {
+        let fixtures: Vec<(String, bool)> = serde_json::from_str(include_str!(
+            "../../tests/fixtures/diagnostic-basenames.json"
+        ))
+        .unwrap();
+        for (name, valid) in fixtures {
+            assert_eq!(code_file(&name), valid, "{name:?}");
+        }
+    }
+    #[test]
     fn batch_fields_accept_measurements_and_drop_free_text() {
         let dirty = json!({"class":"TypeError", "route":"/api/chat/customer?secret#home",
             "message":"message body", "stack":"stack body", "access_token":"abc123",
@@ -658,5 +668,6 @@ mod tests {
             None
         );
         assert_eq!(kind_level("mp.connected", &json!({})), None);
+        assert_eq!(kind_level("api.fail", &json!({"status":502})), None);
     }
 }

@@ -291,8 +291,8 @@ export function recorder({source,endpoint,scope,headers={},appearance,now=wall})
     if(priorSeq===undefined&&['js.error','js.rejection','console.error','page.hide','page.freeze','page.exit','net.online'].includes(kind))void flush(['page.freeze','page.exit'].includes(kind));
     return sequence;
   });
-  function error(kind,data,src,detail){
-    const signature=[kind,data.class,data.file,data.line,data.col,data.frames?.[0],typeof detail==='string'?detail.split(/[?#]/,1)[0].slice(0,250):''].join('|');
+  function error(kind,data,src,detail,firstLocation){
+    const signature=[kind,data.class,data.file,data.line,data.col,data.frames?.[0],typeof detail==='string'?detail.slice(0,250).split(/[?#]/,1)[0]:''].join('|');
     let hash=2166136261;
     for(let i=0;i<signature.length;i++)hash=Math.imul(hash^signature.charCodeAt(i),16777619);
     const fingerprint=(hash>>>0).toString(16).padStart(8,'0');
@@ -301,6 +301,7 @@ export function recorder({source,endpoint,scope,headers={},appearance,now=wall})
     const group=seen.get(key);
     if(group){group.count++;return;}
     if(seen.size>=64){dropped++;return;}
+    if(firstLocation)Object.assign(data,firstLocation());
     const at=now();
     const seq=emit(kind,{...data,count:1},src,at);
     seen.set(key,{kind,data,src,at,seq,count:1,sent:1});
@@ -314,16 +315,33 @@ export function recorder({source,endpoint,scope,headers={},appearance,now=wall})
     }),true);
     win.addEventListener('unhandledrejection',safe(e=>error('js.rejection',{class:errorClass(e.reason),...errorLocation(undefined,e.reason?.stack)},src,e.reason?.message)));
     const original=win.console.error;
-    win.console.error=function diagnosticConsoleError(...args){
-      const caller=new Error();
+    function callerLocation(){
+      if(typeof Error.captureStackTrace==='function'){
+        const caller={};
+        Error.captureStackTrace(caller,diagnosticConsoleError);
+        return errorLocation(undefined,caller.stack);
+      }
+      // Firefox/WebKit include diagnosticConsoleError in their named frames.
+      const stack=new Error().stack||'';
+      const wrapper=stack.split('\n').findIndex(line=>line.includes('diagnosticConsoleError@'));
+      return wrapper<0?{}:errorLocation(undefined,stack,wrapper+1);
+    }
+    function diagnosticConsoleError(...args){
       safe(()=>{
         const err=args.find(arg=>arg instanceof win.Error);
-        // Safari/Firefox start at the wrapper; V8 also has an Error header.
-        const skip=caller.stack?.startsWith('Error\n')?2:1;
-        error('console.error',{class:errorClass(err),...errorLocation(undefined,err?.stack??caller.stack,err?.stack?0:skip)},src,err?.message??args[0]);
+        if(err){
+          const stack=err.stack;
+          const location=stack?errorLocation(undefined,stack):callerLocation();
+          error('console.error',{class:errorClass(err),...location},src,err.message);
+        }else if(typeof args[0]==='string'){
+          error('console.error',{class:'Error'},src,args[0],callerLocation);
+        }else{
+          error('console.error',{class:'Error',...callerLocation()},src);
+        }
       })();
       return original.apply(this,args);
-    };
+    }
+    win.console.error=diagnosticConsoleError;
     for(const [name,kind] of [['webglcontextlost','webgl.lost'],['webglcontextrestored','webgl.restored']])
       doc.addEventListener(name,()=>emit(kind,{},src),true);
   });
