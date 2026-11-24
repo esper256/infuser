@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {extname} from 'node:path';
 import {leakSoak} from './support/leak_soak.mjs';
+const args = process.argv.slice(2);
+assert(args.length <= 1 && (!args.length || /^--cycles=\d+$/.test(args[0])), 'Usage: node tests/leak_soak_journey.mjs [--cycles=2000]');
+const cycles = args.length ? Number(args[0].slice('--cycles='.length)) : 400;
+assert(Number.isSafeInteger(cycles) && cycles >= 400 && cycles % 50 === 0, 'Cycles must be at least 400 and a multiple of 50');
 const {chromium} = await import(process.env.INFUSER_PLAYWRIGHT || '../services/peerjs/node_modules/playwright/index.mjs');
 const root = new URL('../', import.meta.url);
 const origin = 'https://library.test';
@@ -108,7 +112,7 @@ try {
   const cycle = () => page.evaluate(() => window.__leakSoak.cycle());
   for (let i = 0; i < 20; i++) await cycle();
   await soak.checkpoint('baseline');
-  for (let i = 1; i <= 200; i++) {
+  for (let i = 1; i <= cycles; i++) {
     if (i === 101) await page.evaluate(() => window.__leakSoak.visibility(true));
     if (i === 151) await page.evaluate(() => window.__leakSoak.visibility(false));
     await cycle();
@@ -120,7 +124,7 @@ try {
     }
   }
   await soak.finish();
-  console.log('PASS: 20 warmup + 200 Library/client-state/closed-chat cycles; hidden pause/resume; exact resource counts and single poll timers.');
+  console.log(`PASS: 20 warmup + ${cycles} Library/client-state/closed-chat cycles; hidden pause/resume; exact resource counts and single poll timers.`);
 } catch (error) {
   if (soak) await soak.failure(error);
   throw error;

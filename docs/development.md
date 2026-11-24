@@ -183,7 +183,7 @@ unchanged-refresh and detail Library journeys; their zero-mutation and 320px
 Cartridge Club title/Play alignment checks remain prerequisites.
 
 After 20 warmup cycles, it fixes a post-GC baseline and invokes the production
-Library refresh, client-state check and closed-chat poll functions 200 times
+Library refresh, client-state check and closed-chat poll functions 400 times
 each. Checkpoints occur every 50 cycles. Cycles 101–150 simulate a hidden
 document through visibility getters and the visibility event, without changing
 clocks. Chat intentionally has zero live poll timers while hidden and exactly
@@ -194,13 +194,53 @@ polling logic, cache history, retry work, or wait with sleeps.
 
 Every measurement collects garbage three times through CDP, then reads
 `Performance.getMetrics`. Nodes, event listeners, documents and frames must equal
-the baseline exactly. Post-GC JS heap must stay within a fixed 1 MiB of baseline,
-and the last three checkpoints cannot be strictly increasing. No
-`performance.memory` or percentage tolerance is used as an oracle.
+the baseline exactly. Post-GC JS heap must stay within a fixed **320 KiB** of
+baseline, and the last three checkpoints cannot be strictly increasing. Starting
+at cycle 400, every checkpoint also checks the last eight measurements: split
+these into four consecutive pairs (100 cycles each), take each pair's minimum,
+and fail if all three increases between these low-water marks are at least
+**8 KiB**. This catches sustained growth with small intervening dips, below the
+absolute cap; a single step or bounded oscillation does not trigger it. There
+are no retries, sleeps, fake clocks, `performance.memory` readings, or percentage
+tolerances. Very small leaks can still evade a finite run.
 
-Each checkpoint writes a heap snapshot under `.local/leak-soak/run-*`. Failures
-also write `failure.heapsnapshot` and `failure.json`, print the checkpoint table,
-constructor counts that grew, and a strong-reference path from a GC root to the
-node with the largest increase in self size (including array backing storage).
-These artifacts are ignored by Git. The first slice covers idle polling only;
+For a longer investigation, append `--cycles=2000` (at least 400, a multiple of
+50). The same gates and checkpoint spacing apply; the hidden stretch remains
+101–150. Run `node --test tests/leak_soak.mjs` for diagnostic and gate regression
+checks, including a sawtooth leak, an inspector table larger than the leaked
+array, alternate retaining paths, and weak references.
+
+The one-time 2,000-cycle run on 2026-11-24 used Chromium 156.0.8078.79,
+Playwright 1.65.1 and Node 24.22.1. Its raw measurements are recorded in
+[`tests/fixtures/leak-soak-2000.json`](../tests/fixtures/leak-soak-2000.json),
+not used as expected heap values for future browsers. Heap started at 2,742,140
+bytes, peaked at 2,959,068 (+216,928 bytes, about 212 KiB), and finished at
+2,951,276. Growth settled rather than scaling with the cycle count; the final
+500-cycle range was 4,444 bytes. All resource counts stayed constant. A 320 KiB
+cap leaves 110,752 bytes (about 108 KiB) above that observed peak, substantially
+less than the original guessed 1 MiB. The 8 KiB block step exceeds the entire
+observed final 500-cycle range; the recorded series passes every rolling trend
+check. These are empirical bounds for this fixture, not a guarantee for every
+browser or a proof that all application paths are leak-free. Revisit them with
+recorded evidence if the browser or fixture changes, rather than relaxing a
+failed assertion automatically.
+
+Each checkpoint writes a heap snapshot under `.local/leak-soak/run-*`. A passing
+run also writes `results.json` with the raw table and threshold. Failures write
+`failure.heapsnapshot` and `failure.json`, print the checkpoint table and
+constructor count **or size** growth (including growing existing arrays), and
+show representative strong GC-root paths for up to eight growing constructor
+and storage groups per category. Groups rank by total new/expanded self bytes,
+not just one large allocation. These are investigation candidates, not proven
+culprits; replacement allocations can contribute to that total.
+
+Known Blink DevTools, Inspector and NetworkResourcesData retainers, and the
+`__leakSoak` test harness, have a separate instrumentation section. Paths that
+avoid instrumentation take precedence if both paths exist. Unknown retainers
+remain candidates; this is not a complete engine ownership classifier. Weak
+references are never used as strong-path evidence. **Nothing is subtracted from
+any metric gate**, including inspector bookkeeping. The complete snapshots
+remain available to investigate other nodes beyond the printed shortlist.
+
+These artifacts are ignored by Git. This slice covers idle polling only;
 player iframes, voice sessions, and a scheduled workflow are separate work.
