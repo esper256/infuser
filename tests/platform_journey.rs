@@ -473,6 +473,109 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .bearer_auth(&sessions[n].1)
             .header("origin", format!("https://{}", sessions[n].0))
     };
+    let browser = std::env::var("INFUSER_DIAGNOSTICS_BROWSER_NODE").ok();
+    if let Some(node) = &browser {
+        let outcome = tokio::process::Command::new(node)
+            .arg("tests/diagnostics_browser.mjs")
+            .args([&url, &sessions[0].0, &sessions[0].1])
+            .status()
+            .await?;
+        anyhow::ensure!(outcome.success(), "diagnostics browser journey failed");
+    }
+    // Follow a real launch across a browser retry, scoped publisher read and operator CLI.
+    let ctx: Value = game(0, reqwest::Method::GET, "/_infuser/context")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let diagnostic = json!({"scope":ctx["diagnostic_launch"],"events":[{"page":"deadbeef0001","seq":1,"at":infuser::timeline::ms(),"src":"game","kind":"js.error","data":{"class":"TypeError","message":"fixture failed at https://example.com/?token=private-fixture","file":"fixture.js","line":17}}]});
+    for _ in 0..2 {
+        game(0, reqwest::Method::POST, "/_infuser/telemetry")
+            .json(&diagnostic)
+            .send()
+            .await?
+            .error_for_status()?;
+    }
+    assert_eq!(
+        game(1, reqwest::Method::POST, "/_infuser/telemetry")
+            .json(&diagnostic)
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    assert_eq!(
+        publisher(
+            reqwest::Method::GET,
+            "/api/publisher/apps/other/diagnostic-events"
+        )
+        .send()
+        .await?
+        .status(),
+        401
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let batch: Value = publisher(
+                reqwest::Method::GET,
+                "/api/publisher/apps/moon/diagnostic-events",
+            )
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+            let events = batch["events"].as_array().unwrap();
+            let matching: Vec<_> = events
+                .iter()
+                .filter(|e| e["kind"] == "js.error" && e["data"]["file"] == "fixture.js")
+                .collect();
+            if let Some(e) = matching.first() {
+                assert_eq!(matching.len(), 1);
+                assert_eq!(e["data"]["file"], "fixture.js");
+                assert!(
+                    e.get("profile").is_none()
+                        && e["data"]["message"]
+                            .as_str()
+                            .unwrap()
+                            .contains("[redacted]")
+                );
+                assert!(
+                    events
+                        .iter()
+                        .any(|l| l["kind"] == "launch.create" && l["launch"] == e["launch"])
+                );
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    let config_path = dir.path().join("local.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            "[controller]\nstate_dir={:?}",
+            dir.path().display().to_string()
+        ),
+    )?;
+    let logs = std::process::Command::new(env!("CARGO_BIN_EXE_infuser"))
+        .arg("logs")
+        .arg(config_path)
+        .args(["--profile", "User", "--game", "moon", "--jsonl"])
+        .output()?;
+    anyhow::ensure!(
+        logs.status.success(),
+        "{}",
+        String::from_utf8_lossy(&logs.stderr)
+    );
+    let lines = String::from_utf8(logs.stdout)?;
+    if browser.is_some() {
+        assert!(lines.contains("Browser fixture crash") && lines.contains("page.freeze"));
+    }
+    assert!(lines.contains("fixture failed") && !lines.contains("private-fixture"));
     db.edit(|d| {
         d.presence.remove("user@example.com");
         Ok(())

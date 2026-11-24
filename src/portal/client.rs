@@ -10,6 +10,7 @@ pub(super) fn version() -> &'static str {
                 env!("CARGO_PKG_VERSION"),
                 include_str!("../../web/index.html"),
                 include_str!("../../web/clubhouse.js"),
+                include_str!("../../web/telemetry.js"),
                 include_str!("../../web/clubhouse.css"),
                 include_str!("../../web/chat.js"),
                 include_str!("../../web/chat-reads.js"),

@@ -792,7 +792,11 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     }catch{/* Fallback to unprocessed mic track if Web Audio processor fails. */}
   }
 
+  let diagnosticSession;
+  function voiceState(state,reason){window.dispatchEvent(new CustomEvent('infuser-voice-state',{detail:{state,reason,session:diagnosticSession}}));}
   async function start(){
+    diagnosticSession=undefined;
+    let stage='microphone';
     await stopMicTest();
     // Start audio in the button's user gesture, before microphone/network awaits.
     chimes.unlock();
@@ -814,9 +818,10 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       });
       if(attempt!==generation){mic.stop();return;}track=mic;
       const id=crypto.randomUUID();lease=id;
+      stage='grant';
       const grant=await request('/api/voice',{method:'POST',body:JSON.stringify({id})});
       if(attempt!==generation){await request('/api/voice',{method:'DELETE',body:JSON.stringify({id})});return;}
-      lease=grant.id;
+      lease=grant.id;diagnosticSession=grant.diagnostic_session;
       if(grant.epoch){serverEpoch=grant.epoch;revision=Number(grant.revision||0);lastAckedKey='';}
       outputController=mod.createOutputController({getAudioContext:ensureVoiceContext});
       if(devices.outputId)void outputController.setSinkId(devices.outputId);
@@ -859,23 +864,26 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
         paint();
         if(mixer.matches(':popover-open')&&!dragging)renderMixer();
       });
-      current.on(RoomEvent.Reconnecting,()=>{if(room===current){phase='reconnecting';chimes.quiet();paint();}});
+      current.on(RoomEvent.Reconnecting,()=>{if(room===current){phase='reconnecting';voiceState('reconnecting');chimes.quiet();paint();}});
       current.on(RoomEvent.Reconnected,()=>{
         if(room!==current)return;
-        roster();chimes.quiet();phase='on';
+        roster();chimes.quiet();phase='on';voiceState('reconnected');
         if(track&&!track.processor)void attachInputProcessor(track,mod,ensureVoiceContext()).then(()=>applyAudioState({ack:true}));
         else void applyAudioState({ack:true});
         paint();
       });
-      current.on(RoomEvent.Disconnected,()=>{if(room===current)void stop({message:'Voice chat disconnected. Tap the headset to join again.'});});
+      current.on(RoomEvent.Disconnected,reason=>{if(room===current)voiceState('disconnected',reason);if(room===current)void stop({message:'Voice chat disconnected. Tap the headset to join again.'});});
+      stage='connect';
       await current.connect(grant.url,grant.token,{autoSubscribe:true,maxRetries:1});
       if(attempt!==generation){void current.disconnect();return;}
+      stage='publish';
       await current.localParticipant.publishTrack(mic);
+      stage='playback';
       await current.startAudio();
       if(attempt!==generation)return;
       await attachInputProcessor(mic,mod,ctx);
       if(attempt!==generation)return;
-      roster();phase='on';heartbeatAt=0;
+      roster();phase='on';voiceState('connected');heartbeatAt=0;
       syncIdentityMap();
       await applyAudioState({ack:true});
       chimes.play(true);paint();
@@ -884,6 +892,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       if(mixer.matches(':popover-open')){lastMixerSig='';renderMixer();startMeterLoop();}
     }catch(error){
       if(attempt!==generation)return;
+      voiceState('fail',stage+' '+(error.name||'Error'));
       const message=error.name==='NotAllowedError'?'Allow microphone access in your browser to use voice chat.':error.name==='NotFoundError'?'Connect a microphone to use voice chat.':error.message||'Could not connect to voice chat.';
       await stop({message});
     }

@@ -125,9 +125,11 @@ function notice(message) {
   const toast=$('notice');toast.textContent=message;toast.classList.add('visible');
   noticeTimer=setTimeout(()=>{toast.classList.remove('visible');toast.textContent='';},5000);
 }
+let diagnostics;
 async function api(path, options = {}) {
   if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
-  const r = await profileFetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });
+  let r;try{r = await profileFetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });}catch(error){diagnostics?.emit('api.fail',{class:error.name,method:options.method||'GET'});throw error;}
+  if(!r.ok)diagnostics?.emit('api.fail',{status:r.status,request:r.headers.get('x-infuser-request-id'),method:options.method||'GET'});
   const result = await r.json();
   if(!r.ok) { if(selectedVisit && r.status===403 && String(result.error).includes('visit has ended'))returnHome(); const error = new Error(result.error || 'Please try again.'); error.status = r.status; error.code = result.code || ''; error.updating = result.code === 'updating'; throw error; }
   return result;
@@ -1672,6 +1674,9 @@ $('profile-form').onsubmit=async event=>{
 
 try {
   me=await api('/api/me');pinProfile(me.player_id);
+  void import('/assets/telemetry.js').then(({recorder})=>{
+    diagnostics=recorder({source:'library',endpoint:'/api/telemetry',scope:me.player_id,headers:{'X-Infuser-Profile':me.player_id,...(!inspection?visitHeaders():{}),...inspectionHeaders()}});
+  }).catch(()=>{});
   if(me.profile_count===1)window.InfuserThemes.pruneProfiles([me.player_id]);
   const migratedAppearance=await window.InfuserThemes.bindProfile(me.player_id,me.appearance);
   if(migratedAppearance&&!me.inspecting){

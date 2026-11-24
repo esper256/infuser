@@ -311,6 +311,8 @@ the choice to react to the player; do not manufacture praise or post on their be
 
 ## Reporting platform problems
 
+When a player reports a problem, read your [game’s recent browser and server events](server-diagnostics.md#browser-and-game-timeline) with the existing publishing credential.
+
 For problems with Infuser, Infuser Play, publishing, or the SDK:
 
 1. Reproduce the failure and check the recipe and server capabilities. Fix ordinary

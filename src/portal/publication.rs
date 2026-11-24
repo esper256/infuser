@@ -161,7 +161,7 @@ async fn stage(p: &Platform, body: Body, limit: u64) -> Result<Staged> {
 pub(super) async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"sessions":crate::dedicated::capabilities(),"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"title_locked":true,"duplicate_titles":{"version":1,"confirm":"allow_duplicate_title","normalization":"trim-lowercase"},"orientations":["landscape","portrait"],"resolutions":["hd","native"],"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"author_model_max_chars":120,"effort_level_max_chars":40,"estimated_prompts_max":1_000_000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"sessions":crate::dedicated::capabilities(),"diagnostic_events":{"version":1,"retention_hours":48},"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"title_locked":true,"duplicate_titles":{"version":1,"confirm":"allow_duplicate_title","normalization":"trim-lowercase"},"orientations":["landscape","portrait"],"resolutions":["hd","native"],"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"author_model_max_chars":120,"effort_level_max_chars":40,"estimated_prompts_max":1_000_000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -595,7 +595,7 @@ impl Platform {
     // the client pointer while its shared server is still on the previous build.
     fn promote(&self, app: &str, build: &str, listed: bool) -> Result<&'static str> {
         let key = build_key(app, build);
-        self.db.edit(|d| {
+        let state = self.db.edit(|d| {
             let b = d
                 .builds
                 .get(&key)
@@ -685,7 +685,20 @@ impl Platform {
             );
             d.pending_promotions.remove(app);
             Ok("published")
-        })
+        })?;
+        self.controller
+            .timeline
+            .record(crate::timeline::Event::server(
+                "game.publication",
+                crate::timeline::ContextFields {
+                    app: app.into(),
+                    build: build.into(),
+                    ..Default::default()
+                },
+                json!({"state":state}),
+                true,
+            ));
+        Ok(state)
     }
     /// The catalog is publication intent; controller state is recoverable runtime
     /// accounting. Repair either side of an interrupted promotion or retirement.

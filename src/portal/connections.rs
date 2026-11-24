@@ -237,6 +237,13 @@ impl Drop for ConnectionGuard {
         let mut attempts = self.p.connections.lock().unwrap();
         attempts.finish(&self.id, ConnectionState::Closed, None, now());
         if let Some(attempt) = attempts.0.get(&self.id) {
+            self.p
+                .controller
+                .timeline
+                .record(super::telemetry::connection_event(
+                    attempt,
+                    "connection.end",
+                ));
             tracing::info!(app_id = %attempt.identity.app_id, build_id = %attempt.identity.build_id,
                 instance_id = %attempt.identity.instance_id, connection_id = %self.id,
                 state = ?attempt.state, reason = ?attempt.error, "managed connection ended");
@@ -388,6 +395,12 @@ pub(super) async fn socket(
                 .lock()
                 .unwrap()
                 .finish(&id, ConnectionState::Connected, None, now());
+            p.controller
+                .timeline
+                .record(super::telemetry::connection_event(
+                    &attempt,
+                    "connection.open",
+                ));
             tracing::info!(app_id = %attempt.identity.app_id, build_id = %attempt.identity.build_id,
                 instance_id = %attempt.identity.instance_id, connection_id = %id,
                 "managed connection established");

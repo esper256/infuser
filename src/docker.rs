@@ -9,6 +9,7 @@ pub(crate) const OWNER: &str = "org.infuser.controller";
 pub(crate) const GAME: &str = "org.infuser.game";
 const ATTEMPT: &str = "org.infuser.attempt";
 mod diagnostics;
+pub(crate) use diagnostics::retained_at;
 pub use diagnostics::{capabilities as diagnostics_capabilities, retained as retained_diagnostics};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
