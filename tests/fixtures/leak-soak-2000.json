@@ -1,0 +1,333 @@
+{
+  "description": "Offline reference run, 20 warmup + 2000 cycles, 2026-11-24; Chromium 156.0.8078.79, Playwright 1.65.1, Node 24.22.1. Raw post-GC Performance.getMetrics; not an expected-value baseline.",
+  "checkpoints": [
+    {
+      "checkpoint": "baseline",
+      "JSHeapUsedSize": 2742140,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-50",
+      "JSHeapUsedSize": 2784688,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-100",
+      "JSHeapUsedSize": 2818864,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-150",
+      "JSHeapUsedSize": 2825688,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-200",
+      "JSHeapUsedSize": 2819336,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-250",
+      "JSHeapUsedSize": 2842692,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-300",
+      "JSHeapUsedSize": 2845212,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-350",
+      "JSHeapUsedSize": 2852904,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-400",
+      "JSHeapUsedSize": 2850088,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-450",
+      "JSHeapUsedSize": 2859560,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-500",
+      "JSHeapUsedSize": 2875680,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-550",
+      "JSHeapUsedSize": 2934608,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-600",
+      "JSHeapUsedSize": 2934976,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-650",
+      "JSHeapUsedSize": 2939072,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-700",
+      "JSHeapUsedSize": 2936684,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-750",
+      "JSHeapUsedSize": 2934180,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-800",
+      "JSHeapUsedSize": 2934984,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-850",
+      "JSHeapUsedSize": 2939380,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-900",
+      "JSHeapUsedSize": 2936460,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-950",
+      "JSHeapUsedSize": 2946548,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1000",
+      "JSHeapUsedSize": 2943612,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1050",
+      "JSHeapUsedSize": 2952512,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1100",
+      "JSHeapUsedSize": 2953556,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1150",
+      "JSHeapUsedSize": 2956824,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1200",
+      "JSHeapUsedSize": 2952140,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1250",
+      "JSHeapUsedSize": 2957468,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1300",
+      "JSHeapUsedSize": 2957228,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1350",
+      "JSHeapUsedSize": 2959068,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1400",
+      "JSHeapUsedSize": 2955712,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1450",
+      "JSHeapUsedSize": 2950016,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1500",
+      "JSHeapUsedSize": 2950000,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1550",
+      "JSHeapUsedSize": 2949984,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1600",
+      "JSHeapUsedSize": 2950620,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1650",
+      "JSHeapUsedSize": 2950112,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1700",
+      "JSHeapUsedSize": 2950112,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1750",
+      "JSHeapUsedSize": 2950112,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1800",
+      "JSHeapUsedSize": 2950128,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1850",
+      "JSHeapUsedSize": 2954428,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1900",
+      "JSHeapUsedSize": 2951308,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-1950",
+      "JSHeapUsedSize": 2951356,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    },
+    {
+      "checkpoint": "cycles-2000",
+      "JSHeapUsedSize": 2951276,
+      "Nodes": 4068,
+      "JSEventListeners": 1226,
+      "Documents": 1,
+      "Frames": 1
+    }
+  ]
+}
