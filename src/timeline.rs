@@ -324,7 +324,14 @@ pub fn read(
         return Ok(json!({"events":[],"next":null}));
     }
     let c = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let mut stmt=c.prepare("SELECT id,at,body,strftime('%Y-%m-%dT%H:%M:%fZ',at/1000.0,'unixepoch') FROM events WHERE at BETWEEN ?1 AND ?2 AND (at,id)>(?3,?4) AND (?5 IS NULL OR app=?5) AND (?6 IS NULL OR profile=?6) AND (?7=0 OR visible=1) ORDER BY at,id LIMIT ?8")?;
+    let mut stmt = c.prepare(
+        "SELECT id, at, body, strftime('%Y-%m-%dT%H:%M:%fZ', at/1000.0, 'unixepoch')
+         FROM events WHERE at BETWEEN ?1 AND ?2 AND (at,id) > (?3,?4)
+           AND (?5 IS NULL OR app = ?5)
+           AND (?6 IS NULL OR profile IN (?6, ''))
+           AND (?7 = 0 OR visible = 1)
+         ORDER BY at,id LIMIT ?8",
+    )?;
     let mut rows = stmt.query(params![
         since,
         until,
