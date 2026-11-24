@@ -308,6 +308,16 @@ pub fn read(
     profile: Option<&str>,
     publisher: bool,
 ) -> Result<Value> {
+    read_at(path, filter, app, profile, publisher, ms())
+}
+pub(crate) fn read_at(
+    path: &Path,
+    filter: &Filter,
+    app: Option<&str>,
+    profile: Option<&str>,
+    publisher: bool,
+    now: i64,
+) -> Result<Value> {
     let limit = filter.limit.unwrap_or(200);
     ensure!((1..=500).contains(&limit), "limit must be 1–500");
     let (cursor_at, cursor_id) = match &filter.cursor {
@@ -317,9 +327,9 @@ pub fn read(
         }
         None => (0, 0),
     };
-    let floor = ms() - 2 * DAY;
+    let floor = now - 2 * DAY;
     let since = filter.since_ms.unwrap_or(floor).max(floor);
-    let until = filter.until_ms.unwrap_or_else(ms);
+    let until = filter.until_ms.unwrap_or(now);
     if !path.exists() {
         return Ok(json!({"events":[],"next":null}));
     }
@@ -352,6 +362,27 @@ pub fn read(
         }
         let mut v: Value = serde_json::from_str(&row.get::<_, String>(2)?)?;
         v["utc"] = row.get::<_, String>(3)?.into();
+        if matches!(v["kind"].as_str(), Some("api.fail" | "api.result"))
+            && v["data"]["status"] == 502
+        {
+            // Use occurrence time, including for offline uploads. Require an actual activation
+            // of this binary near startup so ordinary restarts and unrelated 502s stay visible.
+            let at: i64 = row.get(1)?;
+            let during_deploy: bool = c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM events s JOIN events d
+                   ON d.app='' AND d.profile='' AND d.at BETWEEN s.at-60000 AND s.at+60000
+                   AND json_extract(d.body,'$.kind')='deploy.outcome'
+                   AND json_extract(d.body,'$.data.result')='activated'
+                   AND json_extract(d.body,'$.data.release')=json_extract(s.body,'$.data.version')
+                 WHERE s.app='' AND s.profile='' AND s.at BETWEEN ?1-30000 AND ?1+10000
+                   AND json_extract(s.body,'$.kind')='controller.start')",
+                [at],
+                |r| r.get(0),
+            )?;
+            if during_deploy {
+                v["data"]["deploy_restart"] = true.into();
+            }
+        }
         if publisher {
             let game_error = v["src"] == "game"
                 && v.get("visit").is_none()
@@ -380,6 +411,7 @@ pub fn read(
                                 | "method"
                                 | "exit_code"
                                 | "oom_killed"
+                                | "deploy_restart"
                                 | "health"
                         )
                 });

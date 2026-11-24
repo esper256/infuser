@@ -14,6 +14,11 @@ void import('/_infuser/telemetry.js').then(({recorder})=>{
     diagnostics=recorder({source:'player',endpoint:'/_infuser/telemetry',scope:document.documentElement.dataset.diagnosticLaunch});
     if(game.contentDocument&&game.getAttribute('src'))diagnostics?.hook(game.contentWindow,'game');
   }).catch(()=>{});
+async function playerFetch(path,options){
+  const response=await ownFetch(path,options);
+  if(!response.ok)diagnostics?.emit('api.fail',{status:response.status,method:options?.method||'GET',request:response.headers.get('x-infuser-request-id')});
+  return response;
+}
 function resolutionChoiceMatters(){
   const rect=viewport.getBoundingClientRect(),area=rect.width*rect.height;
   if(!(area>0))return true;
@@ -210,7 +215,7 @@ addEventListener('pagehide', event => {
   if (!event.persisted && page) {
     // Keep the same-origin POST alive as the tab closes. The player response
     // suppresses referrers by default; the endpoint verifies the request Origin.
-    fetch('/_infuser/player-pages/'+page+'/close', {
+    playerFetch('/_infuser/player-pages/'+page+'/close', {
       method:'POST', keepalive:true, credentials:'same-origin', referrerPolicy:'same-origin'
     }).catch(()=>{}); // The heartbeat timeout covers missed departures.
   }
@@ -235,7 +240,7 @@ document.addEventListener('fullscreenchange',()=>{
   button.setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');
 });
 try{
-  const response=await fetch('/_infuser/context',{credentials:'same-origin'});
+  const response=await playerFetch('/_infuser/context',{credentials:'same-origin'});
   const session=await response.json();
   if(!response.ok)throw Error(session.error||'Open this game again from your Library.');
   currentAppId=session.app_id||null;
@@ -258,7 +263,7 @@ try{
           header,
           anchorBefore: resolutionButton,
           voiceToken: playerVoiceToken,
-          fetchFn: ownFetch,
+          fetchFn: playerFetch,
           onPopoverChange(isOpen) {
             voiceMenuOpen = isOpen;
             if (isOpen) {
@@ -274,7 +279,7 @@ try{
         });
       }).catch(() => { /* Voice controls are optional and must never block game launch. */ });
     }
-    const report=()=>fetch('/_infuser/input',{method:'POST',credentials:'same-origin'});
+    const report=()=>playerFetch('/_infuser/input',{method:'POST',credentials:'same-origin'});
     const padActive=watchInput(document,report);
     game.addEventListener('load',()=>{
       const doc=game.contentDocument;
@@ -306,7 +311,7 @@ try{
     async function check(){
       watch();if(ended||checking)return;checking=true;
       try{
-        const r=await fetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
+        const r=await playerFetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
         if([401,403,404,410].includes(r.status)){end();return;}
         if(r.ok){const state=await r.json();watch();if(!ended){checked=performance.now();checkedWall=Date.now();if(state.visit){const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);message(left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'');}}}
       }catch{watch();}finally{checking=false;}

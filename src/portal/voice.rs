@@ -232,6 +232,7 @@ impl Platform {
                     } else {
                         "voice.access_ended"
                     },
+                    time,
                 );
             }
             keep
@@ -517,7 +518,7 @@ async fn join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestI
         applied_deafened: false,
     };
     let token = v.participant_token(&lease, now());
-    super::telemetry::voice_event(&p, &lease, "voice.grant");
+    super::telemetry::voice_event(&p, &lease, "voice.grant", now());
     let id = lease.id.clone();
     let channel_peers: Vec<String> = {
         let mut state = v.state.lock().unwrap();
@@ -623,7 +624,7 @@ async fn remove_owner_lease(p: &Platform, v: &Service, owner: &str, filter_id: O
         (removed, peers)
     };
     if let Some(l) = removed {
-        super::telemetry::voice_event(p, &l, "voice.release");
+        super::telemetry::voice_event(p, &l, "voice.release", now());
         v.bump_owner(owner, 0);
         for peer_owner in channel_peers {
             v.notify_game(&peer_owner);

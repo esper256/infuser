@@ -18,48 +18,74 @@ function describe(error){return {
   class:scrub(error?.name),stack:frames(error?.stack)
 };}
 function stored(key){try{return JSON.parse(localStorage.getItem(key));}catch{return null;}}
-export function recorder({source,endpoint,scope,headers={}}){
+export function recorder({source,endpoint,scope,headers={},now=wall}){
   if(!scope)return;
   const page=crypto.randomUUID(), key=prefix+page, transport=window.fetch.bind(window);
   const binding=JSON.stringify([endpoint,scope,headers]);
   let tab=page;
   safe(()=>{tab=sessionStorage.getItem(prefix+'tab')||page;sessionStorage.setItem(prefix+'tab',tab);})();
-  let seq=0,queue=[],pending=false,flushAgain=false,offset=0,uncertainty,clockReady=false,clockAt=0,dropped=0;
+  let seq=0,queue=[],pending=false,flushAgain=false,offset=0,uncertainty,clockReady=false,dropped=0;
+  const clockKey='infuser.diagnosticClock.v1';
+  const cached=stored(clockKey);
+  let clockSent=0;
+  if(cached&&Number.isFinite(cached.offset)&&Number.isFinite(cached.uncertainty)&&cached.at<=now()&&now()-cached.at<600000){
+    offset=cached.offset;uncertainty=cached.uncertainty;clockReady=true;clockSent=cached.at;
+  }
   const seen=new Map(), attached=new WeakSet();
   const client=(navigator.userAgent.match(/(?:Firefox|Edg|Chrome|Version)\/\d+/)?.[0]||'browser')+' '+(navigator.userAgent.match(/Android|iPhone|iPad|Windows|CrOS|Macintosh|Linux/)?.[0]||'');
   const version=document.querySelector('meta[name="infuser-client-version"]')?.content;
   const keys=()=>Object.keys(localStorage).filter(k=>k.startsWith(prefix));
   const persist=safe(()=>{
-    if(queue.length)localStorage.setItem(key,JSON.stringify({binding,expires:Date.now()+ttl,events:queue}));
+    if(queue.length)localStorage.setItem(key,JSON.stringify({binding,expires:now()+ttl,events:queue}));
     else localStorage.removeItem(key);
   });
   const sweep=safe(()=>{
     const live=[];
-    for(const k of keys()){const rec=stored(k);if(!rec||rec.expires<Date.now())localStorage.removeItem(k);else live.push([rec.expires,k]);}
+    for(const k of keys()){const rec=stored(k);if(!rec||rec.expires<now())localStorage.removeItem(k);else live.push([rec.expires,k]);}
     live.sort((a,b)=>b[0]-a[0]).slice(12).forEach(([,k])=>localStorage.removeItem(k));
   });
-  async function post(events){
+  async function post(events,clientMs){
     const res=await transport(endpoint,{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json',...headers},
-      body:JSON.stringify({scope,events}),signal:AbortSignal.timeout(7000)});
+      body:JSON.stringify({scope,events,client_ms:Math.round(clientMs)}),signal:AbortSignal.timeout(7000)});
     if(!res.ok)throw Error('diagnostic delivery failed');
     return (await res.json()).server_ms;
   }
-  async function flush(){
-    if(pending){flushAgain=true;return;}
+  async function send(events){
+    const sent=now();
+    const server=await post(events.map(({estimated,...e})=>({...e,at:estimated?e.at:Math.round(e.at+offset),data:{uncertainty_ms:uncertainty,...e.data}})),sent);
+    const received=now();
+    if(Number.isFinite(server)&&sent>=clockSent){
+      offset=server-(received+sent)/2;
+      uncertainty=Math.ceil((received-sent)/2);
+      clockReady=true;clockSent=sent;
+      safe(()=>localStorage.setItem(clockKey,JSON.stringify({offset,uncertainty,at:sent})))();
+    }
+  }
+  const inFlight=new Set();
+  async function deliver(batch){
+    for(const e of batch)inFlight.add(e.seq);
+    try{
+      await send(batch);
+      const confirmed=new Set(batch.map(e=>e.seq));
+      queue=queue.filter(e=>!confirmed.has(e.seq));persist();
+    }finally{for(const e of batch)inFlight.delete(e.seq);}
+  }
+  async function flush(lastChance=false){
+    if(pending){
+      flushAgain=true;
+      if(lastChance){
+        const batch=queue.filter(e=>!inFlight.has(e.seq)).slice(-8);
+        if(batch.length)await deliver(batch).catch(()=>{});
+      }
+      return;
+    }
     if(!navigator.onLine)return;
     pending=true;flushAgain=false;let delivered=false;
     try{
       sweep();
-      if(!clockReady||Date.now()-clockAt>600000){
-        const sent=wall(),server=await post([]),received=wall();
-        if(!Number.isFinite(server))return;
-        offset=server-(received+sent)/2;uncertainty=Math.ceil((received-sent)/2);clockReady=true;clockAt=Date.now();
-      }
-      const send=events=>post(events.map(({estimated,...e})=>({...e,at:estimated?e.at:Math.round(e.at+offset),data:{uncertainty_ms:uncertainty,...e.data}})));
       if(queue.length){
-        const batch=queue.slice(0,8);
-        await send(batch);
-        const last=batch.at(-1).seq;queue=queue.filter(e=>e.seq>last);persist();
+        const batch=queue.filter(e=>!inFlight.has(e.seq)).slice(0,8);
+        if(batch.length)await deliver(batch);
       }
       // Other pages may still be writing. Never overwrite a record changed during delivery.
       for(const k of safe(keys)()||[]){
@@ -81,16 +107,21 @@ export function recorder({source,endpoint,scope,headers={}}){
       const expendable=queue.findIndex(e=>['mem.sample','page.show','page.hide','resource.error','error.repeat'].includes(e.kind));
       queue.splice(Math.max(0,expendable),1);dropped++;
     }
-    queue.push({page,seq:++seq,at:Math.round(wall()+(clockReady?offset:0)),estimated:clockReady,src,kind,data:{...data,tab,...(clockReady?{uncertainty_ms:uncertainty}:{})}});
+    queue.push({page,seq:++seq,at:Math.round(now()+(clockReady?offset:0)),estimated:clockReady,src,kind,data:{...data,tab,...(clockReady?{uncertainty_ms:uncertainty}:{})}});
     persist();
-    if(['js.error','js.rejection','console.error','page.hide','page.freeze','page.exit','net.online'].includes(kind))void flush();
+    if(['js.error','js.rejection','console.error','page.hide','page.freeze','page.exit','voice.stopped','voice.disconnected','net.online'].includes(kind))void flush(['page.freeze','page.exit','voice.stopped','voice.disconnected'].includes(kind));
   });
   function error(kind,data,src){
-    const fingerprint=[kind,data.class,data.message,data.file,data.line].join('|');
-    const n=seen.get(fingerprint)||0;
-    if(n>=3){seen.set(fingerprint,n+1);return;}
-    if(seen.size>=64&&!seen.has(fingerprint)){dropped++;return;}
-    seen.set(fingerprint,n+1);emit(kind,data,src);
+    const signature=[kind,data.class,data.message,data.file,data.line].join('|');
+    let hash=2166136261;
+    for(let i=0;i<signature.length;i++)hash=Math.imul(hash^signature.charCodeAt(i),16777619);
+    const fingerprint=(hash>>>0).toString(16).padStart(8,'0');
+    data.fingerprint=fingerprint;
+    const key=src+'|'+fingerprint;
+    const n=seen.get(key)||0;
+    if(n>=3){seen.set(key,n+1);return;}
+    if(seen.size>=64&&!seen.has(key)){dropped++;return;}
+    seen.set(key,n+1);emit(kind,data,src);
   }
   const hook=safe((win,src)=>{
     const doc=win.document;if(attached.has(doc))return;attached.add(doc);
@@ -112,11 +143,11 @@ export function recorder({source,endpoint,scope,headers={}}){
   window.addEventListener('pagehide',e=>emit('page.exit',{state:e.persisted?'cached':'departed'}));
   window.addEventListener('pageshow',e=>{if(e.persisted)emit('page.restore');});
   for(const name of ['online','offline'])window.addEventListener(name,()=>emit('net.'+name));
-  window.addEventListener('infuser-voice-state',e=>{if(['connected','reconnecting','reconnected','disconnected','fail'].includes(e.detail?.state))emit('voice.'+e.detail.state,{state:scrub(String(e.detail.reason??'')),session:e.detail.session});});
+  window.addEventListener('infuser-voice-state',e=>{if(['connected','reconnecting','reconnected','disconnected','stopped','fail'].includes(e.detail?.state))emit('voice.'+e.detail.state,{state:scrub(String(e.detail.reason??'')),session:e.detail.session,stop_reason:e.detail.stopReason});});
   let sampleAt=0;
   setInterval(()=>{
     if(dropped){const count=dropped;dropped=0;emit('recorder.dropped',{count});}
-    for(const [fp,n] of seen){if(n>3){emit('error.repeat',{message:scrub(fp),count:n-3});seen.set(fp,3);}}
+    for(const [fp,n] of seen){if(n>3){const [src,fingerprint]=fp.split('|');emit('error.repeat',{fingerprint,count:n-3},src);seen.set(fp,3);}}
     if(!document.hidden&&performance.now()-sampleAt>=300000&&performance.memory?.usedJSHeapSize){sampleAt=performance.now();emit('mem.sample',{heap_bytes:performance.memory.usedJSHeapSize,uptime_ms:Math.round(sampleAt)});}
     void flush();
   },15000);
