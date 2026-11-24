@@ -1,7 +1,7 @@
 import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
 // Capture fetch and consume the per-page voice token before the game iframe loads.
-const ownFetch = window.fetch.bind(window);
+
 const voiceTokenMeta = document.querySelector('meta[name="infuser-voice-token"]');
 const playerVoiceToken = voiceTokenMeta?.content || '';
 voiceTokenMeta?.remove();
@@ -10,15 +10,8 @@ const viewport=document.getElementById('viewport'),resolutionButton=document.get
 const MAX_RENDER_PIXELS=1920*1080;
 let hdCap=true,currentAppId=null,diagnostics;
 window.infuserHdCap=()=>hdCap;
-void import('/_infuser/telemetry.js').then(({recorder})=>{
-    diagnostics=recorder({source:'player',endpoint:'/_infuser/telemetry',scope:document.documentElement.dataset.diagnosticLaunch});
-    if(game.contentDocument&&game.getAttribute('src'))diagnostics?.hook(game.contentWindow,'game');
-  }).catch(()=>{});
-async function playerFetch(path,options){
-  const response=await ownFetch(path,options);
-  if(!response.ok)diagnostics?.emit('api.fail',{status:response.status,method:options?.method||'GET',request:response.headers.get('x-infuser-request-id')});
-  return response;
-}
+try{const {recorder}=await import('/_infuser/telemetry.js');diagnostics=recorder({source:'player',endpoint:'/_infuser/telemetry',scope:document.documentElement.dataset.diagnosticLaunch});}catch{}
+const playerFetch=window.fetch.bind(window);
 function resolutionChoiceMatters(){
   const rect=viewport.getBoundingClientRect(),area=rect.width*rect.height;
   if(!(area>0))return true;
@@ -243,6 +236,7 @@ try{
   const response=await playerFetch('/_infuser/context',{credentials:'same-origin'});
   const session=await response.json();
   if(!response.ok)throw Error(session.error||'Open this game again from your Library.');
+  diagnostics?.link('launch').set('up');
   currentAppId=session.app_id||null;
 
   let savedHd=null;
@@ -302,11 +296,11 @@ try{
   }
   const initialDoc=game.contentDocument;
   const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc){diagnostics?.hook(game.contentWindow,'game');tuneGraphics(game.contentWindow);}},5);
-  game.addEventListener('load',()=>{clearInterval(hookTimer);diagnostics?.hook(game.contentWindow,'game');diagnostics?.emit('game.frame_loaded');tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
+  game.addEventListener('load',()=>{clearInterval(hookTimer);diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
   if(session.visit){
     let checked=performance.now(),checkedWall=Date.now(),ended=false,checking=false;
-    const end=()=>{if(ended)return;ended=true;gameOrientation=null;releaseOrientation();game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;showControls();message('This visit has ended. Return to your Library.');};
+    const end=()=>{if(ended)return;ended=true;diagnostics?.link('launch').set('ended','visit_end');gameOrientation=null;releaseOrientation();game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;showControls();message('This visit has ended. Return to your Library.');};
     const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)end();};
     async function check(){
       watch();if(ended||checking)return;checking=true;
@@ -319,13 +313,13 @@ try{
     setInterval(watch,500);setInterval(check,5000);
     document.addEventListener('visibilitychange',()=>{watch();if(!document.hidden)check();});
   }
-}catch(error){title.textContent='Game unavailable';message(error.message);}
+}catch(error){diagnostics?.loadFailed(error);title.textContent='Game unavailable';message(error.message);}
 const connection=document.createElement('span');connection.id='connection';connection.hidden=true;
 connection.setAttribute('role','img');button.before(connection);
 window.addEventListener('message',event=>{
   if(event.origin!==location.origin||event.source!==game.contentWindow||event.data?.type!=='infuser-network')return;
   const descriptions={connected:'Connected',connecting:'Connecting',ended:'Multiplayer disconnected'};
   const state=event.data.status;if(!descriptions[state])return;
-  diagnostics?.emit('mp.'+state);connection.hidden=false;connection.textContent=state==='connected'?'●':state==='connecting'?'◌':'○';
+  diagnostics?.multiplayer(state);connection.hidden=false;connection.textContent=state==='connected'?'●':state==='connecting'?'◌':'○';
   connection.dataset.state=state;connection.title=descriptions[state];connection.setAttribute('aria-label',descriptions[state]);
 });

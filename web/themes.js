@@ -415,7 +415,9 @@
   if (typeof document.addEventListener === 'function' && document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', paintChrome);
   }
+  let diagnosticAppearance;
   window.InfuserThemes = Object.freeze({
+    get diagnosticAppearance(){return diagnosticAppearance;},
     catalog, defaultId, defaultCustom,
     get current() { return document.documentElement.dataset.theme; },
     get currentScheme() { return schemeFor(document.documentElement.dataset.theme); },
@@ -465,6 +467,7 @@
           target = normalizeAppearance(null);
         }
       }
+      diagnosticAppearance={theme:target.theme,source:serverAppearance?'server':migrated?'legacy':'default'};
       return applyState(target, true).then(() => migrated, () => migrated);
     },
     select(id) {
@@ -529,6 +532,7 @@
     if (activeProfileId) {
       if (event.key !== profileKey(activeProfileId) && event.key !== null) return;
       const next = readProfileCache(activeProfileId) || normalizeAppearance(null);
+      diagnosticAppearance={theme:next.theme,source:'other_tab'};
       applyState(next, false).catch(() => {});
       return;
     }

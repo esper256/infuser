@@ -33,7 +33,7 @@ function messageText(value){
   return text;
 }
 // Shared Library room. All message text stays text, never markup or links.
-export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
+export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=()=>{}}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const emptyMessage=me.inspecting?'No messages yet.':'No messages yet. Start the conversation.';
   const root=document.createElement('aside');root.id='library-chat';root.setAttribute('aria-label','Library chat');
@@ -435,7 +435,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     if(busy||document.hidden)return;
     busy=true;
     try{
-      const data=await request('/api/chat');
+      const data=await request('/api/chat');diagnostics?.link('chat').set('up');
       reads=data.reads||[];
       const ownRead=reads.find(read=>read&&read.id===me.player_id);
       if(ownRead)readAck=Math.max(readAck,Number(ownRead.message)||0);
@@ -443,7 +443,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       render(data.messages);
       setText($('connection'),'');
     }
-    catch(error){$('connection').textContent=error.status===401||error.status===403?'Sign in again to chat.':'Reconnecting…';}
+    catch(error){diagnostics?.link('chat').set('down',[401,403].includes(error.status)?'access_lost':'network');$('connection').textContent=error.status===401||error.status===403?'Sign in again to chat.':'Reconnecting…';}
     finally{busy=false;timer=setTimeout(poll,isOpen()?3000:10000);}
   }
   $('form').onsubmit=async event=>{

@@ -20,9 +20,16 @@ struct Series {
     first: (i64, u64),
     last: (i64, u64),
     peak: u64,
+    mean_t: f64,
+    mean_bytes: f64,
+    cov: f64,
+    var_t: f64,
 }
 #[derive(Default)]
 pub(super) struct Report {
+    links: BTreeMap<String, u64>,
+    ops: BTreeMap<String, (Vec<u64>, usize, usize)>,
+    fetches: BTreeMap<String, u64>,
     errors: BTreeMap<String, ErrorGroup>,
     stops: BTreeMap<String, u64>,
     drops: BTreeMap<String, u64>,
@@ -36,6 +43,47 @@ impl Report {
         let d = &e["data"];
         let kind = field(e, "kind");
         match kind {
+            "link" => {
+                let ms = d["down_ms"].as_u64().unwrap_or(0);
+                if ms > 0 {
+                    *self
+                        .links
+                        .entry(format!(
+                            "{} / {}",
+                            field(d, "name"),
+                            d["down_reason"].as_str().unwrap_or("unknown")
+                        ))
+                        .or_default() += ms;
+                }
+            }
+            "op" => {
+                let (durations, fail, abandoned) =
+                    self.ops.entry(field(d, "name").into()).or_default();
+                durations.push(d["duration_ms"].as_u64().unwrap_or(0));
+                *fail += usize::from(d["outcome"] == "fail");
+                *abandoned += usize::from(d["outcome"] == "abandoned");
+            }
+            "fetch.fail" => {
+                let count = d["count"].as_u64().unwrap_or(1);
+                let status = d["status"]
+                    .as_u64()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| field(d, "class").into());
+                let cause = if d["deploy_restart"] == true {
+                    " (deploy window)"
+                } else {
+                    ""
+                };
+                *self
+                    .fetches
+                    .entry(format!(
+                        "{} {} {status}{cause}",
+                        field(d, "method"),
+                        field(d, "route")
+                    ))
+                    .or_default() += count;
+            }
+
             "api.fail" | "api.result"
                 if kind == "api.fail" || d["status"].as_u64().is_some_and(|s| s >= 400) =>
             {
@@ -82,11 +130,7 @@ impl Report {
                 .map(str::to_owned)
                 .unwrap_or_else(|| crate::platform::hash(&fallback)[..12].into());
             let group = self.errors.entry(fingerprint).or_default();
-            group.count += if kind == "error.repeat" {
-                d["count"].as_u64().unwrap_or(1)
-            } else {
-                1
-            };
+            group.count += d["count"].as_u64().unwrap_or(1);
             if group.example.is_empty()
                 || (kind != "error.repeat" && group.example.starts_with("error.repeat"))
             {
@@ -110,7 +154,7 @@ impl Report {
         }
     }
     pub(super) fn add_sample(&mut self, e: &Value) {
-        if e["kind"] != "mem.sample" {
+        if e["kind"] != "mem.sample" && e["kind"] != "page.vitals" {
             return;
         }
         let (Some(bytes), Some(at), Some(page)) = (
@@ -133,6 +177,13 @@ impl Report {
         s.last = (at, bytes);
         s.peak = s.peak.max(bytes);
         s.samples += 1;
+        let t = (at - s.first.0) as f64;
+        let dt = t - s.mean_t;
+        let dy = bytes as f64 - s.mean_bytes;
+        s.mean_t += dt / s.samples as f64;
+        s.mean_bytes += dy / s.samples as f64;
+        s.var_t += dt * (t - s.mean_t);
+        s.cov += dt * (bytes as f64 - s.mean_bytes);
     }
     pub(super) fn print(&self, out: &mut impl Write, opts: &Options, names: &Names) -> Result<()> {
         if opts.mode == Mode::Memory {
@@ -143,10 +194,10 @@ impl Report {
                     continue;
                 }
                 let growth = i128::from(s.last.1) - i128::from(s.first.1);
-                if opts.leaks && growth <= 0 {
+                if opts.leaks && s.cov <= 0.0 {
                     continue;
                 }
-                let rate = growth as f64 * 3_600_000.0 / duration as f64 / 1_048_576.0;
+                let rate = s.cov / s.var_t * 3_600_000.0 / 1_048_576.0;
                 rows.push((rate,json!({"profile":profile,"app":app,"tab":tab,"page":page,"samples":s.samples,"first_ms":s.first.0,"last_ms":s.last.0,"first_bytes":s.first.1,"last_bytes":s.last.1,"peak_bytes":s.peak,"growth_bytes":growth as i64,"mib_per_hour":rate})));
             }
             rows.sort_by(|a, b| b.0.total_cmp(&a.0));
@@ -180,12 +231,27 @@ impl Report {
         let mut errors = self.errors.iter().collect::<Vec<_>>();
         errors.sort_by_key(|(key, g)| (std::cmp::Reverse(g.count), *key));
         errors.truncate(20);
+        let mut ops = BTreeMap::new();
+        for (name, (durations, failed, abandoned)) in &self.ops {
+            let mut sorted = durations.clone();
+            sorted.sort_unstable();
+            let count = sorted.len();
+            let nearest_rank = |percent: usize| sorted[(count * percent).div_ceil(100) - 1];
+            ops.insert(
+                name,
+                json!({
+                    "count": count, "failed": failed, "abandoned": abandoned,
+                    "failure_rate": *failed as f64 / count as f64,
+                    "p50_ms": nearest_rank(50), "p90_ms": nearest_rank(90)
+                }),
+            );
+        }
         if opts.json {
             let top=errors.iter().map(|(fp,g)|json!({"fingerprint":fp,"count":g.count,"example":g.example,"games":g.games,"builds":g.builds,"profiles":g.profiles})).collect::<Vec<_>>();
             writeln!(
                 out,
                 "{}",
-                json!({"top_errors":top,"voice_stops":self.stops,"voice_drops":self.drops,"failed_calls":self.failures,"deploy_restart_502":self.deploy_502s})
+                json!({"top_errors":top,"link_downtime_ms":self.links,"operations":ops,"unreached_fetches":self.fetches,"voice_stops":self.stops,"voice_drops":self.drops,"failed_calls":self.failures,"deploy_restart_502":self.deploy_502s})
             )?;
         } else {
             writeln!(out, "Top errors")?;
@@ -208,6 +274,25 @@ impl Report {
                         .collect::<Vec<_>>()
                         .join(", ")
                 )?;
+            }
+            for (name, op) in &ops {
+                writeln!(
+                    out,
+                    "{}: {} attempts, {} failed ({}%), {} abandoned, p50 {} ms, p90 {} ms",
+                    name,
+                    op["count"],
+                    op["failed"],
+                    (op["failure_rate"].as_f64().unwrap() * 100.0).round(),
+                    op["abandoned"],
+                    op["p50_ms"],
+                    op["p90_ms"]
+                )?;
+            }
+            for (reason, ms) in &self.links {
+                writeln!(out, "Link downtime: {reason} {ms} ms")?;
+            }
+            for (route, count) in &self.fetches {
+                writeln!(out, "Unreached: {count} × {route}")?;
             }
             for (label, counts) in [
                 ("Voice stops", &self.stops),

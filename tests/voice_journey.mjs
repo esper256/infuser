@@ -43,19 +43,13 @@ async function run(){
   console.log('Two real browser microphones delivered decoded audio in both directions.');
   if(process.argv.includes('--diagnostics')){
     const voiceEvent=(kind,predicate)=>river.page.waitForRequest(req=>req.url().endsWith('/api/telemetry')&&req.method()==='POST'&&req.postDataJSON().events.some(e=>e.kind===kind&&predicate(e.data)));
-    const [stop,disconnect]=await Promise.all([
-      voiceEvent('voice.stopped',d=>d.state==='user_toggle'),
-      voiceEvent('voice.disconnected',d=>d.stop_reason==='user_toggle'),
-      river.page.locator('#voice-toggle').click(),
+    const [stop]=await Promise.all([
+      voiceEvent('link',d=>d.name==='voice'&&d.state==='ended'&&d.reason==='user'),
+      river.page.locator('#voice-toggle').click().then(()=>river.page.evaluate(()=>window.dispatchEvent(new Event('pagehide')))),
     ]);
-    const stopped=stop.postDataJSON().events.find(e=>e.kind==='voice.stopped');
-    const ended=disconnect.postDataJSON().events.find(e=>e.kind==='voice.disconnected');
-    assert.ok(stopped.data.session);
-    assert.equal(ended.data.session,stopped.data.session);
-    assert.equal(ended.data.state,'CLIENT_INITIATED');
+    const ended=stop.postDataJSON().events.find(e=>e.kind==='link'&&e.data.name==='voice'&&e.data.state==='ended');
+    assert.ok(ended.data.session);
     assert.equal((await stop.response()).status(),200);
-    assert.equal((await disconnect.response()).status(),200);
-    console.log('Local stop and LiveKit disconnect recorded for the same session.');
     passed=true;return;
   }
   for(const {page} of [river,sky]){

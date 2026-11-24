@@ -643,15 +643,15 @@ impl Database {
         &self,
         profile: &str,
         appearance: &crate::portal::themes::Appearance,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let c = self.connection.lock().unwrap();
         let encoded = serde_json::to_string(appearance)?;
-        c.execute(
+        let changed = c.execute(
             "INSERT INTO appearance_settings(profile, data) VALUES(?1, ?2)
-             ON CONFLICT(profile) DO UPDATE SET data = excluded.data",
+             ON CONFLICT(profile) DO UPDATE SET data = excluded.data WHERE appearance_settings.data != excluded.data",
             params![profile, encoded],
         )?;
-        Ok(())
+        Ok(changed != 0)
     }
     pub fn record_build_file(&self, key: &str, path: String, size: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
@@ -834,14 +834,25 @@ impl Database {
         tx.commit()?;
         Ok(())
     }
-    pub fn cleanup(&self) -> Result<()> {
+    pub fn cleanup(&self) -> Result<Vec<(String, Launch)>> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let time = now();
-        tx.execute(
-            "DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1",
-            [time],
-        )?;
+        let expired = {
+            let mut stmt=tx.prepare("DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1 RETURNING id,data")?;
+            let rows = stmt.query_map([time], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let mut expired = Vec::new();
+            for row in rows {
+                let (id, raw) = row?;
+                let l: Launch = serde_json::from_str(&raw)?;
+                if l.seen != 0 {
+                    expired.push((id, l));
+                }
+            }
+            expired
+        };
         tx.execute("DELETE FROM runtime_presence WHERE seen+300<=?1", [time])?;
         let mut data = Data::default();
         activity::load(&tx, &mut data)?;
@@ -864,7 +875,7 @@ impl Database {
         }
         member_link::expire(&tx, time)?;
         tx.commit()?;
-        Ok(())
+        Ok(expired)
     }
 }
 pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bool) -> Result<()> {

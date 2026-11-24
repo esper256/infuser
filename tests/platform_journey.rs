@@ -489,8 +489,15 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .error_for_status()?
         .json()
         .await?;
-    let diagnostic = json!({"scope":ctx["diagnostic_launch"],"events":[{"page":"deadbeef0001","seq":1,"at":infuser::timeline::ms(),"src":"game","kind":"js.error","data":{"class":"TypeError","message":"fixture failed at https://example.com/?token=private-fixture","file":"fixture.js","line":17}}]});
-    for _ in 0..2 {
+    let at = infuser::timeline::ms();
+    let mut diagnostic = json!({"scope":ctx["diagnostic_launch"],"events":[
+        {"page":"deadbeef0001","seq":1,"at":at,"src":"game","kind":"js.error","data":{"class":"TypeError","message":"fixture failed at https://example.com/?token=private-fixture","file":"fixture.js","fingerprint":"deadbea7","line":17}},
+        {"page":"deadbeef0001","seq":2,"at":at,"src":"player","kind":"op","data":{"name":"game.load","outcome":"fail","reason":"error:CompileError","stage":"engine","room":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+        {"page":"deadbeef0001","seq":3,"at":at,"src":"game","kind":"mp.connected","data":{}}
+    ]});
+    // A replayed older batch must never reduce the folded occurrence count.
+    for count in [1, 5, 3] {
+        diagnostic["events"][0]["data"]["count"] = count.into();
         game(0, reqwest::Method::POST, "/_infuser/telemetry")
             .json(&diagnostic)
             .send()
@@ -515,44 +522,39 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .status(),
         401
     );
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            let batch: Value = publisher(
-                reqwest::Method::GET,
-                "/api/publisher/apps/moon/diagnostic-events",
-            )
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-            let events = batch["events"].as_array().unwrap();
-            let matching: Vec<_> = events
-                .iter()
-                .filter(|e| e["kind"] == "js.error" && e["data"]["file"] == "fixture.js")
-                .collect();
-            if let Some(e) = matching.first() {
-                assert_eq!(matching.len(), 1);
-                assert_eq!(e["data"]["file"], "fixture.js");
-                assert!(
-                    e.get("profile").is_none()
-                        && e["data"]["message"]
-                            .as_str()
-                            .unwrap()
-                            .contains("[redacted]")
-                );
-                assert!(
-                    events
-                        .iter()
-                        .any(|l| l["kind"] == "launch.create" && l["launch"] == e["launch"])
-                );
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        anyhow::Ok(())
-    })
-    .await??;
+    let batch: Value = publisher(
+        reqwest::Method::GET,
+        "/api/publisher/apps/moon/diagnostic-events",
+    )
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
+    let events = batch["events"].as_array().unwrap();
+    let matching: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e["kind"] == "js.error"
+                && e["data"]["line"] == 17
+                && e["data"]["fingerprint"] == "deadbea7"
+        })
+        .collect();
+    assert_eq!(matching.len(), 1);
+    let e = matching[0];
+    assert_eq!(e["data"]["count"], 5);
+    assert!(
+        events
+            .iter()
+            .any(|e| e["kind"] == "op" && e["data"]["stage"] == "engine")
+    );
+    assert!(!events.iter().any(|e| e["kind"] == "mp.connected"));
+    assert!(e.get("profile").is_none() && e["data"].get("message").is_none());
+    assert!(
+        events
+            .iter()
+            .any(|l| l["kind"] == "launch.create" && l["launch"] == e["launch"])
+    );
     let config_path = dir.path().join("local.toml");
     std::fs::write(
         &config_path,
@@ -573,9 +575,9 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     );
     let lines = String::from_utf8(logs.stdout)?;
     if browser.is_some() {
-        assert!(lines.contains("Browser fixture crash") && lines.contains("page.freeze"));
+        assert!(!lines.contains("Browser fixture crash") && lines.contains("page.freeze"));
     }
-    assert!(lines.contains("fixture failed") && !lines.contains("private-fixture"));
+    assert!(!lines.contains("fixture failed") && !lines.contains("private-fixture"));
     let query = |args: &[&str]| {
         std::process::Command::new(env!("CARGO_BIN_EXE_infuser"))
             .arg("logs")
@@ -587,6 +589,24 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         let bad = query(&[flag, "does-not-exist"])?;
         assert!(!bad.status.success() && String::from_utf8_lossy(&bad.stderr).contains(expected));
     }
+    let incident = query(&[
+        "incident",
+        "--profile",
+        "User",
+        "--at",
+        &at.to_string(),
+        "--window",
+        "1m",
+        "--json",
+    ])?;
+    let rows: Vec<Value> = serde_json::from_slice(&incident.stdout)?;
+    assert!(
+        rows.iter()
+            .any(|e| e["kind"] == "operation.failure" && e["data"]["stage"] == "engine")
+    );
+    assert!(
+        !String::from_utf8_lossy(&incident.stdout).contains("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    );
     let empty = query(&["--profile", "User", "--kind", "no.such.event"])?;
     assert!(
         empty.status.success()
@@ -596,11 +616,11 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         "--game", "moon", "--kind", "js.*", "--source", "client", "--level", "error", "--json",
     ])?;
     let events: Vec<Value> = serde_json::from_slice(&filtered.stdout)?;
-    assert!(events.iter().any(|e| {
-        e["data"]["message"]
-            .as_str()
-            .is_some_and(|m| m.contains("fixture failed"))
-    }));
+    assert!(
+        events
+            .iter()
+            .any(|e| e["data"]["fingerprint"] == "deadbea7")
+    );
     db.edit(|d| {
         d.presence.remove("user@example.com");
         Ok(())

@@ -37,6 +37,7 @@ mod capture;
 mod card_art;
 mod chat;
 mod client;
+pub use client::version as client_version;
 mod conditional;
 mod connections;
 mod dedicated;
@@ -59,7 +60,7 @@ mod screenshots;
 mod sdk_v1;
 mod server_builds;
 mod server_diagnostics;
-mod telemetry;
+pub(crate) mod telemetry;
 pub(crate) mod themes;
 mod update_reactions;
 mod urls;
@@ -126,12 +127,15 @@ type Answer = std::result::Result<Response, Error>;
 fn reply(v: Value) -> Response {
     ([("Cache-Control", "no-store")], Json(v)).into_response()
 }
+type PublicationStates = BTreeMap<String, (String, String, String)>;
+
 #[derive(Clone)]
 pub struct Platform {
     pub controller: Arc<Controller>,
     pub db: Arc<Database>,
     http: reqwest::Client,
     grants: Arc<Mutex<BTreeMap<IpAddr, Arc<tokio::sync::Mutex<u64>>>>>,
+    publication_events: Arc<Mutex<PublicationStates>>,
     publishing: Arc<Mutex<()>>,
     publication_slots: Arc<tokio::sync::Semaphore>,
     app_mutations: Arc<Mutex<BTreeMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>>,
@@ -150,6 +154,28 @@ pub struct Platform {
     native_manifests: Arc<Mutex<BTreeMap<(String, u64), infuser_native_protocol::Manifest>>>,
 }
 impl Platform {
+    pub fn cleanup_launches(&self) -> Result<()> {
+        let expired = self.db.cleanup()?;
+        if !expired.is_empty() {
+            let d = self.db.catalog()?;
+            let time = now();
+            for (id, l) in expired {
+                let reason = if !d.profile_enabled(&l.email) {
+                    "auth_ended"
+                } else if !d.launch_allowed(&l, time) {
+                    if l.visit.is_some() {
+                        "visit_end"
+                    } else {
+                        "auth_ended"
+                    }
+                } else {
+                    "expired"
+                };
+                telemetry::launch_event(self, &id, &l, "launch.end", Some(reason));
+            }
+        }
+        Ok(())
+    }
     pub fn peer_rooms(&self) -> Arc<crate::peers::Rooms> {
         self.peers.clone()
     }
@@ -220,17 +246,20 @@ impl Platform {
             )?),
             push_dispatch: Default::default(),
             peerjs_sockets: Default::default(),
-            controller,
+            controller: controller.clone(),
             db,
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(4))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?,
             grants: Arc::new(Mutex::new(BTreeMap::new())),
+            publication_events: Default::default(),
             publishing: Arc::new(Mutex::new(())),
             publication_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             app_mutations: Default::default(),
-            peers: Arc::new(crate::peers::Rooms::recovering(resume_after)),
+            peers: Arc::new(
+                crate::peers::Rooms::recovering(resume_after).observed(controller.timeline.clone()),
+            ),
             relay,
             native_manifests: Default::default(),
         };
@@ -994,7 +1023,7 @@ async fn launch(
             .map(str::to_owned),
     };
     p.db.insert_launch(&id, &l)?;
-    telemetry::launch_event(&p, &id, &l, "launch.create");
+    telemetry::launch_event(&p, &id, &l, "launch.create", None);
     Ok(reply(
         json!({"launch_id":id,"url":format!("https://{gamehost}/_infuser/launch#infuser={token}"),"state":lease.as_ref().map(|l|&l["state"]).unwrap_or(&json!("ready"))}),
     ))
@@ -1487,6 +1516,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
         fault(503, "PeerJS is not configured")
     );
     let who = crate::peers::Identity {
+        diagnostics: telemetry::launch_context(&p, &id, &launch, &data),
         launch: id.clone(),
         player: if launch.guest {
             format!("guest-{id}")
@@ -1658,8 +1688,9 @@ async fn leave(State(p): State<Platform>, h: HeaderMap) -> Answer {
             .controller
             .lease(l.runtime_id(), lease, token, "delete", now());
     }
-    p.db.expire_launch(&id, now())?;
-    telemetry::launch_event(&p, &id, &l, "launch.end");
+    if p.db.expire_launch(&id, now())? {
+        telemetry::launch_event(&p, &id, &l, "launch.end", Some("leave"));
+    }
     Ok(reply(json!({"ok":true})))
 }
 async fn save_get(State(p): State<Platform>, Path(slot): Path<String>, h: HeaderMap) -> Answer {

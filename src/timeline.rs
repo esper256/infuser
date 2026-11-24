@@ -167,17 +167,20 @@ fn open(path: &Path) -> Result<Connection> {
         .open(path)?;
     let c = Connection::open(path)?;
     c.busy_timeout(Duration::from_millis(250))?;
-    c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=128; PRAGMA journal_size_limit=524288; PRAGMA max_page_count=8192;
+    c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=128; PRAGMA journal_size_limit=524288; PRAGMA max_page_count=131072;
         CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, at INTEGER NOT NULL, app TEXT NOT NULL,profile TEXT NOT NULL, dedup TEXT UNIQUE, visible INTEGER NOT NULL, body TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS events_at ON events(at,id);
         CREATE INDEX IF NOT EXISTS events_app ON events(app,at);
-        CREATE INDEX IF NOT EXISTS events_profile ON events(profile,at);")?;
+        CREATE INDEX IF NOT EXISTS events_profile ON events(profile,at);
+        CREATE INDEX IF NOT EXISTS lifecycle_edges ON events(at,id) WHERE app='' AND profile='' AND json_extract(body,'$.kind') IN ('controller.stop','controller.start');
+        CREATE INDEX IF NOT EXISTS voice_sessions ON events(profile,json_extract(body,'$.data.session')) WHERE json_extract(body,'$.kind')='voice.grant';
+        CREATE INDEX IF NOT EXISTS peer_epochs ON events(json_extract(body,'$.launch'),json_extract(body,'$.data.room')) WHERE json_extract(body,'$.kind')='mp.room';")?;
     Ok(c)
 }
 fn maintain(c: &Connection) -> Result<()> {
     c.execute("DELETE FROM events WHERE at < ?1", [ms() - 2 * DAY])?;
     let used:i64=c.query_row("SELECT (page_count-freelist_count)*page_size FROM pragma_page_count,pragma_freelist_count,pragma_page_size",[],|r|r.get(0))?;
-    if used > 24 * 1024 * 1024 {
+    if used > 496 * 1024 * 1024 {
         c.execute("DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY at,id LIMIT (SELECT max(1,count(*)/4) FROM events))",[])?;
     }
     c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
@@ -257,6 +260,36 @@ fn writer(path: &Path, state: &Path, rx: mpsc::Receiver<Delivery>) {
                     }
                 }
                 if e.src != "server" {
+                    if let Some(version) = e.data["version"].as_str()
+                        && version != crate::portal::client_version()
+                        && !tx.query_row("SELECT EXISTS(SELECT 1 FROM events WHERE app='' AND profile='' AND json_extract(body,'$.kind') IN ('controller.stop','controller.start') AND json_extract(body,'$.data.client_version')=?)", [version], |r|r.get::<_,bool>(0))?
+                        && let Some(fields) = e.data.as_object_mut() {
+                        fields.remove("version");
+                    }
+                    // Client refs are hints. Only join them to a grant or membership issued
+                    // for this profile/launch; never retain arbitrary client-supplied keys.
+                    for (key, owner, sql) in [
+                        (
+                            "session",
+                            &e.context.profile,
+                            "SELECT EXISTS(SELECT 1 FROM events WHERE json_extract(body,'$.kind')='voice.grant' AND profile=? AND json_extract(body,'$.data.session')=?)",
+                        ),
+                        (
+                            "room",
+                            &e.context.launch,
+                            "SELECT EXISTS(SELECT 1 FROM events WHERE json_extract(body,'$.kind')='mp.room' AND json_extract(body,'$.launch')=? AND json_extract(body,'$.data.room')=?)",
+                        ),
+                    ] {
+                        if let Some(value) = e.data[key].as_str()
+                            && (owner.is_empty()
+                                || !tx.query_row(sql, params![owner, value], |r| {
+                                    r.get::<_, bool>(0)
+                                })?)
+                            && let Some(fields) = e.data.as_object_mut()
+                        {
+                            fields.remove(key);
+                        }
+                    }
                     let n = counts.entry(e.context.profile.clone()).or_default();
                     *n += 1;
                     if *n > 181 {
@@ -277,7 +310,12 @@ fn writer(path: &Path, state: &Path, rx: mpsc::Receiver<Delivery>) {
                 let key = e
                     .seq
                     .map(|s| format!("{}/{}/{}/{s}", e.context.profile, e.context.launch, e.page));
-                tx.execute("INSERT OR IGNORE INTO events(at,app,profile,dedup,visible,body) VALUES(?,?,?,?,?,?)",params![e.at,e.context.app,e.context.profile,key,e.author_visible,serde_json::to_string(&e)?])?;
+                tx.execute("INSERT INTO events(at,app,profile,dedup,visible,body) VALUES(?,?,?,?,?,?)
+                    ON CONFLICT(dedup) DO UPDATE SET body=json_patch(events.body,json_object('data',json_object('count',json_extract(excluded.body,'$.data.count'),'duration_ms',json_extract(excluded.body,'$.data.duration_ms'))))
+                    WHERE json_extract(events.body,'$.kind') IN ('fetch.fail','js.error','js.rejection','console.error','resource.error')
+                    AND json_extract(events.body,'$.kind')=json_extract(excluded.body,'$.kind')
+                    AND json_extract(excluded.body,'$.data.count')>json_extract(events.body,'$.data.count')",
+                    params![e.at,e.context.app,e.context.profile,key,e.author_visible,serde_json::to_string(&e)?])?;
             }
             tx.commit()?;
             Ok(())
@@ -309,6 +347,31 @@ pub fn read(
     publisher: bool,
 ) -> Result<Value> {
     read_at(path, filter, app, profile, publisher, ms())
+}
+/// Adjacent lifecycle edges only. An unmatched stop (or two starts) is not a window.
+fn lifecycle_windows(c: &Connection) -> Result<Vec<(i64, i64)>> {
+    let mut stmt = c.prepare("SELECT at,json_extract(body,'$.kind') FROM events WHERE app='' AND profile='' AND json_extract(body,'$.kind') IN ('controller.stop','controller.start') ORDER BY at,id")?;
+    let mut edges = stmt.query([])?;
+    let mut stop = None;
+    let mut windows = Vec::new();
+    while let Some(edge) = edges.next()? {
+        let at = edge.get(0)?;
+        if edge.get::<_, String>(1)? == "controller.stop" {
+            stop = Some(at);
+        } else if let Some(start) = stop.take()
+            && start < at
+        {
+            windows.push((start, at));
+        }
+    }
+    Ok(windows)
+}
+pub(crate) fn incident_windows(path: &Path, since: i64, until: i64) -> Result<Vec<(i64, i64)>> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    Ok(lifecycle_windows(&conn)?
+        .into_iter()
+        .filter(|&(a, b)| a <= until && since < b)
+        .collect())
 }
 pub(crate) fn read_at(
     path: &Path,
@@ -355,6 +418,7 @@ pub(crate) fn read_at(
     let mut events = vec![];
     let mut cursor = None;
     let mut more = false;
+    let mut windows = None;
     while let Some(row) = rows.next()? {
         if events.len() == limit {
             more = true;
@@ -362,58 +426,60 @@ pub(crate) fn read_at(
         }
         let mut v: Value = serde_json::from_str(&row.get::<_, String>(2)?)?;
         v["utc"] = row.get::<_, String>(3)?.into();
-        if matches!(v["kind"].as_str(), Some("api.fail" | "api.result"))
-            && v["data"]["status"] == 502
-        {
-            // Use occurrence time, including for offline uploads. Require an actual activation
-            // of this binary near startup so ordinary restarts and unrelated 502s stay visible.
+        if v["kind"] == "fetch.fail" {
+            if windows.is_none() {
+                windows = Some(lifecycle_windows(&c)?);
+            }
             let at: i64 = row.get(1)?;
-            let during_deploy: bool = c.query_row(
-                "SELECT EXISTS(SELECT 1 FROM events s JOIN events d
-                   ON d.app='' AND d.profile='' AND d.at BETWEEN s.at-60000 AND s.at+60000
-                   AND json_extract(d.body,'$.kind')='deploy.outcome'
-                   AND json_extract(d.body,'$.data.result')='activated'
-                   AND json_extract(d.body,'$.data.release')=json_extract(s.body,'$.data.version')
-                 WHERE s.app='' AND s.profile='' AND s.at BETWEEN ?1-30000 AND ?1+10000
-                   AND json_extract(s.body,'$.kind')='controller.start')",
-                [at],
-                |r| r.get(0),
-            )?;
-            if during_deploy {
+            let windows = windows.as_ref().unwrap();
+            if let Some(&(stop, start)) =
+                windows.get(windows.partition_point(|&(_, end)| end <= at))
+                && stop <= at
+            {
                 v["data"]["deploy_restart"] = true.into();
+                if !publisher {
+                    v["data"]["stop_ms"] = stop.into();
+                    v["data"]["start_ms"] = start.into();
+                }
             }
         }
         if publisher {
-            let game_error = v["src"] == "game"
-                && v.get("visit").is_none()
-                && matches!(
-                    v["kind"].as_str(),
-                    Some("js.error" | "js.rejection" | "console.error")
-                );
             for key in ["profile", "group", "visit", "guest", "inspecting", "page"] {
                 v.as_object_mut().unwrap().remove(key);
             }
             if let Some(d) = v["data"].as_object_mut() {
                 d.retain(|k, _| {
-                    (game_error && matches!(k.as_str(), "message" | "stack"))
-                        || matches!(
-                            k.as_str(),
-                            "file"
-                                | "line"
-                                | "col"
-                                | "class"
-                                | "status"
-                                | "state"
-                                | "count"
-                                | "duration_ms"
-                                | "request"
-                                | "route"
-                                | "method"
-                                | "exit_code"
-                                | "oom_killed"
-                                | "deploy_restart"
-                                | "health"
-                        )
+                    matches!(
+                        k.as_str(),
+                        "fingerprint"
+                            | "name"
+                            | "outcome"
+                            | "reason"
+                            | "stage"
+                            | "stages_ms"
+                            | "prev"
+                            | "held_ms"
+                            | "down_ms"
+                            | "flaps"
+                            | "bytes"
+                            | "cached_ratio"
+                            | "largest_ms"
+                            | "queued_reason"
+                            | "line"
+                            | "col"
+                            | "class"
+                            | "status"
+                            | "state"
+                            | "count"
+                            | "duration_ms"
+                            | "request"
+                            | "route"
+                            | "method"
+                            | "exit_code"
+                            | "oom_killed"
+                            | "deploy_restart"
+                            | "health"
+                    )
                 });
             }
         }
