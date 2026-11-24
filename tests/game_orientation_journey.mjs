@@ -34,7 +34,7 @@ try {
     await page.route('https://game.test/**', async route => {
       const path = new URL(route.request().url()).pathname;
       const files = {'/_infuser/play':'game-player.html','/_infuser/player.js':'game-player.js',
-        '/_infuser/activity-input.js':'activity-input.js','/_infuser/player.css':'game-player.css','/_infuser/screenshot-capture.js':'screenshot-capture.js'};
+        '/_infuser/client-updates.js':'client-updates.js','/_infuser/activity-input.js':'activity-input.js','/_infuser/player.css':'game-player.css','/_infuser/screenshot-capture.js':'screenshot-capture.js'};
       if (path === '/_infuser/context') return route.fulfill({json:{manifest:{title:'Game',orientation},library_url:'/library'}});
       const file = files[path];
       if (!file) return route.fulfill({contentType:'text/html',body:'<canvas></canvas>'});

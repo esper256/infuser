@@ -424,6 +424,7 @@ impl Platform {
             None
         };
         self.db.renew_launch(id, now(), ended_lease)?;
+        status["client_update"] = client::update();
         status["update_available"] = json!(
             data.deployed(launch.runtime_id())
                 .is_some_and(|app| app.build != launch.build)
@@ -685,6 +686,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/peers/{peer}/ice", post(peer_ice))
         .route("/_infuser/peers/{peer}/health", post(peer_health).layer(DefaultBodyLimit::max(4096)))
         .route("/_infuser/peers.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../sdk/peers.js")) }))
+        .route("/_infuser/client-updates.js",get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/client-updates.js")) }))
         .route("/_infuser/play", get(player))
         .route("/_infuser/player.js", get(|| async { ([(header::CONTENT_TYPE,"text/javascript")],include_str!("../web/game-player.js")) }))
         .route("/_infuser/player.css", get(|| async { ([(header::CONTENT_TYPE,"text/css")],include_str!("../web/game-player.css")) }))
@@ -850,13 +852,8 @@ async fn page(State(p): State<Platform>, request: Request) -> Answer {
     if host(request.headers()) != p.domain() {
         return game_file(State(p), request).await;
     }
-    let html = themes::fingerprint_html(include_str!("../web/index.html")).replace(
-        "</head>",
-        &format!(
-            "<meta name=\"infuser-client-version\" content=\"{}\"></head>",
-            client::version()
-        ),
-    );
+    let html = themes::fingerprint_html(include_str!("../web/index.html"))
+        .replace("</head>", &format!("{}</head>", client::version_meta()));
     Ok(([("Cache-Control","no-store"),("Content-Security-Policy","default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")],Html(html)).into_response())
 }
 async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1425,7 +1422,7 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     };
     let html = include_str!("../web/game-player.html")
         .replace("PLAYER_PAGE_ID", &page)
-        .replace("PLAYER_CLIENT_VERSION", client::version())
+        .replace("<!-- PLAYER_VERSION_META -->", &client::version_meta())
         .replace("DIAGNOSTIC_LAUNCH", &telemetry::launch_ref(&id))
         .replace("PLAYER_VOICE_TOKEN", &voice_token);
     let mut response = (

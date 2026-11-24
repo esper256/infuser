@@ -64,7 +64,7 @@ function saveDevices(devices){
 }
 
 export function initVoice({me,api,notice,diagnostics,onConfiguredChange=()=>{}}) {
-  if(me.inspecting)return {stop:async()=>{},openSettings:()=>{},renderFriendControls:()=>{}};
+  if(me.inspecting)return {inUse:()=>false,stop:async()=>{},openSettings:()=>{},renderFriendControls:()=>{}};
 
   const splitSlot=document.createElement('span');
   splitSlot.id='voice-split-slot';splitSlot.hidden=true;
@@ -805,12 +805,14 @@ export function initVoice({me,api,notice,diagnostics,onConfiguredChange=()=>{}})
   async function start(){
     diagnosticSession=undefined;
     joinOp=diagnostics?.op('voice.join');joinOp?.stage('microphone');diagnostics?.link('voice').set('connecting');
-    await stopMicTest();
-    // Start audio in the button's user gesture, before microphone/network awaits.
-    chimes.unlock();
-    const ctx=ensureVoiceContext();
-    const attempt=++generation;phase='connecting';micMuted=false;deafened=false;paint();
+    const attempt=++generation;phase='connecting';
     try {
+      await stopMicTest();
+      if(attempt!==generation)return;
+      // Start audio in the button's user gesture, before microphone/network awaits.
+      chimes.unlock();
+      const ctx=ensureVoiceContext();
+      micMuted=false;deafened=false;paint();
       if(!navigator.mediaDevices?.getUserMedia)throw Error('This browser cannot use a microphone here.');
       const [{Room,RoomEvent,DisconnectReason,createLocalAudioTrack},mod]=await Promise.all([
         import('/assets/vendor/livekit-2.24.1.js'),
@@ -977,5 +979,5 @@ export function initVoice({me,api,notice,diagnostics,onConfiguredChange=()=>{}})
   window.addEventListener('online',()=>{if(alive){ensureControlLoop();void poll();}});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden){ensureControlLoop();void poll();if(mixer.matches(':popover-open'))startMeterLoop();}else stopMeterLoop();});
   void poll();
-  return {stop:()=>stop({reason:'user_toggle'}),openSettings,renderFriendControls};
+  return {inUse:()=>phase!=='off',stop:()=>stop({reason:'user_toggle'}),openSettings,renderFriendControls};
 }

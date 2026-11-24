@@ -44,6 +44,7 @@ export const ready = request('context');
 // An embedding game can listen for infuser-session-error and show a return-to-Library action.
 let stopped = false;
 let updateAnnounced = false;
+let clientVersion, forceReload;
 function stopHeartbeat() {
   stopped = true;
   clearInterval(timer);
@@ -63,7 +64,14 @@ async function heartbeat() {
   if (stopped) return;
   try {
     const state = await request('heartbeat', { method: 'POST' });
-    if (!stopped && !updateAnnounced && state.update_available && window.parent && window.parent !== window) {
+    if (stopped || !window.parent || window.parent === window) return;
+    const update = state.client_update;
+    if (update && (update.version !== clientVersion || update.force_reload !== forceReload)) {
+      clientVersion = update.version;
+      forceReload = update.force_reload;
+      window.parent.postMessage({type: 'infuser-client-update', version: clientVersion, force_reload: forceReload}, location.origin);
+    }
+    if (!updateAnnounced && state.update_available) {
       updateAnnounced = true;
       window.parent.postMessage({type: 'infuser-update-available'}, location.origin);
     }

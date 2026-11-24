@@ -7,6 +7,7 @@ const browser=await chromium.launch({channel:'chromium',executablePath:process.e
 try {
   const ctx=await browser.newContext();
   await ctx.addCookies([{name:'__Host-infuser_game',value:ticket,url:'https://'+host,secure:true,httpOnly:true}]);
+  let emergencyGeneration=0;
   await ctx.route('**/*',async route=>{
     const req=route.request(),url=new URL(req.url());
     if(url.hostname!==host)return route.abort();
@@ -18,7 +19,12 @@ try {
       const proxy=http.request(target,{method:req.method(),headers},res=>{
         const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>{
           const h={...res.headers};delete h['transfer-encoding'];delete h.connection;
-          route.fulfill({status:res.statusCode,headers:h,body:Buffer.concat(chunks)}).then(resolve,reject);
+          let body=Buffer.concat(chunks);
+          if(url.pathname==='/_infuser/play' && emergencyGeneration){
+            body=Buffer.from(body.toString().replace('data-force-reload="0"',`data-force-reload="${emergencyGeneration}"`));
+            delete h['content-length'];
+          }
+          route.fulfill({status:res.statusCode,headers:h,body}).then(resolve,reject);
         });
       });proxy.on('error',reject);proxy.end(req.postDataBuffer()||undefined);
     });
@@ -57,10 +63,31 @@ try {
   await page.evaluate(()=>document.dispatchEvent(new Event('freeze')));
   assert.equal((await (await frozen).response()).status(),200);
   const frame=page.frameLocator('#game').locator('body');
-  await page.route('**/_infuser/heartbeat',r=>r.fulfill({json:{update_available:true}}));
+  const current=await page.locator('meta[name="infuser-client-version"]').getAttribute('content');
+  let client_update={version:'next',force_reload:0},update_available=false;
+  await page.route('**/_infuser/heartbeat',r=>r.fulfill({json:{client_update,update_available}}));
   await frame.evaluate(()=>window.heartbeatProbe.tick());
-  const expected='A new version of '+await page.locator('#title').textContent()+' is ready. Reopen it at your next break.';
+  await page.getByText('Infuser has been updated. Reopen this game at your next break.',{exact:true}).waitFor();
+  update_available=true;
+  await frame.evaluate(()=>window.heartbeatProbe.tick());
+  const title=await page.locator('#title').textContent();
+  await page.getByText(`Infuser and ${title} have been updated. Reopen the game at your next break.`,{exact:true}).waitFor();
+  client_update.version=current;
+  await frame.evaluate(()=>window.heartbeatProbe.tick());
+  const expected=`A new version of ${title} is ready. Reopen it at your next break.`;
   await page.getByText(expected,{exact:true}).waitFor();
+
+  // Same-version emergency, delivered by the SDK. The replacement HTML acknowledges it.
+  emergencyGeneration=1;client_update.force_reload=1;
+  let navigations=0;
+  page.on('framenavigated',f=>{if(f===page.mainFrame())navigations++;});
+  const replaced=page.waitForEvent('framenavigated',f=>f===page.mainFrame());
+  await frame.evaluate(()=>{void window.heartbeatProbe.tick();});
+  await replaced;
+  await page.getByText(expected,{exact:true}).waitFor();
+  assert.equal(await page.locator('meta[name="infuser-client-version"]').getAttribute('data-force-reload'),'1');
+  await frame.evaluate(()=>window.heartbeatProbe.tick());
+  assert.equal(navigations,1);
   let heartbeatPosts=0;
   await page.route('**/_infuser/heartbeat',route=>{
     assert.equal(route.request().method(),'POST');heartbeatPosts++;

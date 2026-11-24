@@ -446,6 +446,20 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     let state = value(open.request(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
     assert_eq!(state["state"], "ended");
     assert_eq!(state["update_available"], false);
+    let stamp = &state["client_update"];
+    let player = open
+        .request(&http, &url, Method::GET, "/_infuser/play")
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert!(player.contains(&format!(
+        r#"content="{}" data-force-reload="{}""#,
+        stamp["version"].as_str().unwrap(),
+        stamp["force_reload"].as_u64().unwrap()
+    )));
+
     let id = legacy["launch_id"].as_str().unwrap();
     assert!(p.db.read()?.launches[id].lease_id.is_none());
     assert!(p.db.read()?.launches[id].lease_token.is_none());

@@ -43,6 +43,21 @@ pub fn version() -> &'static str {
     })
 }
 
+// A future emergency release can advance this generation. Fresh HTML acknowledges
+// it, so a persistent directive cannot repeatedly reload the replacement page.
+const FORCE_RELOAD_GENERATION: u32 = 0;
+
+pub(super) fn update() -> Value {
+    json!({"version":version(),"force_reload":FORCE_RELOAD_GENERATION})
+}
+
+pub(super) fn version_meta() -> String {
+    format!(
+        r#"<meta name="infuser-client-version" content="{}" data-force-reload="{FORCE_RELOAD_GENERATION}">"#,
+        version()
+    )
+}
+
 pub(super) async fn state(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
     let (_, inspecting) = p.group_view(&h, &email)?;
@@ -52,7 +67,7 @@ pub(super) async fn state(State(p): State<Platform>, h: HeaderMap) -> Answer {
             .launches
             .values()
             .any(|l| l.email == email && l.expires > time && l.seen.saturating_add(90) > time);
-    Ok(reply(
-        json!({"version":version(),"game_open":game_open&&!inspecting}),
-    ))
+    let mut state = update();
+    state["game_open"] = json!(game_open && !inspecting);
+    Ok(reply(state))
 }

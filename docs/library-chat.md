@@ -109,5 +109,6 @@ network availability. No alerts for your own messages or groups you cannot acces
 An active visit also allows alerts from its host room; queued alerts are checked
 again before sending. Already delivered notifications cannot be recalled.
 Offline, Infuser shows a reconnect page. Installing it does not download games or
-saves for offline play. Website updates refresh the Library when it is idle;
-they do not interrupt a game or discard a chat draft.
+saves for offline play. Routine website updates wait for you to finish a voice call or chat draft before
+refreshing the Library. In a game, the header lets you know when an update will
+be ready the next time you open it.

@@ -332,6 +332,7 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
         "content=\"{}\"",
         state["version"].as_str().unwrap()
     )));
+    assert_eq!(state["force_reload"], 0);
     assert_eq!(state["game_open"], false);
     p.db.edit(|d| {
         d.launches.insert(

@@ -34,6 +34,25 @@ try {
    await Promise.resolve();time=10000;await tick();await tick();
    results.push({name,reloads,expected});
   }
+  // Voice can start while the request is in flight. Only this tab's local call blocks.
+  for(const forced of [false,true]){
+    let tick,respond,inVoice=false,reloads=0;
+    let time=0;
+    document.querySelector('main').replaceChildren();
+    initClientUpdates({api:()=>new Promise(resolve=>{respond=resolve;}),voiceInUse:()=>inVoice,now:()=>time,
+      window:{setInterval:fn=>{tick=fn;},addEventListener(){},location:{reload(){reloads++;}}}});
+    inVoice=true;time=10000;
+    respond({version:forced?'old':'new',game_open:forced,force_reload:forced?1:0});
+    await Promise.resolve();
+    results.push({name:forced?'Emergency interrupts voice even on current version':'Connecting voice defers refresh',reloads,expected:forced?1:0});
+    if(!forced){
+      const active=tick();respond({version:'new',game_open:false});await active;
+      results.push({name:'Active voice still defers refresh',reloads,expected:0});
+      inVoice=false;
+      const left=tick();respond({version:'new',game_open:false});await left;
+      results.push({name:'Refresh after leaving voice',reloads,expected:1});
+    }
+  }
   return results;
  });
  for(const {name,reloads,expected} of results)assert.equal(reloads,expected,name);
