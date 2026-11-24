@@ -927,6 +927,7 @@ dependencies = [
  "jiff",
  "rand 0.10.3",
  "rcgen",
+ "regex-automata",
  "reqwest",
  "ring",
  "rusqlite",

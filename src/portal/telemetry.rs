@@ -177,11 +177,19 @@ fn page_ref(s: &str) -> String {
         hash(&format!("diagnostics/page/{s}"))[..32].to_owned()
     }
 }
+pub(crate) fn unreached_fetch(data: &Value) -> bool {
+    matches!(data["status"].as_u64(), Some(502..=504))
+        || (data["status"].is_null()
+            && matches!(
+                data["class"].as_str(),
+                Some("TypeError" | "NetworkError" | "TimeoutError")
+            ))
+}
 fn kind_level(k: &str, data: &Value) -> Option<&'static str> {
     Some(match k {
         "link" if matches!(data["state"].as_str(), Some("down" | "degraded")) => "warn",
         "op" if data["outcome"] == "fail" => "error",
-        "fetch.fail" => "warn",
+        "fetch.fail" if unreached_fetch(data) => "warn",
         "op" | "link" | "page.vitals" => "info",
         // Old open tabs still post this poll every second. Discard it at ingestion.
         "mp.connected" | "mp.connecting" | "mp.ended" => return None,
@@ -241,8 +249,44 @@ const ERRORS: &[&str] = &[
     "LinkError",
     "ResourceError",
 ];
+pub(crate) fn code_file(name: &str) -> bool {
+    use regex_automata::meta::Regex;
+    use std::sync::LazyLock;
+    static FILE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"\A[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*\.(?:[cm]?js|jsx|tsx?|wasm|html?)\z",
+        )
+        .unwrap()
+    });
+    static PRIVATE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"[a-fA-F0-9]{32}|(?:[0-9]{1,3}\.){3}[0-9]{1,3}").unwrap());
+    name.len() <= 80 && FILE.is_match(name) && !PRIVATE.is_match(name)
+}
+fn code_frame(frame: &str) -> bool {
+    let mut parts = frame.rsplitn(3, ':');
+    let position = |s: &str| (1..=9).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit());
+    parts.next().is_some_and(position)
+        && parts.next().is_some_and(position)
+        && parts.next().is_some_and(code_file)
+}
 fn clean(kind: &str, data: &Value) -> Value {
     let mut out = json!({});
+    if matches!(kind, "js.error" | "js.rejection" | "console.error") {
+        if let Some(file) = data["file"].as_str().filter(|s| code_file(s)) {
+            out["file"] = file.into();
+        }
+        if let Some(input) = data["frames"].as_array() {
+            let frames: Vec<_> = input
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|s| code_frame(s))
+                .take(5)
+                .collect();
+            if !frames.is_empty() {
+                out["frames"] = json!(frames);
+            }
+        }
+    }
     for key in [
         "line",
         "col",
@@ -389,16 +433,9 @@ fn clean(kind: &str, data: &Value) -> Value {
             .collect();
     }
     if kind == "page.load"
-        && let Some(theme) = one(
-            &data["appearance"]["theme"],
-            &[
-                "nightglass",
-                "castle-keep",
-                "funny-pages",
-                "field-notes",
-                "cartridge-club",
-            ],
-        )
+        && let Some(theme) = data["appearance"]["theme"]
+            .as_str()
+            .filter(|id| themes::known_theme(id))
         && let Some(source) = one(
             &data["appearance"]["source"],
             &["server", "legacy", "default", "other_tab"],
@@ -606,6 +643,19 @@ mod tests {
         assert_eq!(
             clean("page.load", &dirty),
             json!({"class":"TypeError","line":4,"appearance":{"theme":"nightglass","source":"server"},"client":"Firefox/125 Linux"})
+        );
+        let payload = json!({"file":"engine.min.js","frames":["engine.min.js:2:9","trace.js?token=secret:1:2",
+            "https://server/asset.js:1:2","a192.0.2.1.js:1:2","source.js:1:field","core.wasm:20:8"],
+            "message":"private", "stack":"Error: private"});
+        assert_eq!(
+            clean("js.rejection", &payload),
+            json!({"file":"engine.min.js","frames":["engine.min.js:2:9","core.wasm:20:8"]})
+        );
+        assert_eq!(clean("page.exit", &payload), json!({}));
+        assert_eq!(kind_level("fetch.fail", &json!({"status":404})), None);
+        assert_eq!(
+            kind_level("fetch.fail", &json!({"class":"AbortError"})),
+            None
         );
         assert_eq!(kind_level("mp.connected", &json!({})), None);
     }

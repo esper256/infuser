@@ -50,7 +50,7 @@ fn valid_hex(value: &str) -> Option<String> {
     }
 }
 
-fn known_theme(id: &str) -> bool {
+pub(super) fn known_theme(id: &str) -> bool {
     stylesheets().iter().any(|sheet| sheet.id == id)
 }
 
@@ -144,8 +144,7 @@ pub(super) async fn put_appearance(
             },
             json!({
                 "theme": appearance.theme,
-                "scheme_kind": if custom { "custom" } else { "builtin" },
-                "revision": crate::timeline::ms()
+                "scheme_kind": if custom { "custom" } else { "builtin" }
             }),
             false,
         ));

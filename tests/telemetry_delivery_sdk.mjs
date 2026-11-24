@@ -91,3 +91,30 @@ test('a game load measures observed engine work, first frame, resources and visi
     {kind:'page.vitals',data:{stalls:{count:2,max_ms:75},heap_bytes:8192,wasm_bytes:4096,dom_nodes:10,fps_low:50}}
   ]);
 });
+
+test('Library avoids the frame loop; only network and unhandled gateway failures count',async()=>{
+  const rows=[],frames=[];
+  let response;
+  const root=vm.runInNewContext(source+';roots',{URL})((kind,data)=>rows.push({kind,data}),()=>0,'library');
+  const win={location:{href:'https://example.org/'},document:new EventTarget(),requestAnimationFrame:fn=>frames.push(fn),
+    fetch:async()=>{if(response instanceof Error)throw response;return response;}};
+  root.observeWindow(win,'library');
+  assert.equal(frames.length,0);
+  for(const [status,handled] of [[404,false],[500,false],[502,false],[503,false],[504,false],[503,true]]){
+    response={status,headers:{has:()=>handled}};await win.fetch('/asset.js');
+  }
+  for(const name of ['TypeError','AbortError']){
+    response=Object.assign(new Error(),{name});await assert.rejects(win.fetch('/api/chat'),{name});
+  }
+  root.drain();
+  assert.deepEqual(rows.map(r=>r.data.status??r.data.class),[502,503,504,'TypeError']);
+});
+test('error locations keep only code basenames and coordinates from browser frames',()=>{
+  const locations=vm.runInNewContext(source+';errorLocation',{URL});
+  const stack=['TypeError: secret at https://example.org/private.js:1:2',
+    '    at run (https://192.0.2.1/path/bundle.min.js?token=private#secret:11:3)',
+    'frame@https://example.org/hidden/core.wasm:19:4','    at data:text/javascript,secret:1:2',
+    '    at https://example.org/a192.0.2.1.js:1:2','    at [native code]'].join('\n');
+  assert.deepEqual(JSON.parse(JSON.stringify(locations('https://example.org/bundle.min.js?x=hidden',stack))),{
+    file:'bundle.min.js',frames:['bundle.min.js:11:3','core.wasm:19:4']});
+});

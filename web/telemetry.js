@@ -16,6 +16,35 @@ function routeOf(input,base){
 const errorClasses=new Set(['Error','TypeError','SyntaxError','ReferenceError','RangeError','RuntimeError','AbortError','TimeoutError','NetworkError','NotAllowedError','NotFoundError','SecurityError','InvalidStateError','CompileError','LinkError']);
 const errorClass=e=>errorClasses.has(e?.name)?e.name:'Error';
 
+// Keep only code basenames. Never copy a raw stack line, even on a parse failure.
+function codeFile(location){
+  if(typeof location!=='string')return;
+  let name=location;
+  if(/^https?:\/\//i.test(location)){
+    try{name=new URL(location).pathname.split('/').pop();}catch{return;}
+  }
+  if(name.length<=80 && /^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*\.(?:[cm]?js|jsx|tsx?|wasm|html?)$/.test(name)
+    && !/[a-f0-9]{32}|(?:[0-9]{1,3}\.){3}[0-9]{1,3}/i.test(name))return name;
+}
+function errorLocation(filename,stack,skip=0){
+  const frames=[];
+  let file=codeFile(filename);
+  if(typeof stack==='string'){
+    for(const line of stack.slice(0,8192).split('\n').slice(skip)){
+      // V8 "at fn (url:l:c)" / "at url:l:c", or WebKit/Firefox "fn@url:l:c".
+      const entry=/^\s*at (?:.* \()?((?:https?:\/\/|[A-Za-z_])[^()\s]*):(\d{1,9}):(\d{1,9})\)?$/.exec(line)
+        || /^[^@\s]*@((?:https?:\/\/|[A-Za-z_])\S*):(\d{1,9}):(\d{1,9})$/.exec(line);
+      if(!entry)continue;
+      const name=codeFile(entry[1]);
+      if(!name)continue;
+      file??=name;
+      frames.push(name+':'+entry[2]+':'+entry[3]);
+      if(frames.length===5)break;
+    }
+  }
+  return {...(file?{file}:{}),...(frames.length?{frames}:{})};
+}
+
 function roots(emit,now,source){
   const links=new Map(),open=new Set();
   let failure,room,mpJoin,gameLoad,gameWin,enginePending=0,frameLoaded=false,frameRequested=false;
@@ -107,6 +136,8 @@ function roots(emit,now,source){
       if(win.PerformanceObserver?.supportedEntryTypes?.includes('longtask')){
         new win.PerformanceObserver(list=>{for(const item of list.getEntries()){stallCount++;stallMax=Math.max(stallMax,item.duration);}}).observe({type:'longtask'});
       }
+    }
+    if(src==='game'){
       const frame=t=>{
         if(!win.document.hidden && prevFrame!==undefined)slowestFrame=Math.max(slowestFrame,t-prevFrame);
         prevFrame=win.document.hidden?undefined:t;win.requestAnimationFrame(frame);
@@ -124,12 +155,12 @@ function roots(emit,now,source){
       if(joining){mpJoin?.end('abandoned','user');room=undefined;joiningOp=mpJoin=op('mp.join');joiningOp.stage('admission');}
       let response;
       try{response=await original.apply(this,arguments);}
-      catch(e){safe(()=>{failed(src,route,method,undefined,errorClass(e),started);joiningOp?.end('fail','error:'+errorClass(e));})();throw e;}
+      catch(e){safe(()=>{if(['TypeError','NetworkError','TimeoutError'].includes(e?.name))failed(src,route,method,undefined,errorClass(e),started);joiningOp?.end('fail','error:'+errorClass(e));})();throw e;}
       safe(()=>{
-        if(!response.ok && response.type!=='opaque' && response.type!=='opaqueredirect' && !response.headers.has('x-infuser-request-id'))failed(src,route,method,response.status,undefined,started);
-        if(response.ok && failure?.src===src && failure.data.route===route && failure.data.method===method){drainFailure();failure=null;}
+        if([502,503,504].includes(response.status) && !response.headers.has('x-infuser-request-id'))failed(src,route,method,response.status,undefined,started);
+        else if(failure?.src===src && failure.data.route===route && failure.data.method===method){drainFailure();failure=null;}
         if(joiningOp && joiningOp===mpJoin){
-          if(!response.ok)joiningOp.end('fail','server_ended');
+          if(!response.ok)joiningOp.end('fail','error');
           else{joiningOp.stage('connect');void response.clone().json().then(body=>{if(joiningOp===mpJoin && /^[0-9a-f]{32}$/.test(body.epoch))room=body.epoch;}).catch(()=>{});}
         }
       })();
@@ -261,7 +292,7 @@ export function recorder({source,endpoint,scope,headers={},appearance,now=wall})
     return sequence;
   });
   function error(kind,data,src,detail){
-    const signature=[kind,data.class,data.line,typeof detail==='string'?detail.split(/[?#]/,1)[0].slice(0,250):''].join('|');
+    const signature=[kind,data.class,data.file,data.line,data.col,data.frames?.[0],typeof detail==='string'?detail.split(/[?#]/,1)[0].slice(0,250):''].join('|');
     let hash=2166136261;
     for(let i=0;i<signature.length;i++)hash=Math.imul(hash^signature.charCodeAt(i),16777619);
     const fingerprint=(hash>>>0).toString(16).padStart(8,'0');
@@ -279,11 +310,20 @@ export function recorder({source,endpoint,scope,headers={},appearance,now=wall})
     signals.observeWindow(win,src);
     win.addEventListener('error',safe(e=>{
       if(e.target!==win){error('resource.error',{class:'ResourceError'},src,e.target?.src||e.target?.href);return;}
-      error('js.error',{class:errorClass(e.error),line:e.lineno,col:e.colno},src,e.message);
+      error('js.error',{class:errorClass(e.error),line:e.lineno,col:e.colno,...errorLocation(e.filename,e.error?.stack)},src,e.message);
     }),true);
-    win.addEventListener('unhandledrejection',safe(e=>error('js.rejection',{class:errorClass(e.reason)},src,e.reason?.message)));
+    win.addEventListener('unhandledrejection',safe(e=>error('js.rejection',{class:errorClass(e.reason),...errorLocation(undefined,e.reason?.stack)},src,e.reason?.message)));
     const original=win.console.error;
-    win.console.error=function(...args){safe(()=>error('console.error',{class:errorClass(args[0])},src,typeof args[0]==='string'?args[0]:args[0]?.message))();return original.apply(this,args);};
+    win.console.error=function diagnosticConsoleError(...args){
+      const caller=new Error();
+      safe(()=>{
+        const err=args.find(arg=>arg instanceof win.Error);
+        // Safari/Firefox start at the wrapper; V8 also has an Error header.
+        const skip=caller.stack?.startsWith('Error\n')?2:1;
+        error('console.error',{class:errorClass(err),...errorLocation(undefined,err?.stack??caller.stack,err?.stack?0:skip)},src,err?.message??args[0]);
+      })();
+      return original.apply(this,args);
+    };
     for(const [name,kind] of [['webglcontextlost','webgl.lost'],['webglcontextrestored','webgl.restored']])
       doc.addEventListener(name,()=>emit(kind,{},src),true);
   });

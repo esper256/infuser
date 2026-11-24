@@ -735,15 +735,43 @@ async fn diagnostic_room_and_path_events_follow_changes_only() -> Result<()> {
         "pond",
         guest,
         "private-b",
-        metrics(host, "srflx", "host", 9),
+        metrics(host, "host", "prflx", 9),
         102,
     )?;
     rooms.health(
         "pond",
         host,
         "private-a",
-        metrics(guest, "relay", "relay", 15),
+        metrics(guest, "host", "relay", 15),
         103,
+    )?;
+    rooms.health(
+        "pond",
+        guest,
+        "private-b",
+        metrics(host, "host", "prflx", 9),
+        104,
+    )?;
+    rooms.health(
+        "pond",
+        guest,
+        "private-b",
+        metrics(host, "relay", "srflx", 12),
+        105,
+    )?;
+    rooms.health(
+        "pond",
+        host,
+        "private-a",
+        metrics(guest, "host", "prflx", 7),
+        106,
+    )?;
+    rooms.health(
+        "pond",
+        guest,
+        "private-b",
+        metrics(host, "host", "prflx", 9),
+        107,
     )?;
     rooms.poll("pond", guest, "private-b", 0, 120)?;
     rooms.diagnostics(131);
@@ -770,11 +798,18 @@ async fn diagnostic_room_and_path_events_follow_changes_only() -> Result<()> {
             ("mp.room", Some("join")),
             ("mp.path", None),
             ("mp.path", None),
+            ("mp.path", None),
             ("mp.room", Some("expired")),
             ("mp.room", Some("reaped"))
         ]
     );
-    assert_eq!(events[5]["data"]["reason"], "host_left");
+    assert_eq!(events[6]["data"]["reason"], "host_left");
+    let routes: Vec<_> = events
+        .iter()
+        .filter(|e| e["kind"] == "mp.path")
+        .map(|e| e["data"]["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(routes, ["direct", "relay", "direct"]);
     assert_eq!(events[3]["data"]["rtt_ms"], 15);
     assert!(events.iter().all(|e| e["data"]["room"] == a["epoch"]));
     for protected in ["private-a", "private-b", "192.0.2.100", "Player"] {

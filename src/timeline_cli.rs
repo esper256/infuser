@@ -607,6 +607,10 @@ mod tests {
         for (kind, data) in [
             ("voice.stopped", json!({"state":"user_toggle"})),
             (
+                "op",
+                json!({"name":"mp.join","outcome":"abandoned","duration_ms":900}),
+            ),
+            (
                 "link",
                 json!({"name":"voice","state":"up","down_ms":1810,"down_reason":"network"}),
             ),
@@ -644,7 +648,11 @@ mod tests {
         assert_eq!(v["link_downtime_ms"]["voice / network"], 1810);
         assert_eq!(
             v["operations"]["voice.join"],
-            json!({"count":2,"failed":1,"abandoned":0,"failure_rate":0.5,"p50_ms":10,"p90_ms":70})
+            json!({"count":2,"failed":1,"abandoned":0,"failure_rate":0.5,"p50_ms":70,"p90_ms":70})
+        );
+        assert_eq!(
+            v["operations"]["mp.join"],
+            json!({"count":1,"failed":0,"abandoned":1,"failure_rate":0.0,"p50_ms":null,"p90_ms":null})
         );
         assert_eq!(
             v["unreached_fetches"]["GET /api/chat 502 (deploy window)"],
