@@ -211,17 +211,23 @@ async fn failed_activation_restores_the_snapshot_taken_before_the_switch() -> Re
         disk_full: false,
     };
     let http = reqwest::Client::new();
+    let progress = serde_json::json!({"level":3,"inventory":["lantern"]});
+    let open = || infuser::platform::Database::open(&layout.platform);
+    let version = open()?.save_write("player", "game", "slot", 0, &progress)?;
+    let saved = (version, progress);
     let first =
         updater::update(&layout.config, &layout.source, "linux-amd64", &http, &host).await?;
     assert!(
         first.contains("Activated"),
         "first update did not activate: {first}"
     );
+    assert_eq!(open()?.save_read("player", "game", "slot")?, saved);
     manifest.lock().unwrap().commit = bad.clone();
     let error = updater::update(&layout.config, &layout.source, "linux-amd64", &http, &host)
         .await
         .unwrap_err();
     assert!(error.to_string().contains("rolled back"));
+    assert_eq!(open()?.save_read("player", "game", "slot")?, saved);
     let events = host.events.lock().unwrap().join(" ");
     let preserve_good = events.find(&format!("preserve:{good}")).unwrap();
     let arm_bad = events.find(&format!("arm:{bad}")).unwrap();

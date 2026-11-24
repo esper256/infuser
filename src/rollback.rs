@@ -16,7 +16,9 @@ use std::{
     time::Duration,
 };
 
-const DATABASES: &[&str] = &["platform.sqlite", "publish-captures/requests.sqlite"];
+const CAPTURED: &[&str] = &["platform.sqlite"];
+// Older snapshots also contain the publish request archive.
+const RESTORABLE: &[&str] = &["platform.sqlite", "publish-captures/requests.sqlite"];
 const PLAIN_FILES: &[&str] = &["state.json"];
 const GIB: u64 = 1024 * 1024 * 1024;
 
@@ -91,7 +93,7 @@ fn capture_inner(state_dir: &Path, rollback_root: &Path, release: &str) -> Resul
     reap_incomplete(&root)?;
     discard_restore_temps(&state)?;
     let mut payload = 0u64;
-    for relative in DATABASES.iter().chain(PLAIN_FILES) {
+    for relative in CAPTURED.iter().chain(PLAIN_FILES) {
         payload = payload.saturating_add(source_bytes(&state.join(relative))?);
     }
     let disk = rustix::fs::statvfs(&root)?;
@@ -105,7 +107,7 @@ fn capture_inner(state_dir: &Path, rollback_root: &Path, release: &str) -> Resul
     fs::set_permissions(&partial, fs::Permissions::from_mode(0o700))?;
     let snapshot = match (|| -> Result<Snapshot> {
         let mut databases = Vec::new();
-        for relative in DATABASES {
+        for relative in CAPTURED {
             let source = state.join(relative);
             if !source.exists() {
                 continue;
@@ -431,7 +433,7 @@ fn reap_incomplete(root: &Path) -> Result<()> {
 }
 
 fn discard_restore_temps(state: &Path) -> Result<()> {
-    for relative in DATABASES.iter().chain(PLAIN_FILES) {
+    for relative in RESTORABLE.iter().chain(PLAIN_FILES) {
         let dest = state.join(relative);
         let Some(name) = dest.file_name().and_then(|name| name.to_str()) else {
             continue;
@@ -505,7 +507,7 @@ fn note_failure(root: &Path, release: &str) {
 }
 
 fn allowed_database(path: &str) -> bool {
-    DATABASES.contains(&path)
+    RESTORABLE.contains(&path)
 }
 fn allowed_file(path: &str) -> bool {
     PLAIN_FILES.contains(&path)
@@ -702,7 +704,13 @@ mod tests {
         let release = "a".repeat(40);
         let snapshot = capture(&state, &root, &release)?;
         assert!(snapshot.verified);
-        assert_eq!(snapshot.databases.len(), 2);
+        assert_eq!(snapshot.databases.len(), 1);
+        assert!(
+            !root
+                .join(&release)
+                .join("publish-captures/requests.sqlite")
+                .exists()
+        );
         assert_eq!(snapshot.files.len(), 1);
         let saved = root.join(&release).join("platform.sqlite");
         assert_eq!(row(&saved, "after")?, 1);
@@ -735,7 +743,9 @@ mod tests {
         assert!(restore(&root.join(&release), &state).is_err());
         drop(held);
 
+        Connection::open(&requests)?.execute("INSERT INTO marker VALUES('newer capture')", [])?;
         restore(&root.join(&release), &state)?;
+        assert_eq!(row(&requests, "newer capture")?, 1);
         if wal.exists() {
             assert_ne!(fs::read(&wal)?, b"stale-wal");
         }
@@ -744,6 +754,18 @@ mod tests {
         assert_eq!(row(&requests, "capture")?, 1);
         assert_eq!(fs::read(state.join("state.json"))?, br#"{"marker":"keep"}"#);
         assert_eq!(db.metadata()?.permissions().mode() & 0o777, 0o600);
+        // Recreate the older manifest with both databases and restore it with this updater.
+        let dir = root.join(&release);
+        let relative = "publish-captures/requests.sqlite";
+        let dest = dir.join(relative);
+        fs::create_dir_all(dest.parent().unwrap())?;
+        online_backup(&requests, &dest)?;
+        let mut legacy = read_snapshot(&dir.join("snapshot.json"))?;
+        legacy.databases.push(record(relative, &dest)?);
+        write_json(&dir.join("snapshot.json"), &legacy)?;
+        Connection::open(&requests)?.execute("DELETE FROM marker", [])?;
+        restore(&dir, &state)?;
+        assert_eq!(row(&requests, "newer capture")?, 1);
         let linked = state.join("platform.sqlite.link");
         std::os::unix::fs::symlink(&db, &linked)?;
         // A tampered manifest must not be able to name a new destination.

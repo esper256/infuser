@@ -18,10 +18,14 @@ configuration, and it stays disabled until you configure a repository.
 
 - `platform.sqlite`, using SQLite's online backup API so the live WAL is
   included in one consistent file
-- `publish-captures/requests.sqlite`, when that file exists
 - `state.json`
 
-Each database is integrity-checked, then copied again and checked a second time
+New rollback snapshots leave the publish request archive in place. Older snapshots
+that contain `publish-captures/requests.sqlite` still verify and restore it.
+Full backups continue to include the archive. The smaller snapshot takes effect
+after reinstalling the stable updater using the helper procedure below.
+
+Each captured database is integrity-checked, then copied again and checked a second time
 before the snapshot is kept. One outgoing release is retained, under
 `/var/lib/infuser-updater/rollback/<release>/`. The previous copy is removed
 only after the new one is in place and verified. A partial or interrupted
@@ -153,7 +157,7 @@ above copies the owner and mode already on the destination.
 
 An admin can delete a hidden game after this snapshot is taken. The snapshot is a
 copy of the databases and `state.json` from before that deletion, so restoring it
-brings those catalog rows, saves, and publish-capture records back. Published
+brings those catalog rows and saves back. Only older snapshots that included the publish archive can restore deleted publish-capture records. Published
 files, Docker volumes, containers, and images are not in the snapshot. A restored
 catalog can therefore point at game files that were removed. Take a new snapshot
 after a deletion you want to keep. This does not keep the deleted game's files.
