@@ -130,9 +130,10 @@ async function api(path, options = {}) {
   if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
   const r = await profileFetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });
   if(r.ok)return r.json();
-  const result=await r.json().catch(()=>null);
+  let parsed=true;
+  const result=await r.json().catch(()=>{parsed=false;return null;});
   if(selectedVisit && r.status===403 && String(result?.error).includes('visit has ended'))returnHome();
-  const message=[502,503,504].includes(r.status)?'Infuser is restarting. Try again in a moment.':result?.error;
+  const message=!parsed&&[502,503,504].includes(r.status)?'Infuser is restarting. Try again in a moment.':result?.error;
   const error=new Error(message||'Please try again.');
   error.status=r.status;error.code=result?.code||'';error.updating=error.code==='updating';
   throw error;
