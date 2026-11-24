@@ -97,7 +97,13 @@ impl Player {
             .bearer_auth(&self.token)
     }
 }
-async fn launch(http: &reqwest::Client, url: &str, app: &str, guest: bool) -> Result<Player> {
+async fn launch(
+    http: &reqwest::Client,
+    url: &str,
+    app: &str,
+    guest: bool,
+    initial_state: &str,
+) -> Result<Player> {
     let value: Value = http
         .post(format!("{url}/api/apps/{app}/launch"))
         .header("host", HOST)
@@ -109,7 +115,10 @@ async fn launch(http: &reqwest::Client, url: &str, app: &str, guest: bool) -> Re
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(value["state"], "ready");
+    assert_eq!(value["state"], initial_state);
+    exchange(http, url, &value).await
+}
+async fn exchange(http: &reqwest::Client, url: &str, value: &Value) -> Result<Player> {
     let link = reqwest::Url::parse(value["url"].as_str().unwrap())?;
     let player = Player {
         host: link.host_str().unwrap().into(),
@@ -222,8 +231,8 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     )
     .await?;
     assert_eq!(caps["runtime_sessions"]["version"], 1);
-    let a = launch(&http, &url, "moon", false).await?;
-    let b = launch(&http, &url, "moon", true).await?;
+    let a = launch(&http, &url, "moon", false, "ready").await?;
+    let b = launch(&http, &url, "moon", true, "ready").await?;
     let context = value(a.request(&http, &url, Method::GET, "/_infuser/context")).await?;
     assert_eq!(context["runtime"]["state"], "ready");
     assert_eq!(context["runtime"]["server"]["state"], "idle");
@@ -283,7 +292,7 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         format!("127.0.0.1:{}", controller.snapshot().games["moon"].port)
     );
     // Reading context/heartbeating never hands out a backend endpoint for a title-only launch.
-    let title = launch(&http, &url, "moon", true).await?;
+    let title = launch(&http, &url, "moon", true, "ready").await?;
     assert_eq!(
         value(title.request(&http, &url, Method::GET, "/_infuser/runtime/v1")).await?["state"],
         "idle"
@@ -380,15 +389,14 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
             .status(),
         409
     );
-    assert_eq!(
-        value(a.request(&http, &url, Method::POST, "/_infuser/heartbeat")).await?["state"],
-        "ready"
-    );
+    let heartbeat = value(a.request(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
+    assert_eq!(heartbeat["state"], "ready");
+    assert_eq!(heartbeat["update_available"], true);
     assert_eq!(
         value(a.request(&http, &url, Method::GET, "/_infuser/saves/progress")).await?["data"]["stars"],
         7
     );
-    let fresh = launch(&http, &url, "moon", true).await?;
+    let fresh = launch(&http, &url, "moon", true, "ready").await?;
     value(fresh.request(&http, &url, Method::POST, "/_infuser/runtime/v1")).await?;
     controller.reconcile(now()).await?;
     // Expiring server leases must leave guest saves and the title screen alive.
@@ -417,7 +425,7 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     )
     .await?;
     assert_eq!(legacy["state"], "starting");
-    let blocked = launch(&http, &url, "moon", true).await?;
+    let blocked = launch(&http, &url, "moon", true, "ready").await?;
     assert_eq!(
         blocked
             .request(&http, &url, Method::POST, "/_infuser/runtime/v1")
@@ -430,6 +438,31 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         value(blocked.request(&http, &url, Method::GET, "/_infuser/context")).await?["runtime"]["state"],
         "ready"
     );
+    let open = exchange(&http, &url, &legacy).await?;
+    controller.reconcile(now()).await?;
+    let name = controller.snapshot().games["legacy"].name.clone();
+    assert!(engine.names.lock().unwrap().remove(&name));
+    controller.reconcile(now()).await?;
+    let state = value(open.request(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
+    assert_eq!(state["state"], "ended");
+    assert_eq!(state["update_available"], false);
+    let id = legacy["launch_id"].as_str().unwrap();
+    assert!(p.db.read()?.launches[id].lease_id.is_none());
+    assert!(p.db.read()?.launches[id].lease_token.is_none());
+    let progress = json!({"level":8,"inventory":["last lantern"]});
+    let receipt = value(
+        open.request(&http, &url, Method::PUT, "/_infuser/saves/progress")
+            .json(&json!({"version":0,"data":progress})),
+    )
+    .await?;
+    assert_eq!(receipt["version"], 1);
+    controller.stop("legacy")?;
+    controller.reconcile(now()).await?;
+    let reopened = launch(&http, &url, "legacy", false, "starting").await?;
+    let loaded =
+        value(reopened.request(&http, &url, Method::GET, "/_infuser/saves/progress")).await?;
+    assert_eq!(loaded["version"], receipt["version"]);
+    assert_eq!(loaded["data"], progress);
     // The old catalog remains parseable; old-style writes cannot erase opt-in metadata.
     {
         let c = p.db.connection.lock().unwrap();

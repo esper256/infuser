@@ -5,9 +5,11 @@ async function request(path, body, method = 'POST') {
     method, credentials: 'same-origin', signal: AbortSignal.timeout(5000),
     ...(body === undefined ? {} : {headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)})
   });
-  const result = await response.json();
-  if (!response.ok) throw Object.assign(new Error(result.error || 'Peer session unavailable'), {status:response.status});
-  return result;
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw Object.assign(new Error(result?.error || 'Peer session unavailable'), {status:response.status});
+  }
+  return response.json();
 }
 export function create(options) { return enter(true, options); }
 export function join(options) { return enter(false, options); }

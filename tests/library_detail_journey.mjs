@@ -30,7 +30,7 @@ try {
   else if(path==='/api/screenshots/shot')data={image:'data:image/webp;base64,'+(await readFile(new URL('assets/avatars/loot-raccoon-128.webp',root))).toString('base64')};
   else if(path==='/api/client-state')data={version:'review',game_open:false};
   else if(path==='/api/admin/game-authors')data={games:apps.map(g=>({id:g.id,title:g.title,authors:g.authors??(g.author?[g.author]:[])})),members:[author,friend]};
-  else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:503,json:{error:'Please retry author credits.'}});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
+  else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:502,body:''});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
   else if(path==='/api/admin/members')data={members:{}};
   else if(path==='/api/admin/games')data={games:[]};
   else if(path==='/api/admin/credentials')data={credentials:[]};
@@ -38,9 +38,9 @@ try {
   else if(path==='/api/profile'&&method==='GET')data={users:[]};
   else if(path==='/api/profile'){me.avatar=request.postDataJSON().avatar;author.avatar=me.avatar;data={avatar:me.avatar};}
   else if(path.endsWith('/launch')){launches.push(request.postDataJSON());data={state:'ready',url:'https://library.test/game-fixture'};}
-  else if(path.endsWith('/visibility')){if(failVisibility){await new Promise(resolve=>{releaseVisibility=resolve;});return route.fulfill({status:503,json:{error:'Please retry visibility.'}});}const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
+  else if(path.endsWith('/visibility')){if(failVisibility){await new Promise(resolve=>{releaseVisibility=resolve;});return route.fulfill({status:504,body:'Gateway Timeout'});}const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
   else if(/^\/api\/admin\/apps\/[^/]+\/reactions\//.test(path)){
-   if(failModeration)return route.fulfill({status:503,json:{error:'Please retry deletion.'}});
+   if(failModeration)return route.fulfill({status:400,json:{error:'Please retry deletion.'}});
    const app=apps.find(g=>g.id===path.split('/')[4]);app.reactions=app.reactions.filter(r=>r.id!==path.split('/')[6]);data={ok:true};
   }
   else if(path.includes('/updates/') && path.endsWith('/reaction')){
@@ -74,6 +74,12 @@ try {
  });
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('https://library.test/library');await page.locator('#visible-games .game').first().waitFor();
+ for(const gatewayStatus of [502,503,504]){
+   await page.route('**/api/library',r=>r.fulfill({status:gatewayStatus,body:''}));
+   await page.evaluate(()=>refreshTestLibrary());
+   assert.equal(await page.locator('#notice').textContent(),'Infuser is restarting. Try again in a moment.');
+   await page.unroute('**/api/library');
+ }
  const card=()=>page.locator('#visible-games [data-app="firefly-drift"]'),dialog=page.locator('#game-detail');
  async function close(){await page.locator('#close-game-detail').click();await page.waitForFunction(()=>!document.querySelector('#game-detail').open);}
  async function open(){await card().locator('.game-open').click();await dialog.waitFor();}
@@ -86,7 +92,7 @@ try {
  await editor.getByLabel('Move earlier '+friend.name,{exact:true}).click();
  assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);
  await page.evaluate(()=>refreshTestLibrary());assert.equal(await editor.locator('.author-person').count(),2,'polling preserves draft');
- failAuthors=true;await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Please retry author credits.',{exact:true}).waitFor();
+ failAuthors=true;await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Infuser is restarting. Try again in a moment.',{exact:true}).waitFor();
  assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);failAuthors=false;
  await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Authors saved.',{exact:true}).waitFor();
  assert.deepEqual(writes.at(-1).body.authors,[friend.id,author.id]);
@@ -441,7 +447,7 @@ try {
  await picker.getByRole('button',{name:'React: Great job',exact:true}).dispatchEvent('click');
  assert.equal(writes.length,reactionsBefore+1,'a pending save cannot be submitted twice');
  assert.equal(typeof releaseReaction,'function');releaseReaction();failReaction=false;
- await page.getByText('Please retry reaction.',{exact:true}).waitFor();
+ await page.getByText('Infuser is restarting. Try again in a moment.',{exact:true}).waitFor();
  await page.waitForFunction(()=>!document.querySelector('#feed-reaction-picker button[aria-disabled="true"]'));
  assert.equal(await page.locator('.update-confetti').count(),0);
  assert.equal(await picker.locator('[aria-pressed=true]').count(),0);
@@ -555,7 +561,7 @@ try {
    await action.evaluate(e=>e.click());await page.evaluate(()=>refreshTestLibrary());
    assert(await action.isDisabled());assert.equal(writes.filter(w=>w.path.endsWith('/visibility')).length,count);
    assert(releaseVisibility);releaseVisibility();
-   await menu.getByRole('alert').waitFor();assert.equal(await menu.getByRole('alert').textContent(),'Please retry visibility.');
+   await menu.getByRole('alert').waitFor();assert.equal(await menu.getByRole('alert').textContent(),'Infuser is restarting. Try again in a moment.');
    assert(await action.isEnabled());assert(await menu.evaluate(e=>e.open));
    await page.evaluate(()=>refreshTestLibrary());assert(await menu.getByRole('alert').isVisible());
    await page.screenshot({path:new URL(`${theme}-${width}-admin-error.png`,out).pathname});

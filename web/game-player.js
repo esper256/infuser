@@ -83,7 +83,12 @@ function onViewportResize(){syncResolutionButton();fitViewport();}
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(onViewportResize).observe(viewport);
 addEventListener('resize',onViewportResize);
 let sessionEnded=false;
-function message(text){if(!sessionEnded){status.textContent=text;status.hidden=!text;}}
+let updateMessage='',visitMessage='';
+function message(text){
+  if(sessionEnded)return;
+  const notice=visitMessage||text||updateMessage;
+  status.textContent=notice;status.hidden=!notice;
+}
 const header = document.getElementById('player-header');
 const edge = document.getElementById('controls-edge');
 const playerFullscreen = () => document.fullscreenElement === document.documentElement;
@@ -317,8 +322,16 @@ try{
     status.replaceChildren(session.visit?'This visit has ended. ':'This game session ended. ',back);
     status.hidden=false;showControls();
   }
+  function updateAvailable(){
+    if(updateMessage || sessionEnded)return;
+    updateMessage=`A new version of ${session.manifest.title} is ready. Reopen it at your next break.`;
+    if(status.hidden)message('');
+  }
+  if(session.runtime?.update_available)updateAvailable();
   window.addEventListener('message',event=>{
-    if(event.origin!==location.origin || event.source!==game.contentWindow || event.data?.type!=='infuser-session-error')return;
+    if(event.origin!==location.origin || event.source!==game.contentWindow)return;
+    if(event.data?.type==='infuser-update-available'){updateAvailable();return;}
+    if(event.data?.type!=='infuser-session-error')return;
     const {status}=event.data;
     if(heartbeatEndReasons.has(status))endSession(heartbeatEndReasons.get(status),status);
   });
@@ -332,7 +345,16 @@ try{
       try{
         const r=await playerFetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
         if(heartbeatEndReasons.has(r.status)){endSession(heartbeatEndReasons.get(r.status),r.status);return;}
-        if(r.ok){const state=await r.json();watch();if(!sessionEnded){checked=performance.now();checkedWall=Date.now();if(state.visit){const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);message(left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'');}}}
+        if(r.ok){
+          const state=await r.json();watch();if(sessionEnded)return;
+          checked=performance.now();checkedWall=Date.now();
+          if(state.visit){
+            const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);
+            visitMessage=left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'';
+            message('');
+          }
+          if(state.update_available)updateAvailable();
+        }
       }catch{watch();}finally{checking=false;}
     }
     watchTimer=setInterval(watch,500);checkTimer=setInterval(check,5000);

@@ -131,6 +131,7 @@ type PublicationStates = BTreeMap<String, (String, String, String)>;
 
 #[derive(Clone)]
 pub struct Platform {
+    pub shutdown: tokio::sync::watch::Sender<bool>,
     pub controller: Arc<Controller>,
     pub db: Arc<Database>,
     http: reqwest::Client,
@@ -223,6 +224,7 @@ impl Platform {
             0
         };
         let platform = Self {
+            shutdown: tokio::sync::watch::Sender::new(false),
             voice: controller
                 .config
                 .controller
@@ -414,23 +416,18 @@ impl Platform {
         if on_demand {
             status["server"] = self.runtime_view(launch, true)?;
         } else if let (Some(lease), Some(token)) = (&launch.lease_id, &launch.lease_token) {
-            status = self
-                .controller
-                .lease(launch.runtime_id(), lease, token, "renew", now())?;
+            status = self.backend_state(launch, lease, token, true)?;
         }
-        if !on_demand
-            && launch.lease_id.is_some()
-            && status["state"] == "ready"
-            && self
-                .controller
-                .snapshot()
-                .games
-                .get(launch.runtime_id())
-                .is_some_and(|i| i.spec.web)
-        {
-            status["endpoint"] = json!({"url":format!("https://{}/_infuser/server",launch.host)});
-        }
-        self.db.renew_launch(id, now())?;
+        let ended_lease = if status["state"] == "ended" {
+            launch.lease_id.as_deref()
+        } else {
+            None
+        };
+        self.db.renew_launch(id, now(), ended_lease)?;
+        status["update_available"] = json!(
+            data.deployed(launch.runtime_id())
+                .is_some_and(|app| app.build != launch.build)
+        );
         if let Some(visit) = launch.visit.as_ref().and_then(|id| data.visits.get(id)) {
             status["visit"] = json!({"expires_at":visit.expires,"authorization_seconds":30});
         }

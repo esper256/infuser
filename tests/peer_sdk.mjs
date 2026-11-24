@@ -194,3 +194,8 @@ test('a data channel closing during send returns false instead of breaking the g
 });
 
 }
+
+baseTest('a proxy error on peer join preserves the HTTP status with an empty body',async t=>{
+  t.mock.method(globalThis,'fetch',async()=>new Response(null,{status:502}));
+  await assert.rejects(versionedJoin(),{status:502,message:'Peer session unavailable'});
+});

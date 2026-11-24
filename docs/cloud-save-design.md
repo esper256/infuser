@@ -140,6 +140,11 @@ reusing it with another payload is an error. A timeout is not evidence that the
 write failed, so the SDK retries with the same ID. Concurrent retries must not
 create duplicate branches or move the head twice.
 
+Infuser saves span builds. If an older build reads a save format it cannot
+understand, it must refuse to overwrite it. Each web build has its own origin,
+so a newly published build starts with fresh `localStorage` and IndexedDB.
+Use Infuser saves for progress that should survive an update.
+
 ## Save handling requirements
 
 - Use the identity provided by the SDK. A guest gets empty groups and temporary

@@ -169,6 +169,11 @@ conflicts without discarding either version. For related JSON or binary files, u
 never import or overwrite the owner's progress. Infuser supplies the isolated
 identity and storage; the game must use them.
 
+Infuser saves span builds. If an older build reads a save format it cannot
+understand, it must refuse to overwrite it. Each web build has its own origin,
+so a newly published build starts with fresh `localStorage` and IndexedDB.
+Use Infuser saves for progress that should survive an update.
+
 For every web game, set `orientation` in `infuser.game.json` to `landscape` or
 `portrait` according to its intended phone layout. The publisher sends it with each build.
 Older and default builds (`"resolution": "hd"`) are automatically protected by

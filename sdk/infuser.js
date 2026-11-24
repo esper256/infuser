@@ -43,6 +43,7 @@ async function request(path, options = {}) {
 export const ready = request('context');
 // An embedding game can listen for infuser-session-error and show a return-to-Library action.
 let stopped = false;
+let updateAnnounced = false;
 function stopHeartbeat() {
   stopped = true;
   clearInterval(timer);
@@ -60,7 +61,13 @@ function sessionError(error) {
 }
 async function heartbeat() {
   if (stopped) return;
-  try { await request('heartbeat', { method: 'POST' }); }
+  try {
+    const state = await request('heartbeat', { method: 'POST' });
+    if (!stopped && !updateAnnounced && state.update_available && window.parent && window.parent !== window) {
+      updateAnnounced = true;
+      window.parent.postMessage({type: 'infuser-update-available'}, location.origin);
+    }
+  }
   catch (error) { sessionError(error); }
 }
 ready.then(heartbeat, sessionError);

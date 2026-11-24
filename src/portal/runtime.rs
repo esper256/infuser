@@ -18,7 +18,21 @@ impl Platform {
             && !self.db.read()?.builds[&build_key(&launch.app, &launch.build)]
                 .manifest
                 .dedicated_sessions();
-        let state = match self.controller.lease(
+        let state = self.backend_state(launch, lease, token, renew)?;
+        Ok(
+            json!({"state":state["state"],"session_id":lease,"endpoint":state["endpoint"],
+            "error":state["error"],"retry_at":state["retry_at"]}),
+        )
+    }
+
+    pub(super) fn backend_state(
+        &self,
+        launch: &Launch,
+        lease: &str,
+        token: &str,
+        renew: bool,
+    ) -> Result<Value> {
+        let mut state = match self.controller.lease(
             launch.runtime_id(),
             lease,
             token,
@@ -37,7 +51,7 @@ impl Platform {
             }
             Err(error) => return Err(error),
         };
-        let endpoint = if state["state"] == "ready"
+        if state["state"] == "ready"
             && self
                 .controller
                 .snapshot()
@@ -45,14 +59,9 @@ impl Platform {
                 .get(launch.runtime_id())
                 .is_some_and(|i| i.spec.web)
         {
-            json!({"url":format!("https://{}/_infuser/server",launch.host)})
-        } else {
-            state["endpoint"].clone()
-        };
-        Ok(
-            json!({"state":state["state"],"session_id":lease,"endpoint":endpoint,
-            "error":state["error"],"retry_at":state["retry_at"]}),
-        )
+            state["endpoint"] = json!({"url":format!("https://{}/_infuser/server",launch.host)});
+        }
+        Ok(state)
     }
 
     fn runtime_launch(&self, h: &HeaderMap) -> Result<(String, Launch)> {
