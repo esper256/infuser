@@ -9,7 +9,9 @@ sudo -u infuser infuser logs /etc/infuser/infuser.toml --profile Astra --since 2
 sudo -u infuser infuser logs /etc/infuser/infuser.toml --game moon --since 90m
 ```
 
-Use a profile ID for ambiguous names. Filters combine. A profile filter selects attributed events. Search the same time window by game or without a profile to see controller restarts, deployment outcomes and runtime transitions. Use `--jsonl` for scripts. `--since` also accepts Unix milliseconds, and `--until` accepts Unix milliseconds.
+Use a profile ID for ambiguous names. `--profile` includes that player's events and every event with no assigned profile, including controller restarts, deployments and game-server activity. Events attributed to another player are excluded. Adding `--game` narrows the entire stream to that app, so system-wide events without an app ID drop out.
+
+Use `--jsonl` for scripts. `--since` also accepts Unix milliseconds, and `--until` accepts Unix milliseconds.
 
 ## Follow the evidence
 

@@ -1,4 +1,55 @@
 use super::*;
+
+#[tokio::test]
+async fn profile_filter_keeps_unattributed_events_in_time_order() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let store = Timeline::new(&crate::config::Settings {
+        state_dir: temp.path().join("state"),
+        diagnostics_dir: Some(temp.path().join("logs")),
+        ..Default::default()
+    });
+    let start = ms() - 1000;
+    let event = |offset: i64, kind: &str, profile: &str, app: &str| {
+        let mut e = Event::server(
+            kind,
+            ContextFields {
+                profile: profile.into(),
+                app: app.into(),
+                ..Default::default()
+            },
+            json!({}),
+            false,
+        );
+        e.at = start + offset;
+        e
+    };
+    assert!(
+        store
+            .submit(vec![
+                event(3, "runtime.transition", "", "pond"),
+                event(2, "launch.open", "other-player", "pond"),
+                event(1, "launch.open", "player", "pond"),
+                event(0, "controller.start", "", ""),
+            ])
+            .await
+    );
+    let kinds = |app| -> Result<Vec<Value>> {
+        let result = read(store.path(), &Filter::default(), app, Some("player"), false)?;
+        Ok(result["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["kind"].clone())
+            .collect())
+    };
+    assert_eq!(
+        kinds(None)?,
+        ["controller.start", "launch.open", "runtime.transition"]
+    );
+    assert_eq!(kinds(Some("pond"))?, ["launch.open", "runtime.transition"]);
+    Ok(())
+}
+
 #[tokio::test]
 async fn queue_orders_retries_and_keeps_visit_details_private() -> Result<()> {
     let temp = tempfile::tempdir()?;
