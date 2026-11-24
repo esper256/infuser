@@ -56,12 +56,16 @@ try {
   const frozen=page.waitForRequest(req=>req.url().endsWith('/_infuser/telemetry')&&req.method()==='POST'&&req.postDataJSON()?.events?.some(e=>e.kind==='page.freeze'));
   await page.evaluate(()=>document.dispatchEvent(new Event('freeze')));
   assert.equal((await (await frozen).response()).status(),200);
+  const frame=page.frameLocator('#game').locator('body');
+  await page.route('**/_infuser/heartbeat',r=>r.fulfill({json:{update_available:true}}));
+  await frame.evaluate(()=>window.heartbeatProbe.tick());
+  const expected='A new version of '+await page.locator('#title').textContent()+' is ready. Reopen it at your next break.';
+  await page.getByText(expected,{exact:true}).waitFor();
   let heartbeatPosts=0;
   await page.route('**/_infuser/heartbeat',route=>{
     assert.equal(route.request().method(),'POST');heartbeatPosts++;
     return route.fulfill({status:401,contentType:'text/plain',body:'Expired'});
   });
-  const frame=page.frameLocator('#game').locator('body');
   await frame.evaluate(async()=>{await window.heartbeatProbe.tick();await window.heartbeatProbe.tick();});
   const notice=page.locator('#status');
   await notice.getByRole('link',{name:'Return to your Library.'}).waitFor();
@@ -84,6 +88,14 @@ try {
     }));
     await player.goto('https://'+host+'/_infuser/play');
     await player.waitForFunction(()=>document.querySelector('#game')?.contentDocument?.title==='Moon v1');
+    if(visit){
+      await player.route('**/_infuser/api/v1/heartbeat',r=>r.fulfill({json:{update_available:true,visit:{expires_at:Math.floor(Date.now()/1000)+90}}}));
+      await player.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+      await player.getByText('Visit ends in 2 min. Save your progress.',{exact:true}).waitFor();
+      await player.evaluate(()=>window.dispatchEvent(new MessageEvent('message',{origin:location.origin,
+        source:document.querySelector('#game').contentWindow,data:{type:'infuser-update-available'}})));
+      assert.equal(await player.locator('#status').textContent(),'Visit ends in 2 min. Save your progress.');
+    }
     await player.frameLocator('#game').locator('body').evaluate((_,status)=>{
       parent.postMessage({type:'infuser-session-error',status},location.origin);
     },status);

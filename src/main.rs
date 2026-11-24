@@ -471,6 +471,7 @@ async fn main() -> Result<()> {
         Ok::<(), anyhow::Error>(())
     });
     let stopping = controller.clone();
+    let shutdown = platform.shutdown.clone();
     let app = api::router_with_peers(controller, token, Some(platform.peer_rooms()))
         .merge(infuser::operations::routes(platform.clone(), token))
         .merge(infuser::portal::router(platform));
@@ -479,6 +480,7 @@ async fn main() -> Result<()> {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 .expect("signal handler");
         tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+        shutdown.send_replace(true);
         stopping
             .timeline
             .submit(vec![infuser::timeline::Event::server(

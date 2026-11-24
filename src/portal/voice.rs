@@ -696,9 +696,30 @@ struct ControlQuery {
     #[serde(default)]
     epoch: Option<String>,
 }
+fn no_change() -> Response {
+    (StatusCode::NO_CONTENT, [("Cache-Control", "no-store")]).into_response()
+}
+
+async fn wait_for_change(
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
+    notified: impl std::future::Future<Output = ()>,
+) {
+    if *shutdown.borrow() {
+        return;
+    }
+    tokio::select! {
+        _ = shutdown.changed() => {}
+        _ = tokio::time::timeout(Duration::from_secs(25), notified) => {}
+    }
+}
+
 async fn control(State(p): State<Platform>, h: HeaderMap, Query(q): Query<ControlQuery>) -> Answer {
     let (owner, _, _) = context(&p, &h, false).await?;
     let v = service(&p)?;
+    let mut shutdown = p.shutdown.subscribe();
+    if *shutdown.borrow() {
+        return Ok(no_change());
+    }
     let epoch_matches = q.epoch.as_deref() == Some(v.epoch.as_str());
     let (persisted_rev, _) = p.db.voice_settings_load(&owner)?;
     let (rev, notify) = v.revision_for(&owner, persisted_rev);
@@ -710,13 +731,13 @@ async fn control(State(p): State<Platform>, h: HeaderMap, Query(q): Query<Contro
         let _guard = WaiterGuard::enter(v.clone(), owner.clone());
         let (recheck_rev, _) = v.revision_for(&owner, persisted_rev);
         if recheck_rev <= q.since {
-            let _ = tokio::time::timeout(Duration::from_secs(25), notified).await;
+            wait_for_change(&mut shutdown, notified).await;
         }
     }
     let (persisted_rev, settings) = p.db.voice_settings_load(&owner)?;
     let (rev, _) = v.revision_for(&owner, persisted_rev);
     if epoch_matches && rev <= q.since {
-        return Ok((StatusCode::NO_CONTENT, [("Cache-Control", "no-store")]).into_response());
+        return Ok(no_change());
     }
     let healthy = v.healthy(now());
     let own_summary = {
@@ -913,6 +934,10 @@ async fn game_control(
         return Ok(reply(json!({"configured":false,"active":false})));
     };
     require_player_voice_token(v, &h, &launch_id)?;
+    let mut shutdown = p.shutdown.subscribe();
+    if *shutdown.borrow() {
+        return Ok(no_change());
+    }
     let (persisted_rev, _) = p.db.voice_settings_load(&launch.email)?;
     if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
         let notify = v.game_notifier_for(&launch.email);
@@ -920,12 +945,12 @@ async fn game_control(
         tokio::pin!(notified);
         notified.as_mut().enable();
         if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
-            let _ = tokio::time::timeout(Duration::from_secs(25), notified).await;
+            wait_for_change(&mut shutdown, notified).await;
         }
     }
     let (persisted_rev, _) = p.db.voice_settings_load(&launch.email)?;
     if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
-        return Ok((StatusCode::NO_CONTENT, [("Cache-Control", "no-store")]).into_response());
+        return Ok(no_change());
     }
     Ok(reply(build_game_status(&p, v, &launch.email).await?))
 }
@@ -1121,6 +1146,19 @@ async fn signal(
 mod tests {
     use super::*;
     use crate::{config::Config, controller::Controller, docker::Docker, platform};
+
+    #[tokio::test]
+    async fn parked_and_late_polls_observe_shutdown() {
+        let shutdown = tokio::sync::watch::Sender::new(false);
+        let mut receiver = shutdown.subscribe();
+        let mut parked = std::pin::pin!(wait_for_change(&mut receiver, std::future::pending()));
+        assert!(futures_util::poll!(&mut parked).is_pending());
+        shutdown.send_replace(true);
+        assert!(futures_util::poll!(&mut parked).is_ready());
+        let mut late = shutdown.subscribe();
+        let mut poll = std::pin::pin!(wait_for_change(&mut late, std::future::pending()));
+        assert!(futures_util::poll!(&mut poll).is_ready());
+    }
 
     #[tokio::test]
     async fn control_long_poll_parks_until_owner_bump() -> anyhow::Result<()> {

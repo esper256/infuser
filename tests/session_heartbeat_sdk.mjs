@@ -9,10 +9,13 @@ for(const path of ['../sdk/infuser.js','../sdk/v1/infuser.js']){
     const source=readFileSync(new URL(path,import.meta.url),'utf8')
       .replace(/^import .*;$/m,'const checkpoints = {};').replace(/^export /gm,'');
     for(const status of [401,403,404,409,410]){
-      const events=[],messages=[],posts=[];
+      const events=[],messages=[],posts=[],updates=[];
       let callback,clears=0;
       const window=new EventTarget();
-      window.parent={postMessage:(data,origin)=>messages.push([data.status,origin])};
+      window.parent={postMessage:(data,origin)=>{
+        if(data.type==='infuser-update-available')updates.push(origin);
+        else messages.push([data.status,origin]);
+      }};
       window.addEventListener('infuser-session-error',event=>events.push(event.detail.status));
       const fetch=(url,options)=>{
         if(url.endsWith('/context'))return Promise.resolve(Response.json({}));
@@ -25,12 +28,18 @@ for(const path of ['../sdk/infuser.js','../sdk/v1/infuser.js']){
       posts[0](new Response('gateway',{status:502}));
       await new Promise(setImmediate);
       assert.equal(clears,0);
+      for(const update_available of [false,true,true]){
+        const beat=callback();
+        posts.at(-1)(Response.json({update_available}));
+        await beat;
+      }
+      assert.deepEqual(updates,['https://game.invalid']);
       const pending=[callback(),callback()];
-      posts[1](new Response('session expired',{status}));
-      posts[2](Response.json({error:'session expired'},{status}));
+      posts[4](new Response('session expired',{status}));
+      posts[5](Response.json({error:'session expired'},{status}));
       await Promise.all(pending);
       await callback(); // A callback already queued before clearInterval must also be harmless.
-      assert.equal(posts.length,3);
+      assert.equal(posts.length,6);
       assert.equal(clears,1);
       assert.deepEqual(events,[502,status]);
       assert.deepEqual(messages,[[status,'https://game.invalid']]);

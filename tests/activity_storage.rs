@@ -20,7 +20,7 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     db.see_member("player@example.test", time + 1)?;
-    db.renew_launch("test-launch", time + 1)?;
+    db.renew_launch("test-launch", time + 1, None)?;
     db.insert_launch(
         "lifecycle-launch",
         &serde_json::from_value(json!({
@@ -217,7 +217,7 @@ fn pre_genesis_binary_cannot_write_after_migration() -> Result<()> {
     db.edit(|d| {
         d.launches.insert("guest".into(),serde_json::from_value(json!({"app":"pond","build":"one","email":"player@example.test","guest":true,"host":"pond.games.example.com","token_hash":"fixture","exchanged":true,"expires":time+1,"grant_expires":time+1,"seen":time,"lease_id":null,"lease_token":null}))?); Ok(())
     })?;
-    db.renew_launch("guest", time)?;
+    db.renew_launch("guest", time, None)?;
     db.read()?;
     assert!(old_member("Must be rejected").is_err());
     assert_eq!(

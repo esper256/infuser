@@ -253,7 +253,7 @@ impl Database {
         tx.commit()?;
         Ok(changed)
     }
-    pub fn renew_launch(&self, id: &str, time: u64) -> Result<()> {
+    pub fn renew_launch(&self, id: &str, time: u64, ended_lease: Option<&str>) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let raw: Option<String> = tx
@@ -272,6 +272,10 @@ impl Database {
             self.cached_catalog(&tx)?.launch_allowed(&launch, time),
             crate::portal::fault(403, "Game authorization ended.")
         );
+        if ended_lease.is_some() && launch.lease_id.as_deref() == ended_lease {
+            launch.lease_id = None;
+            launch.lease_token = None;
+        }
         launch.seen = time;
         launch.expires = time + 300;
         tx.execute(
