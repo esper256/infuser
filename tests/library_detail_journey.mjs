@@ -86,6 +86,14 @@ try {
  async function popup(action){const opening=page.waitForEvent('popup');await action();const tab=await opening;await tab.waitForURL('**/game-fixture');await tab.close();}
  // Admin credits reorder without granting ownership; compact portraits keep the dock size.
  const originalCreator=await card().locator('.creator').boundingBox();
+ // A JSON service error from launch keeps its actionable server message.
+ const capacityError='game capacity is full; retry after another game becomes idle';
+ await page.route('**/api/apps/firefly-drift/launch',r=>r.fulfill({status:503,json:{error:capacityError}}));
+ await card().getByRole('button',{name:'Play',exact:true}).click();
+ await page.getByText(capacityError,{exact:true}).waitFor();
+ assert.equal(await page.locator('#notice').textContent(),capacityError);
+ await page.unroute('**/api/apps/firefly-drift/launch');
+
  await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
  const editor=page.locator('#game-authors');await page.locator('#admin summary').filter({hasText:'Game authors'}).click();await editor.getByLabel('Game to credit').selectOption(game.id);
  await editor.getByLabel('Author to add').selectOption(friend.id);await editor.getByRole('button',{name:'Add',exact:true}).click();
@@ -447,7 +455,7 @@ try {
  await picker.getByRole('button',{name:'React: Great job',exact:true}).dispatchEvent('click');
  assert.equal(writes.length,reactionsBefore+1,'a pending save cannot be submitted twice');
  assert.equal(typeof releaseReaction,'function');releaseReaction();failReaction=false;
- await page.getByText('Infuser is restarting. Try again in a moment.',{exact:true}).waitFor();
+ await page.getByText('Please retry reaction.',{exact:true}).waitFor();
  await page.waitForFunction(()=>!document.querySelector('#feed-reaction-picker button[aria-disabled="true"]'));
  assert.equal(await page.locator('.update-confetti').count(),0);
  assert.equal(await picker.locator('[aria-pressed=true]').count(),0);
