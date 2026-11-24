@@ -8,7 +8,7 @@ for(const path of ['../sdk/infuser.js','../sdk/v1/infuser.js']){
   test(path+' stops once on terminal status, including in-flight heartbeats', async()=>{
     const source=readFileSync(new URL(path,import.meta.url),'utf8')
       .replace(/^import .*;$/m,'const checkpoints = {};').replace(/^export /gm,'');
-    for(const status of [401,403,404,410]){
+    for(const status of [401,403,404,409,410]){
       const events=[],messages=[],posts=[];
       let callback,clears=0;
       const window=new EventTarget();

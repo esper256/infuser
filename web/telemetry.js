@@ -333,10 +333,8 @@ export function recorder({source,endpoint,scope,headers={},appearance,now=wall})
           const stack=err.stack;
           const location=stack?errorLocation(undefined,stack):callerLocation();
           error('console.error',{class:errorClass(err),...location},src,err.message);
-        }else if(typeof args[0]==='string'){
-          error('console.error',{class:'Error'},src,args[0],callerLocation);
         }else{
-          error('console.error',{class:'Error',...callerLocation()},src);
+          error('console.error',{class:'Error'},src,args[0],callerLocation);
         }
       })();
       return original.apply(this,args);

@@ -75,5 +75,30 @@ try {
   }));
   assert.deepEqual(await frame.evaluate(()=>[window.heartbeatProbe.clears,window.heartbeatProbe.errors]),[1,1]);
   assert.equal(heartbeatPosts,1);
+  // Exercise the same player with ordinary and visiting launch metadata.
+  const session=await page.evaluate(async()=>(await fetch('/_infuser/context')).json());
+  for(const [visit,status,reason] of [[false,410,'timeout'],[false,409,'server_ended'],[true,403,'visit_end']]){
+    const player=await ctx.newPage();
+    if(visit)await player.route('**/_infuser/context',route=>route.fulfill({
+      json:{...session,visit:{expires_at:Math.floor(Date.now()/1000)+600,authorization_seconds:30}}
+    }));
+    await player.goto('https://'+host+'/_infuser/play');
+    await player.waitForFunction(()=>document.querySelector('#game')?.contentDocument?.title==='Moon v1');
+    await player.frameLocator('#game').locator('body').evaluate((_,status)=>{
+      parent.postMessage({type:'infuser-session-error',status},location.origin);
+    },status);
+    const notice=player.locator('#status');
+    await notice.getByRole('link',{name:'Return to your Library.'}).waitFor();
+    const text=visit?'This visit has ended.':'This game session ended.';
+    assert.equal(await notice.textContent(),text+' Return to your Library.');
+    assert.equal(await player.locator('#game').isHidden(),visit);
+    const ended=player.waitForRequest(req=>req.url().endsWith('/_infuser/telemetry')&&req.method()==='POST'&&
+      req.postDataJSON().events.some(e=>e.kind==='link'&&e.data.name==='launch'&&e.data.state==='ended'));
+    await player.evaluate(()=>document.dispatchEvent(new Event('freeze')));
+    const row=(await ended).postDataJSON().events.find(e=>e.kind==='link'&&e.data.state==='ended'&&e.data.name==='launch');
+    assert.equal(row.data.status,status);
+    assert.equal(row.data.reason,reason);
+    await player.close();
+  }
   await page.close();
 }finally{await browser.close();}
