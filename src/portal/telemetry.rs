@@ -68,10 +68,16 @@ pub(super) fn connection_event(a: &crate::connections::Attempt, kind: &str) -> E
     }
     event
 }
-pub(super) fn voice_event(p: &Platform, l: &crate::voice::Lease, kind: &str) {
+pub(super) fn voice_event(p: &Platform, l: &crate::voice::Lease, kind: &str, time: u64) {
     if let Ok(d) = p.db.catalog()
         && d.members.contains_key(&l.owner)
     {
+        let mut data = json!({"session":launch_ref(&l.id),"channel":l.channel});
+        if kind != "voice.grant" {
+            data["heartbeat_age_s"] = time
+                .saturating_sub(l.expires.saturating_sub(crate::voice::LEASE_SECONDS))
+                .into();
+        }
         p.controller.timeline.record(Event::server(
             kind,
             ContextFields {
@@ -80,13 +86,14 @@ pub(super) fn voice_event(p: &Platform, l: &crate::voice::Lease, kind: &str) {
                 visit: l.visit.clone().unwrap_or_default(),
                 ..Default::default()
             },
-            json!({"session":launch_ref(&l.id),"channel":l.channel}),
+            data,
             false,
         ));
     }
 }
 #[derive(Deserialize)]
 struct Batch {
+    client_ms: Option<i64>,
     scope: String,
     events: Vec<ClientEvent>,
 }
@@ -185,15 +192,23 @@ fn scrub(s: &str, limit: usize) -> String {
     }
     out.chars().take(limit).collect()
 }
-fn kind_level(k: &str) -> Option<&'static str> {
+fn kind_level(k: &str, data: &Value) -> Option<&'static str> {
     Some(match k {
+        "voice.disconnected"
+            if !matches!(
+                data["stop_reason"].as_str(),
+                Some("user_toggle" | "pagehide")
+            ) =>
+        {
+            "warn"
+        }
         "js.error" | "js.rejection" | "console.error" | "webgl.lost" => "error",
         "api.fail" | "resource.error" | "net.offline" | "mp.ended" | "voice.fail"
         | "voice.reconnecting" | "page.discarded" | "recorder.dropped" => "warn",
         "page.load" | "page.show" | "page.hide" | "page.freeze" | "page.resume" | "page.exit"
         | "page.restore" | "net.online" | "game.frame_loaded" | "webgl.restored"
         | "mp.connected" | "mp.connecting" | "voice.connected" | "voice.disconnected"
-        | "voice.reconnected" | "mem.sample" | "error.repeat" => "info",
+        | "voice.stopped" | "voice.reconnected" | "mem.sample" | "error.repeat" => "info",
         _ => return None,
     })
 }
@@ -216,8 +231,20 @@ fn clean(data: &Value) -> Value {
         }
     }
     for k in [
-        "message", "class", "stack", "file", "client", "version", "state", "route", "method",
-        "request", "session", "tab",
+        "message",
+        "class",
+        "stack",
+        "file",
+        "client",
+        "version",
+        "state",
+        "route",
+        "method",
+        "request",
+        "session",
+        "tab",
+        "stop_reason",
+        "fingerprint",
     ] {
         if let Some(s) = data[k].as_str() {
             if k == "version" {
@@ -226,7 +253,7 @@ fn clean(data: &Value) -> Value {
                 }
                 continue;
             }
-            if matches!(k, "request" | "session" | "tab") {
+            if matches!(k, "request" | "session" | "tab" | "fingerprint") {
                 if id(s) {
                     out[k] = s.into();
                 }
@@ -250,10 +277,18 @@ async fn ingest(p: &Platform, mut ctx: ContextFields, b: Batch, is_game: bool) -
     let received_at = timeline::ms();
     let mut events = Vec::new();
     for e in b.events {
-        let Some(level) = kind_level(&e.kind) else {
+        let Some(level) = kind_level(&e.kind, &e.data) else {
             continue;
         };
-        if !id(&e.page) || e.at < received_at - 48 * 3_600_000 || e.at > received_at + 60_000 {
+        // The first request can arrive from a device with a skewed clock. The
+        // difference between event time and send time still preserves its age.
+        let at = match b.client_ms {
+            Some(sent) if e.data["uncertainty_ms"].is_null() => {
+                received_at.saturating_add(e.at.saturating_sub(sent))
+            }
+            _ => e.at,
+        };
+        if !id(&e.page) || at < received_at - 48 * 3_600_000 || at > received_at + 60_000 {
             continue;
         }
         let src = if !is_game {
@@ -266,7 +301,7 @@ async fn ingest(p: &Platform, mut ctx: ContextFields, b: Batch, is_game: bool) -
         let visible =
             is_game && (src == "game" || e.kind.starts_with("game.") || e.kind.starts_with("mp."));
         events.push(Event {
-            at: e.at.min(received_at),
+            at: at.min(received_at),
             received_at,
             context: ctx.clone(),
             page: e.page,

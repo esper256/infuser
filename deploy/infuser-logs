@@ -1,0 +1,2 @@
+#!/bin/sh
+exec sudo -u infuser -- /usr/local/bin/infuser logs /etc/infuser/infuser.toml "$@"

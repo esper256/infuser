@@ -113,3 +113,40 @@ async fn queue_orders_retries_and_keeps_visit_details_private() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn delayed_502s_match_only_a_nearby_activated_controller() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("events.sqlite");
+    let db = open(&path)?;
+    let now = 1_800_000_000_000i64;
+    for (offset, kind, data) in [
+        (0, "controller.start", json!({"version":"A"})),
+        (
+            2000,
+            "deploy.outcome",
+            json!({"release":"A","result":"activated"}),
+        ),
+        (12_000, "api.fail", json!({"status":502})),
+        (13_000, "api.fail", json!({"status":503})),
+        (32_000, "api.fail", json!({"status":502})),
+        (60_000, "controller.start", json!({"version":"B"})),
+        (61_000, "api.fail", json!({"status":502})),
+    ] {
+        let e = json!({"at":now+offset,"received_at":now+80_000,"kind":kind,"data":data});
+        db.execute(
+            "INSERT INTO events(at,app,profile,visible,body) VALUES(?,'','',0,?)",
+            params![now + offset, e.to_string()],
+        )?;
+    }
+    let v = read_at(&path, &Filter::default(), None, None, false, now + 90_000)?;
+    let tagged: Vec<_> = v["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["data"]["deploy_restart"] == true)
+        .map(|e| e["at"].as_i64().unwrap())
+        .collect();
+    assert_eq!(tagged, [now + 12_000]);
+    Ok(())
+}

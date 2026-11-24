@@ -563,7 +563,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     )?;
     let logs = std::process::Command::new(env!("CARGO_BIN_EXE_infuser"))
         .arg("logs")
-        .arg(config_path)
+        .arg(&config_path)
         .args(["--profile", "User", "--game", "moon", "--jsonl"])
         .output()?;
     anyhow::ensure!(
@@ -576,6 +576,31 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         assert!(lines.contains("Browser fixture crash") && lines.contains("page.freeze"));
     }
     assert!(lines.contains("fixture failed") && !lines.contains("private-fixture"));
+    let query = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_infuser"))
+            .arg("logs")
+            .arg(&config_path)
+            .args(args)
+            .output()
+    };
+    for (flag, expected) in [("--game", "unknown game"), ("--profile", "unknown profile")] {
+        let bad = query(&[flag, "does-not-exist"])?;
+        assert!(!bad.status.success() && String::from_utf8_lossy(&bad.stderr).contains(expected));
+    }
+    let empty = query(&["--profile", "User", "--kind", "no.such.event"])?;
+    assert!(
+        empty.status.success()
+            && String::from_utf8_lossy(&empty.stdout).contains("no events for User")
+    );
+    let filtered = query(&[
+        "--game", "moon", "--kind", "js.*", "--source", "client", "--level", "error", "--json",
+    ])?;
+    let events: Vec<Value> = serde_json::from_slice(&filtered.stdout)?;
+    assert!(events.iter().any(|e| {
+        e["data"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("fixture failed"))
+    }));
     db.edit(|d| {
         d.presence.remove("user@example.com");
         Ok(())

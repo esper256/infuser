@@ -1689,7 +1689,7 @@ try {
     const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
     if(document.hasFocus()&&!document.hidden)active();
   }
-  voiceApi=initVoice({me,api,notice,onConfiguredChange:configured=>{
+  voiceApi=initVoice({me,api,notice,onFailedCall:data=>diagnostics?.emit('api.fail',data),onConfiguredChange:configured=>{
     const btn=$('open-voice-settings'),region=$('settings-voice-region');
     if(btn)btn.hidden=!configured;
     if(region)region.hidden=!configured;

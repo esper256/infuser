@@ -11,7 +11,7 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'infuser-voice-')),ready=path.jo
 const log=fs.openSync(path.join(root,'fixture.log'),'w',0o600);
 const fixture=spawn(process.env.INFUSER_VOICE_FIXTURE||'target/debug/examples/voice_fixture',[process.env.INFUSER_TEST_LIVEKIT,ready],{stdio:['ignore',log,log],detached:true});
 let browser,proxy,passed=false;
-try{
+async function run(){
   for(let i=0;!fs.existsSync(ready)&&i<100;i++){assert.equal(fixture.exitCode,null,'Fixture failed: '+root);await sleep(100);}
   const config=JSON.parse(fs.readFileSync(ready));proxy=await startProxy(config);
   const origin=`https://games.example.com:${proxy.address().port}`;
@@ -41,6 +41,23 @@ try{
     await page.waitForFunction(async()=>{for(const pc of window.connections){for(const s of (await pc.getStats()).values())if(s.type==='inbound-rtp'&&s.kind==='audio'&&s.bytesReceived>100&&s.totalAudioEnergy>0)return true;}return false;},{},{timeout:15000});
   }
   console.log('Two real browser microphones delivered decoded audio in both directions.');
+  if(process.argv.includes('--diagnostics')){
+    const voiceEvent=(kind,predicate)=>river.page.waitForRequest(req=>req.url().endsWith('/api/telemetry')&&req.method()==='POST'&&req.postDataJSON().events.some(e=>e.kind===kind&&predicate(e.data)));
+    const [stop,disconnect]=await Promise.all([
+      voiceEvent('voice.stopped',d=>d.state==='user_toggle'),
+      voiceEvent('voice.disconnected',d=>d.stop_reason==='user_toggle'),
+      river.page.locator('#voice-toggle').click(),
+    ]);
+    const stopped=stop.postDataJSON().events.find(e=>e.kind==='voice.stopped');
+    const ended=disconnect.postDataJSON().events.find(e=>e.kind==='voice.disconnected');
+    assert.ok(stopped.data.session);
+    assert.equal(ended.data.session,stopped.data.session);
+    assert.equal(ended.data.state,'CLIENT_INITIATED');
+    assert.equal((await stop.response()).status(),200);
+    assert.equal((await disconnect.response()).status(),200);
+    console.log('Local stop and LiveKit disconnect recorded for the same session.');
+    passed=true;return;
+  }
   for(const {page} of [river,sky]){
     const notes=await page.evaluate(()=>window.voiceNotes);
     assert.equal(notes.length,3,'one entry melody, without announcing the existing roster');
@@ -227,7 +244,8 @@ try{
     assert(Math.abs(voice.y-chat.y)<10,'voice stays beside text chat');assert(voice.x+voice.width<=chat.x+1,'controls do not overlap');
   }
   passed=true;console.log('Voice UI and real-media journey passed. Artifacts: '+root);
-}finally{
+}
+try{await run();}finally{
   await browser?.close();if(proxy){proxy.closeAllConnections();await new Promise(r=>proxy.close(r));}
   try{process.kill(-fixture.pid,'SIGKILL');}catch{}
   fs.closeSync(log);if(!passed)console.error('Voice failure artifacts: '+root);

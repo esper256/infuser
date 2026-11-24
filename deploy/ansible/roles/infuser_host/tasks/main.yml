@@ -11,6 +11,7 @@
   ansible.builtin.set_fact:
     infuser_managed_files: '{{ infuser_managed_files + [dict(src=infuser_source_dir + "/deploy/" + item.src, dest=item.dest, mode=item.mode, component="units", sensitive=false)] }}'
   loop:
+    - {src: infuser-logs, dest: /usr/local/bin/infuser-logs, mode: '0755'}
     - {src: host-maintenance-lock.sh, dest: '{{ infuser_libexec_dir }}/infuser-host-maintenance-lock', mode: '0755'}
     - {src: reboot-if-required.sh, dest: '{{ infuser_libexec_dir }}/infuser-reboot-if-required', mode: '0755'}
     - {src: maintenance-lock-update.conf, dest: '{{ infuser_systemd_dir }}/infuser-update.service.d/maintenance-lock.conf', mode: '0644'}

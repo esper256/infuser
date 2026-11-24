@@ -312,9 +312,12 @@ async fn main() -> Result<()> {
     ]
     .contains(&command)
     {
-        bail!(
-            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser member-link CONFIG MEMBER [--revoke|--list] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
-        );
+        let usage = "usage: infuser logs [--help] | infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser member-link CONFIG MEMBER [--revoke|--list] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]";
+        if matches!(command, "help" | "--help" | "-h") {
+            println!("{usage}");
+            return Ok(());
+        }
+        bail!("unknown command '{command}'\n{usage}");
     }
     let path = args.get(1).context("configuration path required")?;
     let config = Config::load(Path::new(path))?;

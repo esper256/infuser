@@ -63,7 +63,7 @@ function saveDevices(devices){
   try{localStorage.setItem(DEVICE_STORAGE_KEY,JSON.stringify(devices));}catch{/* Ignore storage quota errors. */}
 }
 
-export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
+export function initVoice({me,api,notice,onFailedCall=()=>{},onConfiguredChange=()=>{}}) {
   if(me.inspecting)return {stop:async()=>{},openSettings:()=>{},renderFriendControls:()=>{}};
 
   const splitSlot=document.createElement('span');
@@ -99,7 +99,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     split=mod.createVoiceSplit({
       withToggle:true,
       controlsId:'voice-mixer',
-      onToggle:()=>{if(phase!=='off'||snapshot?.self)void stop();else void start();},
+      onToggle:()=>{if(phase!=='off'||snapshot?.self)void stop({reason:'user_toggle'});else void start();},
       onOpen:()=>openSettings(split.caretBtn),
       onClose:()=>{if(mixer.matches(':popover-open'))mixer.hidePopover();},
     });
@@ -536,7 +536,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
 
       const qLeave=document.createElement('button');qLeave.type='button';qLeave.className='vm-action vm-leave';
       qLeave.textContent='Leave';
-      qLeave.onclick=()=>{void stop();mixer.hidePopover();};
+      qLeave.onclick=()=>{void stop({reason:'user_toggle'});mixer.hidePopover();};
       actions.append(qMute,qDeafen,qLeave);
     }else{
       const qJoin=document.createElement('button');qJoin.type='button';qJoin.className='vm-join';
@@ -735,16 +735,17 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
           signal:AbortSignal.any([ac.signal,AbortSignal.timeout(30000)]),
         });
         if(!alive||myGen!==generation)break;
+        if(!res.ok)onFailedCall({method:'GET',status:res.status,request:res.headers.get('x-infuser-request-id')});
         if(res.status===204)continue;
         if(res.status===401||res.status===403){
-          await stop({message:'Voice chat ended. Your access changed.'});
+          await stop({reason:'access_lost',message:'Voice chat ended. Your access changed.'});
           break;
         }
         if(res.ok){
           const data=await res.json();
           syncServerState(data);
           if(lease&&phase!=='connecting'&&data.self?.id!==lease){
-            await stop({remote:false,message:'Voice chat was turned off.'});
+            await stop({reason:'server_ended',remote:false,message:'Voice chat was turned off.'});
             break;
           }
           paint();
@@ -760,7 +761,12 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     controlRunning=false;
   }
 
-  async function stop({remote=true,message}={}){
+  const closingRooms=new WeakMap();
+  async function stop({reason,remote=true,message}){
+    if(reason!=='livekit_disconnect'&&(phase!=='off'||(reason==='user_toggle'&&snapshot?.self))){
+      voiceState('stopped',reason);
+      if(room)closingRooms.set(room,reason);
+    }
     generation++;stopControlLoop();
     const old=lease||snapshot?.self?.id;lease=null;
     const current=room,wasConnected=phase==='on'||phase==='reconnecting';room=null;phase='off';
@@ -793,7 +799,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
   }
 
   let diagnosticSession;
-  function voiceState(state,reason){window.dispatchEvent(new CustomEvent('infuser-voice-state',{detail:{state,reason,session:diagnosticSession}}));}
+  function voiceState(state,reason,session=diagnosticSession,stopReason){window.dispatchEvent(new CustomEvent('infuser-voice-state',{detail:{state,reason,session,stopReason}}));}
   async function start(){
     diagnosticSession=undefined;
     let stage='microphone';
@@ -804,7 +810,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
     const attempt=++generation;phase='connecting';micMuted=false;deafened=false;paint();
     try {
       if(!navigator.mediaDevices?.getUserMedia)throw Error('This browser cannot use a microphone here.');
-      const [{Room,RoomEvent,createLocalAudioTrack},mod]=await Promise.all([
+      const [{Room,RoomEvent,DisconnectReason,createLocalAudioTrack},mod]=await Promise.all([
         import('/assets/vendor/livekit-2.24.1.js'),
         audioModPromise,
       ]);
@@ -872,7 +878,13 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
         else void applyAudioState({ack:true});
         paint();
       });
-      current.on(RoomEvent.Disconnected,reason=>{if(room===current)voiceState('disconnected',reason);if(room===current)void stop({message:'Voice chat disconnected. Tap the headset to join again.'});});
+      const session=diagnosticSession;
+      current.once(RoomEvent.Disconnected,reason=>{
+        const localReason=closingRooms.get(current);
+        if(room!==current&&!localReason)return;
+        voiceState('disconnected',DisconnectReason[reason]??String(reason??'unknown'),session,localReason);
+        if(room===current)void stop({reason:'livekit_disconnect',message:'Voice chat disconnected. Tap the headset to join again.'});
+      });
       stage='connect';
       await current.connect(grant.url,grant.token,{autoSubscribe:true,maxRetries:1});
       if(attempt!==generation){void current.disconnect();return;}
@@ -894,7 +906,7 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       if(attempt!==generation)return;
       voiceState('fail',stage+' '+(error.name||'Error'));
       const message=error.name==='NotAllowedError'?'Allow microphone access in your browser to use voice chat.':error.name==='NotFoundError'?'Connect a microphone to use voice chat.':error.message||'Could not connect to voice chat.';
-      await stop({message});
+      await stop({reason:'error',message});
     }
   }
 
@@ -946,21 +958,21 @@ export function initVoice({me,api,notice,onConfiguredChange=()=>{}}) {
       syncServerState(status);
       if(!status.configured)clearInterval(timer);
       if(room&&phase!=='connecting')phase=room.state==='connected'&&status.available?'on':'reconnecting';
-      if(lease&&phase!=='connecting'&&status.self?.id!==lease){await stop({remote:false,message:'Voice chat was turned off.'});}
+      if(lease&&phase!=='connecting'&&status.self?.id!==lease){await stop({reason:'server_ended',remote:false,message:'Voice chat was turned off.'});}
       ensureControlLoop();
       paint();
       if(mixer.matches(':popover-open')&&!dragging)renderMixer();
     }catch(error){
-      if(lease&&[401,403].includes(error.status))await stop({message:'Voice chat ended. Your access changed.'});
+      if(lease&&[401,403].includes(error.status))await stop({reason:'access_lost',message:'Voice chat ended. Your access changed.'});
       else if(room){phase='reconnecting';paint();}
     }finally{polling=false;}
   }
   // Page navigation (including profile/visit changes) stops capture immediately.
   // A pinned request retains the old profile headers while navigation proceeds.
-  addEventListener('pagehide',()=>{alive=false;observer.disconnect();clearInterval(timer);clearTimeout(patchTimer);stopMeterLoop();void stopMicTest();void stop({remote:!!lease});});
+  addEventListener('pagehide',()=>{alive=false;observer.disconnect();clearInterval(timer);clearTimeout(patchTimer);stopMeterLoop();void stopMicTest();void stop({reason:'pagehide',remote:!!lease});});
   const timer=setInterval(()=>{if(lease||!document.hidden)void poll();},3000);
   window.addEventListener('online',()=>{if(alive){ensureControlLoop();void poll();}});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden){ensureControlLoop();void poll();if(mixer.matches(':popover-open'))startMeterLoop();}else stopMeterLoop();});
   void poll();
-  return {stop,openSettings,renderFriendControls};
+  return {stop:()=>stop({reason:'user_toggle'}),openSettings,renderFriendControls};
 }
