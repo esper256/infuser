@@ -448,10 +448,17 @@ pub(crate) fn read_at(
                 v.as_object_mut().unwrap().remove(key);
             }
             if let Some(d) = v["data"].as_object_mut() {
-                d.retain(|k, _| {
+                d.retain(|k, value| {
+                    // Older records predate the basename allowlist.
+                    if k == "file" {
+                        return value
+                            .as_str()
+                            .is_some_and(crate::portal::telemetry::code_file);
+                    }
                     matches!(
                         k.as_str(),
                         "fingerprint"
+                            | "frames"
                             | "name"
                             | "outcome"
                             | "reason"

@@ -65,7 +65,8 @@ struct Room {
     build: String,
     host: String,
     peers: BTreeMap<String, Peer>,
-    paths: BTreeMap<(String, String), (String, String)>,
+    // Latest relay observation from each endpoint, ordered by peer ID.
+    paths: BTreeMap<(String, String), [bool; 2]>,
     sequence: u64,
     max_players: u32,
     // None preserves legacy admission, but never advertises a joinable session.
@@ -518,21 +519,22 @@ impl Rooms {
                 let far = path["remote"].as_str().unwrap();
                 clean["local"] = local.into();
                 clean["remote"] = far.into();
-                let (key, types) = if peer < remote {
-                    (
-                        (peer.to_owned(), remote.to_owned()),
-                        (local.to_owned(), far.to_owned()),
-                    )
+                let (pair, endpoint, types) = if peer < remote {
+                    ((peer.to_owned(), remote.to_owned()), 0, (local, far))
                 } else {
-                    (
-                        (remote.to_owned(), peer.to_owned()),
-                        (far.to_owned(), local.to_owned()),
-                    )
+                    ((remote.to_owned(), peer.to_owned()), 1, (far, local))
                 };
-                if room.paths.get(&key) != Some(&types) {
-                    self.record(room,peer,"mp.path",json!({"peer_pair":[key.0,key.1],"local":types.0,"remote":types.1,"rtt_ms":clean["round_trip_ms"]}));
-                    room.paths.insert(key, types);
+                let previous = room.paths.get(&pair).copied();
+                let mut reports = previous.unwrap_or_default();
+                reports[endpoint] = local == "relay" || far == "relay";
+                let relayed = reports.contains(&true);
+                if previous.is_none_or(|old| old.contains(&true) != relayed) {
+                    self.record(room, peer, "mp.path", json!({
+                        "peer_pair": [pair.0, pair.1], "path": if relayed { "relay" } else { "direct" },
+                        "local": types.0, "remote": types.1, "rtt_ms": clean["round_trip_ms"],
+                    }));
                 }
+                room.paths.insert(pair, reports);
             }
             connections.push(clean);
         }

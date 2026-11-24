@@ -26,9 +26,16 @@ struct Series {
     var_t: f64,
 }
 #[derive(Default)]
+struct OperationStats {
+    count: usize,
+    successful_ms: Vec<u64>,
+    failed: usize,
+    abandoned: usize,
+}
+#[derive(Default)]
 pub(super) struct Report {
     links: BTreeMap<String, u64>,
-    ops: BTreeMap<String, (Vec<u64>, usize, usize)>,
+    ops: BTreeMap<String, OperationStats>,
     fetches: BTreeMap<String, u64>,
     errors: BTreeMap<String, ErrorGroup>,
     stops: BTreeMap<String, u64>,
@@ -57,13 +64,16 @@ impl Report {
                 }
             }
             "op" => {
-                let (durations, fail, abandoned) =
-                    self.ops.entry(field(d, "name").into()).or_default();
-                durations.push(d["duration_ms"].as_u64().unwrap_or(0));
-                *fail += usize::from(d["outcome"] == "fail");
-                *abandoned += usize::from(d["outcome"] == "abandoned");
+                let stats = self.ops.entry(field(d, "name").into()).or_default();
+                stats.count += 1;
+                match field(d, "outcome") {
+                    "ok" => stats.successful_ms.extend(d["duration_ms"].as_u64()),
+                    "fail" => stats.failed += 1,
+                    "abandoned" => stats.abandoned += 1,
+                    _ => {}
+                }
             }
-            "fetch.fail" => {
+            "fetch.fail" if crate::portal::telemetry::unreached_fetch(d) => {
                 let count = d["count"].as_u64().unwrap_or(1);
                 let status = d["status"]
                     .as_u64()
@@ -232,16 +242,17 @@ impl Report {
         errors.sort_by_key(|(key, g)| (std::cmp::Reverse(g.count), *key));
         errors.truncate(20);
         let mut ops = BTreeMap::new();
-        for (name, (durations, failed, abandoned)) in &self.ops {
-            let mut sorted = durations.clone();
+        for (name, stats) in &self.ops {
+            let mut sorted = stats.successful_ms.clone();
             sorted.sort_unstable();
-            let count = sorted.len();
-            let nearest_rank = |percent: usize| sorted[(count * percent).div_ceil(100) - 1];
+            let nearest_rank = |percent: usize| {
+                (!sorted.is_empty()).then(|| sorted[(sorted.len() * percent).div_ceil(100) - 1])
+            };
             ops.insert(
                 name,
                 json!({
-                    "count": count, "failed": failed, "abandoned": abandoned,
-                    "failure_rate": *failed as f64 / count as f64,
+                    "count": stats.count, "failed": stats.failed, "abandoned": stats.abandoned,
+                    "failure_rate": stats.failed as f64 / stats.count as f64,
                     "p50_ms": nearest_rank(50), "p90_ms": nearest_rank(90)
                 }),
             );
@@ -276,17 +287,21 @@ impl Report {
                 )?;
             }
             for (name, op) in &ops {
-                writeln!(
+                write!(
                     out,
-                    "{}: {} attempts, {} failed ({}%), {} abandoned, p50 {} ms, p90 {} ms",
+                    "{}: {} attempts, {} failed ({}%), {} abandoned",
                     name,
                     op["count"],
                     op["failed"],
                     (op["failure_rate"].as_f64().unwrap() * 100.0).round(),
                     op["abandoned"],
-                    op["p50_ms"],
-                    op["p90_ms"]
                 )?;
+                match (op["p50_ms"].as_u64(), op["p90_ms"].as_u64()) {
+                    (Some(p50), Some(p90)) => {
+                        writeln!(out, ", successful p50 {p50} ms, p90 {p90} ms")?
+                    }
+                    _ => writeln!(out, ", no successful timings")?,
+                }
             }
             for (reason, ms) in &self.links {
                 writeln!(out, "Link downtime: {reason} {ms} ms")?;

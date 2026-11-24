@@ -35,6 +35,16 @@ async function run(){
     return {page,context};
   }
   const river=await player('river'),sky=await player('sky');
+  if(process.argv.includes('--diagnostics')){
+    await sky.page.evaluate(async()=>{
+      const {Room,RoomEvent,DisconnectReason}=await import('/assets/vendor/livekit-2.24.1.js');
+      const once=Room.prototype.once;
+      Room.prototype.once=function(event,...args){
+        if(event===RoomEvent.Disconnected)window.endFixtureRoom=()=>this.emit(event,DisconnectReason.ROOM_DELETED);
+        return once.call(this,event,...args);
+      };
+    });
+  }
   await river.page.locator('#voice-toggle').click();await sky.page.locator('#voice-toggle').click();
   for(const {page} of [river,sky]){
     await page.waitForFunction(()=>document.querySelector('#voice-toggle').dataset.state==='on',{},{timeout:20000});
@@ -50,6 +60,14 @@ async function run(){
     const ended=stop.postDataJSON().events.find(e=>e.kind==='link'&&e.data.name==='voice'&&e.data.state==='ended');
     assert.ok(ended.data.session);
     assert.equal((await stop.response()).status(),200);
+    const [endedRequest]=await Promise.all([sky.page.waitForRequest(req=>req.url().endsWith('/api/telemetry')&&req.method()==='POST'&&req.postDataJSON().events.some(e=>
+      e.kind==='link' && e.data.name==='voice' && e.data.state==='ended' && e.data.reason==='server_ended')),
+      sky.page.evaluate(()=>{window.endFixtureRoom();window.dispatchEvent(new Event('pagehide'));}),
+    ]);
+    const endedLink=endedRequest.postDataJSON().events.find(e=>e.kind==='link'&&e.data.name==='voice'&&e.data.state==='ended');
+    assert.equal(endedLink.data.prev,'down');
+    assert.equal(endedLink.data.down_ms,endedLink.data.held_ms);
+    assert.equal((await endedRequest.response()).status(),200);
     passed=true;return;
   }
   for(const {page} of [river,sky]){

@@ -764,9 +764,12 @@ export function initVoice({me,api,notice,diagnostics,onConfiguredChange=()=>{}})
 
 
   async function stop({reason,remote=true,message}){
-    if(phase!=='off'&&reason!=='pagehide'&&reason!=='livekit_disconnect')diagnostics?.link('voice').set('ended',reason==='user_toggle'?'user':reason,{session:diagnosticSession});
-    if(reason!=='pagehide')diagnostics?.link('voice-control').set('ended',reason==='user_toggle'?'user':'server_ended');
-    if(reason!=='pagehide')joinOp?.end('abandoned',reason==='user_toggle'?'user':'server_ended');
+    if(reason!=='pagehide'){
+      const cause=reason==='user_toggle'?'user':reason;
+      if(phase!=='off')diagnostics?.link('voice').set('ended',cause,{session:diagnosticSession});
+      diagnostics?.link('voice-control').set('ended',cause);
+      joinOp?.end('abandoned',cause);
+    }
     generation++;stopControlLoop();
     const old=lease||snapshot?.self?.id;lease=null;
     const current=room,wasConnected=phase==='on'||phase==='reconnecting';room=null;phase='off';
@@ -880,8 +883,9 @@ export function initVoice({me,api,notice,diagnostics,onConfiguredChange=()=>{}})
       const session=diagnosticSession;
       current.once(RoomEvent.Disconnected,reason=>{
         if(room!==current)return;
-        diagnostics?.link('voice').set('down',DisconnectReason[reason]==='ROOM_DELETED'?'server_ended':'network',{session});
-        if(room===current)void stop({reason:'livekit_disconnect',message:'Voice chat disconnected. Tap the headset to join again.'});
+        const cause=DisconnectReason[reason]==='ROOM_DELETED'?'server_ended':'network';
+        diagnostics?.link('voice').set('down',cause,{session});
+        void stop({reason:cause,message:'Voice chat disconnected. Tap the headset to join again.'});
       });
       joinOp?.stage('connect');
       await current.connect(grant.url,grant.token,{autoSubscribe:true,maxRetries:1});

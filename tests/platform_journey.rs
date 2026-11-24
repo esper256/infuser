@@ -491,7 +491,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .await?;
     let at = infuser::timeline::ms();
     let mut diagnostic = json!({"scope":ctx["diagnostic_launch"],"events":[
-        {"page":"deadbeef0001","seq":1,"at":at,"src":"game","kind":"js.error","data":{"class":"TypeError","message":"fixture failed at https://example.com/?token=private-fixture","file":"fixture.js","fingerprint":"deadbea7","line":17}},
+        {"page":"deadbeef0001","seq":1,"at":at,"src":"game","kind":"js.error","data":{"class":"TypeError","message":"fixture failed at https://example.com/?token=private-fixture","file":"fixture.js","frames":["fixture.js:17:3","/game/private.js?key=value:2:9"],"fingerprint":"deadbea7","line":17}},
         {"page":"deadbeef0001","seq":2,"at":at,"src":"player","kind":"op","data":{"name":"game.load","outcome":"fail","reason":"error:CompileError","stage":"engine","room":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
         {"page":"deadbeef0001","seq":3,"at":at,"src":"game","kind":"mp.connected","data":{}}
     ]});
@@ -543,6 +543,8 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     assert_eq!(matching.len(), 1);
     let e = matching[0];
     assert_eq!(e["data"]["count"], 5);
+    assert_eq!(e["data"]["file"], "fixture.js");
+    assert_eq!(e["data"]["frames"], json!(["fixture.js:17:3"]));
     assert!(
         events
             .iter()

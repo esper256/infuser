@@ -19,6 +19,7 @@ axum = { version = "0.8", features = ["ws"] }
 futures-util = { version = "0.3", features = ["sink"] }
 tokio-tungstenite = "0.30"
 rand = "0.10"
+regex-automata = { version = "0.4", default-features = false, features = ["meta", "syntax"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rustix = { version = "1", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive", "rc"] }
