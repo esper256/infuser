@@ -21,7 +21,7 @@ const apps = friends.map((author, i) => ({id: `game-${i}`, title: `Game ${i}`, d
 const browser = await chromium.launch({headless: true, executablePath: process.env.INFUSER_CHROMIUM, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required']});
 async function run(scenario) {
 let soak, context;
-const warmup = {polling: 20, chat: 400, grid: 400, voice: 100}[scenario];
+const warmup = {polling: 20, chat: 400, grid: 400, voice: 400}[scenario];
 const pollWarmup = scenario === 'polling' ? 0 : 400;
 try {
   console.log(`Starting ${scenario} leak soak (${warmup} warmup + ${cycles} cycles)`);
