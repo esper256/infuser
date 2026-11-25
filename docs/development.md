@@ -311,3 +311,16 @@ menu callbacks in a separate helper keeps them scoped to their own menu instead.
 The first 50-cycle checkpoint with that fix held nodes/listeners at 4,970/1,707
 and grew only 63,300 bytes. The regression exercises the real speaker animations
 and checks the same strict resource equality throughout the measured run.
+
+The final 400-cycle acceptance runs on the same Chromium/Playwright setup passed
+all gates with these peak increases above their fixed post-warmup baselines:
+
+| Scenario | Peak heap increase | Constant nodes / listeners |
+| --- | ---: | ---: |
+| Polling | 116,040 bytes | 4,068 / 1,226 |
+| Chat | 0 bytes | 4,970 / 1,707 |
+| Grid | 42,152 bytes | 4,173 / 1,362 |
+| Voice | 98,892 bytes | 4,150 / 1,244 |
+
+Documents and frames stayed at one in every run. These are observed results,
+not expected heap values for later runs or proof that untested paths cannot leak.
