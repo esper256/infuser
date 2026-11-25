@@ -37,6 +37,9 @@ pub(super) async fn image(Path(file): Path<String>, h: HeaderMap) -> Answer {
 }
 impl Platform {
     pub async fn dispatch_house_calls(&self) -> Result<()> {
+        let Some(call) = self.db.take_house_call()? else {
+            return Ok(());
+        };
         // Dedicated client: never follow a redirect carrying the secret topic.
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -45,17 +48,15 @@ impl Platform {
             .build()?;
         // One attempt per queued call. A failed/down ntfy must not hold up chat or
         // turn a notification into repeated Home Assistant actions.
-        if let Some(call) = self.db.take_house_call()? {
-            let result = client
-                .post(&call.topic_url)
-                .header("Tags", &call.tag)
-                .body(call.body)
-                .send()
-                .await;
-            if !result.is_ok_and(|response| response.status().is_success()) {
-                // reqwest errors can contain the URL. Deliberately log no error/request.
-                tracing::warn!("House call notification was not accepted");
-            }
+        let result = client
+            .post(&call.topic_url)
+            .header("Tags", &call.tag)
+            .body(call.body)
+            .send()
+            .await;
+        if !result.is_ok_and(|response| response.status().is_success()) {
+            // reqwest errors can contain the URL. Deliberately log no error/request.
+            tracing::warn!("House call notification was not accepted");
         }
         Ok(())
     }

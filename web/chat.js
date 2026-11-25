@@ -379,7 +379,7 @@ export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=(
     if(!initialized){lastRead=Math.max(0,...next.map(m=>m.id));initialized=true;}
     if(isOpen()&&stick&&changed&&!document.hidden)scrollLatest();
     else if(added.length&&isOpen())$('new').hidden=false;
-    if(added.length&&isOpen())$('announcement').textContent=added.length===1?`${added[0].author.name}: ${added[0].text}`:`${added.length} new messages`;
+    if(added.length&&isOpen())$('announcement').textContent=added.length===1?`${added[0].author.name}: ${added[0].house_call?.label??added[0].text}`:`${added.length} new messages`;
     updateToggle();
     position();
     paintReads();

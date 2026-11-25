@@ -1218,7 +1218,7 @@ button.feed-row:hover { border-color: var(--accent); }
 .house-call-permissions{position:relative;min-width:0;align-self:end;font-size:12px}
 .house-call-permissions>summary{padding:8px 2px;white-space:nowrap}
 .house-call-editor .house-call-profiles{position:absolute;right:0;top:100%;z-index:2;display:grid;gap:8px;min-width:180px;max-height:220px;overflow:auto;margin:0;padding:10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px #0008}
-.house-call-profiles legend{float:left;width:100%;font-size:11px;color:var(--muted)}
+.house-call-profiles legend{float:left;width:100%;font-size:11px;color:var(--quiet)}
 .house-call-profiles label{display:flex;align-items:center;gap:8px;font-size:13px}
 .house-call-connection{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .house-call-connection p,.house-call-editor [role=status]{margin:0;font-size:12px}

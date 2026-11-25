@@ -133,6 +133,7 @@ try{
    assert.equal(await page.evaluate(()=>houseCallBursts),1,'cooldown/quiet-hours card has no confetti');
    messages.push({id:messages.at(-1).id+1,author:{id:'friend',name:'Friend'},text:'',created:Date.now()/1000,house_call:houseCalls[0],house_call_triggered:true});
    await page.evaluate(()=>testChatPoll());assert.equal(await page.evaluate(()=>houseCallBursts),2,'other live viewers celebrate');
+   assert.equal(await page.locator('#chat-announcement').textContent(),'Friend: '+houseCalls[0].label,'announce the house-call label instead of empty text');
    await page.locator('#chat-log').evaluate(el=>el.scrollTo(0,0));await page.evaluate(()=>testChatPoll());
    assert.equal(await page.evaluate(()=>houseCallBursts),2,'scrollback cannot replay confetti');
    await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});

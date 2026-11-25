@@ -1228,7 +1228,7 @@ async function loadHouseCallTools(){
     function field(title,type,value,kind){const label=el('label',title,'house-call-'+kind),input=el('input');input.type=type;if(type==='checkbox')input.checked=value;else input.value=value;label.append(input);row.append(label);return input;}
     const enabled=field('On','checkbox',call.enabled,'enabled'),label=field('Label','text',call.label,'label'),tag=field('ntfy tag','text',call.tag,'tag'),message=field('Message (optional)','text',call.message,'message'),cooldown=field('Min.','number',call.cooldown_minutes,'cooldown');
     enabled.setAttribute('aria-label','Enabled');cooldown.setAttribute('aria-label','Cooldown (minutes)');message.placeholder='{{profile}} says it is Infuser time';
-    label.maxLength=80;tag.maxLength=80;message.maxLength=4096;cooldown.min=0;cooldown.max=10080;cooldown.step=1;
+    label.maxLength=80;tag.maxLength=80;message.maxLength=4096;cooldown.min=0;cooldown.max=10080;cooldown.step=1;cooldown.required=true;
     const permissions=el('details',undefined,'house-call-permissions'),summary=el('summary'),allowed=el('fieldset',undefined,'house-call-profiles');allowed.append(el('legend','May send'));permissions.append(summary,allowed);
     const profiles=data.profiles.map(profile=>{const label=el('label',profile.name),input=el('input');input.type='checkbox';input.checked=call.profiles.includes(profile.id);label.prepend(input);allowed.append(label);return {id:profile.id,input};});
     const countProfiles=()=>{const count=profiles.filter(p=>p.input.checked).length;summary.textContent=count+' profile'+(count===1?'':'s');};allowed.onchange=countProfiles;countProfiles();permissions.setAttribute('aria-label','Who may send '+call.label);row.append(permissions);form.append(row);return {call,enabled,label,tag,message,cooldown,profiles};
@@ -1291,7 +1291,7 @@ async function adminRefresh(){
     $('members').append(row);
   }
   $('credentials').replaceChildren();for(const c of credentials.credentials){const row=el('div'),button=el('button','Revoke','secondary');row.append(el('span',c.label+' · '+c.app),button);button.onclick=async()=>{try{await api('/api/admin/credentials/'+c.id,{method:'DELETE'});await adminRefresh();}catch(error){showError(error);}};$('credentials').append(row);}
-  await loadGameTools();
+  await Promise.all([loadGameTools(),loadHouseCallTools()]);
 }
 function memberLinkLines(email,info,minted){
   const nodes=[];
