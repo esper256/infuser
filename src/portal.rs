@@ -37,6 +37,7 @@ mod capture;
 mod card_art;
 mod chat;
 mod client;
+mod house_calls;
 pub use client::version as client_version;
 mod conditional;
 mod connections;
@@ -637,6 +638,9 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/client-state", get(client::state))
         .route("/assets/client-updates.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/client-updates.js")) }))
         .route("/assets/server-updates.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/server-updates.js")) }))
+        .route("/api/house-calls", get(house_calls::available))
+        .route("/api/admin/house-calls", get(house_calls::settings).put(house_calls::save).layer(DefaultBodyLimit::max(65536)))
+        .route("/assets/house-calls/{file}", get(house_calls::image))
         .route("/api/chat", get(chat::list).post(chat::send).layer(DefaultBodyLimit::max(4096)))
         .route("/api/chat/read", post(chat::advance).layer(DefaultBodyLimit::max(256)))
         .route("/api/chat/{id}", delete(chat::remove))

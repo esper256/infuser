@@ -3,15 +3,18 @@ export const attachmentIcon='<svg viewBox="0 0 28 28" aria-hidden="true" focusab
 const node=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
 const path=(id,context={},thumbnail=false)=>'/api/screenshots/'+encodeURIComponent(id)+'?'+new URLSearchParams({...context,thumbnail:String(thumbnail)});
 let viewer;
-export function screenshotTile({id,api,context={},pick,onLoad=()=>{}}){
-  const button=node('button');button.type='button';button.className='screenshot-tile';button.setAttribute('aria-label',pick?'Attach screenshot':'Open screenshot');
-  const image=node('img');image.alt='Game screenshot';image.hidden=true;button.append(image);
+export function screenshotTile({id,api,context={},pick,onLoad=()=>{},houseCall}){
+  const button=node('button');button.type='button';button.className='screenshot-tile';button.setAttribute('aria-label',houseCall?(pick?'Send ':'Open ')+houseCall.label:pick?'Attach screenshot':'Open screenshot');
+  if(houseCall){button.classList.add('house-call-card');button.title=houseCall.label;}
+  const image=node('img');image.alt=houseCall?'': 'Game screenshot';image.hidden=true;button.append(image);
+  if(houseCall)button.append(node('span',houseCall.label));
   let available=false;
-  api(path(id,context,true)).then(data=>{if(!button.isConnected)return;image.onload=()=>{image.hidden=false;onLoad();};image.src=data.image;available=true;}).catch(error=>{button.replaceChildren(node('span',error.status===404?'Screenshot expired':'Screenshot unavailable'));button.disabled=true;onLoad();});
-  button.onclick=()=>{if(available){if(pick)pick(id);else showScreenshot({id,api,context});}};
+  (houseCall?Promise.resolve({image:houseCallImage(houseCall.id)}):api(path(id,context,true))).then(data=>{if(!button.isConnected)return;image.onload=()=>{image.hidden=false;onLoad();};image.src=data.image;available=true;}).catch(error=>{button.replaceChildren(node('span',error.status===404?'Screenshot expired':'Screenshot unavailable'));button.disabled=true;onLoad();});
+  button.onclick=()=>{if(available){if(pick)pick(id);else showScreenshot({id,api,context,houseCall});}};
   return button;
 }
-async function showScreenshot({id,api,context}){
+export const houseCallImage=id=>'/assets/house-calls/'+encodeURIComponent(id)+'.png';
+async function showScreenshot({id,api,context,houseCall}){
   if(!viewer){
     viewer=node('dialog');viewer.className='screenshot-viewer';viewer.setAttribute('aria-label','Screenshot');
     const close=node('button','×');close.type='button';close.className='close';close.setAttribute('aria-label','Close screenshot');close.onclick=()=>viewer.close();
@@ -19,8 +22,9 @@ async function showScreenshot({id,api,context}){
     viewer.addEventListener('click',event=>{if(event.target===viewer)viewer.close();});
     viewer.addEventListener('close',()=>{viewer.dataset.request='';viewer.lastChild.replaceChildren();});
   }
+  viewer.setAttribute('aria-label',houseCall?'House call':'Screenshot');viewer.querySelector('.close').setAttribute('aria-label',houseCall?'Close house call':'Close screenshot');
   const request=crypto.randomUUID();viewer.dataset.request=request;viewer.lastChild.replaceChildren(node('p','Loading screenshot…'));if(!viewer.open)viewer.showModal();
-  try{const data=await api(path(id,context));if(viewer.dataset.request!==request)return;const image=node('img');image.alt='Game screenshot';image.src=data.image;viewer.lastChild.replaceChildren(image);}
+  try{const data=houseCall?{image:houseCallImage(houseCall.id)}:await api(path(id,context));if(viewer.dataset.request!==request)return;const image=node('img');image.alt=houseCall?.label||'Game screenshot';image.src=data.image;viewer.lastChild.replaceChildren(image);}
   catch(error){if(viewer.dataset.request===request)viewer.lastChild.replaceChildren(node('p',error.status===404?'Screenshot expired.':error.message));}
 }
 export async function fillScreenshotPicker(container,api,pick){

@@ -422,6 +422,9 @@ async fn main() -> Result<()> {
             if let Err(error) = notifications.dispatch_push().await {
                 tracing::warn!(%error, "chat notification delivery failed");
             }
+            if notifications.dispatch_house_calls().await.is_err() {
+                tracing::warn!("House call delivery failed");
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });

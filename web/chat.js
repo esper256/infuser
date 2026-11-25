@@ -33,7 +33,7 @@ function messageText(value){
   return text;
 }
 // Shared Library room. All message text stays text, never markup or links.
-export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=()=>{}}) {
+export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=()=>{},onHouseCall=()=>{}}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const emptyMessage=me.inspecting?'No messages yet.':'No messages yet. Start the conversation.';
   const root=document.createElement('aside');root.id='library-chat';root.setAttribute('aria-label','Library chat');
@@ -54,14 +54,15 @@ export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=(
   document.body.append(root);
   const $=id=>document.getElementById('chat-'+id), log=$('log'), input=$('text');
   let screenshot=null;
-  $('emoji-toggle').innerHTML=attachmentIcon;$('emoji-toggle').setAttribute('aria-label','Choose emoji or screenshot');$('emoji-toggle').title='Emoji or screenshot';$('emoji-panel').setAttribute('aria-label','Choose emoji or screenshot');
+  $('emoji-toggle').innerHTML=attachmentIcon;$('emoji-toggle').setAttribute('aria-label','Choose an attachment');$('emoji-toggle').title='Choose an attachment';$('emoji-panel').setAttribute('aria-label','Choose an attachment');
   const draft=document.createElement('div');draft.className='screenshot-draft';draft.hidden=true;$('form').before(draft);
   function attach(id){if(sending)return;screenshot=id;attachmentDraft(draft,id,request,()=>attach(null));input.oninput();}
-  const emojiPicker=initChatEmoji({root,input,button:$('emoji-toggle'),panel:$('emoji-panel'),api:request,onScreenshot:attach});
+  const emojiPicker=initChatEmoji({root,input,button:$('emoji-toggle'),panel:$('emoji-panel'),api:request,onScreenshot:attach,onHouseCall:id=>send(id)});
   if(me.inspecting)$('form').hidden=true;
   const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
   presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
   let messages=[], reads=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,readAck=0,readFlight=0,readHold=false,positionFrame,positionSignature,speakerSignature,scrollDirection=0,scrollSpeed=0,lastScrollTop=0,lastScrollAt=0;
+  let seenMessage=0,suppressConfetti=true;
   const motion=matchMedia('(prefers-reduced-motion: reduce)');
   const setText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
   const setHidden=(node,hidden)=>{if(node.hidden!==hidden)node.hidden=hidden;};
@@ -262,6 +263,7 @@ export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=(
   }
   function scrollLatest(){log.scrollTop=log.scrollHeight;lastScrollTop=log.scrollTop;scrollDirection=0;scrollSpeed=0;markRead();schedulePosition();}
   function setOpen(open,restoreFocus=true) {
+    suppressConfetti=true;
     root.hidden=!open;$('panel').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));$('toggle').title=open?'Hide chat':'Show chat';
     updateToggle();
     if(open){scrollDirection=0;scrollSpeed=0;position(true);scrollLatest();schedulePosition();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}
@@ -350,7 +352,7 @@ export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=(
       bubble.addEventListener('contextmenu',event=>{event.preventDefault();cancelPress();suppressReleaseClick=true;showActions(message,bubble);});
       meta.append(remove);
     }
-    bubble.append(meta,messageText(message.text));if(message.screenshot)bubble.append(screenshotTile({id:message.screenshot,api:request,context:{chat:message.id},onLoad:schedulePosition}));article.append(portrait,bubble);return article;
+    bubble.append(meta,messageText(message.text));if(message.screenshot)bubble.append(screenshotTile({id:message.screenshot,api:request,context:{chat:message.id},onLoad:schedulePosition}));if(message.house_call)bubble.append(screenshotTile({id:message.house_call.id,houseCall:message.house_call,onLoad:schedulePosition}));article.append(portrait,bubble);return article;
   }
   function render(next) {
     const stick=bottom(), previousIds=new Set(messages.map(m=>m.id));
@@ -368,6 +370,8 @@ export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=(
     for(const node of nodes.values())node.remove();
     if(next.length)log.querySelector('.chat-empty')?.remove();
     if(!next.length&&!log.querySelector('.chat-empty')){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent=emptyMessage;log.append(empty);}
+    const celebrate=initialized&&!suppressConfetti&&!document.hidden&&isOpen()?next.filter(message=>message.id>seenMessage&&message.house_call_triggered):[];
+    seenMessage=Math.max(seenMessage,...next.map(message=>message.id));suppressConfetti=false;
     messages=next;
     if(hoverAction&&!hoverAction.bubble.isConnected)clearHover();
     if(press&&!press.bubble.isConnected)cancelPress();
@@ -380,6 +384,7 @@ export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=(
     position();
     paintReads();
     considerRead();
+    for(const message of celebrate)onHouseCall($('panel'),message);
   }
   function paintReads() {
     const stick=bottom();
@@ -446,22 +451,23 @@ export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=(
     catch(error){diagnostics?.link('chat').set('down',[401,403].includes(error.status)?'access_lost':'network');$('connection').textContent=error.status===401||error.status===403?'Sign in again to chat.':'Reconnecting…';}
     finally{busy=false;timer=setTimeout(poll,isOpen()?3000:10000);}
   }
-  $('form').onsubmit=async event=>{
-    event.preventDefault();if(sending||(!input.value.trim()&&!screenshot))return;
-    const text=input.value.trim();
-    if(!retry||retry.text!==text||retry.screenshot!==screenshot)retry={text,screenshot,client_id:crypto.randomUUID()};
+  $('form').onsubmit=event=>{event.preventDefault();void send();};
+  async function send(houseCall=null){
+    if(sending||(!houseCall&&!input.value.trim()&&!screenshot))return;
+    const payload=houseCall?{house_call:houseCall}:{text:input.value.trim(),screenshot};
+    if(!retry||retry.text!==payload.text||retry.screenshot!==payload.screenshot||retry.house_call!==payload.house_call)retry={...payload,client_id:crypto.randomUUID()};
     emojiPicker.close();
     sending=true;root.dataset.sending='true';input.readOnly=true;input.oninput();$('error').textContent='';$('send').setAttribute('aria-label','Sending message');$('send').setAttribute('aria-busy','true');
     try{
       await request('/api/chat',{method:'POST',body:JSON.stringify(retry)});
-      input.value='';retry=null;screenshot=null;attachmentDraft(draft,null,request,()=>{});
+      retry=null;if(!houseCall){input.value='';screenshot=null;attachmentDraft(draft,null,request,()=>{});}
       // Wait for an existing read to finish before the immediate post-send read.
       while(busy)await new Promise(resolve=>setTimeout(resolve,30));
       await poll();if(isOpen())scrollLatest();
     }catch(error){$('error').textContent=error.message;}
     finally{sending=false;delete root.dataset.sending;input.readOnly=false;$('send').setAttribute('aria-label','Send message');$('send').removeAttribute('aria-busy');input.oninput();if(isOpen())input.focus();}
   };
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(timer);else poll();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){suppressConfetti=true;clearTimeout(timer);}else poll();});
   window.addEventListener('online',poll);
   function consumeChatLink(open){
     if(location.hash!=='#chat')return;

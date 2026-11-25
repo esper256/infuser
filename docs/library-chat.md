@@ -36,6 +36,42 @@ Screenshots are private until you attach them. Attached images follow the same
 group and visit access rules as their message or reaction. Guest-mode captures
 belong to the signed-in profile; switching profiles gives you a separate collection.
 
+## House calls
+
+When your group has enabled house calls for your profile, the attachment picker
+also shows **House calls**. Tap an image to post its card immediately; your text
+and screenshot draft stay in place. The group's configured ntfy action runs
+when that image is outside its shared cooldown and the group's quiet hours.
+Otherwise the card still posts normally. A queued action gives people currently
+viewing chat a brief confetti burst, respecting reduced motion. Opening history,
+reloading or returning to a hidden tab does not replay it.
+
+Group admins configure this under **Admin tools → House calls**. Set the ntfy
+topic URL with **Replace**; it is stored privately and shown afterward only as
+**set** or **not set**. **Clear** removes it. Enable the images you want, choose
+labels, an ntfy tag, an optional message, cooldown minutes and the profiles that
+may send each one. Save your changes. Without a topic URL or enabled images,
+there is no House calls tab. Images ship with Infuser updates; there are no uploads.
+
+The tag is a fixed identifier for your Home Assistant rule, separate from the
+message text. For example, use tag `INFUSER_TIME` and message
+`{{profile}} says it is Infuser time`. The sending profile's display name replaces
+`{{profile}}`; other text is sent literally. Home Assistant can match the tag and
+broadcast only ntfy's `message` field to Google Home. Infuser adds no prefix or
+status text. Messages are limited to 4 KiB after expansion.
+
+Admins can enable **Quiet hours**, select start and end times and a time zone.
+The window repeats daily and can cross midnight. The start is inclusive and the
+end exclusive; daylight-saving changes follow the selected zone. During quiet
+hours, cards still post, but no notification or confetti is triggered and the
+image's cooldown is not consumed. Each group has its own topic, allowed profiles,
+cooldowns and quiet hours, even when groups use the same images.
+
+Delivery is best effort, with a short timeout and no automatic retries of
+household actions. Confetti means the notification was queued, not that Google
+Home completed the action. Saving settings cancels that group's unsent queue;
+an already-sent request cannot be recalled.
+
 ## Conversations
 
 During a visit, the host room also includes its selected visitors. The Library
