@@ -696,7 +696,6 @@
   word-break: normal;
 }
 [data-theme="funny-pages"] .feed-platform { box-shadow: inset 4px 0 0 var(--accent); }
-[data-theme="funny-pages"] .feed-platform-badge { color: var(--accent); }
 [data-theme="funny-pages"] .account-menu > button,
 [data-theme="funny-pages"] .account-menu > a { color: var(--ink-line); border-radius: 10px; }
 [data-theme="funny-pages"] .account-menu > button:hover,

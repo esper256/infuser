@@ -543,7 +543,7 @@ form.admin-region-body { margin: 0; }
 .recent-panel .feed-row small { font-size: 13px; color: var(--ink); }
 .feed-entry { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .feed-platform { box-shadow: inset 3px 0 0 var(--accent); align-items: center; }
-.feed-platform-badge { display: block; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.feed-platform-logo { display: block; width: 28px; height: 36px; object-fit: contain; }
 .feed-changes { margin: 6px 0 0; padding-left: 1.1em; color: var(--ink); font-size: 13px; line-height: 1.45; }
 .feed-changes li { margin: 2px 0; overflow-wrap: anywhere; }
 .feed-update-counts { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; }

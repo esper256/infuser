@@ -1043,7 +1043,8 @@ function renderFeed() {
       body.append(list);
       appendUpdateCounts(body,entry.reactions.counts);
       const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
-      mark.append(el('span','Infuser','feed-platform-badge'),reactionFace('✦','feed-emoji'));
+      const logo=$('recent-toggle').querySelector('.brand-icon').cloneNode();logo.className='feed-platform-logo';logo.alt='';
+      mark.append(logo);
       row.append(mark,body);item.append(row);
       if(!inspection&&!me?.inspecting)item.append(feedReactions({platform:true,update_id:entry.id,title:'Infuser',update_reactions:entry.reactions}));
       rows.push(item);
