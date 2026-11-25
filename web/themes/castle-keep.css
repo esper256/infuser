@@ -672,7 +672,6 @@
 [data-theme="castle-keep"] .feed-row small,
 [data-theme="castle-keep"] .feed-row p { color: var(--quiet); }
 [data-theme="castle-keep"] .feed-platform { box-shadow: inset 4px 0 0 var(--heart); }
-[data-theme="castle-keep"] .feed-platform-badge { color: var(--heart); }
 [data-theme="castle-keep"] .feed-react-toggle:not(:has(.feed-react-outline)) {
   border-color: var(--heart);
   box-shadow: 0 0 0 2px #f4c3cb;
