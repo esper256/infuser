@@ -304,6 +304,23 @@ try{
   }
   const initialDoc=game.contentDocument;
   const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc){diagnostics?.hook(game.contentWindow,'game');tuneGraphics(game.contentWindow);}},5);
+  const tabNotice=document.getElementById('other-tabs');
+  let dismissedTabs=false;
+  tabNotice.querySelector('button').onclick=()=>{
+    dismissedTabs=true;
+    tabNotice.hidden=true;
+  };
+  function showTabNotice({others,unsaved}){
+    if(!Number.isSafeInteger(others)||others<0||typeof unsaved!=='boolean')return;
+    if(others===0)dismissedTabs=false;
+    tabNotice.hidden=sessionEnded||others===0||dismissedTabs;
+    if(!tabNotice.hidden){
+      const text='This game is also open in another tab.'+
+        (unsaved?' You have unsaved work here. Save it before switching tabs.':'');
+      const label=tabNotice.querySelector('span');
+      if(label.textContent!==text)label.textContent=text;
+    }
+  }
   let checkTimer;
   // A missing or unrecognized launch (401/404) can already have been cleaned up.
   // Keep the observed status without guessing why it disappeared.
@@ -311,7 +328,7 @@ try{
     [404,undefined],[409,'server_ended'],[410,'timeout']]);
   function endSession(reason,httpStatus){
     if(sessionEnded)return;
-    sessionEnded=true;
+    sessionEnded=true;tabNotice.hidden=true;
     diagnostics?.link('launch').set('ended',reason,{status:httpStatus});
     clearInterval(hookTimer);clearInterval(checkTimer);
     gameOrientation=null;releaseOrientation();game.inert=true;
@@ -351,6 +368,7 @@ try{
   if(session.runtime?.update_available)updateAvailable();
   window.addEventListener('message',event=>{
     if(event.origin!==location.origin || event.source!==game.contentWindow)return;
+    if(event.data?.type==='infuser-tabs'){showTabNotice(event.data);return;}
     if(event.data?.type==='infuser-client-update'){clientUpdate(event.data);return;}
     if(event.data?.type==='infuser-update-available'){updateAvailable();return;}
     if(event.data?.type!=='infuser-session-error')return;

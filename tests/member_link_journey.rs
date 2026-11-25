@@ -838,15 +838,15 @@ async fn sign_out_during_proxy_outage_only_ends_the_selected_library_session() -
     let sibling = data.group_member_key(GOOGLE_PERSON, "away")?.unwrap();
     let home_profile = data.player_id(GOOGLE_PERSON);
     let sibling_profile = data.player_id(&sibling);
-    // Distinct games avoid the independent same-host cookie supersede rule.
-    for (app, group) in [("pond", "home"), ("moon", "home"), ("star", "away")] {
+    // Two devices play the same game. The sibling profile plays in its own group.
+    for (app, group) in [("pond", "home"), ("star", "away")] {
         add_test_game(&world, app, group)?;
     }
     let mut scopes = Vec::new();
     let mut games = Vec::new();
     for (app, profile, device) in [
         ("pond", &home_profile, "device-a"),
-        ("moon", &home_profile, "device-b"),
+        ("pond", &home_profile, "device-b"),
         ("star", &sibling_profile, "device-a"),
     ] {
         let response = world

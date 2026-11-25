@@ -272,8 +272,12 @@ fn idle_launches_renew_until_stale_or_explicitly_ended() -> Result<()> {
     };
     db.insert_launch("second", &second)?;
     db.exchange_launch("second", host, wake + 1)?;
-    assert!(db.find_launch("first", host, wake + 1).is_err());
-    assert!(db.renew_launch("first", wake + 1, None).is_err());
+    db.find_launch("first", host, wake + 1)?;
+    let first = &db.read()?.launches["first"];
+    assert_eq!((first.seen, first.expires), (wake, wake + 300));
+    assert!(!first.live(wake + 300));
+    db.find_launch("first", host, wake + window - 1)?;
+    assert!(db.find_launch("first", host, wake + window).is_err());
     db.find_launch("second", host, wake + 1)?;
 
     let guest = platform::Launch {

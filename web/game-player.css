@@ -110,3 +110,8 @@ header:has(#path:not([hidden])) #connection { display:none; }
 
 #session-ended { position:absolute; inset:0; z-index:1; background:rgb(12 16 23 / 85%); display:grid; align-content:center; justify-items:center; text-align:center; }
 #session-ended a { text-decoration:underline; }
+
+#other-tabs { display:flex; align-items:center; gap:8px; padding:0 10px 4px; color:#d5deea; font-size:12px; }
+#other-tabs button { padding:4px 8px; }
+/* Fullscreen reserves the entire surface for the game. */
+:root:fullscreen #other-tabs { display:none; }

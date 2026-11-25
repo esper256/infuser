@@ -499,16 +499,39 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     assert_eq!(receipt["version"], 1);
     controller.stop("legacy")?;
     controller.reconcile(now()).await?;
+    // The original Cookie header is already on the request. Hold the JSON body
+    // until the second exchange finishes so authorization happens after it.
+    let (arrived, reading) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let body = futures_util::stream::once(async move {
+        arrived.send(()).unwrap();
+        released.await.unwrap();
+        Ok::<_, std::convert::Infallible>(axum::body::Bytes::from_static(
+            br#"{"version":0,"data":{"lanterns":9}}"#,
+        ))
+    });
+    let request = axum::http::Request::put("/_infuser/saves/departure")
+        .header("host", &open.host)
+        .header("origin", format!("https://{}", open.host))
+        .header("cookie", format!("__Host-infuser_game={}", open.token))
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from_stream(body))?;
+    let saving = tokio::spawn(tower::ServiceExt::oneshot(
+        portal::router(p.clone()),
+        request,
+    ));
+    reading.await?;
     let reopened = launch(&http, &url, "legacy", false, "starting").await?;
-    let replaced = open
-        .request(&http, &url, Method::GET, "/_infuser/saves/progress")
-        .send()
-        .await?;
-    assert_eq!(replaced.headers()["infuser-session"], "ended");
-    assert_eq!(
-        replaced.json::<Value>().await?["error"]["code"],
-        "session_ended"
+    assert_eq!(open.host, reopened.host);
+    assert!(
+        open.token != reopened.token,
+        "expected a fresh game credential"
     );
+    release.send(()).unwrap();
+    assert_eq!(saving.await??.status(), StatusCode::OK);
+    let saved =
+        value(reopened.request(&http, &url, Method::GET, "/_infuser/saves/departure")).await?;
+    assert_eq!(saved["data"], json!({"lanterns":9}));
     let loaded =
         value(reopened.request(&http, &url, Method::GET, "/_infuser/saves/progress")).await?;
     assert_eq!(loaded["version"], receipt["version"]);

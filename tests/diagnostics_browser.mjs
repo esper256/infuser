@@ -1,6 +1,7 @@
 // Run from platform_journey with INFUSER_DIAGNOSTICS_BROWSER_NODE. Only local fixture traffic.
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import {gameTabsJourney} from './game_tabs_browser.mjs';
 const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'../services/peerjs/node_modules/playwright/index.mjs');
 const [base,host,ticket]=process.argv.slice(2);
 const browser=await chromium.launch({channel:'chromium',executablePath:process.env.INFUSER_CHROMIUM,headless:true});
@@ -147,4 +148,5 @@ try {
     await player.close();
   }
   await page.close();
+  await gameTabsJourney(ctx,host,base);
 }finally{await browser.close();}

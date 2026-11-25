@@ -325,8 +325,9 @@ fallback. Targeted peer joins can supply both `expected_epoch` and `expected_pla
   SDK v1 also sends one when the game becomes visible again. The five-minute
   liveness deadline controls whether the launch counts as open. Member, guest, native and visit launches can resume
   until seven days after their last heartbeat or initial exchange. Membership and
-  visit access are checked on each request. A new exchange on the same game host
-  for the same profile ends its previous launch.
+  visit access are checked on each request. Pressing Play creates a launch.
+  Earlier launches keep their own heartbeat and expiry deadlines on every device.
+  A save already sent with the previous cookie can finish normally.
   Signing out ends personal web launches started from that browser’s Library
   session for the selected profile. Launches on other devices, sibling profiles,
   guests, visits, native games and launches created before session tracking keep
@@ -353,6 +354,45 @@ as runtime environment variables. Verify the client's scoped ticket by POSTing
 `{"ticket":"..."}` to `/api/server/verify` with that **server** bearer credential.
 The response is game-bound identity and expiry. Authenticate joins, periodically
 revalidate, and never accept a publisher token or client-claimed identity.
+
+### Other tabs and saving before leaving
+
+In browser SDK v1, `Infuser.tabs.others` is the number of other open SDK v1 game
+pages on this game origin. Listen on `window` for `infuser-tabs`. Its
+`event.detail` contains `{others, unsaved}`, where `unsaved` describes **this
+tab**. The player shows the notice automatically. Games can start immediately.
+
+Call `Infuser.saves.setDirty(true)` when progress changes. Clear it with
+`setDirty(false)` after the save is acknowledged, provided the player hasn’t
+made further edits. The default is false. Dismissing the notice has no effect
+on saves.
+
+Register your existing autosave routine once:
+
+```js
+const unsubscribe = Infuser.onBeforeLeave(reason => {
+  if (hasUnsavedChanges()) savePendingProgress();
+});
+```
+
+The callback runs when the document becomes hidden (`"hidden"`) and when the
+page exits (`"pagehide"`). Both can happen for one departure. Have the routine
+reuse any in-flight save, keep a local draft of pending edits, and handle a
+failed write. Call `unsubscribe()` if you remove the game’s save handlers.
+Browsers can terminate a tab before a callback runs or a network save finishes.
+Save at checkpoints during play as well.
+
+Each new tab discovers live peers directly. An abrupt close can leave an old
+count in a surviving tab until another tab opens. Other browsers, devices,
+and separate game origins (including different builds and fresh guest
+launches) are outside the count.
+
+Keep the version returned by `saves.load()` or the last acknowledged
+`saves.save()`. If two copies save against the same version, one succeeds and
+the other receives HTTP 409. Keep the local edits, load the current save and
+let the player choose what to keep. The same check protects writes across
+browsers and devices. For games that need Infuser to retain both candidates,
+see [cloud checkpoint conflicts](cloud-save-design.md#revisions-conflicts-and-retries).
 
 ## Current boundaries
 

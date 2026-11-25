@@ -233,9 +233,6 @@ impl Database {
             policy.launch_allowed(&l, time),
             crate::portal::fault(403, "Game membership changed.")
         );
-        tx.execute("UPDATE runtime_launches SET data=json_set(data,'$.ended',json('true'),'$.expires',MIN(json_extract(data,'$.expires'),?4))
-            WHERE id!=?1 AND json_extract(data,'$.host')=?2 AND json_extract(data,'$.email')=?3",
-            params![id,host,l.email,time])?;
         l.exchanged = true;
         l.seen = time;
         l.expires = time + 300;

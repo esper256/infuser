@@ -58,10 +58,14 @@ save = { ...save, ...(await infuser.saves.save('progress', progress, save.versio
 ```
 
 `session.guest` and `session.name` can label a guest run. The SDK handles which
-save namespace to use. Keep its version value; a `409` means another device
+save namespace to use. Keep its version value; a `409` means another tab or device
 changed the save. Reload and resolve the game's data deliberately, rather than
 retrying with a guessed version. Include your own save schema version in `data`.
 Handle network/session errors visibly; do not say “saved” until the write succeeds.
+Report pending edits with `infuser.saves.setDirty(true)` so the player can show
+the right notice if someone opens a second copy. Register your autosave routine
+with `infuser.onBeforeLeave()`. See [other tabs and saving before
+leaving](../public-api.md#other-tabs-and-saving-before-leaving).
 
 For co-op using the built-in WebRTC adapter, Play calls `infuser.peers.create()` to host a fresh joinable room.
 Offer Play Solo as an unchecked checkbox if the game supports it. Join Friend uses

@@ -42,6 +42,10 @@ Approved product decisions:
   can load and commit coherent cloud snapshots. See the concrete
   [cloud-save contract](cloud-save-design.md). A reusable chooser is desirable;
   descriptions and any merge remain game-owned.
+- The browser player can report other open copies on its game origin. Games can
+  report pending edits and register an autosave callback for hide and page exit.
+  Save versions remain authoritative across all devices. See [other tabs and
+  saving before leaving](public-api.md#other-tabs-and-saving-before-leaving).
 - Guest progress lasts for the current launch, including refreshes. A new guest
   launch starts empty, has a distinct identity, and may join the shared multiplayer
   session. Guest progress never merges into the signed-in owner's saves.

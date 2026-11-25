@@ -5,7 +5,8 @@ import { pathToFileURL } from 'node:url';
 const endpoint=process.argv[2],host='games.example.com';
 const outstanding=new Set(), timers=new Map(), errors=[];
 let serial=0;
-globalThis.window={dispatchEvent:event=>errors.push(event.detail)};
+globalThis.window=new EventTarget();
+window.addEventListener('infuser-session-error',event=>errors.push(event.detail));
 globalThis.setInterval=callback=>{const id=++serial;timers.set(id,callback);return id;};
 globalThis.clearInterval=id=>timers.delete(id);
 function transport(path,{method='GET',headers={},body}={}){

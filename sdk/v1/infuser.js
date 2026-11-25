@@ -90,12 +90,87 @@ sessionDenials.addEventListener('denied', onDenied);
 globalThis.document?.addEventListener('visibilitychange', onVisible);
 ready.then(heartbeat, () => {});
 const timer = setInterval(heartbeat, 25000);
+// BroadcastChannel is scoped to this origin and browser storage partition.
+const otherTabs = new Set();
+let tabId, channel, dirty = false, pageHiding = false;
+export const tabs = Object.freeze({get others() { return otherTabs.size; }});
+
+function notifyTabs() {
+  const detail = {others: tabs.others, unsaved: dirty};
+  window.dispatchEvent(new CustomEvent('infuser-tabs', {detail}));
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({type: 'infuser-tabs', ...detail}, location.origin);
+  }
+}
+
+function startTab() {
+  pageHiding = false;
+  if (channel || !window.BroadcastChannel || !globalThis.crypto?.randomUUID) return;
+  try { channel = new BroadcastChannel('infuser-tabs'); } catch { return; }
+  tabId ??= crypto.randomUUID();
+  channel.onmessage = ({data}) => {
+    if (!data || typeof data.tab !== 'string' || data.tab === tabId) return;
+    const before = otherTabs.size;
+    if (data.type === 'bye') {
+      otherTabs.delete(data.tab);
+    } else if (data.type === 'hello') {
+      // A new arrival also gives survivors a chance to forget a crashed tab.
+      // Ask once for first-hand replies. A roster request never starts another.
+      if (!data.roster) otherTabs.clear();
+      otherTabs.add(data.tab);
+      channel.postMessage({type: 'here', tab: tabId, unsaved: dirty});
+      if (!data.roster) channel.postMessage({type: 'hello', tab: tabId, roster: true});
+    } else if (data.type === 'here') {
+      otherTabs.add(data.tab);
+    }
+    if (otherTabs.size !== before) notifyTabs();
+  };
+  channel.postMessage({type: 'hello', tab: tabId});
+}
+
+function stopTab() {
+  pageHiding = true;
+  if (!channel) return;
+  channel.postMessage({type: 'bye', tab: tabId});
+  channel.onmessage = null;
+  channel.close();
+  channel = null;
+  if (otherTabs.size) { otherTabs.clear(); notifyTabs(); }
+}
+window.addEventListener('pagehide', stopTab);
+window.addEventListener('pageshow', event => { if (event.persisted) startTab(); });
+startTab();
+
+export function onBeforeLeave(callback) {
+  if (typeof callback !== 'function') throw new TypeError('onBeforeLeave requires a callback');
+  const hidden = () => { if (document.visibilityState === 'hidden') callback('hidden'); };
+  const hide = () => callback('pagehide');
+  document.addEventListener('visibilitychange', hidden);
+  window.addEventListener('pagehide', hide);
+  return () => {
+    document.removeEventListener('visibilitychange', hidden);
+    window.removeEventListener('pagehide', hide);
+  };
+}
+
 export const saves = {
+  setDirty(value) {
+    if (typeof value !== 'boolean') throw new TypeError('setDirty requires a boolean');
+    if (dirty === value) return;
+    dirty = value;
+    channel?.postMessage({type: 'here', tab: tabId, unsaved: dirty});
+    notifyTabs();
+  },
   load: (slot = 'progress') => request('saves/' + encodeURIComponent(slot)),
   // Keep the returned version. 409 means reload/resolve; never blindly overwrite.
-  save: (slot, data, version) => request('saves/' + encodeURIComponent(slot), {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data, version })
-  })
+  save(slot, data, version) {
+    const body = JSON.stringify({data, version});
+    const options = {method: 'PUT', headers: {'Content-Type': 'application/json'}, body};
+    if ((pageHiding || globalThis.document?.visibilityState === 'hidden') && new Blob([body]).size <= 65536) {
+      options.keepalive = true;
+    }
+    return request('saves/' + encodeURIComponent(slot), options);
+  }
 };
 export async function leave() { stopHeartbeat(); await request('heartbeat', { method: 'DELETE' }); }
 // Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
@@ -140,7 +215,7 @@ export const sessions = {
   connect: async options => (await import('/_infuser/sdk/v1/sessions.js')).connect(options),
   disconnect: async socket => (await import('/_infuser/sdk/v1/sessions.js')).disconnect(socket)
 };
-export const Infuser = { version, ready, saves, leave, peers, peerjs, cloud, runtime, presence, launchIntent, sessions };
+export const Infuser = { version, ready, saves, tabs, onBeforeLeave, leave, peers, peerjs, cloud, runtime, presence, launchIntent, sessions };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.
