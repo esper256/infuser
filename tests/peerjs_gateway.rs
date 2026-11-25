@@ -85,7 +85,7 @@ async fn peerjs_gateway_scopes_sockets_and_signals_to_live_session() -> Result<(
             d.builds.insert(format!("{app}/one"),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":app,"title":app,"play_modes":["multiplayer"],"multiplayer":{"mode":"peer_hosted","transport":"webrtc","adapter":"peerjs","max_players":4,"join_policy":"anytime","direct_connect":"optional","relay_fallback":"required"}}))?,server:None,spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
             d.apps.insert(app.into(),App{publication:None,build:"one".into(),listed:false,updated:now()});
         }
-        for id in ["a","b","c","x"] {d.launches.insert(id.into(),Launch{deployment:None,visit:None,intent:None,app:if id=="x"{"other"}else{"pond"}.into(),build:"one".into(),email:"player@example.com".into(),guest:true,host:format!("{id}.games.example.com"),token_hash:platform::hash(id),exchanged:true,expires:now()+300,authorized_until:0,grant_expires:now()+300,seen:now(),lease_id:None,lease_token:None});}
+        for id in ["a","b","c","x"] {d.launches.insert(id.into(),Launch{deployment:None,visit:None,intent:None,app:if id=="x"{"other"}else{"pond"}.into(),build:"one".into(),email:"player@example.com".into(),guest:true,host:format!("{id}.games.example.com"),token_hash:platform::hash(id),exchanged:true,expires:now()+300,ended:false, library_session: String::new(),grant_expires:now()+300,seen:now(),lease_id:None,lease_token:None});}
         Ok(())
     })?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;

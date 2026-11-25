@@ -324,6 +324,16 @@ impl Database {
                 "DELETE FROM member_sessions WHERE account_id=?1",
                 [&account],
             )?;
+            for launch in data.launches.values_mut() {
+                if data
+                    .identities
+                    .profiles
+                    .get(&launch.email)
+                    .is_some_and(|p| p.account_id == account)
+                {
+                    launch.end(now());
+                }
+            }
             let names = profile_names(data, &account);
             Ok(if names.is_empty() {
                 "that member".into()
@@ -414,17 +424,17 @@ impl Database {
         ))
     }
 
-    pub fn sign_out(&self, account: Option<&str>, token: Option<&str>, time: u64) -> Result<()> {
+    pub fn sign_out(
+        &self,
+        library_session: Option<&str>,
+        token: Option<&str>,
+        time: u64,
+    ) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(account) = account {
-            let data = self.cached_catalog(&tx)?;
-            for (key, profile) in &data.identities.profiles {
-                if profile.account_id == account {
-                    tx.execute("UPDATE runtime_launches SET data=json_set(data,'$.expires',?2,'$.authorized_until',0,'$.grant_expires',0)
-                        WHERE json_extract(data,'$.email')=?1", params![key,time])?;
-                }
-            }
+        if let Some(session) = library_session.filter(|id| !id.is_empty()) {
+            tx.execute("UPDATE runtime_launches SET data=json_set(data,'$.expires',?2,'$.ended',json('true'),'$.grant_expires',0)
+                WHERE json_extract(data,'$.library_session')=?1", params![session,time])?;
         }
         if let Some(token) = token.filter(|t| valid_token(t)) {
             tx.execute(

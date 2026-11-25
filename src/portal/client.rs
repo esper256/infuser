@@ -66,7 +66,7 @@ pub(super) async fn state(State(p): State<Platform>, h: HeaderMap) -> Answer {
         p.db.read()?
             .launches
             .values()
-            .any(|l| l.email == email && l.expires > time && l.seen.saturating_add(90) > time);
+            .any(|l| l.email == email && l.live(time) && l.seen.saturating_add(90) > time);
     let mut state = update();
     state["game_open"] = json!(game_open && !inspecting);
     Ok(reply(state))

@@ -91,7 +91,7 @@ try {
   let heartbeatPosts=0;
   await page.route('**/_infuser/heartbeat',route=>{
     assert.equal(route.request().method(),'POST');heartbeatPosts++;
-    return route.fulfill({status:401,contentType:'text/plain',body:'Expired'});
+    return route.fulfill({status:401,headers:{'Infuser-Session':'ended'},contentType:'text/plain',body:'Expired'});
   });
   await frame.evaluate(async()=>{await window.heartbeatProbe.tick();await window.heartbeatProbe.tick();});
   const notice=page.locator('#session-ended');
@@ -135,7 +135,8 @@ try {
     await notice.getByRole('link',{name:'Relaunch from the Library'}).waitFor();
     const text=visit?'This visit has ended.':'This game session ended.';
     assert.equal(await notice.getByRole('heading').textContent(),text);
-    assert.equal(await player.locator('#game').isHidden(),true);
+    assert.equal(await player.locator('#game').isHidden(),visit);
+    assert.equal(await player.locator('#game').evaluate(el=>el.inert),true);
     assert.equal(await player.locator('#game').getAttribute('src')===null,visit);
     const ended=player.waitForRequest(req=>req.url().endsWith('/_infuser/telemetry')&&req.method()==='POST'&&
       req.postDataJSON().events.some(e=>e.kind==='link'&&e.data.name==='launch'&&e.data.state==='ended'));

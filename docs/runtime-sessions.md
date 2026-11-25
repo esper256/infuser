@@ -52,7 +52,7 @@ let session = await runtime.acquire();
 
 // When returning to a client-only mode (or cancelling startup):
 await runtime.release(session.session_id);
-// Do not call Infuser.leave(): that ends this launch and its guest saves.
+// Keep the normal launch heartbeat running while the player is still in the game.
 ```
 
 `acquire()` returns immediately with `starting` or `ready`; it does not wait for

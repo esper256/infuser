@@ -11,7 +11,7 @@ function load(path){
 }
 
 for(const path of ['../sdk/infuser.js','../sdk/v1/infuser.js']){
-  test(path+' stops once on terminal status, including in-flight heartbeats', async()=>{
+  test(path+' stops once on a marked denial, including in-flight heartbeats', async()=>{
     const source=load(path);
     for(const status of [401,403,404,409,410]){
       const events=[],messages=[],posts=[],updates=[],clientUpdates=[];
@@ -42,13 +42,13 @@ for(const path of ['../sdk/infuser.js','../sdk/v1/infuser.js']){
       assert.deepEqual(updates,['https://game.invalid']);
       assert.deepEqual(clientUpdates,[['v2',0,'https://game.invalid'],['v2',1,'https://game.invalid']]);
       const pending=[callback(),callback()];
-      posts[4](new Response('session expired',{status}));
+      posts[4](new Response('session expired',{status,headers:{'Infuser-Session':'ended'}}));
       posts[5](Response.json({error:'session expired'},{status}));
       await Promise.all(pending);
       await callback(); // A callback already queued before clearInterval must also be harmless.
       assert.equal(posts.length,6);
       assert.equal(clears,1);
-      assert.deepEqual(events,[502,status]);
+      assert.deepEqual(events,[status]);
       assert.deepEqual(messages,[[status,'https://game.invalid']]);
     }
   });
@@ -60,11 +60,13 @@ test('v1 wakes immediately and reports an authorization failure from a save just
   window.addEventListener('infuser-session-error',e=>statuses.push(e.detail.status));
   let beats=0,clears=0,saveStatus=409;
   const fetch=async(path)=>{
+    if(/\/(peers|connections)\//.test(path))return Response.json({error:'ended'},{status:410});
     if(path.endsWith('/heartbeat'))beats++;
-    return Response.json({}, {status:path.includes('/saves/')?saveStatus:200});
+    return Response.json({}, {status:path.includes('/saves/')?saveStatus:200,headers:saveStatus===403?{'Infuser-Session':'ended'}:{}});
   };
-  vm.runInNewContext(load('../sdk/v1/infuser.js'),{document,window,fetch,EventTarget,CustomEvent,location:{origin:'https://game.invalid'},
-    setInterval:()=>1,clearInterval:()=>clears++});
+  const context={document,window,fetch,EventTarget,CustomEvent,location:{origin:'https://game.invalid'},
+    setInterval:()=>1,clearInterval:()=>clears++};
+  vm.runInNewContext(load('../sdk/v1/infuser.js')+';this.platformFetch=sessionFetch;',context);
   const sdk=window.Infuser;
   await sdk.ready;
   assert.equal(beats,1);
@@ -72,6 +74,11 @@ test('v1 wakes immediately and reports an authorization failure from a save just
     document.visibilityState=state;document.dispatchEvent(new Event('visibilitychange'));
   }
   assert.equal(beats,2);
+  for(const path of ['peers/room','connections/v1/attempt']){
+    const response=await context.platformFetch('/_infuser/api/v1/'+path);
+    assert.equal(response.status,410);
+  }
+  assert.deepEqual(statuses,[]);assert.equal(clears,0);
   await assert.rejects(sdk.saves.save('progress',{},0),e=>e.status===409);
   assert.deepEqual(posts,[]);
   saveStatus=403;

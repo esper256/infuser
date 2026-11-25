@@ -299,9 +299,10 @@ fn strict_idle(p: &Platform, force: bool) -> anyhow::Result<bool> {
         || data.server_builds.values().any(|job| job.active())
         || (!force
             && (state.games.values().any(|game| game.reserved())
-                || data.launches.values().any(|launch| {
-                    launch.expires > now() && launch.seen.saturating_add(90) > now()
-                })
+                || data
+                    .launches
+                    .values()
+                    .any(|launch| launch.live(now()) && launch.seen.saturating_add(90) > now())
                 || !p.peer_rooms().diagnostics(now())["sessions"]
                     .as_array()
                     .is_some_and(Vec::is_empty)));

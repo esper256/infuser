@@ -100,11 +100,12 @@ await Infuser.sessions.disconnect(socket);
 await Infuser.runtime.release(socket.infuser.lease_id);
 ```
 
-This preserves the browser launch and cloud saves. Avoid `Infuser.leave()` unless
-ending that launch too. Closing with WebSocket code 1000 releases the game seat;
-an unexpected disconnect holds a seat for up to 30 seconds. A fresh launch cannot
-resume another launch's reservation. Signing out of Infuser revokes the account’s launch credentials. Disabling membership or moving private groups still ends
-access. Background tabs can stay connected without relying on JavaScript timers.
+This preserves the browser launch and cloud saves. Keep heartbeating while the
+player is still in the game. Closing with WebSocket code 1000 releases the game
+seat. An unexpected disconnect holds a seat for up to 30 seconds. A fresh launch
+cannot resume another launch's reservation. Signing out ends personal web
+launches started by that Library session. Disabling membership or moving private
+groups still ends access. Background tabs can stay connected without relying on JavaScript timers.
 
 ## Node: reserve, attach, release
 

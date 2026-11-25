@@ -354,7 +354,8 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
                     token_hash: platform::hash(id),
                     exchanged: true,
                     expires: now() + 300,
-                    authorized_until: 0,
+                    ended: false,
+                    library_session: String::new(),
                     grant_expires: now() + 300,
                     seen: now(),
                     lease_id: None,
@@ -592,13 +593,9 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
         presence("c").send().await?.json::<Value>().await?["session"].is_null(),
         "stale Join friend must not create a replacement world"
     );
-    assert_eq!(
-        call("b", get.clone(), &format!("/{bid}"))
-            .send()
-            .await?
-            .status(),
-        410
-    );
+    let room_ended = call("b", get.clone(), &format!("/{bid}")).send().await?;
+    assert_eq!(room_ended.status(), 410);
+    assert!(!room_ended.headers().contains_key("infuser-session"));
     platform.activate_pending()?;
     assert_eq!(platform.db.read()?.apps["pond"].build, "two");
     let old: Value = presence("c").send().await?.json().await?;

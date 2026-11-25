@@ -323,21 +323,25 @@ fallback. Targeted peer joins can supply both `expected_epoch` and `expected_pla
   ticket and ready endpoint. Never treat a display name as an identity.
 - `POST /_infuser/api/v1/heartbeat` renews the launch at startup and every 25 seconds.
   SDK v1 also sends one when the game becomes visible again. The five-minute
-  liveness deadline controls whether the launch counts as open. New member web
-  launches can save and resume for seven days after exchange or the latest
-  heartbeat. Guest, visit, native and older launches keep their existing expiry.
-  Signing out ends launches across the account’s profiles and devices.
+  liveness deadline controls whether the launch counts as open. Member, guest, native and visit launches can resume
+  until seven days after their last heartbeat or initial exchange. Membership and
+  visit access are checked on each request. A new exchange on the same game host
+  for the same profile ends its previous launch.
+  Signing out ends personal web launches started from that browser’s Library
+  session for the selected profile. Launches on other devices, sibling profiles,
+  guests, visits, native games and launches created before session tracking keep
+  their own authorization. Disabling membership still revokes access everywhere.
 - If the backend stops, the heartbeat reports HTTP 200 with state `"ended"`.
   After the dead lease is cleared, runtime status reads `"idle"`. Offer to
   reconnect or choose a mode. The launch can still save. The player handles
   `update_available` (a game build update) and `client_update` (Infuser web
   client version and emergency reload generation).
-- SDK v1 stops heartbeating and signals `infuser-session-error` once on HTTP
-  401, 403 or 410 from a platform request. A 404 or 409 on a heartbeat is also
-  terminal. A save conflict (409) remains recoverable. The player provides a
-  link to the Library. Temporary failures keep the usual heartbeat schedule.
-- `DELETE /_infuser/api/v1/heartbeat` stops announcing play. A member web
-  launch retains its save authorization. Closing a tab is handled by expiry.
+- When launch authorization ends, the controller sends the `Infuser-Session: ended`
+  header and the `session_ended` error code. SDK v1 stops the heartbeat and signals
+  `infuser-session-error` once. The player offers a link back to the Library.
+  An expired room, disconnected server or save conflict leaves the game session usable.
+- `DELETE /_infuser/api/v1/heartbeat` stops announcing play. All launch kinds
+  retain authorization under the same seven-day rule.
 - `GET /_infuser/api/v1/saves/SLOT` — `{version:0,data:null}` for an empty slot.
 - `PUT /_infuser/api/v1/saves/SLOT` — `{version:EXPECTED,data:JSON}`; returns new version.
   A stale version is 409. Limit 1 MiB/slot, 16 slots/player/game. Add your game's

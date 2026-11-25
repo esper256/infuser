@@ -129,7 +129,8 @@ async fn borrowed_servers_isolate_admission_and_cut_off_expired_visits() -> Resu
                     token_hash: platform::hash(who),
                     exchanged: true,
                     expires: now() + 300,
-                    authorized_until: 0,
+                    ended: false,
+                    library_session: String::new(),
                     grant_expires: now() + 120,
                     seen: now(),
                     lease_id: lease["lease_id"].as_str().map(str::to_owned),
@@ -421,7 +422,7 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(game),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
         for who in ["a","b","guest"] {
             let lease = controller.acquire("pond",who,now())?;
-            d.launches.insert(who.into(),Launch{deployment:None,visit:None,intent:None,app:"pond".into(),build:"one".into(),email:if who=="b"{"b@example.test"}else{"a@example.test"}.into(),guest:who=="guest",host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,authorized_until:0,grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
+            d.launches.insert(who.into(),Launch{deployment:None,visit:None,intent:None,app:"pond".into(),build:"one".into(),email:if who=="b"{"b@example.test"}else{"a@example.test"}.into(),guest:who=="guest",host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,ended:false, library_session: String::new(),grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
         }
         d.builds["pond/one"].manifest.validate()?;
         // Managed sessions are now an additive advertised capability.
@@ -631,6 +632,12 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         .send()
         .await?
         .error_for_status()?;
+    db.edit(|data| {
+        let l = data.launches.get_mut("b").unwrap();
+        l.seen = now() - 600;
+        l.expires = l.seen + 300;
+        Ok(())
+    })?;
     let cancelled: Value = request(&http, &base, "b", PUT, &format!("/{}", ids[1]))
         .json(&json!({"activity":"multiplayer"}))
         .send()
@@ -736,6 +743,19 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         .json()
         .await?;
     assert_eq!(retry, failed);
+    controller.stop("pond")?;
+    let stopped = request(&http, &base, "b", PUT, &format!("/{epoch}{:032x}", 6))
+        .json(&json!({"activity":"multiplayer"}))
+        .send()
+        .await?;
+    assert_eq!(stopped.status(), 410);
+    assert!(!stopped.headers().contains_key("infuser-session"));
+    http.get(format!("{base}/_infuser/api/v1/saves/progress"))
+        .header("host", "b.games.example.com")
+        .bearer_auth("b")
+        .send()
+        .await?
+        .error_for_status()?;
     Ok(())
 }
 

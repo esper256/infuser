@@ -9,7 +9,7 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
     let time = infuser::controller::now();
     db.edit(|d| {
         d.members.insert("player@example.test".into(),serde_json::from_value(json!({"name":"Player","admin":false,"enabled":true}))?);
-        d.launches.insert("test-launch".into(),serde_json::from_value(json!({"app":"pond","build":"one","email":"player@example.test","guest":true,"host":"pond.games.example.com","token_hash":"fixture","exchanged":true,"expires":time+10,"grant_expires":time+10,"seen":time,"lease_id":null,"lease_token":null}))?);
+        d.launches.insert("test-launch".into(),serde_json::from_value(json!({"app":"pond","build":"one","email":"player@example.test","guest":true,"host":"guest.games.example.com","token_hash":"fixture","exchanged":true,"expires":time+10,"grant_expires":time+10,"seen":time,"lease_id":null,"lease_token":null}))?);
         Ok(())
     })?;
     // Warm the snapshot, then verify activity never changes its revision or bytes.
@@ -31,7 +31,7 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
             "lease_id":null,"lease_token":null
         }))?,
     )?;
-    db.extend_launch_grant("lifecycle-launch", time + 120)?;
+    db.extend_launch_grant("lifecycle-launch", time)?;
     db.exchange_launch("lifecycle-token", "pond.games.example.com", time + 1)?;
     assert_eq!(
         db.find_launch("lifecycle-token", "pond.games.example.com", time + 1)?
@@ -238,7 +238,7 @@ fn pre_genesis_binary_cannot_write_after_migration() -> Result<()> {
 }
 
 #[test]
-fn heartbeat_slides_only_a_member_browser_authorization() -> Result<()> {
+fn idle_launches_renew_until_stale_or_explicitly_ended() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let db = Database::open(dir.path())?;
     let start = 1_000_000;
@@ -253,23 +253,17 @@ fn heartbeat_slides_only_a_member_browser_authorization() -> Result<()> {
         "token_hash":"first","exchanged":false,"expires":start+300,"seen":start,
         "grant_expires":start+120,"lease_id":null,"lease_token":null
     }))?;
-    assert_eq!(launch.authorized_until, 0);
+    assert!(!launch.ended);
     assert!(!launch.authorized(start + 300));
     db.insert_launch("first", &launch)?;
     db.exchange_launch("first", host, start)?;
-    assert_eq!(
-        db.read()?.launches["first"].authorized_until,
-        start + window
-    );
+    assert!(db.read()?.launches["first"].authorized(start + window - 1));
     db.expire_launch("first", start + 1)?;
     let wake = start + 600;
     db.find_launch("first", host, wake)?;
     db.renew_launch("first", wake, None)?;
     let row = &db.read()?.launches["first"];
-    assert_eq!(
-        (row.seen, row.expires, row.authorized_until),
-        (wake, wake + 300, wake + window)
-    );
+    assert_eq!((row.seen, row.expires), (wake, wake + 300));
     assert!(db.renew_launch("first", wake + window, None).is_err());
     let second = platform::Launch {
         token_hash: "second".into(),
@@ -290,9 +284,16 @@ fn heartbeat_slides_only_a_member_browser_authorization() -> Result<()> {
     db.insert_launch("guest", &guest)?;
     db.exchange_launch("guest", host, wake + 2)?;
     db.save_write("guest-guest", "pond", "progress", 0, &json!({"level":4}))?;
-    assert_eq!(db.read()?.launches["guest"].authorized_until, 0);
-    assert!(db.find_launch("guest", host, wake + 302).is_err());
-    db.cleanup()?;
+    db.find_launch("guest", host, wake + 302)?;
+    assert!(!db.read()?.launches["guest"].live(wake + 302));
+    db.find_launch("guest", host, wake + 1 + window)?;
+    assert!(db.find_launch("guest", host, wake + 2 + window).is_err());
+    db.cleanup_at(wake + 1 + window)?;
+    assert_eq!(
+        db.save_read("guest-guest", "pond", "progress")?.1,
+        json!({"level":4})
+    );
+    db.cleanup_at(wake + 2 + window)?;
     assert!(!db.read()?.launches.contains_key("guest"));
     assert_eq!(db.save_read("guest-guest", "pond", "progress")?.0, 0);
 
@@ -309,6 +310,7 @@ fn launch_auth_paths_use_the_authorization_clock() {
         (activity, "renew_launch"),
         (portal, "refresh_locked"),
         (portal, "verify_ticket"),
+        (include_str!("../src/portal/connections.rs"), "prune"),
     ] {
         let (prefix, tail) = source.split_once(&format!("fn {name}(")).unwrap();
         let declaration = prefix.rsplit('\n').next().unwrap();
@@ -319,7 +321,7 @@ fn launch_auth_paths_use_the_authorization_clock() {
             .take_while(|line| *line != end)
             .collect::<String>();
         assert!(
-            body.contains(".authorized("),
+            body.contains(".authorized(") || body.contains(".authorize_launch("),
             "{name} must use Launch::authorized"
         );
         assert!(

@@ -92,6 +92,17 @@ impl From<rustix::io::Errno> for Error {
 }
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
+        if let Some(f) = self.0.downcast_ref::<platform::SessionEnded>() {
+            let body = json!({"error":{"code":"session_ended","message":"Game session ended. Relaunch from the Library."}});
+            let mut response = (
+                StatusCode::from_u16(f.status).unwrap(),
+                [("Cache-Control", "no-store"), ("Infuser-Session", "ended")],
+                Json(body),
+            )
+                .into_response();
+            response.extensions_mut().insert(f.clone());
+            return response;
+        }
         if let Some(f) = self.0.downcast_ref::<crate::cloud::Fault>() {
             return (
                 StatusCode::from_u16(f.status).unwrap(),
@@ -388,8 +399,7 @@ impl Platform {
         }
     }
     fn game(&self, h: &HeaderMap) -> Result<(String, Launch)> {
-        let token =
-            game_token(h).ok_or_else(|| fault(401, "Launch this game from the clubhouse."))?;
+        let token = game_token(h).ok_or_else(|| platform::denied(None, 401, "missing_token"))?;
         let digest = hash(token);
         self.db.find_launch(&digest, host(h), now())
     }
@@ -399,17 +409,28 @@ impl Platform {
     }
     fn refresh_locked(&self, id: &str) -> Result<Value> {
         let data = self.db.read()?;
+        let time = now();
         let launch = data
             .launches
             .get(id)
-            .filter(|l| l.authorized(now()))
-            .ok_or_else(|| fault(410, "game session expired"))?;
-        ensure!(
-            data.profile_enabled(&launch.email) && data.launch_allowed(launch, now()),
-            fault(403, "Game authorization ended.")
-        );
+            .ok_or_else(|| platform::denied(Some(id), 410, "unknown"))?;
+        data.authorize_launch(id, launch, time)?;
+        let status = self.launch_runtime_status(&data, id, launch)?;
+        let ended_lease = (status["state"] == "ended")
+            .then_some(launch.lease_id.as_deref())
+            .flatten();
+        self.db.renew_launch(id, time, ended_lease)?;
+        Ok(status)
+    }
+    fn launch_runtime_status(
+        &self,
+        data: &platform::Data,
+        id: &str,
+        launch: &Launch,
+    ) -> Result<Value> {
         let mut status = json!({"state":"ready","endpoint":null});
-        let on_demand = data.builds[&build_key(&launch.app, &launch.build)]
+        let on_demand = data
+            .launch_build(id, launch)?
             .manifest
             .server_start
             .is_some();
@@ -418,12 +439,6 @@ impl Platform {
         } else if let (Some(lease), Some(token)) = (&launch.lease_id, &launch.lease_token) {
             status = self.backend_state(launch, lease, token, true)?;
         }
-        let ended_lease = if status["state"] == "ended" {
-            launch.lease_id.as_deref()
-        } else {
-            None
-        };
-        self.db.renew_launch(id, now(), ended_lease)?;
         status["client_update"] = client::update();
         status["update_available"] = json!(
             data.deployed(launch.runtime_id())
@@ -733,11 +748,7 @@ async fn session_auth(
         && !path.starts_with("/api/publisher/")
         && !path.starts_with("/api/metadata/")
         && !path.starts_with("/api/server/");
-    let signing_out = path == "/sign-out";
-    if (!player_api && !signing_out)
-        || native::public(path)
-        || host(request.headers()) != p.domain()
-    {
+    if !player_api || native::public(path) || host(request.headers()) != p.domain() {
         return next.run(request).await;
     }
     let cookie = request.headers().get("cookie").cloned();
@@ -746,7 +757,7 @@ async fn session_auth(
         request.uri(),
         request.method() == axum::http::Method::GET,
     );
-    let needs_profile = path != "/api/profiles" && !signing_out;
+    let needs_profile = path != "/api/profiles";
     // A member-link cookie is its own sign-in. An invalid one must not fall
     // through to Google, or a shared browser could become someone else.
     let member_token = cookie
@@ -777,12 +788,6 @@ async fn session_auth(
             .header("cookie", cookie)
             .send()
             .await?;
-        if signing_out
-            && !response.status().is_success()
-            && !matches!(response.status().as_u16(), 401 | 403)
-        {
-            return Err(fault(503, "Could not verify the account to sign out."));
-        }
         ensure!(
             response.status().is_success(),
             fault(401, "Please sign in with Google.")
@@ -829,14 +834,6 @@ async fn session_auth(
     }
     .await;
     match verified {
-        Err(error)
-            if signing_out
-                && error
-                    .downcast_ref::<Fault>()
-                    .is_some_and(|f| matches!(f.status, 401 | 403)) =>
-        {
-            next.run(request).await
-        }
         Err(error) => {
             let selection = error
                 .downcast_ref::<Fault>()
@@ -860,9 +857,6 @@ async fn session_auth(
                     .insert("x-infuser-verified-profile", profile);
             }
             let mut response = next.run(request).await;
-            if signing_out {
-                return response;
-            }
             for cookie in cookies {
                 response.headers_mut().append("set-cookie", cookie);
             }
@@ -984,7 +978,7 @@ async fn launch(
     ensure!(
         data.launches
             .values()
-            .filter(|l| l.email == email && l.expires > now())
+            .filter(|l| l.email == email && l.live(now()))
             .count()
             < 32,
         fault(429, "Close an old game before opening more.")
@@ -1015,6 +1009,8 @@ async fn launch(
         hash(&format!("{email}/{app}/{}", selected.build))[..32].into()
     };
     let gamehost = crate::game_urls::host(&data, &app, &host_id, p.domain());
+    let session = (!body.guest && visit.is_none())
+        .then(|| member_link::library_session(&h, &data.player_id(&email)));
     let l = Launch {
         deployment,
         visit,
@@ -1027,7 +1023,8 @@ async fn launch(
         token_hash: hash(&token),
         exchanged: false,
         expires: now() + 300,
-        authorized_until: 0,
+        ended: false,
+        library_session: session.as_ref().map(|s| s.id.clone()).unwrap_or_default(),
         grant_expires: now() + 120,
         seen: now(),
         lease_id: lease
@@ -1041,9 +1038,16 @@ async fn launch(
     };
     p.db.insert_launch(&id, &l)?;
     telemetry::launch_event(&p, &id, &l, "launch.create", None);
-    Ok(reply(
+    let mut response = reply(
         json!({"launch_id":id,"url":format!("https://{gamehost}/_infuser/launch#infuser={token}"),"state":lease.as_ref().map(|l|&l["state"]).unwrap_or(&json!("ready"))}),
-    ))
+    );
+    if let Some(scope) = session {
+        response.headers_mut().append(
+            header::SET_COOKIE,
+            scope.cookie.parse().expect("generated cookie"),
+        );
+    }
+    Ok(response)
 }
 async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap) -> Answer {
     let email = p.member(&h, false).await?;
@@ -1051,13 +1055,14 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
         !h.contains_key(groups::INSPECT),
         fault(403, "Inspection cannot renew launches.")
     );
+    let _guard = p.publishing.lock().unwrap();
     let data = p.db.read()?;
     let l = data
         .launches
         .get(&id)
         .ok_or_else(|| fault(404, "unknown launch"))?;
     ensure!(
-        l.email == email && l.expires > now(),
+        l.email == email && l.live(now()),
         fault(403, "not your active launch")
     );
     ensure!(
@@ -1066,8 +1071,11 @@ async fn launch_status(State(p): State<Platform>, Path(id): Path<String>, h: Hea
     );
     // Startup may take longer than the initial grant window. Only the authenticated
     // launcher can extend the unused, single-use exchange token.
-    p.db.extend_launch_grant(&id, now() + 120)?;
-    Ok(reply(p.refresh(&id)?))
+    if !l.exchanged {
+        p.db.extend_launch_grant(&id, now())?;
+        return Ok(reply(p.launch_runtime_status(&data, &id, l)?));
+    }
+    Ok(reply(p.refresh_locked(&id)?))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1414,7 +1422,7 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
 async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (id, l) = p.game(&h)?;
     let d = p.db.catalog()?;
-    let b = &d.builds[&build_key(&l.app, &l.build)];
+    let b = d.launch_build(&id, &l)?;
     let player = if l.guest {
         format!("guest-{id}")
     } else {
@@ -1433,7 +1441,7 @@ async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
 async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (id, launch) = p.game(&h)?;
     let data = p.db.catalog()?;
-    let build = &data.builds[&build_key(&launch.app, &launch.build)];
+    let build = data.launch_build(&id, &launch)?;
     let page = presence::open_page(&p.db, &id, &launch.host)?;
     let voice_token = if !launch.guest {
         p.voice
@@ -1509,7 +1517,7 @@ async fn peer_join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Pee
         &presence::live_launches(&data, launch.runtime_id(), now()),
         now(),
     );
-    let build = &data.builds[&build_key(&launch.app, &launch.build)];
+    let build = data.launch_build(&id, &launch)?;
     let multiplayer = build
         .manifest
         .multiplayer
@@ -1814,9 +1822,9 @@ async fn game_file(State(p): State<Platform>, mut request: Request) -> Answer {
         }
         return Err(session.err().unwrap().into());
     }
-    let (_, l) = session.unwrap();
+    let (id, l) = session.unwrap();
     let data = p.db.catalog()?;
-    let b = &data.builds[&build_key(&l.app, &l.build)];
+    let b = data.launch_build(&id, &l)?;
     let path = request.uri().path().trim_start_matches('/');
     let mut selected = if path.is_empty() {
         "index.html".to_string()

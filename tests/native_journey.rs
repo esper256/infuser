@@ -279,6 +279,16 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
             .header("host", game_host)
             .bearer_auth(launch["token"].as_str().unwrap())
     };
+    p.db.edit(|data| {
+        let row = data
+            .launches
+            .get_mut(launch["launch_id"].as_str().unwrap())
+            .unwrap();
+        row.seen = infuser::controller::now() - 600;
+        row.expires = row.seen + 300;
+        assert!(row.library_session.is_empty());
+        Ok(())
+    })?;
     let context = ok(game("/_infuser/api/v1/context")).await?;
     assert_eq!(context["guest"], true);
     assert_eq!(context["player_id"], launch["player_id"]);
@@ -374,6 +384,10 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         404
     );
     ok(member(Method::DELETE, &path, "admin")).await?;
+    assert_eq!(
+        game("/_infuser/api/v1/context").send().await?.headers()["infuser-session"],
+        "ended"
+    );
     assert_eq!(
         req(Method::POST, "/api/native/v1/claim")
             .bearer_auth(key)

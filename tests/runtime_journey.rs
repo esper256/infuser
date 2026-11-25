@@ -500,6 +500,15 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     controller.stop("legacy")?;
     controller.reconcile(now()).await?;
     let reopened = launch(&http, &url, "legacy", false, "starting").await?;
+    let replaced = open
+        .request(&http, &url, Method::GET, "/_infuser/saves/progress")
+        .send()
+        .await?;
+    assert_eq!(replaced.headers()["infuser-session"], "ended");
+    assert_eq!(
+        replaced.json::<Value>().await?["error"]["code"],
+        "session_ended"
+    );
     let loaded =
         value(reopened.request(&http, &url, Method::GET, "/_infuser/saves/progress")).await?;
     assert_eq!(loaded["version"], receipt["version"]);
@@ -522,6 +531,41 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
             .server_start
             .is_some()
     );
+    let remove_old = || {
+        http.delete(format!("{url}/api/publisher/apps/moon/builds/one"))
+            .header("host", HOST)
+            .bearer_auth(&token)
+    };
+    assert_eq!(remove_old().send().await?.status(), 409);
+    p.db.edit(|d| {
+        for l in d
+            .launches
+            .values_mut()
+            .filter(|l| l.app == "moon" && l.build == "one")
+        {
+            l.seen = now() - 600;
+            l.expires = l.seen + 300;
+        }
+        Ok(())
+    })?;
+    remove_old().send().await?.error_for_status()?;
+    let removed = a
+        .request(&http, &url, Method::POST, "/_infuser/heartbeat")
+        .send()
+        .await?;
+    assert_eq!(removed.headers()["infuser-session"], "ended");
+    let gone = http
+        .delete(format!("{url}/api/publisher/apps/legacy"))
+        .header("host", HOST)
+        .bearer_auth(&legacy_token)
+        .send()
+        .await?;
+    gone.error_for_status()?;
+    let unpublished = reopened
+        .request(&http, &url, Method::GET, "/_infuser/saves/progress")
+        .send()
+        .await?;
+    assert_eq!(unpublished.headers()["infuser-session"], "ended");
     platform::member(&cfg, "user@example.com", "User", false, false)?;
     assert_eq!(
         blocked

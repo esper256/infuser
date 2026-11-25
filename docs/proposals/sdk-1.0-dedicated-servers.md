@@ -144,10 +144,10 @@ Keep Caddy for TLS and ordinary routing. Route the new managed-connection endpoi
 
 Use bounded message sizes, output queues, handshake times and idle connection checks. Do not make one game’s message limit a platform-wide constant. Publish effective limits, and let games request values within operator policy.
 
-Define revocation scope explicitly: disabling a member or withdrawing game access
-ends all affected launches, including sponsored guests; leaving a game closes that
-launch's connections; signing out ends game launch credentials across the account’s profiles and
-devices. Other devices keep their own Library login.
+Disabling a member or withdrawing game access ends all affected launches,
+including sponsored guests. Leaving a game releases its connections and stops
+announcing play. Signing out ends personal web launches started from the selected
+Library session in that browser. Other devices and profiles keep their game sessions.
 Legacy behavior remains behind its existing adapter until the new contract is
 adopted.
 

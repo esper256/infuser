@@ -842,9 +842,7 @@ pub(super) async fn unpublish(
         d.apps.remove(&app);
         d.pending_promotions.remove(&app);
         for l in d.launches.values_mut().filter(|l| l.app == app) {
-            l.expires = 0;
-            l.authorized_until = 0;
-            l.grant_expires = 0;
+            l.end(now());
         }
         Ok(())
     })?;
@@ -876,7 +874,7 @@ pub(super) async fn remove_build(
                         && !d
                             .launches
                             .values()
-                            .any(|l| l.app == app && l.build == build && l.authorized(now())),
+                            .any(|l| l.app == app && l.build == build && l.live(now())),
                     fault(409, "build is published, queued or in use")
                 );
                 ensure!(
@@ -885,6 +883,13 @@ pub(super) async fn remove_build(
                         .is_none_or(|j| !j.active()),
                     fault(409, "server packaging is still queued or running")
                 );
+                for l in d
+                    .launches
+                    .values_mut()
+                    .filter(|l| l.app == app && l.build == build)
+                {
+                    l.end(now());
+                }
                 d.builds.remove(&build_key(&app, &build));
                 Ok(())
             })?;

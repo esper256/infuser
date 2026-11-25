@@ -15,6 +15,7 @@ use std::{
     sync::Mutex,
 };
 mod activity;
+pub(crate) use activity::{SessionEnded, denied};
 pub(crate) mod channels;
 mod chat;
 pub mod deployments;
@@ -112,19 +113,29 @@ pub struct Launch {
     pub exchanged: bool,
     pub expires: u64,
     #[serde(default)]
-    pub authorized_until: u64,
+    pub ended: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub library_session: String,
     pub grant_expires: u64,
     pub seen: u64,
     pub lease_id: Option<String>,
     pub lease_token: Option<String>,
 }
+pub const STALE: u64 = 7 * 24 * 60 * 60;
+
 impl Launch {
     pub fn authorized(&self, time: u64) -> bool {
-        if self.authorized_until == 0 {
-            self.expires > time
-        } else {
-            self.authorized_until > time
-        }
+        self.exchanged && !self.ended && self.seen.saturating_add(STALE) > time
+    }
+
+    pub fn live(&self, time: u64) -> bool {
+        !self.ended && self.expires > time
+    }
+
+    pub fn end(&mut self, time: u64) {
+        self.ended = true;
+        self.expires = time;
+        self.grant_expires = 0;
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -549,9 +560,24 @@ impl Database {
     ) -> Result<T> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut data = (*self.cached_catalog(&tx)?).clone();
+        let previous = self.cached_catalog(&tx)?;
+        let mut data = (*previous).clone();
         activity::load(&tx, &mut data)?;
         let result = f(&mut data, &tx)?;
+        let time = now();
+        let revoked: Vec<_> = data
+            .launches
+            .iter()
+            .filter(|(_, launch)| {
+                !launch.ended
+                    && !data.launch_allowed(launch, time)
+                    && previous.launch_allowed(launch, time)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in revoked {
+            data.launches.get_mut(&id).unwrap().end(time);
+        }
         tx.execute(
             "UPDATE platform SET data=?1 WHERE id=1",
             [encode_catalog(&tx, &mut data)?],
@@ -740,6 +766,16 @@ impl Database {
         native.pairs.retain(|_, p| p.expires > now());
         native.requests.retain(|_, p| p.expires > now());
         let result = f(&mut data, &mut native)?;
+        native.launch_devices.retain(|id, device| {
+            let Some(launch) = data.launches.get_mut(id) else {
+                return false;
+            };
+            if !native.devices.contains_key(device) {
+                launch.end(now());
+                return false;
+            }
+            !launch.ended
+        });
         for (id, launch) in &data.launches {
             if before_launches.get(id).is_none_or(|old| {
                 serde_json::to_value(old).ok() != serde_json::to_value(launch).ok()
@@ -846,12 +882,16 @@ impl Database {
         Ok(())
     }
     pub fn cleanup(&self) -> Result<Vec<(String, Launch)>> {
+        self.cleanup_at(now())
+    }
+
+    pub fn cleanup_at(&self, time: u64) -> Result<Vec<(String, Launch)>> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let time = now();
         let expired = {
-            let mut stmt=tx.prepare("DELETE FROM runtime_launches WHERE MAX(json_extract(data,'$.expires'), COALESCE(json_extract(data,'$.authorized_until'),0))<=?1 RETURNING id,data")?;
-            let rows = stmt.query_map([time], |row| {
+            let mut stmt=tx.prepare("DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1 AND
+                (NOT json_extract(data,'$.exchanged') OR COALESCE(json_extract(data,'$.ended'),0) OR json_extract(data,'$.seen')+?2<=?1) RETURNING id,data")?;
+            let rows = stmt.query_map([time, STALE], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
             let mut expired = Vec::new();
@@ -961,7 +1001,7 @@ pub fn preview(
         if let Some(intent) = &intent { intent.validate(&build.manifest)?; }
         let id=secret()[..32].to_string();let token=secret();
         let host=crate::game_urls::host(d, app, &id, &config.controller.domain);
-        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,authorized_until:0,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
+        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,ended:false, library_session: String::new(),grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
         Ok(serde_json::json!({"launch_id":id,"url":format!("https://{host}/_infuser/launch#infuser={token}")}))
     })
 }

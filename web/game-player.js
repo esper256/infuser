@@ -314,8 +314,8 @@ try{
     sessionEnded=true;
     diagnostics?.link('launch').set('ended',reason,{status:httpStatus});
     clearInterval(hookTimer);clearInterval(checkTimer);
-    gameOrientation=null;releaseOrientation();game.hidden=true;
-    if(session.visit)game.removeAttribute('src');
+    gameOrientation=null;releaseOrientation();game.inert=true;
+    if(session.visit){game.hidden=true;game.removeAttribute('src');}
     button.disabled=true;document.getElementById('screenshot').disabled=true;
     status.hidden=true;
     const ended=document.getElementById('session-ended');
@@ -355,7 +355,7 @@ try{
     if(event.data?.type==='infuser-update-available'){updateAvailable();return;}
     if(event.data?.type!=='infuser-session-error')return;
     const {status}=event.data;
-    if(heartbeatEndReasons.has(status))endSession(heartbeatEndReasons.get(status),status);
+    endSession(heartbeatEndReasons.get(status),status);
   });
   game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
@@ -365,7 +365,7 @@ try{
       if(sessionEnded||checking)return;checking=true;
       try{
         const r=await playerFetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
-        if(r.status===403||r.status===410){endSession(heartbeatEndReasons.get(r.status),r.status);return;}
+        if(r.headers.get('Infuser-Session')==='ended'||r.status===403||r.status===410){endSession(heartbeatEndReasons.get(r.status),r.status);return;}
         if(r.ok){
           const state=await r.json();if(sessionEnded)return;
           if(state.visit){

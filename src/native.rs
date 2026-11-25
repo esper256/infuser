@@ -10,6 +10,8 @@ use std::{collections::BTreeMap, io::Read, path::Path};
 pub struct Data {
     pub pairs: BTreeMap<String, Pair>,
     pub devices: BTreeMap<String, Device>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub launch_devices: BTreeMap<String, String>,
     pub requests: BTreeMap<String, Play>,
 }
 #[derive(Serialize, Deserialize)]

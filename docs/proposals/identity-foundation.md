@@ -102,7 +102,7 @@ Private conditional responses vary by profile, visit and inspection context.
 The website pins the selector in memory for each page and stores it in
 `sessionStorage` for that tab's reloads. Switch Profile clears selection, visit
 and inspection state, opens `/profiles`, and reloads into the selected group.
-Other tabs retain their selectors. Google sign-out clears the current tab's
+Other tabs retain their selectors. Each browser tracks personal web launches separately for each selected profile. Signing out ends the launches from that Library session. Google sign-out clears the current tab's
 selection. A session from a different account cannot use a stale selector.
 
 Game tickets, publisher keys and native credentials remain bound to their

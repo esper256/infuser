@@ -56,12 +56,9 @@ function stopHeartbeat() {
 }
 function sessionError(error) {
   if (stopped) return;
-  if ([401, 403, 404, 409, 410].includes(error.status)) {
-    stopHeartbeat();
-    // Window events stay inside the iframe. Forward only the terminal status to the player.
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({type: 'infuser-session-error', status: error.status}, location.origin);
-    }
+  stopHeartbeat();
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({type: 'infuser-session-error', status: error.status}, location.origin);
   }
   window.dispatchEvent(new CustomEvent('infuser-session-error', {detail: error}));
 }
@@ -81,7 +78,7 @@ async function heartbeat() {
       window.parent.postMessage({type: 'infuser-update-available'}, location.origin);
     }
   }
-  catch (error) { sessionError(error); }
+  catch { /* A failed heartbeat can run again on the normal schedule. */ }
 }
 function onVisible() {
   if (document.visibilityState === 'visible') void heartbeat();
@@ -91,7 +88,7 @@ function onDenied(event) {
 }
 sessionDenials.addEventListener('denied', onDenied);
 globalThis.document?.addEventListener('visibilitychange', onVisible);
-ready.then(heartbeat, sessionError);
+ready.then(heartbeat, () => {});
 const timer = setInterval(heartbeat, 25000);
 export const saves = {
   load: (slot = 'progress') => request('saves/' + encodeURIComponent(slot)),

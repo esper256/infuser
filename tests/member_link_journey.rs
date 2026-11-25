@@ -652,17 +652,15 @@ async fn google_sign_in_is_unchanged_without_the_member_cookie() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
-    let world = world().await?;
-    invite(&world.db, "home", GOB, "Gob")?;
+fn add_test_game(world: &World, app: &str, group: &str) -> Result<()> {
     world.db.edit(|data| {
+        data.reserve_app(app, group)?;
         data.builds.insert(
-            "pond/one".into(),
+            format!("{app}/one"),
             serde_json::from_value(json!({
                 "manifest": {
                     "schema_version": 1,
-                    "app_id": "pond",
+                    "app_id": app,
                     "title": "Pond",
                     "play_modes": ["solo"],
                     "solo_runtime": "client_only",
@@ -677,11 +675,18 @@ async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
             }))?,
         );
         data.apps.insert(
-            "pond".into(),
+            app.into(),
             serde_json::from_value(json!({"build":"one","updated":now(),"listed":true}))?,
         );
         Ok(())
-    })?;
+    })
+}
+
+#[tokio::test]
+async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
+    let world = world().await?;
+    invite(&world.db, "home", GOB, "Gob")?;
+    add_test_game(&world, "pond", "home")?;
     let link = world.db.mint_member_link(HOST, GOB, "server operator")?.0;
     let cookie = session_cookie(&open_link(&world, &link).await?);
     let api = |method: reqwest::Method, path: &str| {
@@ -715,13 +720,19 @@ async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
         .await?;
     assert_eq!(voice["configured"], false);
 
-    let launch: Value = api(reqwest::Method::POST, "/api/apps/pond/launch")
+    let launched = api(reqwest::Method::POST, "/api/apps/pond/launch")
         .json(&json!({}))
         .send()
         .await?
-        .error_for_status()?
-        .json()
-        .await?;
+        .error_for_status()?;
+    let scope = launched.headers()["set-cookie"]
+        .to_str()?
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    assert!(scope.starts_with("__Host-infuser_library_"));
+    let launch: Value = launched.json().await?;
     let game_url = reqwest::Url::parse(launch["url"].as_str().unwrap())?;
     let game_host = game_url.host_str().unwrap().to_owned();
     let game_token = game_url
@@ -790,7 +801,15 @@ async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
         .await?;
     assert_eq!(anonymous.status(), 401);
     assert_eq!(
-        api(reqwest::Method::GET, "/sign-out")
+        world
+            .http
+            .get(format!(
+                "{}/sign-out?profile={}",
+                world.url,
+                platform::hash(GOB)
+            ))
+            .header("host", HOST)
+            .header("cookie", format!("{cookie}; {scope}"))
             .send()
             .await?
             .status(),
@@ -811,50 +830,122 @@ async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
 }
 
 #[tokio::test]
-async fn google_sign_out_retires_all_account_profiles_without_a_selector() -> Result<()> {
+async fn sign_out_during_proxy_outage_only_ends_the_selected_library_session() -> Result<()> {
     let world = world().await?;
     invite(&world.db, "home", GOOGLE_PERSON, "Home")?;
     invite(&world.db, "away", GOOGLE_PERSON, "Away")?;
-    invite(&world.db, "home", GOB, "Gob")?;
-    let away = world
-        .db
-        .read()?
-        .group_member_key(GOOGLE_PERSON, "away")?
-        .unwrap();
-    let time = now();
-    for (id, profile) in [
-        ("main", GOOGLE_PERSON),
-        ("other-profile", away.as_str()),
-        ("different-account", GOB),
-        ("pending", GOOGLE_PERSON),
-    ] {
-        let launch = serde_json::from_value(json!({"app":"pond","build":"one","email":profile,
-            "guest":false,"host":"pond.example.test","token_hash":id,"exchanged":id!="pending",
-            "expires":time+300,"authorized_until":time+3600,"grant_expires":time+120,
-            "seen":time,"lease_id":null,"lease_token":null}))?;
-        world.db.insert_launch(id, &launch)?;
-    }
-    let response = world
-        .http
-        .get(format!("{}/sign-out", world.url))
-        .header("host", HOST)
-        .header("cookie", "member=google")
-        .header("x-infuser-verified-account", "untrusted")
-        .send()
-        .await?;
-    assert_eq!(response.status(), 303);
     let data = world.db.read()?;
-    for id in ["main", "other-profile", "pending"] {
-        assert!(!data.launches[id].authorized(now()), "{id}");
-        assert_eq!(data.launches[id].authorized_until, 0);
+    let sibling = data.group_member_key(GOOGLE_PERSON, "away")?.unwrap();
+    let home_profile = data.player_id(GOOGLE_PERSON);
+    let sibling_profile = data.player_id(&sibling);
+    // Distinct games avoid the independent same-host cookie supersede rule.
+    for (app, group) in [("pond", "home"), ("moon", "home"), ("star", "away")] {
+        add_test_game(&world, app, group)?;
     }
-    assert!(
+    let mut scopes = Vec::new();
+    let mut games = Vec::new();
+    for (app, profile, device) in [
+        ("pond", &home_profile, "device-a"),
+        ("moon", &home_profile, "device-b"),
+        ("star", &sibling_profile, "device-a"),
+    ] {
+        let response = world
+            .http
+            .post(format!("{}/api/apps/{app}/launch", world.url))
+            .header("host", HOST)
+            .header("origin", format!("https://{HOST}"))
+            .header(
+                "cookie",
+                format!("member=google; __Host-infuser_session={device}"),
+            )
+            .header("x-infuser-profile", profile)
+            .json(&json!({}))
+            .send()
+            .await?
+            .error_for_status()?;
+        let scope = response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .find(|v| v.starts_with("__Host-infuser_library_"))
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        scopes.push(scope);
+        let launch = response.json::<Value>().await?;
+        let url = reqwest::Url::parse(launch["url"].as_str().unwrap())?;
+        let host = url.host_str().unwrap().to_owned();
+        let token = url
+            .fragment()
+            .unwrap()
+            .strip_prefix("infuser=")
+            .unwrap()
+            .to_owned();
         world
-            .db
-            .exchange_launch("pending", "pond.example.test", now())
-            .is_err()
-    );
-    assert!(data.launches["different-account"].authorized(now()));
+            .http
+            .post(format!("{}/_infuser/session", world.url))
+            .header("host", &host)
+            .header("origin", format!("https://{host}"))
+            .json(&json!({"token":token}))
+            .send()
+            .await?
+            .error_for_status()?;
+        games.push((host, token));
+    }
+    let a = scopes[0].split_once('=').unwrap().1;
+    let c = scopes[2].split_once('=').unwrap().1;
+    let mut legacy = world.db.read()?.launches.into_values().next().unwrap();
+    legacy.email = GOOGLE_PERSON.into();
+    legacy.app = "pond".into();
+    legacy.library_session.clear();
+    legacy.token_hash = platform::hash("legacy");
+    world.db.insert_launch("legacy", &legacy)?;
+    games.push((legacy.host, "legacy".into()));
+    world._auth.0.abort();
+    let response = world.http.get(format!("{}/sign-out?profile={home_profile}",world.url))
+        .header("host", HOST).header("cookie", format!("__Host-infuser_session=old; __Host-infuser_session_1=chunk; __Host-infuser_library_{home_profile}={a}; __Host-infuser_library_{sibling_profile}={c}"))
+        .send().await?;
+    assert_eq!(response.status(), 303);
+    let cleared: Vec<_> = response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+    for name in [
+        "__Host-infuser_session=",
+        "__Host-infuser_session_1=",
+        &format!("__Host-infuser_library_{home_profile}="),
+    ] {
+        assert!(
+            cleared
+                .iter()
+                .any(|v| v.starts_with(name) && v.contains("Max-Age=0"))
+        );
+    }
+    assert!(!cleared.iter().any(|v| v.contains(&sibling_profile)));
+    for (index, (host, token)) in games.iter().enumerate() {
+        let response = world
+            .http
+            .get(format!("{}/_infuser/api/v1/saves/progress", world.url))
+            .header("host", host)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        if index == 0 {
+            assert_eq!(response.status(), 401);
+            assert_eq!(response.headers()["infuser-session"], "ended");
+            assert_eq!(
+                response.json::<Value>().await?["error"]["code"],
+                "session_ended"
+            );
+        } else {
+            response.error_for_status()?;
+        }
+    }
     Ok(())
 }
 
@@ -980,7 +1071,7 @@ async fn operator_admin_tools_record_the_creator_and_sign_out_ends_the_session()
         .send()
         .await?;
     assert_eq!(signed_out.status(), 303);
-    assert_eq!(signed_out.headers()["location"], "/oauth2/sign_out?rd=%2F");
+    assert_eq!(signed_out.headers()["location"], "/");
     assert!(
         signed_out.headers()["set-cookie"]
             .to_str()?
