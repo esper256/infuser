@@ -349,6 +349,7 @@ async fn shared_chat_permissions_retries_retention_and_update_detection() -> Res
                 token_hash: "test".into(),
                 exchanged: true,
                 expires: now() + 300,
+                authorized_until: 0,
                 grant_expires: 0,
                 seen: now(),
                 lease_id: None,

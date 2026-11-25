@@ -789,6 +789,72 @@ async fn member_session_can_chat_and_launch_a_game() -> Result<()> {
         .send()
         .await?;
     assert_eq!(anonymous.status(), 401);
+    assert_eq!(
+        api(reqwest::Method::GET, "/sign-out")
+            .send()
+            .await?
+            .status(),
+        303
+    );
+    assert_eq!(
+        world
+            .http
+            .get(format!("{}/_infuser/api/v1/saves/progress", world.url))
+            .header("host", &game_host)
+            .bearer_auth(&game_token)
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn google_sign_out_retires_all_account_profiles_without_a_selector() -> Result<()> {
+    let world = world().await?;
+    invite(&world.db, "home", GOOGLE_PERSON, "Home")?;
+    invite(&world.db, "away", GOOGLE_PERSON, "Away")?;
+    invite(&world.db, "home", GOB, "Gob")?;
+    let away = world
+        .db
+        .read()?
+        .group_member_key(GOOGLE_PERSON, "away")?
+        .unwrap();
+    let time = now();
+    for (id, profile) in [
+        ("main", GOOGLE_PERSON),
+        ("other-profile", away.as_str()),
+        ("different-account", GOB),
+        ("pending", GOOGLE_PERSON),
+    ] {
+        let launch = serde_json::from_value(json!({"app":"pond","build":"one","email":profile,
+            "guest":false,"host":"pond.example.test","token_hash":id,"exchanged":id!="pending",
+            "expires":time+300,"authorized_until":time+3600,"grant_expires":time+120,
+            "seen":time,"lease_id":null,"lease_token":null}))?;
+        world.db.insert_launch(id, &launch)?;
+    }
+    let response = world
+        .http
+        .get(format!("{}/sign-out", world.url))
+        .header("host", HOST)
+        .header("cookie", "member=google")
+        .header("x-infuser-verified-account", "untrusted")
+        .send()
+        .await?;
+    assert_eq!(response.status(), 303);
+    let data = world.db.read()?;
+    for id in ["main", "other-profile", "pending"] {
+        assert!(!data.launches[id].authorized(now()), "{id}");
+        assert_eq!(data.launches[id].authorized_until, 0);
+    }
+    assert!(
+        world
+            .db
+            .exchange_launch("pending", "pond.example.test", now())
+            .is_err()
+    );
+    assert!(data.launches["different-account"].authorized(now()));
     Ok(())
 }
 

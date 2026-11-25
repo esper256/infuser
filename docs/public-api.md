@@ -321,8 +321,23 @@ fallback. Targeted peer joins can supply both `expected_epoch` and `expected_pla
 
 - `GET /_infuser/api/v1/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.
-- `POST /_infuser/api/v1/heartbeat` — renew at startup and every 25 seconds. A stopped backend returns HTTP 200 with state `"ended"` once. After that the launch has no server lease, runtime status reads `"idle"`, and the game should offer to choose a mode or reconnect. The browser launch and its saves stay available. The read-only `update_available` flag means this deployment now serves a different game build. `client_update` carries the Infuser web client version and emergency reload generation. The built-in player and SDK handle these fields automatically. A terminal HTTP response (401, 403, 404, 410, or 409 from an older controller) stops the SDK timer and signals `infuser-session-error` once. The player provides the link back to the Library. Temporary failures keep the usual heartbeat schedule.
-- `DELETE /_infuser/api/v1/heartbeat` — explicit leave. Closing a tab is handled by expiry.
+- `POST /_infuser/api/v1/heartbeat` renews the launch at startup and every 25 seconds.
+  SDK v1 also sends one when the game becomes visible again. The five-minute
+  liveness deadline controls whether the launch counts as open. New member web
+  launches can save and resume for seven days after exchange or the latest
+  heartbeat. Guest, visit, native and older launches keep their existing expiry.
+  Signing out ends launches across the account’s profiles and devices.
+- If the backend stops, the heartbeat reports HTTP 200 with state `"ended"`.
+  After the dead lease is cleared, runtime status reads `"idle"`. Offer to
+  reconnect or choose a mode. The launch can still save. The player handles
+  `update_available` (a game build update) and `client_update` (Infuser web
+  client version and emergency reload generation).
+- SDK v1 stops heartbeating and signals `infuser-session-error` once on HTTP
+  401, 403 or 410 from a platform request. A 404 or 409 on a heartbeat is also
+  terminal. A save conflict (409) remains recoverable. The player provides a
+  link to the Library. Temporary failures keep the usual heartbeat schedule.
+- `DELETE /_infuser/api/v1/heartbeat` stops announcing play. A member web
+  launch retains its save authorization. Closing a tab is handled by expiry.
 - `GET /_infuser/api/v1/saves/SLOT` — `{version:0,data:null}` for an empty slot.
 - `PUT /_infuser/api/v1/saves/SLOT` — `{version:EXPECTED,data:JSON}`; returns new version.
   A stale version is 409. Limit 1 MiB/slot, 16 slots/player/game. Add your game's

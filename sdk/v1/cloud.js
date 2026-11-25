@@ -1,3 +1,4 @@
+import {sessionFetch} from './session-fetch.js';
 // Experimental cloud checkpoint wire format v1. Overall SDK 1.0 is not yet frozen.
 export class CloudSaveError extends Error {
   constructor(message, code, status) { super(message); this.name='CloudSaveError'; this.code=code; this.status=status; }
@@ -6,7 +7,7 @@ const path = group => '/_infuser/api/v1/cloud/v1/groups/' + encodeURIComponent(g
 async function request(url, body) {
   let response;
   try {
-    response=await fetch(url,{credentials:'same-origin',signal:AbortSignal.timeout(10000),...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body})});
+    response=await sessionFetch(url,{credentials:'same-origin',signal:AbortSignal.timeout(10000),...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body})});
   } catch {
     throw new CloudSaveError('Could not confirm the save. Keep your pending checkpoint and retry with the same commit ID.','network_error',0);
   }

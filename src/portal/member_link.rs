@@ -63,13 +63,12 @@ pub(super) async fn sign_out(State(p): State<Platform>, h: HeaderMap) -> Answer 
     if host(&h) != p.domain() {
         return Err(fault(404, "not found").into());
     }
-    if let Some(token) = h
+    let account = h.get(profiles::ACCOUNT).and_then(|v| v.to_str().ok());
+    let token = h
         .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(crate::platform::member_link::cookie_value)
-    {
-        p.db.end_member_session(token)?;
-    }
+        .and_then(|v| v.to_str().ok())
+        .and_then(crate::platform::member_link::cookie_value);
+    p.db.sign_out(account, token, now())?;
     let mut response = StatusCode::SEE_OTHER.into_response();
     let headers = response.headers_mut();
     headers.insert(

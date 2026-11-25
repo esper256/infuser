@@ -1,3 +1,4 @@
+import {sessionFetch} from './session-fetch.js';
 import {ready, runtime, InfuserError} from '/_infuser/sdk/v1.js';
 
 const base = '/_infuser/api/v1/connections/v1';
@@ -5,7 +6,7 @@ function failure(code, message, status = 409) {
   const error = new InfuserError(message || code, status);error.code=code;return error;
 }
 async function api(path, options={}) {
-  const response=await fetch(base+path,{credentials:'same-origin',...options});
+  const response=await sessionFetch(base+path,{credentials:'same-origin',...options});
   const value=await response.json();
   if(!response.ok) throw failure(value.error?.code || (response.status===401?'identity_expired':'platform_unreachable'),value.error?.message || (typeof value.error==='string'?value.error:'Infuser request failed'),response.status);
   return value;

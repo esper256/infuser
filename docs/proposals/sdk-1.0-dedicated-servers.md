@@ -146,9 +146,8 @@ Use bounded message sizes, output queues, handshake times and idle connection ch
 
 Define revocation scope explicitly: disabling a member or withdrawing game access
 ends all affected launches, including sponsored guests; leaving a game closes that
-launch's connections; signing out ends launches associated with that browser login
-session, without logging out other devices. This requires tracking the parent login
-session rather than treating a game ticket as independently renewable forever.
+launch's connections; signing out ends game launch credentials across the account’s profiles and
+devices. Other devices keep their own Library login.
 Legacy behavior remains behind its existing adapter until the new contract is
 adopted.
 

@@ -402,11 +402,11 @@ impl Platform {
         let launch = data
             .launches
             .get(id)
-            .filter(|l| l.expires > now())
+            .filter(|l| l.authorized(now()))
             .ok_or_else(|| fault(410, "game session expired"))?;
         ensure!(
             data.profile_enabled(&launch.email) && data.launch_allowed(launch, now()),
-            fault(401, "Game authorization ended.")
+            fault(403, "Game authorization ended.")
         );
         let mut status = json!({"state":"ready","endpoint":null});
         let on_demand = data.builds[&build_key(&launch.app, &launch.build)]
@@ -561,6 +561,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/assets/groups.js",get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/groups.js")) }))
         .nest("/_infuser/api/v1", sdk_v1::routes())
         .route("/_infuser/sdk/v1.js", get(sdk_v1::core))
+        .route("/_infuser/sdk/v1/session-fetch.js", get(sdk_v1::session_fetch))
         .route("/_infuser/sdk/v1/peers.js", get(sdk_v1::peers))
         .route("/_infuser/sdk/v1/peerjs.js", get(sdk_v1::peerjs))
         .route("/_infuser/peerjs/peerjs", get(peerjs::socket))
@@ -732,7 +733,11 @@ async fn session_auth(
         && !path.starts_with("/api/publisher/")
         && !path.starts_with("/api/metadata/")
         && !path.starts_with("/api/server/");
-    if !player_api || native::public(path) || host(request.headers()) != p.domain() {
+    let signing_out = path == "/sign-out";
+    if (!player_api && !signing_out)
+        || native::public(path)
+        || host(request.headers()) != p.domain()
+    {
         return next.run(request).await;
     }
     let cookie = request.headers().get("cookie").cloned();
@@ -741,7 +746,7 @@ async fn session_auth(
         request.uri(),
         request.method() == axum::http::Method::GET,
     );
-    let choosing = path == "/api/profiles";
+    let needs_profile = path != "/api/profiles" && !signing_out;
     // A member-link cookie is its own sign-in. An invalid one must not fall
     // through to Google, or a shared browser could become someone else.
     let member_token = cookie
@@ -752,7 +757,7 @@ async fn session_auth(
     let verified: Result<_> = async {
         if let Some(token) = member_token {
             let account = p.db.member_session(&token)?;
-            let profile = if choosing {
+            let profile = if !needs_profile {
                 None
             } else {
                 let key =
@@ -772,6 +777,12 @@ async fn session_auth(
             .header("cookie", cookie)
             .send()
             .await?;
+        if signing_out
+            && !response.status().is_success()
+            && !matches!(response.status().as_u16(), 401 | 403)
+        {
+            return Err(fault(503, "Could not verify the account to sign out."));
+        }
         ensure!(
             response.status().is_success(),
             fault(401, "Please sign in with Google.")
@@ -797,7 +808,7 @@ async fn session_auth(
                 .to_str()
                 .map_err(|_| fault(401, "Invalid provider email."))?,
         )?;
-        let profile = if choosing {
+        let profile = if !needs_profile {
             None
         } else {
             let key =
@@ -818,6 +829,14 @@ async fn session_auth(
     }
     .await;
     match verified {
+        Err(error)
+            if signing_out
+                && error
+                    .downcast_ref::<Fault>()
+                    .is_some_and(|f| matches!(f.status, 401 | 403)) =>
+        {
+            next.run(request).await
+        }
         Err(error) => {
             let selection = error
                 .downcast_ref::<Fault>()
@@ -841,6 +860,9 @@ async fn session_auth(
                     .insert("x-infuser-verified-profile", profile);
             }
             let mut response = next.run(request).await;
+            if signing_out {
+                return response;
+            }
             for cookie in cookies {
                 response.headers_mut().append("set-cookie", cookie);
             }
@@ -1005,6 +1027,7 @@ async fn launch(
         token_hash: hash(&token),
         exchanged: false,
         expires: now() + 300,
+        authorized_until: 0,
         grant_expires: now() + 120,
         seen: now(),
         lease_id: lease
@@ -1379,7 +1402,7 @@ async fn exchange(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Exch
     let digest = hash(&body.token);
     p.db.exchange_launch(&digest, host(&h), now())?;
     let cookie = format!(
-        "__Host-infuser_game={}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400",
+        "__Host-infuser_game={}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000",
         body.token
     );
     Ok((
@@ -1738,7 +1761,7 @@ async fn verify_ticket(
         .launches
         .iter()
         .find(|(_, l)| {
-            l.runtime_id() == app && l.token_hash == digest && l.exchanged && l.expires > now()
+            l.runtime_id() == app && l.token_hash == digest && l.exchanged && l.authorized(now())
         })
         .ok_or_else(|| fault(401, "invalid game ticket"))?;
     ensure!(

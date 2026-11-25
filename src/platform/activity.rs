@@ -2,6 +2,8 @@
 //! binaries read and write `platform` without losing launches or guest saves.
 use super::*;
 
+const AUTH_WINDOW: u64 = 7 * 24 * 60 * 60;
+
 pub(super) fn initialize(c: &mut Connection) -> Result<()> {
     let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let kind: String = tx.query_row(
@@ -114,7 +116,7 @@ impl Database {
         for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
             let (id, raw) = row?;
             let l: Launch = serde_json::from_str(&raw)?;
-            if l.token_hash == token_hash && l.host == host && l.exchanged && l.expires > time {
+            if l.token_hash == token_hash && l.host == host && l.exchanged && l.authorized(time) {
                 found = Some((id, l));
                 break;
             }
@@ -149,7 +151,7 @@ impl Database {
             .optional()?
         {
             let mut launch: Launch = serde_json::from_str(&raw)?;
-            if !launch.exchanged {
+            if !launch.exchanged && launch.grant_expires != 0 {
                 launch.grant_expires = grant_expires;
                 tx.execute(
                     "UPDATE runtime_launches SET data=?2 WHERE id=?1",
@@ -192,6 +194,15 @@ impl Database {
             policy.launch_allowed(&l, time),
             crate::portal::fault(403, "Game membership changed.")
         );
+        if !l.guest && l.visit.is_none() {
+            l.authorized_until = time + AUTH_WINDOW;
+            // Clearing just the long window would let an old bearer keep renewing
+            // the five-minute fallback. Retire only credentials that held the extended window.
+            tx.execute("UPDATE runtime_launches SET data=json_set(data,'$.authorized_until',0,'$.expires',MIN(json_extract(data,'$.expires'),?4))
+                WHERE id!=?1 AND json_extract(data,'$.host')=?2 AND json_extract(data,'$.email')=?3
+                AND json_extract(data,'$.authorized_until')>0",
+                params![id,host,l.email,time])?;
+        }
         l.exchanged = true;
         l.seen = time;
         l.expires = time + 300;
@@ -218,7 +229,7 @@ impl Database {
             &raw.ok_or_else(|| crate::portal::fault(410, "game session expired"))?,
         )?;
         ensure!(
-            launch.expires > time,
+            launch.authorized(time),
             crate::portal::fault(410, "game session expired")
         );
         let intent = launch.intent.take();
@@ -265,7 +276,7 @@ impl Database {
             &raw.ok_or_else(|| crate::portal::fault(410, "game session expired"))?,
         )?;
         ensure!(
-            launch.expires > time,
+            launch.authorized(time),
             crate::portal::fault(410, "game session expired")
         );
         ensure!(
@@ -275,6 +286,9 @@ impl Database {
         if ended_lease.is_some() && launch.lease_id.as_deref() == ended_lease {
             launch.lease_id = None;
             launch.lease_token = None;
+        }
+        if launch.authorized_until != 0 {
+            launch.authorized_until = time + AUTH_WINDOW;
         }
         launch.seen = time;
         launch.expires = time + 300;

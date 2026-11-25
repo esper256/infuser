@@ -236,3 +236,98 @@ fn pre_genesis_binary_cannot_write_after_migration() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn heartbeat_slides_only_a_member_browser_authorization() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db = Database::open(dir.path())?;
+    let start = 1_000_000;
+    let window = 7 * 24 * 60 * 60;
+    let host = "pond.games.example.test";
+    db.edit(|d| {
+        d.invite_to_group("home", "player@example.test", "Player", false, true)?;
+        Ok(())
+    })?;
+    let launch: platform::Launch = serde_json::from_value(json!({
+        "email":"player@example.test","host":host,"app":"pond","build":"one","guest":false,
+        "token_hash":"first","exchanged":false,"expires":start+300,"seen":start,
+        "grant_expires":start+120,"lease_id":null,"lease_token":null
+    }))?;
+    assert_eq!(launch.authorized_until, 0);
+    assert!(!launch.authorized(start + 300));
+    db.insert_launch("first", &launch)?;
+    db.exchange_launch("first", host, start)?;
+    assert_eq!(
+        db.read()?.launches["first"].authorized_until,
+        start + window
+    );
+    db.expire_launch("first", start + 1)?;
+    let wake = start + 600;
+    db.find_launch("first", host, wake)?;
+    db.renew_launch("first", wake, None)?;
+    let row = &db.read()?.launches["first"];
+    assert_eq!(
+        (row.seen, row.expires, row.authorized_until),
+        (wake, wake + 300, wake + window)
+    );
+    assert!(db.renew_launch("first", wake + window, None).is_err());
+    let second = platform::Launch {
+        token_hash: "second".into(),
+        grant_expires: wake + 120,
+        ..launch
+    };
+    db.insert_launch("second", &second)?;
+    db.exchange_launch("second", host, wake + 1)?;
+    assert!(db.find_launch("first", host, wake + 1).is_err());
+    assert!(db.renew_launch("first", wake + 1, None).is_err());
+    db.find_launch("second", host, wake + 1)?;
+
+    let guest = platform::Launch {
+        guest: true,
+        token_hash: "guest".into(),
+        ..second
+    };
+    db.insert_launch("guest", &guest)?;
+    db.exchange_launch("guest", host, wake + 2)?;
+    db.save_write("guest-guest", "pond", "progress", 0, &json!({"level":4}))?;
+    assert_eq!(db.read()?.launches["guest"].authorized_until, 0);
+    assert!(db.find_launch("guest", host, wake + 302).is_err());
+    db.cleanup()?;
+    assert!(!db.read()?.launches.contains_key("guest"));
+    assert_eq!(db.save_read("guest-guest", "pond", "progress")?.0, 0);
+
+    Ok(())
+}
+
+#[test]
+fn launch_auth_paths_use_the_authorization_clock() {
+    let activity = include_str!("../src/platform/activity.rs");
+    let portal = include_str!("../src/portal.rs");
+    for (source, name) in [
+        (activity, "find_launch"),
+        (activity, "take_launch_intent"),
+        (activity, "renew_launch"),
+        (portal, "refresh_locked"),
+        (portal, "verify_ticket"),
+    ] {
+        let (prefix, tail) = source.split_once(&format!("fn {name}(")).unwrap();
+        let declaration = prefix.rsplit('\n').next().unwrap();
+        let indent = &declaration[..declaration.len() - declaration.trim_start().len()];
+        let end = format!("{indent}}}");
+        let body = tail
+            .lines()
+            .take_while(|line| *line != end)
+            .collect::<String>();
+        assert!(
+            body.contains(".authorized("),
+            "{name} must use Launch::authorized"
+        );
+        assert!(
+            !body
+                .split_whitespace()
+                .collect::<String>()
+                .contains(".expires>"),
+            "{name} checks liveness as authorization"
+        );
+    }
+}

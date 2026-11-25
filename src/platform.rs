@@ -111,10 +111,21 @@ pub struct Launch {
     pub token_hash: String,
     pub exchanged: bool,
     pub expires: u64,
+    #[serde(default)]
+    pub authorized_until: u64,
     pub grant_expires: u64,
     pub seen: u64,
     pub lease_id: Option<String>,
     pub lease_token: Option<String>,
+}
+impl Launch {
+    pub fn authorized(&self, time: u64) -> bool {
+        if self.authorized_until == 0 {
+            self.expires > time
+        } else {
+            self.authorized_until > time
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Reaction {
@@ -839,7 +850,7 @@ impl Database {
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let time = now();
         let expired = {
-            let mut stmt=tx.prepare("DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1 RETURNING id,data")?;
+            let mut stmt=tx.prepare("DELETE FROM runtime_launches WHERE MAX(json_extract(data,'$.expires'), COALESCE(json_extract(data,'$.authorized_until'),0))<=?1 RETURNING id,data")?;
             let rows = stmt.query_map([time], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
@@ -950,7 +961,7 @@ pub fn preview(
         if let Some(intent) = &intent { intent.validate(&build.manifest)?; }
         let id=secret()[..32].to_string();let token=secret();
         let host=crate::game_urls::host(d, app, &id, &config.controller.domain);
-        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
+        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,authorized_until:0,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
         Ok(serde_json::json!({"launch_id":id,"url":format!("https://{host}/_infuser/launch#infuser={token}")}))
     })
 }

@@ -1,5 +1,6 @@
 // Pre-1.0 Infuser browser SDK; see docs/sdk-contract.md before extending this contract.
 // Import it, or include it as a module script for automatic heartbeats.
+import {sessionDenials, sessionFetch} from '/_infuser/sdk/v1/session-fetch.js';
 import {cloud as checkpoints} from '/_infuser/sdk/v1/cloud.js';
 if (typeof window !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' && !window.infuserGraphicsTuned) {
   window.infuserGraphicsTuned = true;
@@ -34,7 +35,7 @@ export class InfuserError extends Error {
   constructor(message, status) { super(typeof message === 'string' ? message : message?.message || 'Infuser request failed'); this.status = status; if(message?.code)this.code=message.code; }
 }
 async function request(path, options = {}) {
-  const response = await fetch('/_infuser/api/v1/' + path, { credentials: 'same-origin', ...options });
+  const response = await sessionFetch('/_infuser/api/v1/' + path, { credentials: 'same-origin', ...options });
   if (!response.ok) {
     const result = await response.json().catch(() => null);
     throw new InfuserError(result?.error || 'Infuser request failed', response.status);
@@ -50,6 +51,8 @@ let clientVersion, forceReload;
 function stopHeartbeat() {
   stopped = true;
   clearInterval(timer);
+  globalThis.document?.removeEventListener('visibilitychange', onVisible);
+  sessionDenials.removeEventListener('denied', onDenied);
 }
 function sessionError(error) {
   if (stopped) return;
@@ -80,6 +83,14 @@ async function heartbeat() {
   }
   catch (error) { sessionError(error); }
 }
+function onVisible() {
+  if (document.visibilityState === 'visible') void heartbeat();
+}
+function onDenied(event) {
+  sessionError(new InfuserError('Game session authorization ended.', event.detail));
+}
+sessionDenials.addEventListener('denied', onDenied);
+globalThis.document?.addEventListener('visibilitychange', onVisible);
 ready.then(heartbeat, sessionError);
 const timer = setInterval(heartbeat, 25000);
 export const saves = {

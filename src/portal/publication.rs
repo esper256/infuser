@@ -843,6 +843,8 @@ pub(super) async fn unpublish(
         d.pending_promotions.remove(&app);
         for l in d.launches.values_mut().filter(|l| l.app == app) {
             l.expires = 0;
+            l.authorized_until = 0;
+            l.grant_expires = 0;
         }
         Ok(())
     })?;
@@ -874,7 +876,7 @@ pub(super) async fn remove_build(
                         && !d
                             .launches
                             .values()
-                            .any(|l| l.app == app && l.build == build && l.expires > now()),
+                            .any(|l| l.app == app && l.build == build && l.authorized(now())),
                     fault(409, "build is published, queued or in use")
                 );
                 ensure!(

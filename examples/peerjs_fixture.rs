@@ -71,6 +71,7 @@ async fn main() -> Result<()> {
                     token_hash: platform::hash(id),
                     exchanged: true,
                     expires: now() + 600,
+                    authorized_until: 0,
                     grant_expires: now() + 600,
                     seen: now(),
                     lease_id: None,

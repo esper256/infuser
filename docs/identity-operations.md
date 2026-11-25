@@ -98,8 +98,8 @@ it on a cross-site form post. Write requests still check `Origin`.
 The assistant is then a normal member of the invited group: chat, presence,
 and games use the same routes as everyone else. Game launches still exchange a
 separate `__Host-infuser_game` cookie on the game host. Google cookies stay on
-the main site. **Sign out** clears the member cookie, deletes that session,
-and then continues to the Google sign-out page.
+the main site. **Sign out** ends launches across the account’s profiles, clears the member cookie, deletes
+that login session, and then continues to the Google sign-out page.
 
 Accounts that already sign in with Google never get the button, and the API
 refuses a link for them.

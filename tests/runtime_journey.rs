@@ -264,6 +264,33 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     let first = value(a.request(&http, &url, Method::POST, "/_infuser/runtime/v1")).await?;
     assert_eq!(first["state"], "starting");
     assert!(first.get("lease_token").is_none());
+    // Age the browser past its liveness deadline while its server lease stays live.
+    let id = db.find_launch(&platform::hash(&a.token), &a.host, now())?.0;
+    db.edit(|d| {
+        let row = d.launches.get_mut(&id).unwrap();
+        row.seen = now() - 600;
+        row.expires = row.seen + 300;
+        Ok(())
+    })?;
+    p.cleanup_launches()?;
+    value(
+        a.request(&http, &url, Method::PUT, "/_infuser/api/v1/saves/wake")
+            .json(&json!({"version":0,"data":{"level":8}})),
+    )
+    .await?;
+    assert!(
+        db.read()?.launches[&id].expires < now(),
+        "saving alone is not presence"
+    );
+    let resumed = value(a.request(&http, &url, Method::POST, "/_infuser/api/v1/heartbeat")).await?;
+    assert_eq!(resumed["server"]["session_id"], first["session_id"]);
+    assert_eq!(controller.snapshot().games["moon"].leases.len(), 1);
+    let revived = db.read()?;
+    assert_eq!(
+        revived.presence["user@example.com"],
+        revived.launches[&id].seen
+    );
+    assert!(revived.launches[&id].expires > now());
     let duplicate = value(a.request(&http, &url, Method::POST, "/_infuser/runtime/v1")).await?;
     assert_eq!(
         first["session_id"], duplicate["session_id"],

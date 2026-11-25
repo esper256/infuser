@@ -414,15 +414,25 @@ impl Database {
         ))
     }
 
-    pub fn end_member_session(&self, token: &str) -> Result<()> {
-        if !valid_token(token) {
-            return Ok(());
+    pub fn sign_out(&self, account: Option<&str>, token: Option<&str>, time: u64) -> Result<()> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(account) = account {
+            let data = self.cached_catalog(&tx)?;
+            for (key, profile) in &data.identities.profiles {
+                if profile.account_id == account {
+                    tx.execute("UPDATE runtime_launches SET data=json_set(data,'$.expires',?2,'$.authorized_until',0,'$.grant_expires',0)
+                        WHERE json_extract(data,'$.email')=?1", params![key,time])?;
+                }
+            }
         }
-        let digest = stored_hash(token)?;
-        self.connection
-            .lock()
-            .unwrap()
-            .execute("DELETE FROM member_sessions WHERE token_hash=?1", [digest])?;
+        if let Some(token) = token.filter(|t| valid_token(t)) {
+            tx.execute(
+                "DELETE FROM member_sessions WHERE token_hash=?1",
+                [stored_hash(token)?],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 

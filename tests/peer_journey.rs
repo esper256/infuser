@@ -354,6 +354,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
                     token_hash: platform::hash(id),
                     exchanged: true,
                     expires: now() + 300,
+                    authorized_until: 0,
                     grant_expires: now() + 300,
                     seen: now(),
                     lease_id: None,
