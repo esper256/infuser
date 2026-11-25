@@ -106,7 +106,7 @@ impl View<'_> {
                 !self.activity.closed_hosts.contains(&launch.host)
                     && launch.runtime_id() == runtime
                     && launch.exchanged
-                    && launch.expires > self.time
+                    && launch.live(self.time)
                     && launch.seen + 90 > self.time
                     && data.launch_allowed(launch, self.time)
                     && data.profile_enabled(&launch.email)

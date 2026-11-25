@@ -1568,7 +1568,7 @@ function setupAccount(){
   menu.addEventListener('toggle',positionMenu);
   window.addEventListener('resize',positionMenu);
   window.addEventListener('scroll',positionMenu,{passive:true});
-  const out=el('a','Sign out');out.className='sign-out';out.href='/sign-out';
+  const out=el('a','Sign out');out.className='sign-out';out.href='/sign-out?profile='+encodeURIComponent(me.player_id);
   const openSettings=setupUserSettings(out);
   const settingsButton=el('button','User settings');settingsButton.id='open-settings';settingsButton.type='button';settingsButton.setAttribute('aria-haspopup','dialog');settingsButton.setAttribute('aria-controls','user-settings');
   settingsButton.onclick=()=>{menu.open=false;openSettings();};

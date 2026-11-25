@@ -59,17 +59,93 @@ pub(super) async fn redeem(
     Ok(response)
 }
 
-pub(super) async fn sign_out(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    if host(&h) != p.domain() {
-        return Err(fault(404, "not found").into());
+const LIBRARY_COOKIE: &str = "__Host-infuser_library_";
+const PROXY_COOKIE: &str = "__Host-infuser_session";
+
+fn cookies(h: &HeaderMap) -> impl Iterator<Item = (&str, &str)> {
+    h.get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|s| s.split(';'))
+        .filter_map(|s| s.trim().split_once('='))
+}
+fn hex_id(id: &str) -> bool {
+    id.len() == 64 && id.bytes().all(|c| c.is_ascii_hexdigit())
+}
+fn proxy_cookie(name: &str) -> bool {
+    name == PROXY_COOKIE
+        || name
+            .strip_prefix(PROXY_COOKIE)
+            .and_then(|s| s.strip_prefix('_'))
+            .is_some_and(|chunk| !chunk.is_empty() && chunk.bytes().all(|b| b.is_ascii_digit()))
+}
+
+pub(super) struct LibrarySession {
+    pub id: String,
+    pub cookie: String,
+}
+
+// The browser keeps a separate opaque cookie for each profile. Refreshing an OAuth
+// cookie cannot strand earlier launches. Concurrent first launches with the same
+// provider session derive the same initial value. Only its digest enters the DB.
+pub(super) fn library_session(h: &HeaderMap, profile: &str) -> LibrarySession {
+    let name = format!("{LIBRARY_COOKIE}{profile}");
+    let value = cookies(h)
+        .find(|(n, v)| *n == name && hex_id(v))
+        .map(|(_, v)| v.to_owned())
+        .unwrap_or_else(|| {
+            let credential: std::collections::BTreeMap<_, _> = cookies(h)
+                .filter(|(n, _)| *n == platform::member_link::COOKIE || proxy_cookie(n))
+                .collect();
+            if credential.is_empty() {
+                return secret();
+            }
+            hash(
+                &serde_json::to_string(&("library session", profile, credential))
+                    .expect("string map"),
+            )
+        });
+    LibrarySession {
+        id: hash(&format!("{name}={value}")),
+        cookie: format!(
+            "{name}={value}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000"
+        ),
     }
-    if let Some(token) = h
+}
+
+#[derive(Deserialize)]
+pub(super) struct SignOut {
+    profile: Option<String>,
+}
+
+pub(super) async fn sign_out(
+    State(p): State<Platform>,
+    Query(query): Query<SignOut>,
+    h: HeaderMap,
+) -> Answer {
+    p.main_host(&h)?;
+    let mut scopes = cookies(&h).filter(|(name, value)| {
+        name.strip_prefix(LIBRARY_COOKIE).is_some_and(|profile| {
+            hex_id(profile)
+                && query
+                    .profile
+                    .as_deref()
+                    .is_none_or(|selected| selected == profile)
+        }) && hex_id(value)
+    });
+    // Older links can identify the session if the browser has only one scope cookie.
+    let scope = scopes.next().filter(|_| scopes.next().is_none());
+    let token = h
         .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(crate::platform::member_link::cookie_value)
-    {
-        p.db.end_member_session(token)?;
-    }
+        .and_then(|v| v.to_str().ok())
+        .and_then(platform::member_link::cookie_value);
+    p.db.sign_out(
+        scope
+            .map(|(name, value)| hash(&format!("{name}={value}")))
+            .as_deref(),
+        token,
+        now(),
+    )?;
     let mut response = StatusCode::SEE_OTHER.into_response();
     let headers = response.headers_mut();
     headers.insert(
@@ -78,13 +154,24 @@ pub(super) async fn sign_out(State(p): State<Platform>, h: HeaderMap) -> Answer 
             .parse()
             .map_err(|_| fault(500, "Could not sign out."))?,
     );
+    // The shipped proxy uses host-only session cookies. Sign-out works while it is offline.
+    for name in std::iter::once(PROXY_COOKIE)
+        .chain(
+            cookies(&h)
+                .map(|(n, _)| n)
+                .filter(|n| *n != PROXY_COOKIE && proxy_cookie(n)),
+        )
+        .chain(scope.map(|(n, _)| n))
+    {
+        headers.append(
+            header::SET_COOKIE,
+            format!("{name}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0")
+                .parse()
+                .expect("validated cookie name"),
+        );
+    }
     headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
-    headers.insert(
-        header::LOCATION,
-        "/oauth2/sign_out?rd=%2F"
-            .parse()
-            .map_err(|_| fault(500, "Could not sign out."))?,
-    );
+    headers.insert(header::LOCATION, axum::http::HeaderValue::from_static("/"));
     Ok(response)
 }
 

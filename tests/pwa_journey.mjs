@@ -133,7 +133,7 @@ try {
   await closeSettings();
   await page.locator('#account-trigger').click();
   assert.equal(await page.locator('.profile-menu .account-menu').evaluate(el=>el.lastElementChild?.classList.contains('sign-out')),true,'Sign out stays at the bottom of the profile menu');
-  await page.getByRole('link',{name:'Sign out',exact:true}).click();await page.waitForURL('**/oauth2/sign_out?rd=%2F');
+  await page.getByRole('link',{name:'Sign out',exact:true}).click();await page.waitForURL(origin+'/');
   assert.equal(await page.evaluate(()=>localStorage.getItem('test-push')),null);
   assert.equal(await worker.evaluate(async()=>(await self.registration.getNotifications()).length),0);
   await page.goto(origin+'/library');await openSettings();

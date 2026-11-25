@@ -30,7 +30,12 @@ pub(super) fn launch_context(
     l: &Launch,
     d: &platform::Data,
 ) -> ContextFields {
-    let profile = d.player_id(&l.email);
+    let profile = d
+        .identities
+        .profiles
+        .get(&l.email)
+        .map(|p| p.id.clone())
+        .unwrap_or_default();
     let attempt = p
         .controller
         .runtime_attempt(l.runtime_id())
@@ -546,9 +551,6 @@ pub(super) async fn observe(
     let library = route.starts_with("/api/")
         && !route.contains("telemetry")
         && !route.contains("diagnostic-events");
-    if !game && !library {
-        return next.run(request).await;
-    }
     let launching = if route == "/api/apps/{app}/launch" {
         request
             .uri()
@@ -566,11 +568,32 @@ pub(super) async fn observe(
     let mut response = next.run(request).await;
     let status = response.status();
     let slow = started.elapsed().as_secs() >= 2 && !route.ends_with("/control");
-    if status.is_client_error() || status.is_server_error() || slow {
-        let mut context = if game {
-            p.game(&h)
-                .ok()
+    if (game
+        || library
+        || response
+            .extensions()
+            .get::<platform::SessionEnded>()
+            .is_some())
+        && (status.is_client_error() || status.is_server_error() || slow)
+    {
+        let denial = response
+            .extensions()
+            .get::<platform::SessionEnded>()
+            .cloned();
+        let mut context = if game || denial.is_some() {
+            game_token(&h)
+                .and_then(|token| {
+                    p.db.diagnostic_launch(&hash(token), host(&h))
+                        .ok()
+                        .flatten()
+                })
                 .and_then(|(id, l)| launch_fields(&p, &id, &l).ok())
+                .or_else(|| {
+                    denial.as_ref().map(|f| ContextFields {
+                        launch: f.launch.clone().unwrap_or_default(),
+                        ..Default::default()
+                    })
+                })
         } else {
             h.get("x-infuser-verified-profile")
                 .and_then(|v| v.to_str().ok())
@@ -616,6 +639,9 @@ pub(super) async fn observe(
                 json!({"route":route,"method":match method.as_str(){m @ ("GET"|"POST"|"PUT"|"PATCH"|"DELETE"|"OPTIONS"|"HEAD")=>m,_=>"OTHER"},"status":status.as_u16(),"duration_ms":started.elapsed().as_millis() as u64,"request":request_id}),
                 visible,
             );
+            if let Some(f) = denial {
+                e.data["reason"] = json!(f.reason);
+            }
             if !status.is_success() {
                 e.level = if status.is_server_error() {
                     "error"

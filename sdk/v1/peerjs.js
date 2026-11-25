@@ -1,7 +1,8 @@
+import {sessionFetch} from './session-fetch.js';
 // Preview PeerJS 1.5.5 adapter. PeerJS owns serialization and WebRTC connections.
 const base = '/_infuser/api/v1/peers';
 async function request(path, body, method = 'POST') {
-  const response = await fetch(base + path, {
+  const response = await sessionFetch(base + path, {
     method, credentials:'same-origin', signal:AbortSignal.timeout(5000),
     ...(body === undefined ? {} : {headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
   });

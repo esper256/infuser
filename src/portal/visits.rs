@@ -274,8 +274,14 @@ impl Platform {
     pub(super) fn expire_visits(&self) -> Result<()> {
         let _guard = self.publishing.lock().unwrap();
         let d = self.db.read()?;
+        let mut expired = Vec::new();
         for (id, l) in &d.launches {
-            if l.visit.is_some() && !d.launch_allowed(l, now()) {
+            if l.visit.is_some()
+                && let Err(reason) = d.launch_access(l, now())
+            {
+                if !l.ended {
+                    expired.push((id.clone(), reason));
+                }
                 self.peers.leave_launch(l.runtime_id(), id);
                 if let (Some(lease), Some(token)) = (&l.lease_id, &l.lease_token) {
                     let _ = self
@@ -283,6 +289,16 @@ impl Platform {
                         .lease(l.runtime_id(), lease, token, "delete", now());
                 }
             }
+        }
+        if !expired.is_empty() {
+            self.db.edit(|data| {
+                for (id, reason) in expired {
+                    if let Some(l) = data.launches.get_mut(&id) {
+                        l.end(now(), reason);
+                    }
+                }
+                Ok(())
+            })?;
         }
         for (id, dep) in &d.deployments {
             if (!d.apps.get(&dep.app).is_some_and(|a| a.listed)

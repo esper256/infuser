@@ -9,7 +9,7 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
     let time = infuser::controller::now();
     db.edit(|d| {
         d.members.insert("player@example.test".into(),serde_json::from_value(json!({"name":"Player","admin":false,"enabled":true}))?);
-        d.launches.insert("test-launch".into(),serde_json::from_value(json!({"app":"pond","build":"one","email":"player@example.test","guest":true,"host":"pond.games.example.com","token_hash":"fixture","exchanged":true,"expires":time+10,"grant_expires":time+10,"seen":time,"lease_id":null,"lease_token":null}))?);
+        d.launches.insert("test-launch".into(),serde_json::from_value(json!({"app":"pond","build":"one","email":"player@example.test","guest":true,"host":"guest.games.example.com","token_hash":"fixture","exchanged":true,"expires":time+10,"grant_expires":time+10,"seen":time,"lease_id":null,"lease_token":null}))?);
         Ok(())
     })?;
     // Warm the snapshot, then verify activity never changes its revision or bytes.
@@ -31,7 +31,7 @@ fn activity_is_small_and_genesis_writers_remain_authoritative() -> Result<()> {
             "lease_id":null,"lease_token":null
         }))?,
     )?;
-    db.extend_launch_grant("lifecycle-launch", time + 120)?;
+    db.extend_launch_grant("lifecycle-launch", time)?;
     db.exchange_launch("lifecycle-token", "pond.games.example.com", time + 1)?;
     assert_eq!(
         db.find_launch("lifecycle-token", "pond.games.example.com", time + 1)?
@@ -235,4 +235,126 @@ fn pre_genesis_binary_cannot_write_after_migration() -> Result<()> {
         time + 300
     );
     Ok(())
+}
+
+#[test]
+fn idle_launches_renew_until_stale_or_explicitly_ended() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db = Database::open(dir.path())?;
+    let start = 1_000_000;
+    let window = 7 * 24 * 60 * 60;
+    let host = "pond.games.example.test";
+    db.edit(|d| {
+        d.invite_to_group("home", "player@example.test", "Player", false, true)?;
+        Ok(())
+    })?;
+    let launch: platform::Launch = serde_json::from_value(json!({
+        "email":"player@example.test","host":host,"app":"pond","build":"one","guest":false,
+        "token_hash":"first","exchanged":false,"expires":start+300,"seen":start,
+        "grant_expires":start+120,"lease_id":null,"lease_token":null
+    }))?;
+    assert!(!launch.ended);
+    assert!(!launch.authorized(start + 300));
+    db.insert_launch("first", &launch)?;
+    db.exchange_launch("first", host, start)?;
+    assert!(db.read()?.launches["first"].authorized(start + window - 1));
+    db.expire_launch("first", start + 1)?;
+    let wake = start + 600;
+    db.find_launch("first", host, wake)?;
+    db.renew_launch("first", wake, None)?;
+    let row = &db.read()?.launches["first"];
+    assert_eq!((row.seen, row.expires), (wake, wake + 300));
+    assert_eq!(
+        db.renew_launch("first", wake + window, None)
+            .unwrap_err()
+            .to_string(),
+        "This game session expired after seven days of inactivity."
+    );
+    let second = platform::Launch {
+        token_hash: "second".into(),
+        grant_expires: wake + 120,
+        ..launch
+    };
+    db.insert_launch("second", &second)?;
+    db.exchange_launch("second", host, wake + 1)?;
+    db.find_launch("first", host, wake + 1)?;
+    let first = &db.read()?.launches["first"];
+    assert_eq!((first.seen, first.expires), (wake, wake + 300));
+    assert!(!first.live(wake + 300));
+    db.find_launch("first", host, wake + window - 1)?;
+    assert!(db.find_launch("first", host, wake + window).is_err());
+    db.find_launch("second", host, wake + 1)?;
+
+    let guest = platform::Launch {
+        guest: true,
+        token_hash: "guest".into(),
+        ..second
+    };
+    db.insert_launch("guest", &guest)?;
+    db.exchange_launch("guest", host, wake + 2)?;
+    db.save_write("guest-guest", "pond", "progress", 0, &json!({"level":4}))?;
+    db.find_launch("guest", host, wake + 302)?;
+    assert!(!db.read()?.launches["guest"].live(wake + 302));
+    db.find_launch("guest", host, wake + 1 + window)?;
+    assert!(db.find_launch("guest", host, wake + 2 + window).is_err());
+    db.cleanup_at(wake + 1 + window)?;
+    assert_eq!(
+        db.save_read("guest-guest", "pond", "progress")?.1,
+        json!({"level":4})
+    );
+    db.cleanup_at(wake + 2 + window)?;
+    assert!(!db.read()?.launches.contains_key("guest"));
+    assert_eq!(db.save_read("guest-guest", "pond", "progress")?.0, 0);
+
+    Ok(())
+}
+
+#[test]
+fn launch_auth_paths_use_the_authorization_clock() {
+    let activity = include_str!("../src/platform/activity.rs");
+    let portal = include_str!("../src/portal.rs");
+    for (source, name) in [
+        (include_str!("../src/platform.rs"), "authorized"),
+        (activity, "authorize_launch"),
+        (activity, "lookup"),
+        (include_str!("../src/platform/visits.rs"), "launch_access"),
+        (activity, "find_launch"),
+        (portal, "game"),
+        (portal, "refresh"),
+        (activity, "take_launch_intent"),
+        (activity, "renew_launch"),
+        (portal, "refresh_locked"),
+        (portal, "verify_ticket"),
+        (include_str!("../src/portal/connections.rs"), "prune"),
+    ] {
+        let (prefix, tail) = source.split_once(&format!("fn {name}(")).unwrap();
+        let declaration = prefix.rsplit('\n').next().unwrap();
+        let indent = &declaration[..declaration.len() - declaration.trim_start().len()];
+        let end = format!("{indent}}}");
+        let body = tail
+            .lines()
+            .take_while(|line| *line != end)
+            .collect::<String>();
+        if !matches!(
+            name,
+            "authorized" | "lookup" | "launch_access" | "game" | "refresh"
+        ) {
+            assert!(
+                body.contains(".authorized(") || body.contains(".authorize_launch("),
+                "{name} must use Launch::authorized"
+            );
+        }
+        let compact = body.split_whitespace().collect::<String>();
+        // These two uses maintain or report liveness. Every other read,
+        // including a reversed comparison or a SQL JSON path, is an error.
+        let auth_code = match name {
+            "renew_launch" => compact.replace("launch.expires=time+300;", ""),
+            "verify_ticket" => compact.replace(r#""expires_at":l.expires}"#, "}"),
+            _ => compact,
+        };
+        assert!(
+            !auth_code.contains(".expires") && !auth_code.contains(".live("),
+            "{name} uses launch liveness in authorization"
+        );
+    }
 }

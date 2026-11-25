@@ -243,7 +243,7 @@ document.addEventListener('fullscreenchange',()=>{
 try{
   const response=await playerFetch('/_infuser/context',{credentials:'same-origin'});
   const session=await response.json();
-  if(!response.ok)throw Error(session.error||'Open this game again from your Library.');
+  if(!response.ok)throw Error(session.error?.message||session.error||'Open this game again from your Library.');
   diagnostics?.link('launch').set('up');
   currentAppId=session.app_id||null;
 
@@ -304,24 +304,46 @@ try{
   }
   const initialDoc=game.contentDocument;
   const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc){diagnostics?.hook(game.contentWindow,'game');tuneGraphics(game.contentWindow);}},5);
-  let watchTimer,checkTimer;
+  const tabNotice=document.getElementById('other-tabs');
+  let dismissedTabs=false;
+  tabNotice.querySelector('button').onclick=()=>{
+    dismissedTabs=true;
+    tabNotice.hidden=true;
+  };
+  function showTabNotice({others,unsaved}){
+    if(!Number.isSafeInteger(others)||others<0||typeof unsaved!=='boolean')return;
+    if(others===0)dismissedTabs=false;
+    tabNotice.hidden=sessionEnded||others===0||dismissedTabs;
+    if(!tabNotice.hidden){
+      const text='This game is also open in another tab.'+
+        (unsaved?' You have unsaved work here. Save it before switching tabs.':'');
+      const label=tabNotice.querySelector('span');
+      if(label.textContent!==text)label.textContent=text;
+    }
+  }
+  let checkTimer;
   // A missing or unrecognized launch (401/404) can already have been cleaned up.
   // Keep the observed status without guessing why it disappeared.
   const heartbeatEndReasons=new Map([[401,undefined],[403,session.visit?'visit_end':'access_lost'],
     [404,undefined],[409,'server_ended'],[410,'timeout']]);
-  function endSession(reason,httpStatus){
+  const denialLinkReasons=new Map([
+    ['stale','timeout'],['visit_ended','visit_end'],['signed_out','access_lost'],
+    ['profile_disabled','access_lost'],['access_revoked','access_lost'],['device_unpaired','access_lost']
+  ]);
+  function endSession({status:httpStatus, reason, message}){
+    const linkReason=reason?denialLinkReasons.get(reason):heartbeatEndReasons.get(httpStatus);
     if(sessionEnded)return;
-    sessionEnded=true;
-    diagnostics?.link('launch').set('ended',reason,{status:httpStatus});
-    if(session.visit){
-      clearInterval(hookTimer);clearInterval(watchTimer);clearInterval(checkTimer);
-      gameOrientation=null;releaseOrientation();game.hidden=true;game.removeAttribute('src');
-      button.disabled=true;document.getElementById('screenshot').disabled=true;
-    }
-    const back=document.createElement('a');
-    back.href=session.library_url;back.textContent='Return to your Library.';
-    status.replaceChildren(session.visit?'This visit has ended. ':'This game session ended. ',back);
-    status.hidden=false;showControls();
+    sessionEnded=true;tabNotice.hidden=true;
+    diagnostics?.link('launch').set('ended',linkReason,{status:httpStatus});
+    clearInterval(hookTimer);clearInterval(checkTimer);
+    gameOrientation=null;releaseOrientation();game.inert=true;
+    if(session.visit){game.hidden=true;game.removeAttribute('src');}
+    button.disabled=true;document.getElementById('screenshot').disabled=true;
+    status.hidden=true;
+    const ended=document.getElementById('session-ended');
+    ended.querySelector('h1').textContent=message||(session.visit?'This visit has ended.':'This game session ended.');
+    const back=ended.querySelector('a');back.href=session.library_url;
+    ended.hidden=false;showControls();back.focus();
   }
   const stamp=document.querySelector('meta[name="infuser-client-version"]');
   let reloading=false,gameUpdate=false,platformUpdate=false;
@@ -351,25 +373,27 @@ try{
   if(session.runtime?.update_available)updateAvailable();
   window.addEventListener('message',event=>{
     if(event.origin!==location.origin || event.source!==game.contentWindow)return;
+    if(event.data?.type==='infuser-tabs'){showTabNotice(event.data);return;}
     if(event.data?.type==='infuser-client-update'){clientUpdate(event.data);return;}
     if(event.data?.type==='infuser-update-available'){updateAvailable();return;}
     if(event.data?.type!=='infuser-session-error')return;
-    const {status}=event.data;
-    if(heartbeatEndReasons.has(status))endSession(heartbeatEndReasons.get(status),status);
+    endSession(event.data);
   });
-  game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded&&session.visit)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
+  game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
   if(session.visit){
-    let checked=performance.now(),checkedWall=Date.now(),checking=false;
-    const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)endSession('timeout');};
+    let checking=false;
     async function check(){
-      watch();if(sessionEnded||checking)return;checking=true;
+      if(sessionEnded||checking)return;checking=true;
       try{
         const r=await playerFetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
-        if(heartbeatEndReasons.has(r.status)){endSession(heartbeatEndReasons.get(r.status),r.status);return;}
+        if(r.headers.get('Infuser-Session')==='ended'){
+          const body=await r.json().catch(()=>null);
+          endSession({status:r.status, reason:body?.error?.reason, message:body?.error?.message});
+          return;
+        }
         if(r.ok){
-          const state=await r.json();watch();if(sessionEnded)return;
-          checked=performance.now();checkedWall=Date.now();
+          const state=await r.json();if(sessionEnded)return;
           if(state.visit){
             const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);
             visitMessage=left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'';
@@ -378,10 +402,10 @@ try{
           clientUpdate(state.client_update);
           if(state.update_available)updateAvailable();
         }
-      }catch{watch();}finally{checking=false;}
+      }catch{/* Offline is not a server denial. */}finally{checking=false;}
     }
-    watchTimer=setInterval(watch,500);checkTimer=setInterval(check,5000);
-    document.addEventListener('visibilitychange',()=>{watch();if(!document.hidden)check();});
+    checkTimer=setInterval(check,5000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)void check();});
   }
 }catch(error){diagnostics?.loadFailed(error);title.textContent='Game unavailable';message(error.message);}
 const connection=document.createElement('span');connection.id='connection';connection.hidden=true;

@@ -264,6 +264,33 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     let first = value(a.request(&http, &url, Method::POST, "/_infuser/runtime/v1")).await?;
     assert_eq!(first["state"], "starting");
     assert!(first.get("lease_token").is_none());
+    // Age the browser past its liveness deadline while its server lease stays live.
+    let id = db.find_launch(&platform::hash(&a.token), &a.host, now())?.0;
+    db.edit(|d| {
+        let row = d.launches.get_mut(&id).unwrap();
+        row.seen = now() - 600;
+        row.expires = row.seen + 300;
+        Ok(())
+    })?;
+    p.cleanup_launches()?;
+    value(
+        a.request(&http, &url, Method::PUT, "/_infuser/api/v1/saves/wake")
+            .json(&json!({"version":0,"data":{"level":8}})),
+    )
+    .await?;
+    assert!(
+        db.read()?.launches[&id].expires < now(),
+        "saving alone is not presence"
+    );
+    let resumed = value(a.request(&http, &url, Method::POST, "/_infuser/api/v1/heartbeat")).await?;
+    assert_eq!(resumed["server"]["session_id"], first["session_id"]);
+    assert_eq!(controller.snapshot().games["moon"].leases.len(), 1);
+    let revived = db.read()?;
+    assert_eq!(
+        revived.presence["user@example.com"],
+        revived.launches[&id].seen
+    );
+    assert!(revived.launches[&id].expires > now());
     let duplicate = value(a.request(&http, &url, Method::POST, "/_infuser/runtime/v1")).await?;
     assert_eq!(
         first["session_id"], duplicate["session_id"],
@@ -472,7 +499,39 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     assert_eq!(receipt["version"], 1);
     controller.stop("legacy")?;
     controller.reconcile(now()).await?;
+    // The original Cookie header is already on the request. Hold the JSON body
+    // until the second exchange finishes so authorization happens after it.
+    let (arrived, reading) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let body = futures_util::stream::once(async move {
+        arrived.send(()).unwrap();
+        released.await.unwrap();
+        Ok::<_, std::convert::Infallible>(axum::body::Bytes::from_static(
+            br#"{"version":0,"data":{"lanterns":9}}"#,
+        ))
+    });
+    let request = axum::http::Request::put("/_infuser/saves/departure")
+        .header("host", &open.host)
+        .header("origin", format!("https://{}", open.host))
+        .header("cookie", format!("__Host-infuser_game={}", open.token))
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from_stream(body))?;
+    let saving = tokio::spawn(tower::ServiceExt::oneshot(
+        portal::router(p.clone()),
+        request,
+    ));
+    reading.await?;
     let reopened = launch(&http, &url, "legacy", false, "starting").await?;
+    assert_eq!(open.host, reopened.host);
+    assert!(
+        open.token != reopened.token,
+        "expected a fresh game credential"
+    );
+    release.send(()).unwrap();
+    assert_eq!(saving.await??.status(), StatusCode::OK);
+    let saved =
+        value(reopened.request(&http, &url, Method::GET, "/_infuser/saves/departure")).await?;
+    assert_eq!(saved["data"], json!({"lanterns":9}));
     let loaded =
         value(reopened.request(&http, &url, Method::GET, "/_infuser/saves/progress")).await?;
     assert_eq!(loaded["version"], receipt["version"]);
@@ -494,6 +553,49 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
             .manifest
             .server_start
             .is_some()
+    );
+    let remove_old = || {
+        http.delete(format!("{url}/api/publisher/apps/moon/builds/one"))
+            .header("host", HOST)
+            .bearer_auth(&token)
+    };
+    assert_eq!(remove_old().send().await?.status(), 409);
+    p.db.edit(|d| {
+        for l in d
+            .launches
+            .values_mut()
+            .filter(|l| l.app == "moon" && l.build == "one")
+        {
+            l.seen = now() - 600;
+            l.expires = l.seen + 300;
+        }
+        Ok(())
+    })?;
+    remove_old().send().await?.error_for_status()?;
+    let removed = a
+        .request(&http, &url, Method::POST, "/_infuser/heartbeat")
+        .send()
+        .await?;
+    assert_eq!(removed.headers()["infuser-session"], "ended");
+    assert_eq!(
+        removed.json::<Value>().await?["error"]["reason"],
+        "build_removed"
+    );
+    let gone = http
+        .delete(format!("{url}/api/publisher/apps/legacy"))
+        .header("host", HOST)
+        .bearer_auth(&legacy_token)
+        .send()
+        .await?;
+    gone.error_for_status()?;
+    let unpublished = reopened
+        .request(&http, &url, Method::GET, "/_infuser/saves/progress")
+        .send()
+        .await?;
+    assert_eq!(unpublished.headers()["infuser-session"], "ended");
+    assert_eq!(
+        unpublished.json::<Value>().await?["error"]["reason"],
+        "unpublished"
     );
     platform::member(&cfg, "user@example.com", "User", false, false)?;
     assert_eq!(

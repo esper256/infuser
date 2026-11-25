@@ -321,8 +321,31 @@ fallback. Targeted peer joins can supply both `expected_epoch` and `expected_pla
 
 - `GET /_infuser/api/v1/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.
-- `POST /_infuser/api/v1/heartbeat` — renew at startup and every 25 seconds. A stopped backend returns HTTP 200 with state `"ended"` once. After that the launch has no server lease, runtime status reads `"idle"`, and the game should offer to choose a mode or reconnect. The browser launch and its saves stay available. The read-only `update_available` flag means this deployment now serves a different game build. `client_update` carries the Infuser web client version and emergency reload generation. The built-in player and SDK handle these fields automatically. A terminal HTTP response (401, 403, 404, 410, or 409 from an older controller) stops the SDK timer and signals `infuser-session-error` once. The player provides the link back to the Library. Temporary failures keep the usual heartbeat schedule.
-- `DELETE /_infuser/api/v1/heartbeat` — explicit leave. Closing a tab is handled by expiry.
+- `POST /_infuser/api/v1/heartbeat` renews the launch at startup and every 25 seconds.
+  SDK v1 also sends one when the game becomes visible again. The five-minute
+  liveness deadline controls whether the launch counts as open. Member, guest, native and visit launches can resume
+  until seven days after their last heartbeat or initial exchange. Membership and
+  visit access are checked on each request. Pressing Play creates a launch.
+  Earlier launches keep their own heartbeat and expiry deadlines on every device.
+  A save already sent with the previous cookie can finish normally.
+  Signing out ends personal web launches started from that browser’s Library
+  session for the selected profile. Launches on other devices, sibling profiles,
+  guests, visits, native games and launches created before session tracking keep
+  their own authorization. Disabling membership still revokes access everywhere.
+- If the backend stops, the heartbeat reports HTTP 200 with state `"ended"`.
+  After the dead lease is cleared, runtime status reads `"idle"`. Offer to
+  reconnect or choose a mode. The launch can still save. The player handles
+  `update_available` (a game build update) and `client_update` (Infuser web
+  client version and emergency reload generation).
+- When launch authorization ends, the controller sends the `Infuser-Session: ended`
+  header and the `session_ended` error code. SDK v1 stops the heartbeat and signals
+  `infuser-session-error` once. The error includes a machine-readable `reason`
+  and a player-facing `message`. The player shows the explanation and a Library
+  link. If the launch record has already been cleaned up, Infuser can only say
+  that it no longer recognizes the session. Visit heartbeats use the same marker.
+  An expired room, disconnected server or save conflict leaves the game session usable.
+- `DELETE /_infuser/api/v1/heartbeat` stops announcing play. All launch kinds
+  retain authorization under the same seven-day rule.
 - `GET /_infuser/api/v1/saves/SLOT` — `{version:0,data:null}` for an empty slot.
 - `PUT /_infuser/api/v1/saves/SLOT` — `{version:EXPECTED,data:JSON}`; returns new version.
   A stale version is 409. Limit 1 MiB/slot, 16 slots/player/game. Add your game's
@@ -334,6 +357,45 @@ as runtime environment variables. Verify the client's scoped ticket by POSTing
 `{"ticket":"..."}` to `/api/server/verify` with that **server** bearer credential.
 The response is game-bound identity and expiry. Authenticate joins, periodically
 revalidate, and never accept a publisher token or client-claimed identity.
+
+### Other tabs and saving before leaving
+
+In browser SDK v1, `Infuser.tabs.others` is the number of other open SDK v1 game
+pages on this game origin. Listen on `window` for `infuser-tabs`. Its
+`event.detail` contains `{others, unsaved}`, where `unsaved` describes **this
+tab**. The player shows the notice automatically. Games can start immediately.
+
+Call `Infuser.saves.setDirty(true)` when progress changes. Clear it with
+`setDirty(false)` after the save is acknowledged, provided the player hasn’t
+made further edits. The default is false. Dismissing the notice has no effect
+on saves.
+
+Register your existing autosave routine once:
+
+```js
+const unsubscribe = Infuser.onBeforeLeave(reason => {
+  if (hasUnsavedChanges()) savePendingProgress();
+});
+```
+
+The callback runs when the document becomes hidden (`"hidden"`) and when the
+page exits (`"pagehide"`). Both can happen for one departure. Have the routine
+reuse any in-flight save, keep a local draft of pending edits, and handle a
+failed write. Call `unsubscribe()` if you remove the game’s save handlers.
+Browsers can terminate a tab before a callback runs or a network save finishes.
+Save at checkpoints during play as well.
+
+Each new tab discovers live peers directly. An abrupt close can leave an old
+count in a surviving tab until another tab opens. Other browsers, devices,
+and separate game origins (including different builds and fresh guest
+launches) are outside the count.
+
+Keep the version returned by `saves.load()` or the last acknowledged
+`saves.save()`. If two copies save against the same version, one succeeds and
+the other receives HTTP 409. Keep the local edits, load the current save and
+let the player choose what to keep. The same check protects writes across
+browsers and devices. For games that need Infuser to retain both candidates,
+see [cloud checkpoint conflicts](cloud-save-design.md#revisions-conflicts-and-retries).
 
 ## Current boundaries
 

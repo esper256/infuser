@@ -98,8 +98,9 @@ it on a cross-site form post. Write requests still check `Origin`.
 The assistant is then a normal member of the invited group: chat, presence,
 and games use the same routes as everyone else. Game launches still exchange a
 separate `__Host-infuser_game` cookie on the game host. Google cookies stay on
-the main site. **Sign out** clears the member cookie, deletes that session,
-and then continues to the Google sign-out page.
+the main site. **Sign out** deletes that member-link login session and clears the
+browser’s sign-in cookies. Only personal web launches from the selected Library
+session end.
 
 Accounts that already sign in with Google never get the button, and the API
 refuses a link for them.
@@ -129,8 +130,10 @@ proxy. `/v1/*` and `/healthz` stay private. Every other apex path, including
 Wildcard game hosts still answer `/_infuser/server/*` only after Infuser's
 `/_infuser/proxy-auth` accepts the game cookie. No Caddy or OAuth2 Proxy
 change is required. `/member-link/*` shows a confirm page and redeems only
-on Continue. `/sign-out` clears a member session and continues to Google
-sign-out. Neither one exposes the library. A request on any other host does
+on Continue. Sign-out clears the browser’s Infuser sign-in cookies, ends personal
+web launches for the selected Library session, and returns to the home page.
+This works even while OAuth2 Proxy is offline. Other profiles’ and devices’
+game launches keep their session. A request on any other host does
 not redeem the link.
 
 `infuser render-caddy` is the older static-site template. It wraps the apex in

@@ -5,7 +5,8 @@ import { pathToFileURL } from 'node:url';
 const endpoint=process.argv[2],host='games.example.com';
 const outstanding=new Set(), timers=new Map(), errors=[];
 let serial=0;
-globalThis.window={dispatchEvent:event=>errors.push(event.detail)};
+globalThis.window=new EventTarget();
+window.addEventListener('infuser-session-error',event=>errors.push(event.detail));
 globalThis.setInterval=callback=>{const id=++serial;timers.set(id,callback);return id;};
 globalThis.clearInterval=id=>timers.delete(id);
 function transport(path,{method='GET',headers={},body}={}){
@@ -31,9 +32,11 @@ async function open(guest,versioned=false,previous){
   // Node cannot import HTTPS modules. Load the actual served module bytes and
   // resolve the core's cloud import to those bytes, without changing SDK logic.
   const cloud=await transport('/_infuser/sdk/v1/cloud.js',{headers});assert.equal(cloud.status,200);
-  const cloudUrl='data:text/javascript;base64,'+Buffer.from(await cloud.text()).toString('base64');
+  const observer=await transport('/_infuser/sdk/v1/session-fetch.js',{headers});assert.equal(observer.status,200);
+  const observerUrl='data:text/javascript;base64,'+Buffer.from(await observer.text()).toString('base64');
+  const cloudUrl='data:text/javascript;base64,'+Buffer.from((await cloud.text()).replace("'./session-fetch.js'",JSON.stringify(observerUrl))).toString('base64');
   const r=await transport('/_infuser/sdk/v1.js',{headers});assert.equal(r.status,200);
-  source='data:text/javascript;base64,'+Buffer.from((await r.text()).replaceAll("'/_infuser/sdk/v1/cloud.js'",JSON.stringify(cloudUrl))).toString('base64')+'#'+(++serial);
+  source='data:text/javascript;base64,'+Buffer.from((await r.text()).replace("'/_infuser/sdk/v1/cloud.js'",JSON.stringify(cloudUrl)).replace("'/_infuser/sdk/v1/session-fetch.js'",JSON.stringify(observerUrl))).toString('base64')+'#'+(++serial);
  }
  else source=pathToFileURL(new URL('./fixtures/legacy-sdk/infuser.js',import.meta.url).pathname).href+'?instance='+(++serial);
  const sdk=await import(source);const context=await sdk.ready;await Promise.all(outstanding);

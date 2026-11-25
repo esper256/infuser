@@ -407,7 +407,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         assert!(
             r.headers()["set-cookie"]
                 .to_str()?
-                .contains("Secure; HttpOnly; SameSite=Strict")
+                .contains("Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000")
         );
         assert_eq!(
             exchange().send().await?.status(),
@@ -418,6 +418,43 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     }
     user(reqwest::Method::PUT, "/api/profile")
         .json(&json!({"avatar":"moss-knight"}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let member_host = &sessions[0].0;
+    db.edit(|d| {
+        let member = d
+            .launches
+            .values_mut()
+            .find(|l| &l.host == member_host)
+            .unwrap();
+        member.seen = infuser::controller::now() - 600;
+        member.expires = member.seen + 300;
+        Ok(())
+    })?;
+    let sleeping: Value = user(reqwest::Method::GET, "/api/library")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let moon = sleeping["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|app| app["id"] == "moon")
+        .unwrap();
+    assert!(
+        moon["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|player| player["guest"] == true)
+    );
+    http.post(format!("{url}/_infuser/api/v1/heartbeat"))
+        .header("host", member_host)
+        .header("origin", format!("https://{member_host}"))
+        .bearer_auth(&sessions[0].1)
         .send()
         .await?
         .error_for_status()?;
@@ -883,6 +920,47 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .await?
         .status(),
         409
+    );
+    // Sleeping member launches do not consume any of the 32 live-launch slots.
+    let asleep = db
+        .find_launch(
+            &platform::hash(&sessions[0].1),
+            &sessions[0].0,
+            infuser::controller::now(),
+        )?
+        .1;
+    db.edit(|d| {
+        for i in 0..32 {
+            let mut row = asleep.clone();
+            row.host = format!("idle-{i}.example.test");
+            row.seen = infuser::controller::now() - 600;
+            row.expires = row.seen + 300;
+            d.launches.insert(format!("idle-{i}"), row);
+        }
+        Ok(())
+    })?;
+    user(reqwest::Method::POST, "/api/apps/moon/launch")
+        .json(&json!({}))
+        .send()
+        .await?
+        .error_for_status()?;
+    db.edit(|d| {
+        for row in d
+            .launches
+            .values_mut()
+            .filter(|r| r.host.ends_with(".example.test"))
+        {
+            row.expires = infuser::controller::now() + 300;
+        }
+        Ok(())
+    })?;
+    assert_eq!(
+        user(reqwest::Method::POST, "/api/apps/moon/launch")
+            .json(&json!({}))
+            .send()
+            .await?
+            .status(),
+        429
     );
     // Revocation also applies to already-open game hosts and cloud saves.
     platform::member(&cfg, "user@example.com", "User", false, false)?;

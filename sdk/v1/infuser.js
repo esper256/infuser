@@ -1,5 +1,6 @@
 // Pre-1.0 Infuser browser SDK; see docs/sdk-contract.md before extending this contract.
 // Import it, or include it as a module script for automatic heartbeats.
+import {sessionDenials, sessionFetch} from '/_infuser/sdk/v1/session-fetch.js';
 import {cloud as checkpoints} from '/_infuser/sdk/v1/cloud.js';
 if (typeof window !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' && !window.infuserGraphicsTuned) {
   window.infuserGraphicsTuned = true;
@@ -31,10 +32,10 @@ if (typeof window !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' &&
   }
 }
 export class InfuserError extends Error {
-  constructor(message, status) { super(typeof message === 'string' ? message : message?.message || 'Infuser request failed'); this.status = status; if(message?.code)this.code=message.code; }
+  constructor(message, status) { super(typeof message === 'string' ? message : message?.message || 'Infuser request failed'); this.status = status; if(message?.code)this.code=message.code; if(message?.reason)this.reason=message.reason; }
 }
 async function request(path, options = {}) {
-  const response = await fetch('/_infuser/api/v1/' + path, { credentials: 'same-origin', ...options });
+  const response = await sessionFetch('/_infuser/api/v1/' + path, { credentials: 'same-origin', ...options });
   if (!response.ok) {
     const result = await response.json().catch(() => null);
     throw new InfuserError(result?.error || 'Infuser request failed', response.status);
@@ -50,15 +51,14 @@ let clientVersion, forceReload;
 function stopHeartbeat() {
   stopped = true;
   clearInterval(timer);
+  globalThis.document?.removeEventListener('visibilitychange', onVisible);
+  sessionDenials.removeEventListener('denied', onDenied);
 }
 function sessionError(error) {
   if (stopped) return;
-  if ([401, 403, 404, 409, 410].includes(error.status)) {
-    stopHeartbeat();
-    // Window events stay inside the iframe. Forward only the terminal status to the player.
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({type: 'infuser-session-error', status: error.status}, location.origin);
-    }
+  stopHeartbeat();
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({type: 'infuser-session-error', status: error.status, message: error.message, reason: error.reason}, location.origin);
   }
   window.dispatchEvent(new CustomEvent('infuser-session-error', {detail: error}));
 }
@@ -78,16 +78,100 @@ async function heartbeat() {
       window.parent.postMessage({type: 'infuser-update-available'}, location.origin);
     }
   }
-  catch (error) { sessionError(error); }
+  catch { /* A failed heartbeat can run again on the normal schedule. */ }
 }
-ready.then(heartbeat, sessionError);
+function onVisible() {
+  if (document.visibilityState === 'visible') void heartbeat();
+}
+function onDenied(event) {
+  const {error, status} = event.detail;
+  sessionError(new InfuserError(error || 'This game session ended.', status));
+}
+sessionDenials.addEventListener('denied', onDenied);
+globalThis.document?.addEventListener('visibilitychange', onVisible);
+ready.then(heartbeat, () => {});
 const timer = setInterval(heartbeat, 25000);
+// BroadcastChannel is scoped to this origin and browser storage partition.
+const otherTabs = new Set();
+let tabId, channel, dirty = false, pageHiding = false;
+export const tabs = Object.freeze({get others() { return otherTabs.size; }});
+
+function notifyTabs() {
+  const detail = {others: tabs.others, unsaved: dirty};
+  window.dispatchEvent(new CustomEvent('infuser-tabs', {detail}));
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({type: 'infuser-tabs', ...detail}, location.origin);
+  }
+}
+
+function startTab() {
+  pageHiding = false;
+  if (channel || !window.BroadcastChannel || !globalThis.crypto?.randomUUID) return;
+  try { channel = new BroadcastChannel('infuser-tabs'); } catch { return; }
+  tabId ??= crypto.randomUUID();
+  channel.onmessage = ({data}) => {
+    if (!data || typeof data.tab !== 'string' || data.tab === tabId) return;
+    const before = otherTabs.size;
+    if (data.type === 'bye') {
+      otherTabs.delete(data.tab);
+    } else if (data.type === 'hello') {
+      // A new arrival also gives survivors a chance to forget a crashed tab.
+      // Ask once for first-hand replies. A roster request never starts another.
+      if (!data.roster) otherTabs.clear();
+      otherTabs.add(data.tab);
+      channel.postMessage({type: 'here', tab: tabId, unsaved: dirty});
+      if (!data.roster) channel.postMessage({type: 'hello', tab: tabId, roster: true});
+    } else if (data.type === 'here') {
+      otherTabs.add(data.tab);
+    }
+    if (otherTabs.size !== before) notifyTabs();
+  };
+  channel.postMessage({type: 'hello', tab: tabId});
+}
+
+function stopTab() {
+  pageHiding = true;
+  if (!channel) return;
+  channel.postMessage({type: 'bye', tab: tabId});
+  channel.onmessage = null;
+  channel.close();
+  channel = null;
+  if (otherTabs.size) { otherTabs.clear(); notifyTabs(); }
+}
+window.addEventListener('pagehide', stopTab);
+window.addEventListener('pageshow', event => { if (event.persisted) startTab(); });
+startTab();
+
+export function onBeforeLeave(callback) {
+  if (typeof callback !== 'function') throw new TypeError('onBeforeLeave requires a callback');
+  const hidden = () => { if (document.visibilityState === 'hidden') callback('hidden'); };
+  const hide = () => callback('pagehide');
+  document.addEventListener('visibilitychange', hidden);
+  window.addEventListener('pagehide', hide);
+  return () => {
+    document.removeEventListener('visibilitychange', hidden);
+    window.removeEventListener('pagehide', hide);
+  };
+}
+
 export const saves = {
+  setDirty(value) {
+    if (typeof value !== 'boolean') throw new TypeError('setDirty requires a boolean');
+    if (dirty === value) return;
+    dirty = value;
+    channel?.postMessage({type: 'here', tab: tabId, unsaved: dirty});
+    notifyTabs();
+  },
   load: (slot = 'progress') => request('saves/' + encodeURIComponent(slot)),
   // Keep the returned version. 409 means reload/resolve; never blindly overwrite.
-  save: (slot, data, version) => request('saves/' + encodeURIComponent(slot), {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data, version })
-  })
+  save(slot, data, version) {
+    const body = JSON.stringify({data, version});
+    const options = {method: 'PUT', headers: {'Content-Type': 'application/json'}, body};
+    if ((pageHiding || globalThis.document?.visibilityState === 'hidden') && new Blob([body]).size <= 65536) {
+      options.keepalive = true;
+    }
+    return request('saves/' + encodeURIComponent(slot), options);
+  }
 };
 export async function leave() { stopHeartbeat(); await request('heartbeat', { method: 'DELETE' }); }
 // Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
@@ -132,7 +216,7 @@ export const sessions = {
   connect: async options => (await import('/_infuser/sdk/v1/sessions.js')).connect(options),
   disconnect: async socket => (await import('/_infuser/sdk/v1/sessions.js')).disconnect(socket)
 };
-export const Infuser = { version, ready, saves, leave, peers, peerjs, cloud, runtime, presence, launchIntent, sessions };
+export const Infuser = { version, ready, saves, tabs, onBeforeLeave, leave, peers, peerjs, cloud, runtime, presence, launchIntent, sessions };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.

@@ -59,6 +59,9 @@ fn javascript(source: &'static str) -> impl IntoResponse {
 pub(super) async fn core() -> impl IntoResponse {
     javascript(include_str!("../../sdk/v1/infuser.js"))
 }
+pub(super) async fn session_fetch() -> impl IntoResponse {
+    javascript(include_str!("../../sdk/v1/session-fetch.js"))
+}
 pub(super) async fn peers() -> impl IntoResponse {
     javascript(include_str!("../../sdk/v1/peers.js"))
 }

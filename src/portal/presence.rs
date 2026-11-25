@@ -149,7 +149,7 @@ pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTre
         .filter(|(_, l)| {
             l.runtime_id() == app
                 && l.exchanged
-                && l.expires > time
+                && l.live(time)
                 && data.profile_enabled(&l.email)
                 && data.launch_allowed(l, time)
         })

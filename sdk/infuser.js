@@ -36,7 +36,12 @@ async function request(path, options = {}) {
   const response = await fetch('/_infuser/' + path, { credentials: 'same-origin', ...options });
   if (!response.ok) {
     const result = await response.json().catch(() => null);
-    throw new InfuserError(result?.error || 'Infuser request failed', response.status);
+    const error = new InfuserError(result?.error?.message || result?.error || 'Infuser request failed', response.status);
+    if (response.headers.get('Infuser-Session') === 'ended') {
+      error.reason = result?.error?.reason;
+      sessionError(error);
+    }
+    throw error;
   }
   return response.json();
 }
@@ -51,12 +56,9 @@ function stopHeartbeat() {
 }
 function sessionError(error) {
   if (stopped) return;
-  if ([401, 403, 404, 409, 410].includes(error.status)) {
-    stopHeartbeat();
-    // Window events stay inside the iframe. Forward only the terminal status to the player.
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({type: 'infuser-session-error', status: error.status}, location.origin);
-    }
+  stopHeartbeat();
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({type: 'infuser-session-error', status: error.status, message: error.message, reason: error.reason}, location.origin);
   }
   window.dispatchEvent(new CustomEvent('infuser-session-error', {detail: error}));
 }
@@ -76,9 +78,9 @@ async function heartbeat() {
       window.parent.postMessage({type: 'infuser-update-available'}, location.origin);
     }
   }
-  catch (error) { sessionError(error); }
+  catch { /* A failed heartbeat can run again on the normal schedule. */ }
 }
-ready.then(heartbeat, sessionError);
+ready.then(heartbeat, () => {});
 const timer = setInterval(heartbeat, 25000);
 export const saves = {
   load: (slot = 'progress') => request('saves/' + encodeURIComponent(slot)),

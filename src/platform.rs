@@ -15,6 +15,7 @@ use std::{
     sync::Mutex,
 };
 mod activity;
+pub(crate) use activity::{SessionEnded, denied};
 pub(crate) mod channels;
 mod chat;
 pub mod deployments;
@@ -111,10 +112,71 @@ pub struct Launch {
     pub token_hash: String,
     pub exchanged: bool,
     pub expires: u64,
+    #[serde(default)]
+    pub ended: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_reason: Option<LaunchEnd>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub library_session: String,
     pub grant_expires: u64,
     pub seen: u64,
     pub lease_id: Option<String>,
     pub lease_token: Option<String>,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LaunchEnd {
+    SignedOut,
+    Unpublished,
+    BuildRemoved,
+    DeviceUnpaired,
+    VisitEnded,
+    AccessRevoked,
+    ProfileDisabled,
+    Stale,
+    MissingToken,
+    Unknown,
+    WrongHost,
+    Unexchanged,
+    Ended,
+}
+impl LaunchEnd {
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Self::SignedOut => "You signed out of the Library in this browser.",
+            Self::Unpublished => "This game was removed from the Library.",
+            Self::BuildRemoved => "This version of the game was removed.",
+            Self::DeviceUnpaired => "This device was disconnected from Infuser Play.",
+            Self::VisitEnded => "This visit has ended.",
+            Self::AccessRevoked => "You no longer have access to this game.",
+            Self::ProfileDisabled => "Your profile is turned off.",
+            Self::Stale => "This game session expired after seven days of inactivity.",
+            Self::MissingToken => "This browser no longer has a play session for this game.",
+            Self::WrongHost | Self::Unexchanged => "This play link is no longer valid.",
+            Self::Unknown | Self::Ended => "Infuser no longer recognizes this play session.",
+        }
+    }
+}
+pub const STALE: u64 = 7 * 24 * 60 * 60;
+
+impl Launch {
+    pub fn authorized(&self, time: u64) -> bool {
+        self.exchanged && !self.ended && self.seen.saturating_add(STALE) > time
+    }
+
+    pub fn live(&self, time: u64) -> bool {
+        !self.ended && self.expires > time
+    }
+
+    pub fn end(&mut self, time: u64, reason: LaunchEnd) {
+        if self.ended {
+            return;
+        }
+        self.end_reason = Some(reason);
+        self.ended = true;
+        self.expires = time;
+        self.grant_expires = 0;
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Reaction {
@@ -729,6 +791,16 @@ impl Database {
         native.pairs.retain(|_, p| p.expires > now());
         native.requests.retain(|_, p| p.expires > now());
         let result = f(&mut data, &mut native)?;
+        native.launch_devices.retain(|id, device| {
+            let Some(launch) = data.launches.get_mut(id) else {
+                return false;
+            };
+            if !native.devices.contains_key(device) {
+                launch.end(now(), LaunchEnd::DeviceUnpaired);
+                return false;
+            }
+            !launch.ended
+        });
         for (id, launch) in &data.launches {
             if before_launches.get(id).is_none_or(|old| {
                 serde_json::to_value(old).ok() != serde_json::to_value(launch).ok()
@@ -835,12 +907,16 @@ impl Database {
         Ok(())
     }
     pub fn cleanup(&self) -> Result<Vec<(String, Launch)>> {
+        self.cleanup_at(now())
+    }
+
+    pub fn cleanup_at(&self, time: u64) -> Result<Vec<(String, Launch)>> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let time = now();
         let expired = {
-            let mut stmt=tx.prepare("DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1 RETURNING id,data")?;
-            let rows = stmt.query_map([time], |row| {
+            let mut stmt=tx.prepare("DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1 AND
+                (NOT json_extract(data,'$.exchanged') OR COALESCE(json_extract(data,'$.ended'),0) OR json_extract(data,'$.seen')+?2<=?1) RETURNING id,data")?;
+            let rows = stmt.query_map([time, STALE], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
             let mut expired = Vec::new();
@@ -890,18 +966,7 @@ pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bo
     );
     Database::open(&config.controller.state_dir)?.edit(|d| {
         let email = d.invitation_key(&email)?;
-        let avatar = d.members.get(&email).and_then(|m| m.avatar.clone());
-        let avatar_prompt_seen = d.members.get(&email).is_some_and(|m| m.avatar_prompt_seen);
-        d.members.insert(
-            email,
-            Member {
-                name: name.into(),
-                admin,
-                enabled,
-                avatar,
-                avatar_prompt_seen,
-            },
-        );
+        d.set_member(&email, name, admin, enabled);
         Ok(())
     })
 }
@@ -950,7 +1015,7 @@ pub fn preview(
         if let Some(intent) = &intent { intent.validate(&build.manifest)?; }
         let id=secret()[..32].to_string();let token=secret();
         let host=crate::game_urls::host(d, app, &id, &config.controller.domain);
-        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
+        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,ended:false, end_reason: None, library_session: String::new(),grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
         Ok(serde_json::json!({"launch_id":id,"url":format!("https://{host}/_infuser/launch#infuser={token}")}))
     })
 }
