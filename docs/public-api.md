@@ -339,7 +339,10 @@ fallback. Targeted peer joins can supply both `expected_epoch` and `expected_pla
   client version and emergency reload generation).
 - When launch authorization ends, the controller sends the `Infuser-Session: ended`
   header and the `session_ended` error code. SDK v1 stops the heartbeat and signals
-  `infuser-session-error` once. The player offers a link back to the Library.
+  `infuser-session-error` once. The error includes a machine-readable `reason`
+  and a player-facing `message`. The player shows the explanation and a Library
+  link. If the launch record has already been cleaned up, Infuser can only say
+  that it no longer recognizes the session. Visit heartbeats use the same marker.
   An expired room, disconnected server or save conflict leaves the game session usable.
 - `DELETE /_infuser/api/v1/heartbeat` stops announcing play. All launch kinds
   retain authorization under the same seven-day rule.

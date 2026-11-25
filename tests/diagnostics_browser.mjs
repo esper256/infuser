@@ -92,12 +92,12 @@ try {
   let heartbeatPosts=0;
   await page.route('**/_infuser/heartbeat',route=>{
     assert.equal(route.request().method(),'POST');heartbeatPosts++;
-    return route.fulfill({status:401,headers:{'Infuser-Session':'ended'},contentType:'text/plain',body:'Expired'});
+    return route.fulfill({status:401,headers:{'Infuser-Session':'ended'},json:{error:{code:'session_ended',reason:'stale',message:'This game session expired after seven days of inactivity.'}}});
   });
   await frame.evaluate(async()=>{await window.heartbeatProbe.tick();await window.heartbeatProbe.tick();});
   const notice=page.locator('#session-ended');
   await notice.getByRole('link',{name:'Relaunch from the Library'}).waitFor();
-  assert.equal(await notice.getByRole('heading').textContent(),'This game session ended.');
+  assert.equal(await notice.getByRole('heading').textContent(),'This game session expired after seven days of inactivity.');
   assert.equal(await notice.locator('a').getAttribute('href'),await page.locator('#library').getAttribute('href'));
   assert.ok(await notice.evaluate(el=>{
     const link=el.firstElementChild;
@@ -109,8 +109,19 @@ try {
   assert.equal(heartbeatPosts,1);
   // Exercise the same player with ordinary and visiting launch metadata.
   const session=await page.evaluate(async()=>(await fetch('/_infuser/context')).json());
-  for(const [visit,status,reason] of [[false,410,'timeout'],[false,409,'server_ended'],[true,403,'visit_end']]){
+  for(const [visit,status,reason,cause,text] of [
+    [false,401,'access_lost','signed_out','You signed out of the Library in this browser.'],
+    [false,403,'access_lost','profile_disabled','Your profile is turned off.'],
+    [true,403,'visit_end','visit_ended','This visit has ended.']
+  ]){
     const player=await ctx.newPage();
+    if(visit)await player.addInitScript(()=>{
+      const interval=window.setInterval;
+      window.setInterval=function(fn,ms,...args){
+        if(window===parent&&ms===5000){window.checkVisit=fn;return -5000;}
+        return interval.call(this,fn,ms,...args);
+      };
+    });
     if(visit)await player.route('**/_infuser/context',route=>route.fulfill({
       json:{...session,visit:{expires_at:Math.floor(Date.now()/1000)+600,authorization_seconds:30}}
     }));
@@ -125,16 +136,20 @@ try {
       await player.evaluate(()=>window.dispatchEvent(new MessageEvent('message',{origin:location.origin,
         source:document.querySelector('#game').contentWindow,data:{type:'infuser-update-available'}})));
       assert.equal(await player.locator('#status').textContent(),'Visit ends in 2 min. Save your progress.');
-    }
-    if(visit){
-      await player.route('**/_infuser/api/v1/heartbeat',r=>r.fulfill({status}));
+      const path='**/_infuser/api/v1/heartbeat';
+      for(const status of [403,410]){
+        await player.route(path,r=>r.fulfill({status}));
+        await player.evaluate(()=>window.checkVisit());
+        assert.ok(await player.locator('#session-ended').isHidden());
+        assert.equal(await player.locator('#game').evaluate(el=>el.inert),false);
+      }
+      await player.route(path,r=>r.fulfill({status,headers:{'Infuser-Session':'ended'},json:{error:{code:'session_ended',reason:cause,message:text}}}));
       await player.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
-    }else await player.frameLocator('#game').locator('body').evaluate((_,status)=>{
-      parent.postMessage({type:'infuser-session-error',status},location.origin);
-    },status);
+    }else await player.frameLocator('#game').locator('body').evaluate((_,detail)=>{
+      parent.postMessage({type:'infuser-session-error',...detail},location.origin);
+    },{status,reason:cause,message:text});
     const notice=player.locator('#session-ended');
     await notice.getByRole('link',{name:'Relaunch from the Library'}).waitFor();
-    const text=visit?'This visit has ended.':'This game session ended.';
     assert.equal(await notice.getByRole('heading').textContent(),text);
     assert.equal(await player.locator('#game').isHidden(),visit);
     assert.equal(await player.locator('#game').evaluate(el=>el.inert),true);

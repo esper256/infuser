@@ -5,18 +5,18 @@ use super::*;
 #[derive(Clone, Debug)]
 pub(crate) struct SessionEnded {
     pub status: u16,
-    pub reason: &'static str,
+    pub reason: LaunchEnd,
     pub launch: Option<String>,
 }
 
 impl std::fmt::Display for SessionEnded {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Game session ended.")
+        f.write_str(self.reason.message())
     }
 }
 impl std::error::Error for SessionEnded {}
 
-pub(crate) fn denied(id: Option<&str>, status: u16, reason: &'static str) -> anyhow::Error {
+pub(crate) fn denied(id: Option<&str>, status: u16, reason: LaunchEnd) -> anyhow::Error {
     SessionEnded {
         status,
         reason,
@@ -29,23 +29,20 @@ impl Data {
     pub(crate) fn launch_build(&self, id: &str, launch: &Launch) -> Result<&Build> {
         self.builds
             .get(&format!("{}/{}", launch.app, launch.build))
-            .ok_or_else(|| denied(Some(id), 410, "build_removed"))
+            .ok_or_else(|| denied(Some(id), 410, LaunchEnd::BuildRemoved))
     }
 
     pub(crate) fn authorize_launch(&self, id: &str, launch: &Launch, time: u64) -> Result<()> {
-        if !self.profile_enabled(&launch.email) {
-            return Err(denied(Some(id), 403, "profile_disabled"));
-        }
-        if !self.launch_allowed(launch, time) {
-            return Err(denied(Some(id), 403, "access_revoked"));
+        if let Err(reason) = self.launch_access(launch, time) {
+            return Err(denied(Some(id), 403, launch.end_reason.unwrap_or(reason)));
         }
         if !launch.authorized(time) {
             let reason = if launch.ended {
-                "ended"
+                launch.end_reason.unwrap_or(LaunchEnd::Ended)
             } else if !launch.exchanged {
-                "unexchanged"
+                LaunchEnd::Unexchanged
             } else {
-                "stale"
+                LaunchEnd::Stale
             };
             return Err(denied(Some(id), 401, reason));
         }
@@ -180,9 +177,10 @@ impl Database {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         let data = self.cached_catalog(&tx)?;
-        let (id, l) = lookup(&tx, token_hash)?.ok_or_else(|| denied(None, 401, "unknown"))?;
+        let (id, l) =
+            lookup(&tx, token_hash)?.ok_or_else(|| denied(None, 401, LaunchEnd::Unknown))?;
         if l.host != host {
-            return Err(denied(Some(&id), 401, "wrong_host"));
+            return Err(denied(Some(&id), 401, LaunchEnd::WrongHost));
         }
         data.authorize_launch(&id, &l, time)?;
         Ok((id, l))
@@ -256,7 +254,7 @@ impl Database {
             })
             .optional()?;
         let mut launch: Launch =
-            serde_json::from_str(&raw.ok_or_else(|| denied(Some(id), 410, "unknown"))?)?;
+            serde_json::from_str(&raw.ok_or_else(|| denied(Some(id), 410, LaunchEnd::Unknown))?)?;
         self.cached_catalog(&tx)?
             .authorize_launch(id, &launch, time)?;
         let intent = launch.intent.take();
@@ -299,7 +297,7 @@ impl Database {
             })
             .optional()?;
         let mut launch: Launch =
-            serde_json::from_str(&raw.ok_or_else(|| denied(Some(id), 410, "unknown"))?)?;
+            serde_json::from_str(&raw.ok_or_else(|| denied(Some(id), 410, LaunchEnd::Unknown))?)?;
         self.cached_catalog(&tx)?
             .authorize_launch(id, &launch, time)?;
         if ended_lease.is_some() && launch.lease_id.as_deref() == ended_lease {

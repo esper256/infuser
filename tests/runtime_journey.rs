@@ -577,6 +577,10 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         .send()
         .await?;
     assert_eq!(removed.headers()["infuser-session"], "ended");
+    assert_eq!(
+        removed.json::<Value>().await?["error"]["reason"],
+        "build_removed"
+    );
     let gone = http
         .delete(format!("{url}/api/publisher/apps/legacy"))
         .header("host", HOST)
@@ -589,6 +593,10 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         .send()
         .await?;
     assert_eq!(unpublished.headers()["infuser-session"], "ended");
+    assert_eq!(
+        unpublished.json::<Value>().await?["error"]["reason"],
+        "unpublished"
+    );
     platform::member(&cfg, "user@example.com", "User", false, false)?;
     assert_eq!(
         blocked

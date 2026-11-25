@@ -243,7 +243,7 @@ document.addEventListener('fullscreenchange',()=>{
 try{
   const response=await playerFetch('/_infuser/context',{credentials:'same-origin'});
   const session=await response.json();
-  if(!response.ok)throw Error(session.error||'Open this game again from your Library.');
+  if(!response.ok)throw Error(session.error?.message||session.error||'Open this game again from your Library.');
   diagnostics?.link('launch').set('up');
   currentAppId=session.app_id||null;
 
@@ -326,17 +326,22 @@ try{
   // Keep the observed status without guessing why it disappeared.
   const heartbeatEndReasons=new Map([[401,undefined],[403,session.visit?'visit_end':'access_lost'],
     [404,undefined],[409,'server_ended'],[410,'timeout']]);
-  function endSession(reason,httpStatus){
+  const denialLinkReasons=new Map([
+    ['stale','timeout'],['visit_ended','visit_end'],['signed_out','access_lost'],
+    ['profile_disabled','access_lost'],['access_revoked','access_lost'],['device_unpaired','access_lost']
+  ]);
+  function endSession({status:httpStatus, reason, message}){
+    const linkReason=reason?denialLinkReasons.get(reason):heartbeatEndReasons.get(httpStatus);
     if(sessionEnded)return;
     sessionEnded=true;tabNotice.hidden=true;
-    diagnostics?.link('launch').set('ended',reason,{status:httpStatus});
+    diagnostics?.link('launch').set('ended',linkReason,{status:httpStatus});
     clearInterval(hookTimer);clearInterval(checkTimer);
     gameOrientation=null;releaseOrientation();game.inert=true;
     if(session.visit){game.hidden=true;game.removeAttribute('src');}
     button.disabled=true;document.getElementById('screenshot').disabled=true;
     status.hidden=true;
     const ended=document.getElementById('session-ended');
-    ended.querySelector('h1').textContent=session.visit?'This visit has ended.':'This game session ended.';
+    ended.querySelector('h1').textContent=message||(session.visit?'This visit has ended.':'This game session ended.');
     const back=ended.querySelector('a');back.href=session.library_url;
     ended.hidden=false;showControls();back.focus();
   }
@@ -372,8 +377,7 @@ try{
     if(event.data?.type==='infuser-client-update'){clientUpdate(event.data);return;}
     if(event.data?.type==='infuser-update-available'){updateAvailable();return;}
     if(event.data?.type!=='infuser-session-error')return;
-    const {status}=event.data;
-    endSession(heartbeatEndReasons.get(status),status);
+    endSession(event.data);
   });
   game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
@@ -383,7 +387,11 @@ try{
       if(sessionEnded||checking)return;checking=true;
       try{
         const r=await playerFetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
-        if(r.headers.get('Infuser-Session')==='ended'||r.status===403||r.status===410){endSession(heartbeatEndReasons.get(r.status),r.status);return;}
+        if(r.headers.get('Infuser-Session')==='ended'){
+          const body=await r.json().catch(()=>null);
+          endSession({status:r.status, reason:body?.error?.reason, message:body?.error?.message});
+          return;
+        }
         if(r.ok){
           const state=await r.json();if(sessionEnded)return;
           if(state.visit){

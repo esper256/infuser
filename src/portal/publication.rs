@@ -842,7 +842,7 @@ pub(super) async fn unpublish(
         d.apps.remove(&app);
         d.pending_promotions.remove(&app);
         for l in d.launches.values_mut().filter(|l| l.app == app) {
-            l.end(now());
+            l.end(now(), platform::LaunchEnd::Unpublished);
         }
         Ok(())
     })?;
@@ -888,7 +888,7 @@ pub(super) async fn remove_build(
                     .values_mut()
                     .filter(|l| l.app == app && l.build == build)
                 {
-                    l.end(now());
+                    l.end(now(), platform::LaunchEnd::BuildRemoved);
                 }
                 d.builds.remove(&build_key(&app, &build));
                 Ok(())

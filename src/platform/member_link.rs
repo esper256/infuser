@@ -331,7 +331,7 @@ impl Database {
                     .get(&launch.email)
                     .is_some_and(|p| p.account_id == account)
                 {
-                    launch.end(now());
+                    launch.end(now(), LaunchEnd::AccessRevoked);
                 }
             }
             let names = profile_names(data, &account);
@@ -433,8 +433,8 @@ impl Database {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(session) = library_session.filter(|id| !id.is_empty()) {
-            tx.execute("UPDATE runtime_launches SET data=json_set(data,'$.expires',?2,'$.ended',json('true'),'$.grant_expires',0)
-                WHERE json_extract(data,'$.library_session')=?1", params![session,time])?;
+            tx.execute("UPDATE runtime_launches SET data=json_set(data,'$.expires',?2,'$.ended',json('true'),'$.end_reason','signed_out','$.grant_expires',0)
+                WHERE json_extract(data,'$.library_session')=?1 AND NOT COALESCE(json_extract(data,'$.ended'),0)", params![session,time])?;
         }
         if let Some(token) = token.filter(|t| valid_token(t)) {
             tx.execute(

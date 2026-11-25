@@ -291,6 +291,16 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
             .listed = false;
         Ok(())
     })?;
+    let hidden = visit_game
+        .call(Method::GET, "/_infuser/context")
+        .send()
+        .await?;
+    assert_eq!(hidden.status(), 403);
+    assert_eq!(hidden.headers()["infuser-session"], "ended");
+    assert_eq!(
+        hidden.json::<Value>().await?["error"]["reason"],
+        "access_revoked"
+    );
     denied(w.member("resident", Method::GET, &art_url)).await?;
     assert!(
         !ok(w.member("operator", Method::GET, "/api/library")).await?["apps"]
@@ -320,13 +330,7 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
             .iter()
             .any(|a| a["id"] == brought && a["title"] == "Renamed visit game")
     );
-    // Relisting grants fresh launches. The revoked visit credential stays retired.
-    let denied_launch = visit_game
-        .call(Method::GET, "/_infuser/context")
-        .send()
-        .await?;
-    assert_eq!(denied_launch.headers()["infuser-session"], "ended");
-    let visit_game = w.launch("visitor", &brought, Some(&visit)).await?;
+    // A catalog edit alone does not retire the credential. Access is evaluated on each request.
     assert_eq!(
         ok(visit_game.call(Method::GET, "/_infuser/context")).await?["deployment_id"],
         context["deployment_id"]
@@ -583,8 +587,8 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
     assert_eq!(ended.status(), 403);
     assert_eq!(ended.headers()["infuser-session"], "ended");
     assert_eq!(
-        ended.json::<Value>().await?["error"]["code"],
-        "session_ended"
+        ended.json::<Value>().await?["error"]["reason"],
+        "visit_ended"
     );
     denied(expiring.call(Method::GET, checkpoint)).await?;
     denied(

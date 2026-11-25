@@ -939,8 +939,8 @@ async fn sign_out_during_proxy_outage_only_ends_the_selected_library_session() -
             assert_eq!(response.status(), 401);
             assert_eq!(response.headers()["infuser-session"], "ended");
             assert_eq!(
-                response.json::<Value>().await?["error"]["code"],
-                "session_ended"
+                response.json::<Value>().await?["error"],
+                json!({"code":"session_ended","reason":"signed_out","message":"You signed out of the Library in this browser."})
             );
         } else {
             response.error_for_status()?;

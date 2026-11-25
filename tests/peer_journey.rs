@@ -355,6 +355,7 @@ async fn authenticated_peers_pin_build_until_host_leaves() -> Result<()> {
                     exchanged: true,
                     expires: now() + 300,
                     ended: false,
+                    end_reason: None,
                     library_session: String::new(),
                     grant_expires: now() + 300,
                     seen: now(),

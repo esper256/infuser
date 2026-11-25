@@ -34,12 +34,14 @@ export class InfuserError extends Error {
 }
 async function request(path, options = {}) {
   const response = await fetch('/_infuser/' + path, { credentials: 'same-origin', ...options });
-  if (response.headers.get('Infuser-Session') === 'ended') {
-    sessionError(new InfuserError('Game session ended.', response.status));
-  }
   if (!response.ok) {
     const result = await response.json().catch(() => null);
-    throw new InfuserError(result?.error?.message || result?.error || 'Infuser request failed', response.status);
+    const error = new InfuserError(result?.error?.message || result?.error || 'Infuser request failed', response.status);
+    if (response.headers.get('Infuser-Session') === 'ended') {
+      error.reason = result?.error?.reason;
+      sessionError(error);
+    }
+    throw error;
   }
   return response.json();
 }
@@ -56,7 +58,7 @@ function sessionError(error) {
   if (stopped) return;
   stopHeartbeat();
   if (window.parent && window.parent !== window) {
-    window.parent.postMessage({type: 'infuser-session-error', status: error.status}, location.origin);
+    window.parent.postMessage({type: 'infuser-session-error', status: error.status, message: error.message, reason: error.reason}, location.origin);
   }
   window.dispatchEvent(new CustomEvent('infuser-session-error', {detail: error}));
 }

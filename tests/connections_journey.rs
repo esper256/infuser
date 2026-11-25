@@ -130,6 +130,7 @@ async fn borrowed_servers_isolate_admission_and_cut_off_expired_visits() -> Resu
                     exchanged: true,
                     expires: now() + 300,
                     ended: false,
+                    end_reason: None,
                     library_session: String::new(),
                     grant_expires: now() + 120,
                     seen: now(),
@@ -422,7 +423,7 @@ async fn verified_gateway_keeps_frames_and_enforces_access_without_game_cooperat
         d.builds.insert("pond/one".into(),Build{manifest:serde_json::from_value(json!({"schema_version":1,"app_id":"pond","title":"Pond","play_modes":["solo","multiplayer"],"solo_runtime":"client_only","server_start":"on_demand","sessions":{"policy":"shared","max_players_per_session":8},"multiplayer":{"mode":"dedicated","transport":"websocket","max_players":8,"join_policy":"anytime"},"sdk":{"major":1,"api_major":1,"required_capabilities":[CAPABILITY,"sessions.v1"]}}))?,server:Some(game),spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
         for who in ["a","b","guest"] {
             let lease = controller.acquire("pond",who,now())?;
-            d.launches.insert(who.into(),Launch{deployment:None,visit:None,intent:None,app:"pond".into(),build:"one".into(),email:if who=="b"{"b@example.test"}else{"a@example.test"}.into(),guest:who=="guest",host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,ended:false, library_session: String::new(),grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
+            d.launches.insert(who.into(),Launch{deployment:None,visit:None,intent:None,app:"pond".into(),build:"one".into(),email:if who=="b"{"b@example.test"}else{"a@example.test"}.into(),guest:who=="guest",host:format!("{who}.games.example.com"),token_hash:platform::hash(who),exchanged:true,expires:now()+300,ended:false, end_reason: None, library_session: String::new(),grant_expires:now()+120,seen:now(),lease_id:lease["lease_id"].as_str().map(str::to_owned),lease_token:lease["lease_token"].as_str().map(str::to_owned)});
         }
         d.builds["pond/one"].manifest.validate()?;
         // Managed sessions are now an additive advertised capability.

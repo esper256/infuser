@@ -72,6 +72,7 @@ async fn main() -> Result<()> {
                     exchanged: true,
                     expires: now() + 600,
                     ended: false,
+                    end_reason: None,
                     library_session: String::new(),
                     grant_expires: now() + 600,
                     seen: now(),

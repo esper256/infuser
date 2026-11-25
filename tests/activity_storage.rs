@@ -264,7 +264,12 @@ fn idle_launches_renew_until_stale_or_explicitly_ended() -> Result<()> {
     db.renew_launch("first", wake, None)?;
     let row = &db.read()?.launches["first"];
     assert_eq!((row.seen, row.expires), (wake, wake + 300));
-    assert!(db.renew_launch("first", wake + window, None).is_err());
+    assert_eq!(
+        db.renew_launch("first", wake + window, None)
+            .unwrap_err()
+            .to_string(),
+        "This game session expired after seven days of inactivity."
+    );
     let second = platform::Launch {
         token_hash: "second".into(),
         grant_expires: wake + 120,
@@ -309,7 +314,13 @@ fn launch_auth_paths_use_the_authorization_clock() {
     let activity = include_str!("../src/platform/activity.rs");
     let portal = include_str!("../src/portal.rs");
     for (source, name) in [
+        (include_str!("../src/platform.rs"), "authorized"),
+        (activity, "authorize_launch"),
+        (activity, "lookup"),
+        (include_str!("../src/platform/visits.rs"), "launch_access"),
         (activity, "find_launch"),
+        (portal, "game"),
+        (portal, "refresh"),
         (activity, "take_launch_intent"),
         (activity, "renew_launch"),
         (portal, "refresh_locked"),
@@ -324,16 +335,26 @@ fn launch_auth_paths_use_the_authorization_clock() {
             .lines()
             .take_while(|line| *line != end)
             .collect::<String>();
+        if !matches!(
+            name,
+            "authorized" | "lookup" | "launch_access" | "game" | "refresh"
+        ) {
+            assert!(
+                body.contains(".authorized(") || body.contains(".authorize_launch("),
+                "{name} must use Launch::authorized"
+            );
+        }
+        let compact = body.split_whitespace().collect::<String>();
+        // These two uses maintain or report liveness. Every other read,
+        // including a reversed comparison or a SQL JSON path, is an error.
+        let auth_code = match name {
+            "renew_launch" => compact.replace("launch.expires=time+300;", ""),
+            "verify_ticket" => compact.replace(r#""expires_at":l.expires}"#, "}"),
+            _ => compact,
+        };
         assert!(
-            body.contains(".authorized(") || body.contains(".authorize_launch("),
-            "{name} must use Launch::authorized"
-        );
-        assert!(
-            !body
-                .split_whitespace()
-                .collect::<String>()
-                .contains(".expires>"),
-            "{name} checks liveness as authorization"
+            !auth_code.contains(".expires") && !auth_code.contains(".live("),
+            "{name} uses launch liveness in authorization"
         );
     }
 }

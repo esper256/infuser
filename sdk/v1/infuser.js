@@ -32,7 +32,7 @@ if (typeof window !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' &&
   }
 }
 export class InfuserError extends Error {
-  constructor(message, status) { super(typeof message === 'string' ? message : message?.message || 'Infuser request failed'); this.status = status; if(message?.code)this.code=message.code; }
+  constructor(message, status) { super(typeof message === 'string' ? message : message?.message || 'Infuser request failed'); this.status = status; if(message?.code)this.code=message.code; if(message?.reason)this.reason=message.reason; }
 }
 async function request(path, options = {}) {
   const response = await sessionFetch('/_infuser/api/v1/' + path, { credentials: 'same-origin', ...options });
@@ -58,7 +58,7 @@ function sessionError(error) {
   if (stopped) return;
   stopHeartbeat();
   if (window.parent && window.parent !== window) {
-    window.parent.postMessage({type: 'infuser-session-error', status: error.status}, location.origin);
+    window.parent.postMessage({type: 'infuser-session-error', status: error.status, message: error.message, reason: error.reason}, location.origin);
   }
   window.dispatchEvent(new CustomEvent('infuser-session-error', {detail: error}));
 }
@@ -84,7 +84,8 @@ function onVisible() {
   if (document.visibilityState === 'visible') void heartbeat();
 }
 function onDenied(event) {
-  sessionError(new InfuserError('Game session authorization ended.', event.detail));
+  const {error, status} = event.detail;
+  sessionError(new InfuserError(error || 'This game session ended.', status));
 }
 sessionDenials.addEventListener('denied', onDenied);
 globalThis.document?.addEventListener('visibilitychange', onVisible);

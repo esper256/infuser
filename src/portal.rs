@@ -93,7 +93,7 @@ impl From<rustix::io::Errno> for Error {
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         if let Some(f) = self.0.downcast_ref::<platform::SessionEnded>() {
-            let body = json!({"error":{"code":"session_ended","message":"Game session ended. Relaunch from the Library."}});
+            let body = json!({"error":{"code":"session_ended","reason":f.reason,"message":f.reason.message()}});
             let mut response = (
                 StatusCode::from_u16(f.status).unwrap(),
                 [("Cache-Control", "no-store"), ("Infuser-Session", "ended")],
@@ -399,7 +399,8 @@ impl Platform {
         }
     }
     fn game(&self, h: &HeaderMap) -> Result<(String, Launch)> {
-        let token = game_token(h).ok_or_else(|| platform::denied(None, 401, "missing_token"))?;
+        let token = game_token(h)
+            .ok_or_else(|| platform::denied(None, 401, platform::LaunchEnd::MissingToken))?;
         let digest = hash(token);
         self.db.find_launch(&digest, host(h), now())
     }
@@ -413,7 +414,7 @@ impl Platform {
         let launch = data
             .launches
             .get(id)
-            .ok_or_else(|| platform::denied(Some(id), 410, "unknown"))?;
+            .ok_or_else(|| platform::denied(Some(id), 410, platform::LaunchEnd::Unknown))?;
         data.authorize_launch(id, launch, time)?;
         let status = self.launch_runtime_status(&data, id, launch)?;
         let ended_lease = (status["state"] == "ended")
@@ -1024,6 +1025,7 @@ async fn launch(
         exchanged: false,
         expires: now() + 300,
         ended: false,
+        end_reason: None,
         library_session: session.as_ref().map(|s| s.id.clone()).unwrap_or_default(),
         grant_expires: now() + 120,
         seen: now(),

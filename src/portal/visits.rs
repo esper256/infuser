@@ -276,9 +276,11 @@ impl Platform {
         let d = self.db.read()?;
         let mut expired = Vec::new();
         for (id, l) in &d.launches {
-            if l.visit.is_some() && !d.launch_allowed(l, now()) {
+            if l.visit.is_some()
+                && let Err(reason) = d.launch_access(l, now())
+            {
                 if !l.ended {
-                    expired.push(id.clone());
+                    expired.push((id.clone(), reason));
                 }
                 self.peers.leave_launch(l.runtime_id(), id);
                 if let (Some(lease), Some(token)) = (&l.lease_id, &l.lease_token) {
@@ -290,9 +292,9 @@ impl Platform {
         }
         if !expired.is_empty() {
             self.db.edit(|data| {
-                for id in expired {
+                for (id, reason) in expired {
                     if let Some(l) = data.launches.get_mut(&id) {
-                        l.end(now());
+                        l.end(now(), reason);
                     }
                 }
                 Ok(())

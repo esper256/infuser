@@ -20,9 +20,9 @@ for(const path of ['../sdk/infuser.js','../sdk/v1/infuser.js']){
       window.parent={postMessage:(data,origin)=>{
         if(data.type==='infuser-update-available')updates.push(origin);
         else if(data.type==='infuser-client-update')clientUpdates.push([data.version,data.force_reload,origin]);
-        else messages.push([data.status,origin]);
+        else messages.push([data.status,data.reason,data.message,origin]);
       }};
-      window.addEventListener('infuser-session-error',event=>events.push(event.detail.status));
+      window.addEventListener('infuser-session-error',event=>events.push([event.detail.status,event.detail.reason,event.detail.message]));
       const fetch=(url,options)=>{
         if(url.endsWith('/context'))return Promise.resolve(Response.json({}));
         assert.equal(options.method,'POST');
@@ -42,14 +42,15 @@ for(const path of ['../sdk/infuser.js','../sdk/v1/infuser.js']){
       assert.deepEqual(updates,['https://game.invalid']);
       assert.deepEqual(clientUpdates,[['v2',0,'https://game.invalid'],['v2',1,'https://game.invalid']]);
       const pending=[callback(),callback()];
-      posts[4](new Response('session expired',{status,headers:{'Infuser-Session':'ended'}}));
+      const error={code:'session_ended',reason:'signed_out',message:'You signed out of the Library in this browser.'};
+      posts[4](Response.json({error},{status,headers:{'Infuser-Session':'ended'}}));
       posts[5](Response.json({error:'session expired'},{status}));
       await Promise.all(pending);
       await callback(); // A callback already queued before clearInterval must also be harmless.
       assert.equal(posts.length,6);
       assert.equal(clears,1);
-      assert.deepEqual(events,[status]);
-      assert.deepEqual(messages,[[status,'https://game.invalid']]);
+      assert.deepEqual(events,[[status,error.reason,error.message]]);
+      assert.deepEqual(messages,[[status,error.reason,error.message,'https://game.invalid']]);
     }
   });
 }
