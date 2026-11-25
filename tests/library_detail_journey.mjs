@@ -16,6 +16,7 @@ for(const app of apps){app.update_id=app.id+'-release-a';app.update_reactions={m
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
 let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility,failAuthors=false,failReaction=false,releaseReaction;
+let houseSettings={topic_set:false,quiet_hours:null,profiles:[author,friend],images:JSON.parse(await readFile(new URL('web/assets/house-calls/manifest.json',root))).map(image=>({...image,enabled:false,tag:'',message:'',cooldown_minutes:5,profiles:[]}))};
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
@@ -29,6 +30,9 @@ try {
   else if(path==='/api/screenshots')data={screenshots:[{id:'shot'}]};
   else if(path==='/api/screenshots/shot')data={image:'data:image/webp;base64,'+(await readFile(new URL('assets/avatars/loot-raccoon-128.webp',root))).toString('base64')};
   else if(path==='/api/client-state')data={version:'review',game_open:false};
+  else if(path==='/api/admin/house-calls'){
+   if(method==='PUT'){const body=request.postDataJSON();houseSettings={...houseSettings,images:body.images,quiet_hours:body.quiet_hours,topic_set:body.topic_url===undefined?houseSettings.topic_set:!!body.topic_url};data={ok:true};}else data=houseSettings;
+  }
   else if(path==='/api/admin/game-authors')data={games:apps.map(g=>({id:g.id,title:g.title,authors:g.authors??(g.author?[g.author]:[])})),members:[author,friend]};
   else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:502,body:''});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
   else if(path==='/api/admin/members')data={members:{}};
@@ -57,17 +61,18 @@ try {
   else if(path==='/game-fixture')return route.fulfill({contentType:'text/html',body:'<title>Test game</title>'});
   else {
    let file,type;
-   if(path==='/test-art/firefly'){file='docs/design-explorations/card-art-guide/firefly-drift.webp';type='image/webp';}
+   if(path.startsWith('/assets/house-calls/')){file='web'+path;type='image/png';}
+   else if(path==='/test-art/firefly'){file='docs/design-explorations/card-art-guide/firefly-drift.webp';type='image/webp';}
    else if(path==='/test-art/event'){file='assets/avatars/event-horizon.png';type='image/png';}
    else if(path.startsWith('/assets/reactions/')){file=path.slice(1);type='image/webp';}
    else if(path.startsWith('/assets/avatars/')){const [,id,size]=path.match(/\/avatars\/([^/]+)\/(\d+)\.webp$/);file=`assets/avatars/${id}-${size}.webp`;type='image/webp';}
    else if(path==='/assets/card-generating.webp'){file='assets/card-fallback/generating.webp';type='image/webp';}
    else if(path==='/assets/google-signin.png'){file='assets/google/sign-in-with-google-pill.png';type='image/png';}
-   else if(path.startsWith('/assets/')){file='web/'+path.slice(8);type=path.endsWith('.js')?'text/javascript':'text/css';}
+   else if(path.startsWith('/assets/')){file='web/'+path.slice(8);type=path.endsWith('.js')?'text/javascript':path.endsWith('.svg')?'image/svg+xml':path.endsWith('.woff2')?'font/woff2':'text/css';}
    else if(path==='/sw.js')return route.fulfill({status:404,body:''});
    else {file='web/index.html';type='text/html';}
    let body=await readFile(new URL(file,root));
-   if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.refreshTestLibrary=refresh;window.testRecentAge=recentAge;';
+   if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.refreshTestLibrary=refresh;window.testRecentAge=recentAge;window.refreshTestAdmin=adminRefresh;';
    return route.fulfill({body,contentType:type});
   }
   return route.fulfill({json:data});
@@ -104,6 +109,55 @@ try {
  assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);failAuthors=false;
  await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Authors saved.',{exact:true}).waitFor();
  assert.deepEqual(writes.at(-1).body.authors,[friend.id,author.id]);
+ const house=page.locator('#house-calls');await house.waitFor({state:'attached'});
+ assert.equal(await house.evaluate(el=>el.closest('details').open),false,'House calls starts folded like other admin regions');
+ await page.locator('#admin summary').filter({hasText:'House calls'}).click();
+ await house.getByRole('button',{name:'Replace',exact:true}).click();await house.getByLabel('New ntfy topic URL').fill('https://ntfy.example/private-test-topic');
+ const call=house.locator('form>fieldset').nth(1),quiet=house.locator('form>fieldset').first();
+ await call.getByLabel('Enabled',{exact:true}).check();await call.getByLabel('ntfy tag',{exact:true}).fill('family_time');await call.locator('.house-call-permissions > summary').click();await call.getByLabel(friend.name,{exact:true}).check();await call.locator('.house-call-permissions > summary').click();
+ await quiet.getByLabel('Enabled',{exact:true}).check();await quiet.getByLabel('From',{exact:true}).fill('22:00');await quiet.getByLabel('Until',{exact:true}).fill('08:00');await quiet.getByLabel('Time zone',{exact:true}).fill('America/Los_Angeles');
+ const cooldown=call.getByLabel('Cooldown (minutes)');await cooldown.fill('');
+ const houseWrites=writes.filter(w=>w.path==='/api/admin/house-calls').length;
+ await house.getByRole('button',{name:'Save house calls'}).click();
+ assert(await cooldown.evaluate(el=>el.validity.valueMissing),'blank cooldown is required, not coerced to zero');
+ assert.equal(writes.filter(w=>w.path==='/api/admin/house-calls').length,houseWrites);
+ await cooldown.fill('5');
+ await house.getByRole('button',{name:'Save house calls'}).click();await house.getByText('House calls saved.',{exact:true}).waitFor();
+ assert.equal(await house.getByLabel('New ntfy topic URL').inputValue(),'');assert(await house.getByText('ntfy topic URL: set',{exact:true}).isVisible());
+ assert.deepEqual(houseSettings.quiet_hours,{start:'22:00',end:'08:00',timezone:'America/Los_Angeles'});assert.deepEqual(houseSettings.images[0].profiles,[friend.id]);
+ assert(!JSON.stringify(houseSettings).includes('private-test-topic'),'server view never returns topic URL');
+ assert((await house.locator('.house-call-row').first().boundingBox()).height<=76,'desktop settings fit one compact row per image');
+ await house.scrollIntoViewIfNeeded();await page.screenshot({path:new URL('house-call-admin.png',out).pathname});
+ for(const width of [900,390,320]){
+   await page.setViewportSize({width,height:900});await house.scrollIntoViewIfNeeded();
+   assert(await house.evaluate(el=>el.scrollWidth<=el.clientWidth),'house-call settings fit at '+width+'px');
+   await page.screenshot({path:new URL('house-call-admin-'+width+'.png',out).pathname});
+ }
+ await page.setViewportSize({width:1500,height:1000});
+ // The actual profile dropdown must remain legible in every shipped theme.
+ await call.locator('.house-call-permissions > summary').click();
+ for(const theme of ['nightglass','cartridge-club','field-notes','funny-pages','castle-keep']){
+   await page.evaluate(theme=>InfuserThemes.select(theme),theme);
+   const contrast=await call.locator('.house-call-profiles').evaluate(list=>{
+     const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d');
+     const luminance=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);const rgb=[...ctx.getImageData(0,0,1,1).data].slice(0,3).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+     const bg=luminance(getComputedStyle(list).backgroundColor);
+     return [...list.querySelectorAll('label,legend')].map(el=>{const fg=luminance(getComputedStyle(el).color);return {text:el.textContent,ratio:(Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05)};});
+   });
+   for(const item of contrast)assert(item.ratio>=4.5,theme+' profile list contrast: '+JSON.stringify(item));
+   await call.scrollIntoViewIfNeeded();await page.screenshot({path:new URL('house-call-profiles-'+theme+'.png',out).pathname});
+ }
+ await page.evaluate(()=>InfuserThemes.select('nightglass'));
+ await call.locator('.house-call-permissions > summary').click();
+ houseSettings.profiles.push({id:'three',name:'New profile'});
+ await page.evaluate(()=>refreshTestAdmin());
+ await call.locator('.house-call-permissions > summary').click();
+ assert.equal(await call.getByLabel('New profile',{exact:true}).count(),1,'admin refresh includes newly added profiles without reopening');
+ await call.locator('.house-call-permissions > summary').click();
+ await call.getByLabel('ntfy tag',{exact:true}).fill('unsaved_tag');
+ await page.evaluate(()=>refreshTestAdmin());
+ assert.equal(await call.getByLabel('ntfy tag',{exact:true}).inputValue(),'unsaved_tag','admin refresh preserves unsaved house-call settings');
+ await house.getByRole('button',{name:'Clear',exact:true}).click();await house.getByRole('button',{name:'Save house calls'}).click();await house.getByText('ntfy topic URL: not set',{exact:true}).waitFor();
  await page.locator('#close-admin').click();
  assert.equal((await card().locator('.creator').boundingBox()).width,originalCreator.width);
  assert.equal(await card().locator('.author-stack .avatar').count(),2);

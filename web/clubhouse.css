@@ -1197,3 +1197,50 @@ button.feed-row:hover { border-color: var(--accent); }
 .member-link-url { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
 .member-link-page main { max-width: 32rem; }
 .member-link-confirm ul { padding-left: 1.2rem; }
+
+/* House calls reuse attachment tiles, picker grids and collapsed admin regions. */
+.screenshot-tile.house-call-card{display:flex;flex-direction:column;align-items:stretch}
+.screenshot-tile.house-call-card img{flex:1;min-height:0;height:0;width:100%;object-fit:contain}
+.screenshot-tile.house-call-card span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:none;padding:6px 8px;line-height:1.25;color:var(--ink);overflow-wrap:anywhere}
+.attachment-tabs button[hidden]{display:none!important}
+#chat-emoji-panel .attachment-tabs{gap:0;min-width:0}
+#chat-emoji-panel .attachment-tabs button{padding:8px 6px;font-size:12px;white-space:nowrap}
+/* Keep each image on a compact row; the message gets the flexible space. */
+.house-call-editor{display:grid;gap:8px}
+.house-call-editor>fieldset{min-width:0;margin:0;padding:8px;border:1px solid var(--line);border-radius:10px}
+.house-call-row{display:grid;grid-template-columns:36px 28px minmax(90px,.7fr) 96px minmax(120px,2fr) 58px 96px;align-items:end;gap:8px}
+.house-call-row>img{width:36px;height:36px;object-fit:contain;align-self:center}
+.house-call-editor label{display:grid;gap:3px;min-width:0;margin:0;font-size:11px}
+.house-call-editor input{min-width:0;max-width:100%;margin:0;padding:5px 7px;border-radius:7px;font-size:14px}
+.house-call-editor input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.house-call-editor label[hidden]{display:none}
+.house-call-enabled{align-self:center;justify-items:center}
+.house-call-permissions{position:relative;min-width:0;align-self:end;font-size:12px}
+.house-call-permissions>summary{padding:8px 2px;white-space:nowrap}
+.house-call-editor .house-call-profiles{position:absolute;right:0;top:100%;z-index:2;display:grid;gap:8px;min-width:180px;max-height:220px;overflow:auto;margin:0;padding:10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px #0008}
+.house-call-profiles legend{float:left;width:100%;font-size:11px;color:var(--quiet)}
+.house-call-profiles label{display:flex;align-items:center;gap:8px;font-size:13px}
+.house-call-connection{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.house-call-connection p,.house-call-editor [role=status]{margin:0;font-size:12px}
+.house-call-editor button{padding:6px 10px;font-size:12px;justify-self:start}
+.house-call-connection .member-actions{gap:6px}
+.house-call-quiet{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.house-call-quiet legend{font-size:12px}
+.house-call-quiet>label:first-of-type{display:flex;align-items:center;gap:6px}
+.house-call-quiet>label:last-of-type{flex:1;max-width:220px}
+.house-call-hint{margin:0;font-size:11px;line-height:1.4}
+@media(max-width:900px){
+  .house-call-row{grid-template-columns:36px 28px minmax(0,1fr) 58px 96px}
+  .house-call-tag{grid-column:1/4;grid-row:2}
+  .house-call-message{grid-column:4/-1;grid-row:2}
+}
+@media(max-width:550px){
+  .house-call-row{grid-template-columns:30px 22px minmax(0,1fr) 52px;gap:6px}
+  .house-call-row>img{width:30px;height:30px}
+  .house-call-tag{grid-column:1/4}
+  .house-call-message{grid-column:1/-1;grid-row:3}
+  .house-call-permissions{grid-column:4;grid-row:2;font-size:10px}
+  .house-call-permissions>summary{white-space:normal;padding:4px 0}
+  .house-call-editor input{font-size:16px}
+  .house-call-quiet{gap:8px}
+}

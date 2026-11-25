@@ -127,7 +127,7 @@ try {
     } else if (file === 'web/client-updates.js') {
       body = replace(body.toString(), '  win.setInterval(check,30000);', "  check=window.__leakSoak.observe('client',check);\n  win.setInterval(check,30000);");
     } else if (file === 'web/chat.js') {
-      body = replace(body.toString(), "  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(timer);else poll();});", "  poll=window.__leakSoak.observe('chat',poll);\n  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(timer);else poll();});");
+      body = replace(body.toString(), "  document.addEventListener('visibilitychange',()=>{if(document.hidden){suppressConfetti=true;clearTimeout(timer);}else poll();});", "  poll=window.__leakSoak.observe('chat',poll);\n  document.addEventListener('visibilitychange',()=>{if(document.hidden){suppressConfetti=true;clearTimeout(timer);}else poll();});");
     } else if (file === 'web/voice.js') {
       body = replace(body.toString(), '  const timer=setInterval(', "  poll=window.__leakSoak.observe('voice',poll);\n  const timer=setInterval(");
       body = replace(body, 'setInterval(()=>{if(lease||!document.hidden)void poll();},3000)', "setInterval(window.__leakSoak.tag('voice',()=>{if(lease||!document.hidden)void poll();}),3000)");

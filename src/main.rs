@@ -425,6 +425,15 @@ async fn main() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+    let house_calls = platform.clone();
+    let house_call_worker = tokio::spawn(async move {
+        loop {
+            if house_calls.dispatch_house_calls().await.is_err() {
+                tracing::warn!("House call delivery failed");
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
     let maintenance = platform.clone();
     let maintenance_worker = tokio::spawn(async move {
         loop {
@@ -497,6 +506,7 @@ async fn main() -> Result<()> {
         result = publication_worker => { result??; bail!("publication worker stopped"); },
         result = package_worker => { result?; anyhow::bail!("server packaging worker stopped"); },
         result = push_worker => { result?; anyhow::bail!("notification worker stopped"); },
+        result = house_call_worker => { result?; anyhow::bail!("house call worker stopped"); },
         result = server => { result?; },
         result = background => { result??; bail!("controller loop stopped"); }
     }

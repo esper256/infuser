@@ -1203,10 +1203,54 @@ async function loadAuthorTools(){
   gameLabel.append(gameSelect);addLabel.append(candidate);const addRow=el('div',undefined,'author-add');addRow.append(addLabel,add);form.append(gameLabel,list,addRow,save,status);section.append(form);selectGame();
 }
 
+async function loadHouseCallTools(){
+  if(!me.admin||me.inspecting||$('house-calls')?.dataset.dirty==='true')return;
+  const data=await api('/api/admin/house-calls');
+  if(!$('admin').open||$('house-calls')?.dataset.dirty==='true')return;
+  let section=$('house-calls');
+  if(!section){section=el('section');section.id='house-calls';$('admin-controls').append(adminRegion('House calls',section));}
+  section.replaceChildren();
+  const form=el('form',undefined,'house-call-editor'),topic=el('p','ntfy topic URL: '+(data.topic_set?'set':'not set')),actions=el('div',undefined,'member-actions'),replace=el('button','Replace','secondary'),clear=el('button','Clear','secondary'),secretLabel=el('label','New ntfy topic URL'),secret=el('input'),status=el('p'),save=el('button','Save house calls');
+  secret.type='password';secret.autocomplete='off';secret.maxLength=2048;secret.spellcheck=false;secretLabel.append(secret);secretLabel.hidden=true;
+  status.setAttribute('role','status');save.type='submit';replace.type=clear.type='button';clear.disabled=!data.topic_set;
+  let topicAction='keep',saving=false;
+  const dirty=()=>{section.dataset.dirty='true';status.textContent='Unsaved changes';};
+  replace.onclick=()=>{topicAction='replace';secretLabel.hidden=false;secret.focus();dirty();};
+  clear.onclick=()=>{topicAction='clear';secret.value='';secretLabel.hidden=true;topic.textContent='ntfy topic URL: will be cleared';dirty();};
+  actions.append(replace,clear);const connection=el('div',undefined,'house-call-connection');connection.append(topic,actions);form.append(connection,secretLabel);
+  const quietBox=el('fieldset',undefined,'house-call-quiet'),quietLegend=el('legend','Quiet hours'),quietLabel=el('label','Enabled'),quietEnabled=el('input'),startLabel=el('label','From'),endLabel=el('label','Until'),zoneLabel=el('label','Time zone'),quietStart=el('input'),quietEnd=el('input'),quietZone=el('input');
+  quietEnabled.type='checkbox';quietEnabled.checked=!!data.quiet_hours;quietLabel.prepend(quietEnabled);
+  quietStart.type=quietEnd.type='time';quietStart.value=data.quiet_hours?.start||'22:00';quietEnd.value=data.quiet_hours?.end||'08:00';quietZone.value=data.quiet_hours?.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+  startLabel.append(quietStart);endLabel.append(quietEnd);zoneLabel.append(quietZone);quietBox.append(quietLegend,quietLabel,startLabel,endLabel,zoneLabel,el('p','Cards still post; notifications and confetti stay quiet.','house-call-hint quiet'));form.append(quietBox);
+  const quietState=()=>{quietStart.disabled=quietEnd.disabled=quietZone.disabled=!quietEnabled.checked;};quietEnabled.onchange=quietState;quietState();
+  const fields=data.images.map(call=>{
+    const row=el('fieldset',undefined,'house-call-row'),legend=el('legend',call.label,'sr-only'),image=el('img');image.src='/assets/house-calls/'+encodeURIComponent(call.id)+'.png';image.alt='';row.append(legend,image);
+    function field(title,type,value,kind){const label=el('label',title,'house-call-'+kind),input=el('input');input.type=type;if(type==='checkbox')input.checked=value;else input.value=value;label.append(input);row.append(label);return input;}
+    const enabled=field('On','checkbox',call.enabled,'enabled'),label=field('Label','text',call.label,'label'),tag=field('ntfy tag','text',call.tag,'tag'),message=field('Message (optional)','text',call.message,'message'),cooldown=field('Min.','number',call.cooldown_minutes,'cooldown');
+    enabled.setAttribute('aria-label','Enabled');cooldown.setAttribute('aria-label','Cooldown (minutes)');message.placeholder='{{profile}} says it is Infuser time';
+    label.maxLength=80;tag.maxLength=80;message.maxLength=4096;cooldown.min=0;cooldown.max=10080;cooldown.step=1;cooldown.required=true;
+    const permissions=el('details',undefined,'house-call-permissions'),summary=el('summary'),allowed=el('fieldset',undefined,'house-call-profiles');allowed.append(el('legend','May send'));permissions.append(summary,allowed);
+    const profiles=data.profiles.map(profile=>{const label=el('label',profile.name),input=el('input');input.type='checkbox';input.checked=call.profiles.includes(profile.id);label.prepend(input);allowed.append(label);return {id:profile.id,input};});
+    const countProfiles=()=>{const count=profiles.filter(p=>p.input.checked).length;summary.textContent=count+' profile'+(count===1?'':'s');};allowed.onchange=countProfiles;countProfiles();permissions.setAttribute('aria-label','Who may send '+call.label);row.append(permissions);form.append(row);return {call,enabled,label,tag,message,cooldown,profiles};
+  });
+  form.oninput=dirty;form.append(el('p','Tag = notification type · Min. = cooldown · {{profile}} = sender’s name','house-call-hint quiet'),save,status);section.append(form);
+  form.onsubmit=async event=>{
+    event.preventDefault();if(saving)return;
+    const payload={images:fields.map(f=>({id:f.call.id,enabled:f.enabled.checked,label:f.label.value,tag:f.tag.value,message:f.message.value,cooldown_minutes:Number(f.cooldown.value),profiles:f.profiles.filter(p=>p.input.checked).map(p=>p.id)}))};
+    payload.quiet_hours=quietEnabled.checked?{start:quietStart.value,end:quietEnd.value,timezone:quietZone.value}:null;
+    if(topicAction==='replace'){if(!secret.value){status.textContent='Enter the replacement topic URL.';return;}payload.topic_url=secret.value;}
+    if(topicAction==='clear')payload.topic_url='';
+    saving=true;save.disabled=true;
+    try{await api('/api/admin/house-calls',{method:'PUT',body:JSON.stringify(payload)});secret.value='';section.dataset.dirty='false';await loadHouseCallTools();const savedStatus=$('house-calls')?.querySelector('[role="status"]');if(savedStatus)savedStatus.textContent='House calls saved.';}
+    catch(error){status.textContent=error.message;}
+    finally{saving=false;save.disabled=false;}
+  };
+}
+
 async function openAdmin(){
   refreshServerUpdates();
   if(!me?.admin&&!me?.operator)return;
-  $('admin').showModal();refreshNetworkHealth();loadAuthorTools().catch(showError);
+  $('admin').showModal();refreshNetworkHealth();loadAuthorTools().catch(showError);loadHouseCallTools().catch(showError);
   if(!me.admin||adminLoaded||adminLoading)return;
   adminLoading=true;$('admin-status').textContent='Loading admin tools…';
   try{
@@ -1215,7 +1259,7 @@ async function openAdmin(){
   finally{adminLoading=false;}
 }
 $('close-admin').onclick=()=>$('admin').close();
-$('admin').addEventListener('close',()=>$('account-trigger')?.focus({preventScroll:true}));
+$('admin').addEventListener('close',()=>{$('house-calls')?.closest('.admin-region').remove();$('account-trigger')?.focus({preventScroll:true});});
 async function adminRefresh(){
   const [members,credentials]=await Promise.all([api('/api/admin/members'),api('/api/admin/credentials')]);
   $('members').replaceChildren();
@@ -1247,7 +1291,7 @@ async function adminRefresh(){
     $('members').append(row);
   }
   $('credentials').replaceChildren();for(const c of credentials.credentials){const row=el('div'),button=el('button','Revoke','secondary');row.append(el('span',c.label+' · '+c.app),button);button.onclick=async()=>{try{await api('/api/admin/credentials/'+c.id,{method:'DELETE'});await adminRefresh();}catch(error){showError(error);}};$('credentials').append(row);}
-  await loadGameTools();
+  await Promise.all([loadGameTools(),loadHouseCallTools()]);
 }
 function memberLinkLines(email,info,minted){
   const nodes=[];
@@ -1697,7 +1741,7 @@ try {
   }
   $('welcome').hidden=true;$('clubhouse').hidden=false;
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
-  initChat({me, api,diagnostics, profileAvatar,onSpeakerContext:arrangeChatParticipants});
+  initChat({me, api,diagnostics, profileAvatar,onSpeakerContext:arrangeChatParticipants,onHouseCall:updateConfetti});
   if(!me.inspecting){
     const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
     if(document.hasFocus()&&!document.hidden)active();

@@ -20,6 +20,7 @@ pub(crate) mod channels;
 mod chat;
 pub mod deployments;
 pub mod groups;
+pub mod house_calls;
 pub mod identity;
 pub mod member_link;
 mod metadata;
@@ -511,6 +512,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO visits VALUES(1,'{}');")?;
         channels::initialize(&mut c)?;
         screenshots::initialize(&c)?;
+        house_calls::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS update_reactions(
             deployment TEXT NOT NULL, profile TEXT NOT NULL, publication TEXT NOT NULL, emoji TEXT NOT NULL,
             PRIMARY KEY(deployment,profile)) WITHOUT ROWID;")?;
