@@ -196,7 +196,7 @@ during iteration. For the original long polling check, use
 | Polling | 20 | Library refresh, client-state check, closed-chat poll |
 | Chat | 400 | Scroll one viewport in 60-message history through top/middle/latest and different speakers; close/reopen every ten gestures |
 | Grid | 400 | Scroll 40 covered cards middle/bottom/top, open a full card, decode its cover, close |
-| Voice | 100 | Join, remote-track subscription/speaker events, mixer, mute/deafen/unmute, output boost/reset, unsubscribe/resubscribe, reconnect events, leave, microphone loopback test, dismiss |
+| Voice | 400 | Join, remote-track subscription/speaker events, mixer, mute/deafen/unmute, output boost/reset, unsubscribe/resubscribe, reconnect events, leave, microphone loopback test, dismiss |
 
 Each interaction scenario first performs 400 unchanged Library/client-state/chat
 poll cycles. The real 25-second Library interval alone leaves those background
@@ -210,6 +210,12 @@ Exploratory chat/grid/voice snapshots showed substantial startup compilation (ab
 calibrated for polling even when application objects are stable. The longer
 warmups exercise those paths before fixing their baseline; they do not change
 the 320 KiB cap or subtract compiled code/instrumentation from any measurement.
+Voice also needs the full 400-cycle foreground warmup: a 100-cycle warmup left
+`paint`, `stopMicTest` and input-processor code compiling during measurement.
+That probe finished just 36,692 heap bytes above baseline (33,776 additional code
+bytes), with constant resources and essentially flat arrays/objects, but still
+triggered the sustained-growth rule. The longer fixed warmup addresses that
+observed startup work rather than widening either heap gate.
 The [2,000-cycle grid calibration](../tests/fixtures/leak-grid-calibration.json)
 records the exploratory data separately from acceptance runs. Its final three
 readings rose by just 160 bytes total and would fail the old rule; all resource
