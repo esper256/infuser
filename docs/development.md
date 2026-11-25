@@ -39,7 +39,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo clippy --manifest-path desktop/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --locked
 cargo test --manifest-path desktop/Cargo.toml --locked
-node --test tests/*_sdk.mjs tests/themes.mjs tests/voice_chimes.mjs tests/voice_audio.mjs
+node --test tests/*_sdk.mjs tests/themes.mjs tests/voice_chimes.mjs tests/voice_audio.mjs tests/leak_soak.mjs
 ```
 
 If Node is outside PATH, set `INFUSER_TEST_NODE=/absolute/path/to/node` for the
@@ -186,7 +186,10 @@ The default command runs four scenarios, each in a fresh browser context with
 its own baseline and snapshot directory. Use `--scenario=polling`, `chat`,
 `grid`, or `voice` to isolate one; `--scenario=all` is the default. Each runs
 400 measured cycles, with a checkpoint every 50. `--cycles=2000` extends the
-measured portion (at least 400, a multiple of 50).
+measured portion (at least 400, a multiple of 50). Real animations and audio
+teardown make the full suite take tens of minutes; use individual scenarios
+during iteration. For the original long polling check, use
+`--scenario=polling --cycles=2000`.
 
 | Scenario | Fixed warmup | One measured cycle |
 | --- | ---: | --- |
@@ -256,7 +259,8 @@ Very small leaks can still evade a finite run.
 Run `node --test tests/leak_soak.mjs` for diagnostic/gate regression checks,
 including sawtooth growth, bounded variation, an inspector table larger than a
 leaked array, growing existing arrays, alternate/weak retaining paths, and
-compiled-code reporting.
+compiled-code reporting. These fast helper checks also run in the existing PR
+Node job; the browser soak remains an explicit local run.
 
 The one-time 2,000-cycle run on 2026-11-24 used Chromium 156.0.8078.79,
 Playwright 1.65.1 and Node 24.22.1. Its raw measurements are recorded in
