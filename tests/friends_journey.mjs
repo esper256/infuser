@@ -81,7 +81,9 @@ try {
  assert.equal(await first.getAttribute('open'),'');assert.equal(await join.evaluate(el=>el===document.activeElement),true);
  let popup=page.waitForEvent('popup');await join.click();let gamePage=await popup;await gamePage.waitForURL('**/playing');await gamePage.close();
  assert.deepEqual(launches.pop(),{guest:false,intent:{kind:'join_friend',session_id:'session-a',player_id:'a'}});
- await page.setViewportSize({width:390,height:760});
+ // Force Sam and Quinn into overflow; three friends now fit at 390px.
+ friends=[originalFriends[0],...Array.from({length:40},(_,i)=>({id:'overflow-'+i,name:'Gamer '+i,avatar:'moss-knight'})),...originalFriends.slice(1)];
+ await page.setViewportSize({width:390,height:760});await page.evaluate(()=>refreshLibrary());
  const more=page.locator('.friend-menu[data-key="overflow"]');await more.locator('summary').click();
  const panel=more.locator('.friend-actions');const box=await panel.boundingBox();assert.ok(box.x>=15&&box.x+box.width<=375,JSON.stringify(box));
  assert.match(await panel.innerText(),/Quinn is currently playing Firefly Drift · Single player/);

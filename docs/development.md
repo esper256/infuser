@@ -39,7 +39,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo clippy --manifest-path desktop/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --locked
 cargo test --manifest-path desktop/Cargo.toml --locked
-node --test tests/*_sdk.mjs tests/themes.mjs tests/voice_chimes.mjs tests/voice_audio.mjs
+node --test tests/*_sdk.mjs tests/themes.mjs tests/voice_chimes.mjs tests/voice_audio.mjs tests/leak_soak.mjs
 ```
 
 If Node is outside PATH, set `INFUSER_TEST_NODE=/absolute/path/to/node` for the
@@ -166,7 +166,7 @@ Record actual Editor version, build options, browser/device, and outcomes in
 [the Unity review](proposals/unity-agent-experience.md). A C# or JS harness pass
 must never be substituted for these acceptance results.
 
-## Library heap soak
+## Library heap and interaction soaks
 
 Use the existing Playwright 1.65.1 installation (or the same overrides as the
 Library journeys). No live server, account, browser extensions, or extra leak
@@ -182,33 +182,91 @@ origins and service workers, and serves real `web/` assets. First run the
 unchanged-refresh and detail Library journeys; their zero-mutation and 320px
 Cartridge Club title/Play alignment checks remain prerequisites.
 
-After 20 warmup cycles, it fixes a post-GC baseline and invokes the production
-Library refresh, client-state check and closed-chat poll functions 400 times
-each. Checkpoints occur every 50 cycles. Cycles 101–150 simulate a hidden
-document through visibility getters and the visibility event, without changing
-clocks. Chat intentionally has zero live poll timers while hidden and exactly
-one again on return; Library and client-state keep one each throughout. Real
-intervals remain running. Test-served module instrumentation only exposes and
-observes the existing functions and live timer handles; it does not replace
-polling logic, cache history, retry work, or wait with sleeps.
+The default command runs four scenarios, each in a fresh browser context with
+its own baseline and snapshot directory. Use `--scenario=polling`, `chat`,
+`grid`, or `voice` to isolate one; `--scenario=all` is the default. Each runs
+400 measured cycles, with a checkpoint every 50. `--cycles=2000` extends the
+measured portion (at least 400, a multiple of 50). Real animations and audio
+teardown make the full suite take tens of minutes; use individual scenarios
+during iteration. For the original long polling check, use
+`--scenario=polling --cycles=2000`.
+
+| Scenario | Fixed warmup | One measured cycle |
+| --- | ---: | --- |
+| Polling | 20 | Library refresh, client-state check, closed-chat poll |
+| Chat | 400 | Scroll one viewport in 60-message history through top/middle/latest and different speakers; close/reopen every ten gestures |
+| Grid | 400 | Scroll 40 covered cards middle/bottom/top, open a full card, decode its cover, close |
+| Voice | 400 | Join, remote-track subscription/speaker events, mixer, mute/deafen/unmute, output boost/reset, unsubscribe/resubscribe, reconnect events, leave, microphone loopback test, dismiss |
+
+Each interaction scenario first performs 400 unchanged Library/client-state/chat
+poll cycles. The real 25-second Library interval alone leaves those background
+paths cold during an interaction warmup: snapshots showed `renderGames` and
+`renderGameDetail` compiling later, causing false trend flags despite constant
+application objects. Both foreground and background paths must be exercised
+before the baseline. The listed foreground warmups and background prewarm are
+fixed, not an adaptive retry-until-stable loop.
+Exploratory chat/grid/voice snapshots showed substantial startup compilation (about
+186 KiB, 224 KiB and 288 KiB of additional code respectively), which can trip gates
+calibrated for polling even when application objects are stable. The longer
+warmups exercise those paths before fixing their baseline; they do not change
+the 320 KiB cap or subtract compiled code/instrumentation from any measurement.
+Voice also needs the full 400-cycle foreground warmup: a 100-cycle warmup left
+`paint`, `stopMicTest` and input-processor code compiling during measurement.
+That probe finished just 36,692 heap bytes above baseline (33,776 additional code
+bytes), with constant resources and essentially flat arrays/objects, but still
+triggered the sustained-growth rule. The longer fixed warmup addresses that
+observed startup work rather than widening either heap gate.
+The [2,000-cycle grid calibration](../tests/fixtures/leak-grid-calibration.json)
+records the exploratory data separately from acceptance runs. Its final three
+readings rose by just 160 bytes total and would fail the old rule; all resource
+counts stayed fixed. Rebasing that recorded series after the fixed grid warmup
+passes every unchanged absolute/resource/sustained-growth gate through cycle
+2,000. A regression check preserves that evidence.
+
+Polling cycles 101–150 simulate a hidden document through visibility getters
+and its event, without changing clocks. Chat has zero live poll timers while
+hidden and exactly one again on return; Library and client-state keep one each.
+Configured voice keeps exactly one status interval. Real intervals remain
+running in every scenario. Before checking timer counts, the harness drains
+already-running polls so an in-flight self-scheduling chat poll is not mistaken
+for a missing timer.
+
+Chat asserts that history really scrolls and speaker movement really runs; the
+fixture includes speakers outside the connecting avatar slots. Grid asserts
+scrolling, detail open/close, and cover decoding. Voice uses Chromium's synthetic
+microphone and real MediaStream tracks, AudioContexts and Infuser audio processors.
+Only the LiveKit room/transport boundary and API are mocked; no voice server or
+real microphone is contacted. It verifies tracks, contexts and the long-poll
+request are active while joined and all gone after leaving. Voice measurements
+reconcile the off/empty roster and render the same dismissed mixer state each
+time. This does **not** exercise LiveKit's transport internals, ICE/TURN, codecs,
+real device drivers or multi-client delivery; the real-media voice journey
+remains separate.
+
+Work is awaited through promises, actual scroll/render events, finite animation
+completion and audio-context closure. The voice chime's real delayed close runs
+normally. A 15-second interaction deadline rejects a hung cycle; it does not
+sleep, retry an action, clean up application resources, or advance clocks. Live
+animation-frame callbacks must return to zero at rest. Test-served module hooks
+only expose/observe existing functions and live handles.
 
 Every measurement collects garbage three times through CDP, then reads
 `Performance.getMetrics`. Nodes, event listeners, documents and frames must equal
-the baseline exactly. Post-GC JS heap must stay within a fixed **320 KiB** of
-baseline, and the last three checkpoints cannot be strictly increasing. Starting
-at cycle 400, every checkpoint also checks the last eight measurements: split
-these into four consecutive pairs (100 cycles each), take each pair's minimum,
-and fail if all three increases between these low-water marks are at least
-**8 KiB**. This catches sustained growth with small intervening dips, below the
-absolute cap; a single step or bounded oscillation does not trigger it. There
-are no retries, sleeps, fake clocks, `performance.memory` readings, or percentage
-tolerances. Very small leaks can still evade a finite run.
+the scenario baseline exactly. Post-GC JS heap must stay within a fixed **320 KiB**
+of baseline. Starting at cycle 400, every checkpoint also checks the last eight
+measurements: split them into four consecutive pairs (100 cycles each), take
+each pair's minimum, and fail if all three increases between these low-water
+marks are at least **8 KiB**. This catches sustained growth with intervening dips,
+below the absolute cap. It replaces the original final-three-readings rule:
+small positive steps alone do not establish a leak. There are no sleeps, fake
+clocks, `performance.memory` readings, percentage tolerances, or retries.
+Very small leaks can still evade a finite run.
 
-For a longer investigation, append `--cycles=2000` (at least 400, a multiple of
-50). The same gates and checkpoint spacing apply; the hidden stretch remains
-101–150. Run `node --test tests/leak_soak.mjs` for diagnostic and gate regression
-checks, including a sawtooth leak, an inspector table larger than the leaked
-array, alternate retaining paths, and weak references.
+Run `node --test tests/leak_soak.mjs` for diagnostic/gate regression checks,
+including sawtooth growth, bounded variation, an inspector table larger than a
+leaked array, growing existing arrays, alternate/weak retaining paths, and
+compiled-code reporting. These fast helper checks also run in the existing PR
+Node job; the browser soak remains an explicit local run.
 
 The one-time 2,000-cycle run on 2026-11-24 used Chromium 156.0.8078.79,
 Playwright 1.65.1 and Node 24.22.1. Its raw measurements are recorded in
@@ -225,10 +283,10 @@ browser or a proof that all application paths are leak-free. Revisit them with
 recorded evidence if the browser or fixture changes, rather than relaxing a
 failed assertion automatically.
 
-Each checkpoint writes a heap snapshot under `.local/leak-soak/run-*`. A passing
-run also writes `results.json` with the raw table and threshold. Failures write
+Each checkpoint writes a heap snapshot under `.local/leak-soak/<scenario>/run-*`. A passing
+run also writes `results.json` with scenario/warmup/cycle metadata, the raw table and threshold. Failures capture without awaiting potentially hung work and write
 `failure.heapsnapshot` and `failure.json`, print the checkpoint table and
-constructor count **or size** growth (including growing existing arrays), and
+snapshot self-size deltas by node type (including compiled code), constructor count **or size** growth (including growing existing arrays), and
 show representative strong GC-root paths for up to eight growing constructor
 and storage groups per category. Groups rank by total new/expanded self bytes,
 not just one large allocation. These are investigation candidates, not proven
@@ -242,5 +300,27 @@ references are never used as strong-path evidence. **Nothing is subtracted from
 any metric gate**, including inspector bookkeeping. The complete snapshots
 remain available to investigate other nodes beyond the printed shortlist.
 
-These artifacts are ignored by Git. This slice covers idle polling only;
-player iframes, voice sessions, and a scheduled workflow are separate work.
+These artifacts are ignored by Git. Player iframes, real voice transport,
+mobile/touch soak variants, and a scheduled workflow remain separate work.
+
+An initial chat probe (open/scroll/close on every cycle) exposed a real leak: 50 cycles after warmup retained
+29,150 additional DOM nodes, 1,200 listeners, and 1,579,908 heap bytes. Menu
+callbacks captured the old `renderPresence` scope, including earlier layout
+maps/arrays; retained menus linked those scopes into a growing chain. Constructing
+menu callbacks in a separate helper keeps them scoped to their own menu instead.
+The first 50-cycle checkpoint with that fix held nodes/listeners at 4,970/1,707
+and grew only 63,300 bytes. The regression exercises the real speaker animations
+and checks the same strict resource equality throughout the measured run.
+
+The final 400-cycle acceptance runs on the same Chromium/Playwright setup passed
+all gates with these peak increases above their fixed post-warmup baselines:
+
+| Scenario | Peak heap increase | Constant nodes / listeners |
+| --- | ---: | ---: |
+| Polling | 116,040 bytes | 4,068 / 1,226 |
+| Chat | 0 bytes | 4,970 / 1,707 |
+| Grid | 42,152 bytes | 4,173 / 1,362 |
+| Voice | 98,892 bytes | 4,150 / 1,244 |
+
+Documents and frames stayed at one in every run. These are observed results,
+not expected heap values for later runs or proof that untested paths cannot leak.
