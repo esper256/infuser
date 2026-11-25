@@ -724,6 +724,52 @@ function visiblePresenceCount(people){
 const presenceResize=new ResizeObserver(()=>{if(library)renderPresence();});
 
 function presenceLabel(status){return ({idle:'Idle',away:'Away'})[status]||'Online';}
+// Keep menu callbacks outside the render scope so they cannot retain prior layout trees.
+function createPresenceMenu(key,persons,overflow,opened,signature){
+  const item=el('li',undefined,'presence-person'+(overflow?' presence-more':''));
+  const menu=el('details',undefined,'header-menu friend-menu');menu.dataset.key=key;
+  const trigger=el('summary'),panel=el('div',undefined,'account-menu friend-actions');
+  trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · '+presenceLabel(persons[0].status));
+  if(overflow)trigger.textContent='+'+persons.length;
+  else {item.dataset.playerId=key;item.dataset.status=persons[0].status||'active';trigger.title=[persons[0].name+' · '+presenceLabel(persons[0].status),...persons[0].playing].join('\n');trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
+  for(const person of persons){
+    panel.append(nameCardPortrait(person.name,person.id,person.avatar));
+    panel.append(el('p',person.name,'friend-name'));
+    const targets=me.inspecting?[]:(person.join_targets||[]);
+    panel.append(el('p',presenceLabel(person.status),'quiet friend-status'));
+    for(const description of person.playing)panel.append(el('p',description,'friend-status'));
+    for(const target of targets){
+      const button=el('button','Join '+target.title);button.type='button';button.dataset.friendAction=target.session_id+':'+person.id;
+      button.onclick=()=>{
+        // Resolve against the latest poll. The launch API also rejects stale sessions.
+        const current=library.friends?.find(p=>p.id===person.id)?.join_targets?.find(t=>t.session_id===target.session_id&&t.app_id===target.app_id);
+        const game=library.apps.find(g=>g.id===target.app_id);
+        menu.open=false;
+        if(!current||!game){notice('That friend is no longer available to join.');return;}
+        start(game,button,item,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
+      };
+      panel.append(button);
+    }
+    voiceApi?.renderFriendControls(person,panel);
+  }
+  function refreshFriendVoice(){
+    if(!menu.open)return;
+    for(const existing of panel.querySelectorAll('.friend-voice'))existing.remove();
+    for(const person of persons)voiceApi?.renderFriendControls(person,panel);
+    position();
+  }
+  function position(){
+    // A transformed ancestor would change the fixed menu's containing block.
+    presenceMotions.get(item)?.finish();
+    const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
+    panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
+    panel.style.top=(bounds.bottom+10)+'px';panel.style.maxHeight=Math.max(44,innerHeight-bounds.bottom-26)+'px';
+  }
+  trigger.addEventListener('click',position);menu.addEventListener('toggle',refreshFriendVoice);
+  menu.append(trigger,panel);item.append(menu);presenceItems.set(item,signature);
+  if(opened===key)menu.open=true;
+  return item;
+}
 function renderPresence() {
   const list=$('friends'),playing=new Map();
   for(const game of library.apps||[])for(const player of gamePlayers(game)){
@@ -758,49 +804,8 @@ function renderPresence() {
   list.hidden=false;
   function addMenu(key,persons,overflow=false){
     const signature=JSON.stringify([me.inspecting,persons]),previous=before.get(key)?.item;
-    if(previous&&presenceItems.get(previous)===signature){nextItems.push(previous);return;}
-    const item=el('li',undefined,'presence-person'+(overflow?' presence-more':''));
-    const menu=el('details',undefined,'header-menu friend-menu');menu.dataset.key=key;
-    const trigger=el('summary'),panel=el('div',undefined,'account-menu friend-actions');
-    trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · '+presenceLabel(persons[0].status));
-    if(overflow)trigger.textContent='+'+persons.length;
-    else {item.dataset.playerId=key;item.dataset.status=persons[0].status||'active';trigger.title=[persons[0].name+' · '+presenceLabel(persons[0].status),...persons[0].playing].join('\n');trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
-    for(const person of persons){
-      panel.append(nameCardPortrait(person.name,person.id,person.avatar));
-      panel.append(el('p',person.name,'friend-name'));
-      const targets=me.inspecting?[]:(person.join_targets||[]);
-      panel.append(el('p',presenceLabel(person.status),'quiet friend-status'));
-      for(const description of person.playing)panel.append(el('p',description,'friend-status'));
-      for(const target of targets){
-        const button=el('button','Join '+target.title);button.type='button';button.dataset.friendAction=target.session_id+':'+person.id;
-        button.onclick=()=>{
-          // Resolve against the latest poll. The launch API also rejects stale sessions.
-          const current=library.friends?.find(p=>p.id===person.id)?.join_targets?.find(t=>t.session_id===target.session_id&&t.app_id===target.app_id);
-          const game=library.apps.find(g=>g.id===target.app_id);
-          menu.open=false;
-          if(!current||!game){notice('That friend is no longer available to join.');return;}
-          start(game,button,item,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
-        };
-        panel.append(button);
-      }
-      voiceApi?.renderFriendControls(person,panel);
-    }
-    function refreshFriendVoice(){
-      if(!menu.open)return;
-      for(const existing of panel.querySelectorAll('.friend-voice'))existing.remove();
-      for(const person of persons)voiceApi?.renderFriendControls(person,panel);
-      position();
-    }
-    function position(){
-      // A transformed ancestor would change the fixed menu's containing block.
-      presenceMotions.get(item)?.finish();
-      const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
-      panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
-      panel.style.top=(bounds.bottom+10)+'px';panel.style.maxHeight=Math.max(44,innerHeight-bounds.bottom-26)+'px';
-    }
-    trigger.addEventListener('click',position);menu.addEventListener('toggle',refreshFriendVoice);
-    menu.append(trigger,panel);item.append(menu);nextItems.push(item);presenceItems.set(item,signature);
-    if(opened===key)menu.open=true;
+    nextItems.push(previous&&presenceItems.get(previous)===signature
+      ?previous:createPresenceMenu(key,persons,overflow,opened,signature));
   }
   for(const person of people.slice(0,visibleCount))addMenu(person.id,[person]);
   if(people.length>visibleCount)addMenu('overflow',people.slice(visibleCount),true);

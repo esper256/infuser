@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile, mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {EventEmitter} from 'node:events';
 import test from 'node:test';
-import {checkHeap, heapAllowance, heapGrowth, heapInventory, heapTrend} from './support/leak_soak.mjs';
+import {leakSoak, checkHeap, heapAllowance, heapGrowth, heapInventory, heapTrend} from './support/leak_soak.mjs';
 
 const row = (i, bytes) => ({checkpoint: i ? `cycles-${i * 50}` : 'baseline', JSHeapUsedSize: bytes, Nodes: 40, JSEventListeners: 12, Documents: 1, Frames: 1});
 const rows = values => values.map((bytes, i) => row(i, bytes));
@@ -36,7 +39,7 @@ test('absolute bytes and each resource remain strict gates', () => {
 // Tiny V8-shaped graphs make attribution deterministic, including alternative
 // retaining paths and an inspector table larger than the actual leaked array.
 function snapshot(items) {
-  const types = ['synthetic', 'object', 'native', 'array'], edgeTypes = ['property', 'internal', 'weak'];
+  const types = ['synthetic', 'object', 'native', 'array', 'code'], edgeTypes = ['property', 'internal', 'weak'];
   const strings = [], str = value => {let i = strings.indexOf(value); if (i < 0) {i = strings.length; strings.push(value);} return i;};
   const nodes = [], edges = [];
   for (const [type, name, id, size, links = []] of items) {
@@ -100,4 +103,46 @@ test('many smaller retained arrays rank by aggregate growth', () => {
   ]));
   assert.equal(report.candidates[0].constructor, 'array: (object elements)');
   assert.equal(report.candidates[0].newOrExpandedBytes, 800);
+});
+
+test('small final increases alone do not imply sustained growth', () => {
+  const samples = rows([0, 1000, 1500, 2000, 1800, 1900, 2000, 2100, 2200]);
+  assert(samples.at(-3).JSHeapUsedSize < samples.at(-2).JSHeapUsedSize);
+  assert(samples.at(-2).JSHeapUsedSize < samples.at(-1).JSHeapUsedSize);
+  checkHeap(samples);
+});
+
+test('compiled-code growth is visible in the type summary, without calling it an application retainer', () => {
+  const initial = heapInventory(snapshot([['synthetic', '', 1, 0]]));
+  const report = heapGrowth(initial, snapshot([
+    ['synthetic', '', 1, 0, [['internal', 'compiled', 1]]], ['code', 'system / Code', 2, 12000],
+  ]));
+  assert.deepEqual(report.typeGrowth.find(row => row.type === 'code'), {type: 'code', countDelta: 1, bytesDelta: 12000});
+  assert.equal(report.candidates.length, 0);
+});
+
+test('a hung interaction still gets three GCs and a failure snapshot', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'infuser-soak-test-'));
+  t.after(() => rm(directory, {recursive: true, force: true}));
+  t.mock.method(console, 'error', () => {}); t.mock.method(console, 'table', () => {});
+  const cdp = new EventEmitter(); let garbageCollections = 0;
+  cdp.send = async method => {
+    if (method === 'HeapProfiler.collectGarbage') garbageCollections++;
+    if (method === 'Performance.getMetrics') return {metrics: Object.entries(row(0, 100)).filter(([name]) => name !== 'checkpoint').map(([name, value]) => ({name, value}))};
+    if (method === 'HeapProfiler.takeHeapSnapshot') cdp.emit('HeapProfiler.addHeapSnapshotChunk', {chunk: JSON.stringify(snapshot([['synthetic', '', 1, 0]]))});
+  };
+  const soak = await leakSoak(cdp, {directory, settle: () => {throw Error('Must not await hung interaction');}});
+  await soak.failure(Error('voice cycle deadline'));
+  assert.equal(garbageCollections, 3);
+  assert.equal(JSON.parse(await readFile(join(soak.output, 'failure.json'))).error, 'voice cycle deadline');
+  assert(JSON.parse(await readFile(join(soak.output, 'failure.heapsnapshot'))).snapshot);
+});
+
+test('long grid calibration fits unchanged gates after its fixed compilation warmup', async () => {
+  const data = JSON.parse(await readFile(new URL('./fixtures/leak-grid-calibration.json', import.meta.url)));
+  const samples = data.checkpoints.filter(([cycle]) => cycle >= 400).map(([cycle, JSHeapUsedSize, Nodes, JSEventListeners, Documents, Frames]) => ({
+    checkpoint: cycle === 400 ? 'baseline' : `cycles-${cycle - 400}`, JSHeapUsedSize, Nodes, JSEventListeners, Documents, Frames,
+  }));
+  assert.equal(samples.at(-1).checkpoint, 'cycles-1600');
+  for (let i = 1; i <= samples.length; i++) checkHeap(samples.slice(0, i));
 });

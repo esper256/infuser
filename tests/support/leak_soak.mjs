@@ -54,10 +54,12 @@ function graph(snapshot) {
 }
 
 function inventory(g) {
-  const ids = new Map(), constructors = new Map();
+  const ids = new Map(), constructors = new Map(), types = new Map();
   for (let i = 0; i < g.count; i++) {
     const n = g.node(i);
     ids.set(n.id, n.size);
+    const total = types.get(n.type) || {count: 0, bytes: 0};
+    total.count++; total.bytes += n.size; types.set(n.type, total);
     // V8 names object/native nodes by constructor; retain storage/closure kinds too.
     if (!['object', 'native', 'closure', 'array'].includes(n.type)) continue;
     const key = `${n.type}: ${n.name}`;
@@ -65,7 +67,7 @@ function inventory(g) {
     value.count++; value.bytes += n.size;
     constructors.set(key, value);
   }
-  return {ids, constructors};
+  return {ids, constructors, types};
 }
 
 // Keep inspector-only retainers separate, without subtracting their memory from
@@ -99,7 +101,7 @@ function retainer(g, tree, target) {
 }
 export function heapInventory(snapshot) {return inventory(graph(snapshot));}
 export function heapGrowth(baseline, current) {
-  const g = graph(current), counts = inventory(g).constructors;
+  const g = graph(current), currentInventory = inventory(g), counts = currentInventory.constructors;
   const constructors = [...counts].map(([constructor, value]) => ({
     constructor, count: value.count, grew: value.count - (baseline.constructors.get(constructor)?.count || 0),
     bytes: value.bytes - (baseline.constructors.get(constructor)?.bytes || 0),
@@ -118,7 +120,11 @@ export function heapGrowth(baseline, current) {
     if (delta > group.largestGrowth) {group.largestGrowth = delta; group.target = i;}
     groups.set(key, group);
   }
-  const result = {constructors};
+  const typeGrowth = [...currentInventory.types].map(([type, value]) => ({type,
+    countDelta: value.count - (baseline.types?.get(type)?.count || 0),
+    bytesDelta: value.bytes - (baseline.types?.get(type)?.bytes || 0),
+  })).sort((a, b) => b.bytesDelta - a.bytesDelta);
+  const result = {constructors, typeGrowth};
   for (const category of ['candidates', 'instrumentation', 'unreachable']) {
     result[category] = [...groups.values()].filter(group => group.category === category)
       .sort((a, b) => b.newOrExpandedBytes - a.newOrExpandedBytes).slice(0, 8)
@@ -127,7 +133,7 @@ export function heapGrowth(baseline, current) {
   return result;
 }
 
-export async function leakSoak(cdp, {directory = '.local/leak-soak', settle = async () => {}} = {}) {
+export async function leakSoak(cdp, {metadata = {}, directory = '.local/leak-soak', settle = async () => {}} = {}) {
   await mkdir(directory, {recursive: true});
   const output = await mkdtemp(join(resolve(directory), 'run-'));
   await cdp.send('Performance.enable');
@@ -143,8 +149,8 @@ export async function leakSoak(cdp, {directory = '.local/leak-soak', settle = as
     await writeFile(file, json);
     return {file, heap: JSON.parse(json)};
   }
-  async function measure(label) {
-    await settle();
+  async function measure(label, waitForIdle = true) {
+    if (waitForIdle) await settle();
     for (let i = 0; i < 3; i++) await cdp.send('HeapProfiler.collectGarbage');
     const response = await cdp.send('Performance.getMetrics');
     const available = new Map(response.metrics.map(m => [m.name, m.value]));
@@ -166,17 +172,18 @@ export async function leakSoak(cdp, {directory = '.local/leak-soak', settle = as
   }
   async function finish() {
     assert(rows.length >= 9, 'Need a baseline and at least eight checkpoints for the trend gate');
-    const last = rows.slice(-3).map(row => row.JSHeapUsedSize);
-    assert(!(last[0] < last[1] && last[1] < last[2]), 'Post-GC heap is strictly increasing across the last three checkpoints');
-    await writeFile(join(output, 'results.json'), JSON.stringify({heapAllowance, trend: heapTrend(rows), checkpoints: rows}, null, 2));
+    await writeFile(join(output, 'results.json'), JSON.stringify({metadata, heapAllowance, trend: heapTrend(rows), checkpoints: rows}, null, 2));
     console.table(rows);
     console.log(`Heap snapshots: ${output}`);
   }
   async function failure(error) {
-    const {file, heap} = await measure('failure');
+    // A timed-out interaction may never settle. Capture its live retainers anyway.
+    const {file, heap} = await measure('failure', false);
     const detail = heapGrowth(baselineHeap || {ids: new Map(), constructors: new Map()}, heap);
     console.error(`Leak soak failed: ${error.message}\nFailure snapshot: ${file}`);
     console.table(rows);
+    console.error('Snapshot self-size deltas by node type (includes compiled code; not retained size):');
+    console.table(detail.typeGrowth);
     console.error('Constructor count or self-size growth:');
     for (const row of detail.constructors) console.error(`${row.constructor}: ${row.count} (${row.grew >= 0 ? '+' : ''}${row.grew}); self-size delta ${row.bytes} bytes`);
     console.error('Growth candidates are evidence to investigate, not proof of the leak source. New/expanded bytes can include replacement allocations.');
@@ -189,7 +196,7 @@ export async function leakSoak(cdp, {directory = '.local/leak-soak', settle = as
       if (!detail[category].length) console.error('  None identified.');
       for (const group of detail[category]) console.error(`${group.constructor}: ${group.newOrExpandedBytes} new/expanded bytes; largest node +${group.largestGrowth} bytes\n${group.retainer.join('\n')}`);
     }
-    await writeFile(join(output, 'failure.json'), JSON.stringify({error: error.message, heapAllowance, trend: heapTrend(rows), checkpoints: rows, ...detail}, null, 2));
+    await writeFile(join(output, 'failure.json'), JSON.stringify({error: error.message, metadata, heapAllowance, trend: heapTrend(rows), checkpoints: rows, ...detail}, null, 2));
   }
   return {checkpoint, finish, failure, output};
 }
