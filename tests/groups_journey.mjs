@@ -32,6 +32,14 @@ try {
   assert.equal(await page.locator('#operator-groups').isVisible(),false);
   await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   await page.locator('#admin .admin-panel').getByRole('button',{name:'Groups',exact:true}).click();
+  const homeRow=page.locator('.group-row').filter({has:page.getByRole('button',{name:'Home',exact:true})});
+  await homeRow.getByRole('button',{name:'Rename'}).click();
+  const homeName=page.getByRole('textbox',{name:'New name for Family Arcade'});
+  await homeName.fill('Arcade Club');await homeName.press('Enter');
+  await homeRow.getByText('Arcade Club',{exact:true}).waitFor();
+  await homeRow.getByRole('button',{name:'Rename'}).click();
+  await page.getByRole('textbox',{name:'New name for Arcade Club'}).press('Escape');
+  await homeRow.getByText('Arcade Club',{exact:true}).waitFor();
   await page.getByText('Host health',{exact:true}).click();
   await page.getByText('Monitoring data is stale. Check the host health timer.',{exact:true}).waitFor();
   const family=page.locator('.group-row').filter({hasText:'Other family'});
@@ -52,6 +60,8 @@ try {
   assert.equal(await page.locator('#invite-form').isVisible(),false);
   assert.equal(await page.locator('#credential-form').isVisible(),false);
   await page.locator('#operator-groups').click();
+  await page.locator('.group-row').first().waitFor();
+  assert.equal(await page.locator('#groups-dialog').getByRole('button',{name:'Rename'}).count(),0);
   await page.getByRole('button',{name:'Close groups',exact:true}).click();
   await page.waitForFunction(()=>document.activeElement===document.querySelector('#operator-groups'));
   assert(await page.locator('#admin').isVisible());
@@ -67,6 +77,7 @@ try {
   assert.equal(await page.locator('#operator-groups').isVisible(),false);
   await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   await page.locator('#admin .admin-panel').getByRole('button',{name:'Groups',exact:true}).click();
+  await homeRow.getByText('Arcade Club',{exact:true}).waitFor();
   await page.getByText('Add a group',{exact:true}).click();
   await page.getByLabel('Group name',{exact:true}).fill('Browser family');
   await page.getByLabel('Admin’s Google email',{exact:true}).fill('browser-admin@example.com');
@@ -114,5 +125,5 @@ try {
   assert.deepEqual(await page.locator('body > header').boundingBox(),headerBounds,'admin and player headers have the same layout');
   assert.equal(await page.locator('#operator-groups').count(),0);
   assert.deepEqual(errors,[]);
-  console.log('Browser: inspect, cover, read-only chat, return home, mobile, create group, expiry, operator-only admin menu and focus return passed.');
+  console.log('Browser: inspect, cover, read-only chat, return home, mobile, rename and create groups, expiry, operator-only admin menu and focus return passed.');
 } catch(error){console.error('Page errors:',errors,'Login:',await page?.locator('body').innerText(),'URL:',page?.url());throw error;} finally {await browser.close();}

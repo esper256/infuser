@@ -331,7 +331,32 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["stale"],
         true
     );
-    let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Other family","admin_email":"admin@example.com","admin_name":"Other admin"}))).await?["id"].as_str().unwrap().to_owned();
+    let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Second group","admin_email":"admin@example.com","admin_name":"Other admin"}))).await?["id"].as_str().unwrap().to_owned();
+    let rename = |actor: &str, id: &str, name: &str| {
+        c.member(actor, Method::PUT, &format!("/api/operator/groups/{id}"))
+            .json(&json!({"name":name}))
+    };
+    denied(rename("admin", &group, "Forbidden")).await?;
+    denied(rename("frizz", &group, "Forbidden").header("x-infuser-inspect-group", &group)).await?;
+    assert_eq!(
+        rename("frizz", "missing", "New").send().await?.status(),
+        404
+    );
+    for invalid in ["  ", "Control\ncharacter", &"x".repeat(61)] {
+        assert_eq!(rename("frizz", &group, invalid).send().await?.status(), 422);
+    }
+    assert_eq!(
+        ok(rename("frizz", "home", "Family Arcade")).await?,
+        json!({"id":"home","name":"Family Arcade"})
+    );
+    assert_eq!(
+        ok(rename("frizz", &group, " Other family ")).await?,
+        json!({"id":group,"name":"Other family"})
+    );
+    assert_eq!(
+        ok(c.member("admin", Method::GET, "/api/me")).await?["group"],
+        json!({"id":group,"name":"Other family"})
+    );
     ok(c.member("admin", Method::POST, "/api/admin/members").json(
         &json!({"email":"user@example.com","name":"Other user","limited_communication":true}),
     ))

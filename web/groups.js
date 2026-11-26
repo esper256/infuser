@@ -12,7 +12,7 @@ function home(){sessionStorage.removeItem(KEY);location.assign('/library');}
 export function openHomeChat(){sessionStorage.removeItem(KEY);sessionStorage.removeItem('infuser.visit');location.assign('/library?chat#chat');}
 function inspect(group){sessionStorage.removeItem('infuser.visit');sessionStorage.setItem(KEY,JSON.stringify({group,expires:Date.now()+15*60*1000}));location.assign('/library');}
 export function inspectionHeaders(){return inspection?{'X-Infuser-Inspect-Group':inspection.group}:{};}
-export function initGroups({me,api}) {
+export function initGroups({me,api,onRename}) {
   if(!me.operator)return;
   const el=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
   const button=el('button','Groups');button.id='operator-groups';button.title='Operator: private groups';button.type='button';
@@ -42,9 +42,35 @@ export function initGroups({me,api}) {
   });
   async function load(){
     const result=await api('/api/operator/groups');list.replaceChildren();
-    for(const group of result.groups){const row=el('div');row.className='group-row';const view=el('button',group.home?'Home':'View');
+    for(const group of result.groups){
+      const row=el('div'),label=el('span',group.name),view=el('button',group.home?'Home':'View');
+      row.className='group-row';
       view.type='button';view.onclick=()=>{try{if(group.home)home();else inspect(group.id);}catch{error.textContent='This browser needs session storage to open a temporary view.';}};
-      row.append(el('span',group.name),view);list.append(row);}
+      row.append(label,view);
+      if(!me.inspecting){
+        const rename=el('button','Rename');
+        rename.type='button';rename.setAttribute('aria-label','Rename '+group.name);rename.onclick=()=>editName(group,row,label,view,rename);
+        row.insertBefore(rename,view);
+      }
+      list.append(row);
+    }
+  }
+  function editName(group,row,label,view,rename){
+    const form=el('form'),input=el('input'),save=el('button','Save'),cancel=el('button','Cancel');
+    input.required=true;input.maxLength=60;input.value=group.name;input.setAttribute('aria-label','New name for '+group.name);
+    form.className='group-rename';cancel.type='button';
+    function finish(){row.replaceChildren(label,rename,view);rename.focus();}
+    cancel.onclick=finish;
+    input.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();finish();}};
+    form.onsubmit=async event=>{
+      event.preventDefault();if(save.disabled)return;
+      save.disabled=cancel.disabled=input.disabled=true;error.textContent='';
+      try{
+        const updated=await api('/api/operator/groups/'+encodeURIComponent(group.id),{method:'PUT',body:JSON.stringify({name:input.value})});
+        group.name=updated.name;label.textContent=updated.name;rename.setAttribute('aria-label','Rename '+updated.name);onRename(updated);finish();
+      }catch(problem){error.textContent=problem.message;save.disabled=cancel.disabled=input.disabled=false;input.focus();}
+    };
+    form.append(input,save,cancel);row.replaceChildren(form);error.textContent='';input.focus();input.select();
   }
   if(!me.inspecting){
     const details=el('details');details.append(el('summary','Add a group'));

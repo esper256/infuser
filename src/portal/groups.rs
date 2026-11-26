@@ -75,6 +75,7 @@ pub(super) fn visible(
 pub(super) fn routes() -> Router<Platform> {
     Router::new()
         .route("/api/operator/groups", get(list).post(create))
+        .route("/api/operator/groups/{id}", put(rename))
         .route("/api/operator/health", get(health))
         .route(
             "/api/operator/update",
@@ -182,6 +183,39 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         json!({"groups":d.groups.names.iter().map(|(id,name)| json!({"id":id,"name":name,"home":d.groups.member(&email)==id})).collect::<Vec<_>>()}),
     ))
 }
+fn group_name(raw: &str) -> Result<&str> {
+    let name = raw.trim();
+    ensure!(
+        !name.is_empty() && name.chars().count() <= 60 && !name.chars().any(char::is_control),
+        fault(422, "Use a group name of 1–60 characters.")
+    );
+    Ok(name)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Rename {
+    name: String,
+}
+async fn rename(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<Rename>,
+) -> Answer {
+    p.operator(&h, true).await?;
+    let name = group_name(&body.name)?;
+    p.db.edit(|d| {
+        let current = d
+            .groups
+            .names
+            .get_mut(&id)
+            .ok_or_else(|| fault(404, "Group not found."))?;
+        *current = name.to_owned();
+        Ok(())
+    })?;
+    Ok(reply(json!({"id":id,"name":name})))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Create {
@@ -198,11 +232,7 @@ async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create
             "Enable private_groups in the host configuration first."
         )
     );
-    let name = body.name.trim();
-    ensure!(
-        !name.is_empty() && name.chars().count() <= 60 && !name.chars().any(char::is_control),
-        fault(422, "Use a group name of 1–60 characters.")
-    );
+    let name = group_name(&body.name)?;
     let id = format!("group-{}", &secret()[..12]);
     p.db.edit(|d| {
         d.groups.names.insert(id.clone(), name.into());
