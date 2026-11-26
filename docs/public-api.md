@@ -40,7 +40,7 @@ inspect build status before deciding whether to repeat an operation.
 | GET | `/api/publisher/tags` | Current tag catalog |
 | PUT | `/api/publisher/apps/APP/slug` | Rename the durable URL; preserve old aliases |
 | PUT | `/api/publisher/apps/APP/tags` | Set this game's tags |
-| GET / PATCH | `/api/publisher/apps/APP/metadata` | Read/edit title, description, and art prompt |
+| GET / PATCH | `/api/publisher/apps/APP/metadata` | Read/edit title, description, art prompt, and supported [input methods](game-metadata.md#input-methods) |
 | PUT / DELETE | `/api/publisher/apps/APP/card-art` | Upload/clear a cover override without a build |
 | PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
 | GET | same | Inspect metadata and uploaded file inventory |

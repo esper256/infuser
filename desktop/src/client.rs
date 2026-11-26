@@ -219,6 +219,8 @@ pub fn forget(root: &Path, request: &Request) -> Result<()> {
 }
 #[derive(Deserialize, Serialize)]
 pub struct Launch {
+    #[serde(default)]
+    pub gamepad_layouts: std::collections::BTreeMap<u8, String>,
     version: u8,
     pub app_id: String,
     #[serde(default)]
@@ -362,7 +364,7 @@ pub fn run_with_http(
     let envelope = run.path().join("infuser-launch.json");
     private_json(
         &envelope,
-        &json!({"version":1,"game_origin":launch.game_origin,"token":launch.token,"save_namespace":namespace,"guest":launch.guest}),
+        &json!({"version":1,"game_origin":launch.game_origin,"token":launch.token,"save_namespace":namespace,"guest":launch.guest,"gamepad_layouts":launch.gamepad_layouts}),
     )?;
     run.spawning()?;
     if launch.visit.is_some() {

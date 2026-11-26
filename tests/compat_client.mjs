@@ -31,12 +31,14 @@ async function open(guest,versioned=false,previous){
  if(versioned){
   // Node cannot import HTTPS modules. Load the actual served module bytes and
   // resolve the core's cloud import to those bytes, without changing SDK logic.
+  const pads=await transport('/_infuser/sdk/v1/gamepads.js',{headers});assert.equal(pads.status,200);
+  const padsUrl='data:text/javascript;base64,'+Buffer.from(await pads.text()).toString('base64');
   const cloud=await transport('/_infuser/sdk/v1/cloud.js',{headers});assert.equal(cloud.status,200);
   const observer=await transport('/_infuser/sdk/v1/session-fetch.js',{headers});assert.equal(observer.status,200);
   const observerUrl='data:text/javascript;base64,'+Buffer.from(await observer.text()).toString('base64');
   const cloudUrl='data:text/javascript;base64,'+Buffer.from((await cloud.text()).replace("'./session-fetch.js'",JSON.stringify(observerUrl))).toString('base64');
   const r=await transport('/_infuser/sdk/v1.js',{headers});assert.equal(r.status,200);
-  source='data:text/javascript;base64,'+Buffer.from((await r.text()).replace("'/_infuser/sdk/v1/cloud.js'",JSON.stringify(cloudUrl)).replace("'/_infuser/sdk/v1/session-fetch.js'",JSON.stringify(observerUrl))).toString('base64')+'#'+(++serial);
+  source='data:text/javascript;base64,'+Buffer.from((await r.text()).replace("'/_infuser/sdk/v1/gamepads.js'",JSON.stringify(padsUrl)).replace("'/_infuser/sdk/v1/cloud.js'",JSON.stringify(cloudUrl)).replace("'/_infuser/sdk/v1/session-fetch.js'",JSON.stringify(observerUrl))).toString('base64')+'#'+(++serial);
  }
  else source=pathToFileURL(new URL('./fixtures/legacy-sdk/infuser.js',import.meta.url).pathname).href+'?instance='+(++serial);
  const sdk=await import(source);const context=await sdk.ready;await Promise.all(outstanding);

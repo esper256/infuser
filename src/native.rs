@@ -25,8 +25,19 @@ pub struct Device {
     pub email: String,
     pub created: u64,
 }
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PadLayout {
+    Xbox,
+    Playstation,
+    Nintendo,
+}
+
+pub type PadLayouts = BTreeMap<u8, PadLayout>;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Play {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub gamepad_layouts: PadLayouts,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployment: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

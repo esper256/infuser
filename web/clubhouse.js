@@ -1,3 +1,4 @@
+import { automaticLayout, connectedPads, nativeLayouts, gamepadLaunchUrl, preference, savePreference } from '/assets/gamepads.js';
 import { watchInput } from '/assets/activity-input.js';
 import { initFeedback } from '/assets/feedback.js';
 import { screenshotTile, fillScreenshotPicker, attachmentDraft } from '/assets/screenshots.js';
@@ -469,12 +470,24 @@ function renderGameDetail(){
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags','text-button');edit.type='button';edit.onclick=()=>openTags(game);tags.append(edit);}if(tags.childElementCount)info.append(tags);
   if(game.description)info.append(el('p',game.description,'game-description'));
   const controlNames = {keyboard:'Keyboard', mouse:'Mouse', keyboard_mouse:'Keyboard + mouse', touch:'Touch', gamepad:'Gamepad'};
-  const controls = (game.input_methods || []).filter(method => Object.hasOwn(controlNames, method)).map(method => controlNames[method]);
+  const controls = (game.input_methods || []).filter(method => Object.hasOwn(controlNames, method));
+  const keyboard = 'M2 6h20v12H2z M5 10h1m3 0h1m3 0h1m3 0h1 M7 14h10';
+  const mouse = 'M8 10a4 4 0 0 1 8 0v5a4 4 0 0 1-8 0z M12 6v5';
+  const controlIcons = { keyboard, mouse,
+    keyboard_mouse:'M1 8h13v9H1z M3 11h2m2 0h2m2 0h1 M5 14h5 M17 10a3 3 0 0 1 6 0v4a3 3 0 0 1-6 0z M20 7v4',
+    touch:'M9 13V5a2 2 0 0 1 4 0v6l4 1q4 1 3 5l-1 4H9l-5-7q-1-3 2-2l3 2',
+    gamepad:'M8 6h8q4 0 5 5l1 5q0 4-3 2l-4-3H9l-4 3q-3 2-3-2l1-5q1-5 5-5z M7 9v5m-2.5-2.5h5 M16 10h.5m2 2h.5'
+  };
   if (controls.length) {
     const row = el('p', 'Playable with ', 'detail-input-methods');
-    for (const [index, label] of controls.entries()) {
+    for (const [index, method] of controls.entries()) {
       if (index) row.append(' · ');
-      row.append(el('span', label));
+      const item = el('span', controlNames[method]);
+      const icon = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      icon.setAttribute('viewBox','0 0 24 24'); icon.setAttribute('aria-hidden','true');
+      const path = document.createElementNS(icon.namespaceURI,'path');
+      path.setAttribute('d', controlIcons[method]); icon.append(path);
+      item.prepend(icon); row.append(item);
     }
     info.append(row);
   }
@@ -872,7 +885,7 @@ async function start(game,button,card,{guest=false,intent}={}) {
       const status=await api('/api/launches/'+launch.launch_id);state=status.state;
       if(state==='failed'||state==='stopping'||state==='ended')throw Error(status.error||'The game could not start. Its creator can try an update.');
     }
-    tab.opener=null;tab.location.replace(launch.url);
+    tab.opener=null;tab.location.replace(gamepadLaunchUrl(launch.url));
   } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
 }
 function desktopPlatform(){
@@ -888,7 +901,8 @@ async function startDesktop(game,button,card,{guest=false}={}){
   const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
   try{
-    const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest})});
+    const gamepadLayouts = nativeLayouts();
+    const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest,...(Object.keys(gamepadLayouts).length ? {gamepad_layouts:gamepadLayouts} : {})})});
     document.querySelector('#desktop-launch')?.remove();
     const dialog=el('dialog');dialog.id='desktop-launch';dialog.setAttribute('aria-label','Open '+game.title);
     const heading=el('h2','Let’s play'),text=el('p','Open Infuser Play when your browser asks. First time? Install it, then press Play again.');
@@ -1603,6 +1617,44 @@ function setupUserSettings(signOut){
   voiceRow.append(el('p','Volumes are saved for this group. Microphone and speaker choices stay on this device.','quiet'),voiceSettings);
   voiceBody.replaceChildren(voiceRow);
 
+  const padNames = {xbox:'Xbox', playstation:'PlayStation', nintendo:'Nintendo'};
+  function renderGamepads() {
+    const panel = $('settings-gamepads');
+    const pads = connectedPads();
+    panel.replaceChildren();
+    if (!pads.length) {
+      panel.append(el('p', 'Connect a controller and press a button to see it here.', 'quiet'));
+      return;
+    }
+    panel.append(el('p', 'Check the bottom face button: A for Xbox, × for PlayStation, B for Nintendo.', 'quiet settings-hint'));
+    for (const pad of pads) {
+      const label = el('label', 'Controller ' + (pad.index + 1) + ' · ' + pad.id, 'settings-field');
+      const select = el('select');
+      const automatic = el('option', 'Automatic (' + padNames[automaticLayout(pad.id)] + ')');
+      automatic.value = 'auto';
+      select.append(automatic);
+      for (const [value, name] of Object.entries(padNames)) {
+        const option = el('option', name); option.value = value; select.append(option);
+      }
+      select.value = preference(pad.id);
+      select.onchange = () => {
+        try {
+          savePreference(pad.id, select.value);
+          for (const other of panel.querySelectorAll('select')) {
+            if (other.dataset.model === pad.id) other.value = select.value;
+          }
+        } catch { select.value = preference(pad.id); notice('Could not save this controller layout on this device.'); }
+      };
+      select.dataset.model = pad.id;
+      label.append(select); panel.append(label);
+    }
+    panel.append(el('p', 'Saved in this browser for each controller model. Applies when you launch a game.', 'quiet settings-scope'));
+  }
+  const padRegion = $('settings-gamepads-region');
+  function refreshGamepads() { if (dialog.open && padRegion.open) renderGamepads(); }
+  padRegion.addEventListener('toggle', refreshGamepads);
+  window.addEventListener('gamepadconnected', refreshGamepads);
+  window.addEventListener('gamepaddisconnected', refreshGamepads);
   $('close-settings').onclick=()=>dialog.close();
   dialog.addEventListener('click',event=>{
     if(event.target===dialog){
@@ -1615,7 +1667,7 @@ function setupUserSettings(signOut){
     $('settings-status').textContent='';
     if(!document.querySelector('dialog[open]')&&!$('voice-mixer')?.matches(':popover-open'))$('account-trigger')?.focus({preventScroll:true});
   });
-  return ()=>{syncAppearance();$('settings-status').textContent='';dialog.showModal();};
+  return ()=>{syncAppearance();$('settings-status').textContent='';dialog.showModal();refreshGamepads();};
 }
 function setupAccount(){
   const menu=el('details',undefined,'header-menu profile-menu'),trigger=el('summary',undefined,'profile-button'),panel=el('div',undefined,'account-menu');

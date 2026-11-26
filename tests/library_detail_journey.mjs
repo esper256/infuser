@@ -94,6 +94,7 @@ try {
  await open();assert.equal(await dialog.locator('.detail-input-methods').count(),0);
  game.input_methods=['keyboard_mouse','gamepad'];await page.evaluate(()=>refreshTestLibrary());
  assert.equal(await dialog.locator('.detail-input-methods').textContent(),'Playable with Keyboard + mouse · Gamepad');
+ assert.equal(await dialog.locator('.detail-input-methods svg[aria-hidden=true]').count(),2);
  assert.equal(await card().locator('.detail-input-methods').count(),0);
  const previousViewport=page.viewportSize();
  await page.setViewportSize({width:320,height:640});

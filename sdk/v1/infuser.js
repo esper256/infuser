@@ -216,7 +216,9 @@ export const sessions = {
   connect: async options => (await import('/_infuser/sdk/v1/sessions.js')).connect(options),
   disconnect: async socket => (await import('/_infuser/sdk/v1/sessions.js')).disconnect(socket)
 };
-export const Infuser = { version, ready, saves, tabs, onBeforeLeave, leave, peers, peerjs, cloud, runtime, presence, launchIntent, sessions };
+import {gamepads} from '/_infuser/sdk/v1/gamepads.js';
+export {gamepads};
+export const Infuser = { gamepads, version, ready, saves, tabs, onBeforeLeave, leave, peers, peerjs, cloud, runtime, presence, launchIntent, sessions };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.
