@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs INFUSER_CHROMIUM=/path/to/chromium node tests/user_settings_journey.mjs
 import assert from 'node:assert/strict';
 import {readFile, mkdir} from 'node:fs/promises';
@@ -79,7 +80,8 @@ try {
     if (avatar) file = `assets/avatars/${avatar[1]}-${avatar[2]}.webp`;
     if (file) {
       try {
-        const body = await readFile(new URL(file, root));
+        let body = await readFile(new URL(file, root));
+        if (file === 'web/themes.js') body = ordinaryThemeCalendar(body.toString());
         const contentType = file.endsWith('.js') ? 'text/javascript'
           : file.endsWith('.css') ? 'text/css'
           : file.endsWith('.svg') ? 'image/svg+xml'
@@ -188,6 +190,8 @@ try {
 
   // White custom base switches to dark high-contrast ink so all Settings controls stay readable.
   await page.locator('#custom-color-primary').fill('#ffffff');
+  // Measure the final palette after the button's background transition.
+  await page.locator('#reset-custom-colors').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
   const whiteContrast = await page.evaluate(() => {
     const parseRgb = value => (value.match(/\d+/g) || [0, 0, 0]).slice(0, 3).map(Number);
     const lum = ([r, g, b]) => {

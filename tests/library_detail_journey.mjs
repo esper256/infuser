@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Shared Library presentation/interaction regression with an isolated mock API.
 // Set INFUSER_PLAYWRIGHT and INFUSER_CHROMIUM when using an existing browser install.
 import {readFile,mkdir} from 'node:fs/promises';
@@ -72,6 +73,7 @@ try {
    else if(path==='/sw.js')return route.fulfill({status:404,body:''});
    else {file='web/index.html';type='text/html';}
    let body=await readFile(new URL(file,root));
+   if(file==='web/themes.js')body=ordinaryThemeCalendar(body.toString());
    if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.refreshTestLibrary=refresh;window.testRecentAge=recentAge;window.refreshTestAdmin=adminRefresh;';
    return route.fulfill({body,contentType:type});
   }

@@ -1479,7 +1479,7 @@ function setupUserSettings(signOut){
     }
   }
   function scheduleAppearanceSave(immediate=true){
-    if(me.inspecting)return;
+    if(me.inspecting||themes.seasonalLocked)return;
     clearTimeout(saveTimer);saveTimer=null;
     if(immediate)void persistAppearance();
     else saveTimer=setTimeout(()=>{saveTimer=null;void persistAppearance();},250);
@@ -1529,7 +1529,12 @@ function setupUserSettings(signOut){
 
   let renderedSchemeTheme='';
   function syncAppearance(){
-    const activeTheme=themes.current;
+    const activeTheme=themes.current,locked=themes.seasonalLocked;
+    const seasonal=themeSelect.querySelector('option[value="thanksgiving"]');
+    if(locked&&!seasonal){const option=el('option','Thankfuser');option.value='thanksgiving';themeSelect.append(option);}
+    if(!locked&&seasonal)seasonal.remove();
+    themeSelect.disabled=!!me.inspecting||locked;
+    appearanceScope.textContent=locked?'Happy Thanksgiving! Your usual theme and colors return tomorrow.':'Saved for this group across your devices.';
     themeSelect.value=activeTheme;
     const schemes=themes.schemesFor(activeTheme);
     schemeGroup.hidden=!schemes.length;
@@ -1936,9 +1941,26 @@ function reactionBurst(target,emoji){
   hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
   setTimeout(()=>burst.remove(),950);
 }
+function turkeyStampede(){
+  const flock=el('div',undefined,'reaction-burst turkey-stampede');flock.setAttribute('popover','manual');flock.setAttribute('aria-hidden','true');document.body.append(flock);flock.showPopover();
+  const count=innerWidth<600?12:20;
+  for(let i=0;i<count;i++){
+    const turkey=el('span','🦃','stampede-turkey'),reverse=i%5===0,size=34+(i%4)*12;
+    const from=reverse?innerWidth+size:-size*2,to=reverse?-size*2:innerWidth+size;
+    const lane=innerHeight*(.18+(i%5)*.14),drift=(i%3-1)*70;
+    turkey.style.fontSize=size+'px';flock.append(turkey);
+    const frames=Array.from({length:25},(_,step)=>{
+      const t=step/24,bounce=Math.abs(Math.sin(t*Math.PI*12))*18;
+      return {offset:t,transform:`translate(${from+(to-from)*t}px,${lane+drift*t-bounce}px) scaleX(${reverse?1:-1}) rotate(${Math.sin(t*Math.PI*16)*14}deg)`,opacity:t<.94?1:(1-t)/.06};
+    });
+    turkey.animate(frames,{duration:1700+(i%4)*180,delay:(i%7)*100,easing:'linear',fill:'both'});
+  }
+  setTimeout(()=>flock.remove(),3100);
+}
 function updateConfetti(target){
   document.querySelector('.reaction-burst')?.remove();
   if(!target.isConnected||reactionMotion.matches||document.hidden)return;
+  if(window.InfuserThemes?.seasonalLocked){turkeyStampede();return;}
   const bounds=target.getBoundingClientRect(),x=bounds.left+bounds.width/2,y=bounds.top+bounds.height/2;
   const burst=el('div',undefined,'reaction-burst update-confetti');burst.setAttribute('popover','manual');burst.setAttribute('aria-hidden','true');document.body.append(burst);burst.showPopover();
   const colors=['#ff668a','#ffc857','#62dfb0','#66b8ff','#b38aff','#ff914d'];

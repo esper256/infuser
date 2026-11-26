@@ -324,3 +324,13 @@ all gates with these peak increases above their fixed post-warmup baselines:
 
 Documents and frames stayed at one in every run. These are observed results,
 not expected heap values for later runs or proof that untested paths cannot leak.
+
+## Seasonal appearance checks
+
+`node tests/thanksgiving_journey.mjs` runs the Thanksgiving branding, temporary
+appearance lock, restoration at midnight, Recently control and turkey flock under
+the production CSP with a mocked local API. Use the usual `INFUSER_PLAYWRIGHT`
+and `INFUSER_CHROMIUM` overrides. `node --test tests/themes.mjs` covers the holiday
+calendar across years and preservation of saved custom colors/profile choices.
+The ordinary Library/Settings journeys fix only the theme calendar to a non-holiday;
+the rest of the app keeps its real timers and clock.

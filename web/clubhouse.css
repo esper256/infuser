@@ -1244,3 +1244,6 @@ button.feed-row:hover { border-color: var(--accent); }
   .house-call-editor input{font-size:16px}
   .house-call-quiet{gap:8px}
 }
+
+.thankfuser-wordmark{display:none}
+.stampede-turkey{position:absolute;left:0;top:0;line-height:1;filter:drop-shadow(0 5px 3px #0005);will-change:transform}

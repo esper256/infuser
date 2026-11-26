@@ -9,6 +9,11 @@
   const profilePrefix = 'infuser.appearance.';
   const sessionProfileKey = 'infuser.profile';
   const defaultId = 'nightglass';
+  const holidayId = 'thanksgiving';
+  const holidayTheme = Object.freeze({id: holidayId, name: 'Thankfuser', status: 'seasonal'});
+  // U.S. Thanksgiving in each device's local calendar: the fourth Thursday.
+  const isThanksgiving = date => date.getMonth() === 10 && date.getDay() === 4 && date.getDate() >= 22 && date.getDate() <= 28;
+  let holidayActive = isThanksgiving(new Date());
   const defaultCustom = Object.freeze({primary: '#122128', accent: '#b5ead6', secondary: '#e8d5a4'});
   const hexColor = /^#[0-9a-f]{6}$/i;
   const nightglassSchemes = Object.freeze([
@@ -131,12 +136,13 @@
     return readLast() || readLegacy() || normalizeAppearance(null);
   }
   const bootState = resolveInitialState();
+  let preferredTheme = bootState.theme;
   let savedSchemes = {...bootState.schemes};
   let savedCustom = {...bootState.custom};
-  function currentSnapshot(themeId = document.documentElement.dataset.theme) {
+  function currentSnapshot(themeId = preferredTheme) {
     return normalizeAppearance({theme: themeId, schemes: savedSchemes, custom: savedCustom});
   }
-  function persist(themeId = document.documentElement.dataset.theme) {
+  function persist(themeId = preferredTheme) {
     const snap = currentSnapshot(themeId);
     if (activeProfileId) {
       writeJson(profileKey(activeProfileId), snap);
@@ -148,6 +154,7 @@
     }
   }
   function schemeFor(themeId) {
+    if (themeId === holidayId) return '';
     const id = resolve(themeId);
     return resolveScheme(id, savedSchemes[id]);
   }
@@ -312,7 +319,7 @@
       const sheet = registered.find(item => item && item.id === id && typeof item.href === 'string' && item.href);
       return sheet ? sheet.href : null;
     }
-    return catalog.some(theme => theme.id === id) ? '/assets/themes/' + id + '.css' : null;
+    return id === holidayId || catalog.some(theme => theme.id === id) ? '/assets/themes/' + id + '.css' : null;
   }
   function escapeAttr(value) {
     return String(value).replace(/[&"<>]/g, char => ({'&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;'}[char]));
@@ -390,17 +397,35 @@
     if (scheme === 'custom') applyCustomTokens(customColorsFor(id));
     else clearCustomTokens();
   }
+  const originalBrand = new WeakMap();
+  function paintBrand() {
+    if (typeof document.querySelectorAll !== 'function') return;
+    for (const image of document.querySelectorAll('.brand-icon,.chooser-brand > img')) {
+      if (!originalBrand.has(image)) originalBrand.set(image, image.getAttribute('src'));
+      const src = holidayActive ? '/assets/themes/thanksgiving/turkey.png' : originalBrand.get(image);
+      if (image.getAttribute('src') !== src) image.setAttribute('src', src);
+    }
+    const wordmark = document.querySelector('.brand-wordmark');
+    if (wordmark) wordmark.setAttribute('aria-label', (holidayActive ? 'Thankfuser' : 'Infuser') + ' Library');
+    const chooser = document.querySelector('.chooser-brand > span');
+    if (chooser) chooser.textContent = holidayActive ? 'Thankfuser' : 'Infuser';
+    if (/^(Infuser|Thankfuser)( ·|$)/.test(document.title)) document.title = document.title.replace(/^(Infuser|Thankfuser)/, holidayActive ? 'Thankfuser' : 'Infuser');
+  }
   function applyNow(id) {
+    preferredTheme = id;
+    id = holidayActive ? holidayId : id;
     document.documentElement.dataset.theme = id;
     applySchemeFor(id);
     paintChrome();
+    paintBrand();
     window.dispatchEvent(new Event('infuser-theme-change'));
   }
   let generation = 0;
   function applyState(state, shouldPersist = false) {
     const normalized = normalizeAppearance(state);
     const mine = ++generation;
-    const href = hrefFor(normalized.theme);
+    const effective = holidayActive ? holidayId : normalized.theme;
+    const href = hrefFor(effective);
     const finish = () => {
       if (mine !== generation) return;
       savedSchemes = {...normalized.schemes};
@@ -409,22 +434,25 @@
       applyNow(normalized.theme);
     };
     if (href == null) return Promise.reject(new Error('theme'));
-    if (!href || sheetReady(existingLink(normalized.theme))) { finish(); return Promise.resolve(); }
-    return ensure(normalized.theme, href).then(finish);
+    if (!href || sheetReady(existingLink(effective))) { finish(); return Promise.resolve(); }
+    return ensure(effective, href).then(finish);
   }
   if (typeof document.addEventListener === 'function' && document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', paintChrome);
+    document.addEventListener('DOMContentLoaded', () => { paintChrome(); paintBrand(); });
   }
   let diagnosticAppearance;
   window.InfuserThemes = Object.freeze({
     get diagnosticAppearance(){return diagnosticAppearance;},
-    catalog, defaultId, defaultCustom,
+    get catalog() { return holidayActive ? Object.freeze([...catalog, holidayTheme]) : catalog; },
+    get seasonalLocked() { return holidayActive; },
+    refreshSeason,
+    defaultId, defaultCustom,
     get current() { return document.documentElement.dataset.theme; },
     get currentScheme() { return schemeFor(document.documentElement.dataset.theme); },
     get profileId() { return activeProfileId; },
     snapshot() { return currentSnapshot(); },
     schemesFor(themeId = document.documentElement.dataset.theme) {
-      return schemesOf(resolve(themeId));
+      return themeId === holidayId ? emptySchemes : schemesOf(resolve(themeId));
     },
     schemeFor(themeId = document.documentElement.dataset.theme) {
       return schemeFor(themeId);
@@ -471,6 +499,7 @@
       return applyState(target, true).then(() => migrated, () => migrated);
     },
     select(id) {
+      if (holidayActive) return Promise.resolve();
       const selected = resolve(id);
       const mine = ++generation;
       const href = hrefFor(selected);
@@ -484,6 +513,7 @@
       return ensure(selected, href).then(finish);
     },
     selectScheme(schemeId, themeId = document.documentElement.dataset.theme) {
+      if (holidayActive) return '';
       const target = resolve(themeId);
       const schemes = schemesOf(target);
       if (!schemes.length) return '';
@@ -499,6 +529,7 @@
       return resolved;
     },
     setCustomColors(colors, themeId = document.documentElement.dataset.theme) {
+      if (holidayActive) return customColorsFor(preferredTheme);
       const target = resolve(themeId);
       const schemes = schemesOf(target);
       if (!schemes.some(scheme => scheme.id === 'custom')) return customColorsFor(target);
@@ -514,6 +545,7 @@
       return next;
     },
     resetCustomColors(themeId = document.documentElement.dataset.theme) {
+      if (holidayActive) return customColorsFor(preferredTheme);
       const target = resolve(themeId);
       delete savedCustom[target];
       persist();
@@ -525,9 +557,28 @@
       return customColorsFor(target);
     },
   });
-  const initialHref = hrefFor(bootState.theme);
-  if (initialHref) preloadInitial(bootState.theme, initialHref);
+  const initialTheme = holidayActive ? holidayId : bootState.theme;
+  const initialHref = hrefFor(initialTheme);
+  if (initialHref) preloadInitial(initialTheme, initialHref);
   applyNow(initialHref == null ? defaultId : bootState.theme);
+  // One midnight timeout, paused while hidden. Focus/visibility also handle sleep
+  // and time-zone changes. The override never enters a saved appearance snapshot.
+  let seasonTimer;
+  async function refreshSeason() {
+    if (typeof clearTimeout === 'function') clearTimeout(seasonTimer);
+    const date = new Date();
+    if (typeof setTimeout === 'function' && !document.hidden) {
+      const midnight = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+      seasonTimer = setTimeout(() => { void refreshSeason(); }, Math.max(1, midnight - date + 20));
+    }
+    const next = isThanksgiving(date);
+    if (next === holidayActive) return;
+    holidayActive = next;
+    try { await applyState(currentSnapshot()); } catch { /* Retry loading on the next focus. */ holidayActive = !next; }
+  }
+  void refreshSeason();
+  window.addEventListener('focus', () => { void refreshSeason(); });
+  if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { void refreshSeason(); });
   window.addEventListener('storage', event => {
     if (activeProfileId) {
       if (event.key !== profileKey(activeProfileId) && event.key !== null) return;
