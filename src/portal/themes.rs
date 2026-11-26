@@ -64,7 +64,7 @@ fn schemes_for(theme: &str) -> &'static [&'static str] {
 impl Appearance {
     pub fn validate(self) -> Result<Self> {
         ensure!(
-            known_theme(&self.theme),
+            self.theme != "thanksgiving" && known_theme(&self.theme),
             fault(400, "Choose a theme from the list.")
         );
         let mut schemes = BTreeMap::new();
@@ -158,6 +158,8 @@ pub(super) async fn put_appearance(
 // and asset paths here, add `bytes` arms, and add a catalog entry in
 // `web/themes.js`. Do not add a stylesheet `<link>` in HTML.
 const FILES: &[&str] = &[
+    "thanksgiving.css",
+    "thanksgiving/turkey.png",
     "nightglass.css",
     "cartridge-club.css",
     "cartridge-club/lilita-one-latin.woff2",
@@ -290,6 +292,14 @@ fn requested_version(uri: &axum::http::Uri) -> Option<&str> {
 
 fn bytes(path: &str) -> Option<(&'static str, &'static [u8])> {
     Some(match path {
+        "thanksgiving.css" => (
+            "text/css",
+            include_bytes!("../../web/themes/thanksgiving.css").as_slice(),
+        ),
+        "thanksgiving/turkey.png" => (
+            "image/png",
+            include_bytes!("../../web/themes/thanksgiving/turkey.png").as_slice(),
+        ),
         "nightglass.css" => (
             "text/css",
             include_bytes!("../../web/themes/nightglass.css").as_slice(),
@@ -619,6 +629,11 @@ mod tests {
         assert!(default_dropped.schemes.is_empty());
 
         for bad in [
+            Appearance {
+                theme: "thanksgiving".into(),
+                schemes: BTreeMap::new(),
+                custom: BTreeMap::new(),
+            },
             Appearance {
                 theme: "unknown-theme".into(),
                 schemes: BTreeMap::new(),

@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Real-browser performance/refresh regression with a 40-game, 40-friend library.
 // INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs INFUSER_CHROMIUM=/path/to/chromium node tests/library_refresh_journey.mjs
 import assert from 'node:assert/strict';
@@ -26,6 +27,7 @@ try{
    healthRequests++;if(holdHealth){heldHealth.push(route);return;}
    return route.fulfill({json:{sessions:[]}});
   }
+  if(path==='/api/admin/house-calls')return route.fulfill({json:{topic_set:false,images:[],profiles:[],quiet_hours:null}});
   if(path==='/api/admin/game-authors')return route.fulfill({json:{games:[],members:[]}});
   if(path==='/api/admin/members')return route.fulfill({json:{members:Object.fromEntries(friends.map(p=>[p.id,{name:p.name,enabled:true}]))}});
   if(path==='/api/admin/games')return route.fulfill({json:{games:[]}});
@@ -36,6 +38,7 @@ try{
   const file=path==='/library'?'web/index.html':path==='/art'?'docs/design-explorations/card-art-guide/firefly-drift.webp':path.startsWith('/assets/')?'web/'+path.slice(8):null;
   if(file)try{
    let body=await readFile(new URL(file,root));
+   if(file==='web/themes.js')body=ordinaryThemeCalendar(body.toString());
    if(file==='web/clubhouse.js'){
     if(process.env.INFUSER_CLUBHOUSE_SOURCE)body=await readFile(process.env.INFUSER_CLUBHOUSE_SOURCE);
     body=body.toString()+'\nwindow.refreshLibrary=refresh;window.refreshHealth=refreshNetworkHealth;window.libraryRefreshing=()=>refreshing;';
@@ -175,7 +178,7 @@ try{
  holdHealth=true;const beforeHealth=healthRequests,health=page.waitForRequest('**/api/admin/peer-health');
  await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
  await page.locator('#admin-controls').waitFor();
- assert.equal(await page.locator('#admin .admin-region').count(),7);
+ assert.equal(await page.locator('#admin .admin-region').count(),8);
  assert.equal(await page.locator('#admin .admin-region[open]').count(),0,'admin regions start folded');
  assert.equal(await page.locator('#members').isVisible(),false);assert.equal(await page.locator('#credentials').isVisible(),false);
  await page.evaluate(()=>refreshHealth());assert.equal(healthRequests,beforeHealth,'folded diagnostics do not poll');

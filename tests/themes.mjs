@@ -4,7 +4,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const source=readFileSync(new URL('../web/themes.js',import.meta.url),'utf8');
-function boot(saved,{blocked=false,code=source,loading=false,sheets}={}) {
+const ordinaryTime = new Date(2026, 6, 1, 12).getTime();
+class OrdinaryDate extends Date { constructor(...args) { super(...(args.length ? args : [ordinaryTime])); } }
+function boot(saved,{blocked=false,code=source,loading=false,sheets,now=ordinaryTime}={}) {
+  const clock={now};
+  class CalendarDate extends Date { constructor(...args) { super(...(args.length ? args : [clock.now])); } }
   const events=new Map(), links=[], written=[];
   function makeLink(){
     const listeners=new Map();
@@ -46,11 +50,12 @@ function boot(saved,{blocked=false,code=source,loading=false,sheets}={}) {
   const values=new Map(saved===undefined?[]:[['infuser.theme',saved]]);
   const localStorage={getItem:key=>{if(blocked)throw Error('blocked');return values.get(key)??null;},setItem:(key,value)=>{if(blocked)throw Error('blocked');values.set(key,value);}};
   const window={addEventListener:(name,fn)=>events.set(name,fn),dispatchEvent:()=>{}};
-  const sandbox={window,document,localStorage,Event:class {}};
+  const sandbox={window,document,localStorage,Date:CalendarDate,Event:class {}};
   if(sheets)sandbox.InfuserThemeSheets=sheets;
   vm.runInNewContext(code,sandbox);
   return {
     themes:window.InfuserThemes,values,links,written,
+    setDate:date=>{clock.now=date.getTime();},
     storage:event=>events.get('storage')(event),
     load(id){
       const link=links.find(item=>item.dataset.infuserTheme===id);
@@ -204,7 +209,7 @@ test('browser chrome token is copied onto the theme-color meta',()=>{
   const values=new Map();
   const localStorage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value)};
   const window={addEventListener(){},dispatchEvent(){}};
-  vm.runInNewContext(source,{window,document,localStorage,getComputedStyle:()=>({getPropertyValue:()=>' #0c1017 '}),Event:class {}});
+  vm.runInNewContext(source,{Date:OrdinaryDate,window,document,localStorage,getComputedStyle:()=>({getPropertyValue:()=>' #0c1017 '}),Event:class {}});
   assert.equal(meta.content,'#0c1017');
 });
 test('blocked storage does not break selection for this visit',async()=>{
@@ -322,7 +327,7 @@ test('nightglass color schemes persist, validate, sync across tabs, and stay col
     };
     let changes=0;
     const window={addEventListener:(name,fn)=>events.set(name,fn),dispatchEvent:()=>{changes++;}};
-    vm.runInNewContext(source,{window,document,localStorage,Event:class {}});
+    vm.runInNewContext(source,{Date:OrdinaryDate,window,document,localStorage,Event:class {}});
     return {
       themes:window.InfuserThemes,documentElement,values,
       storage:event=>events.get('storage')(event),
@@ -464,7 +469,7 @@ test('per-profile appearance caches by player_id, migrates once, and isolates cr
     const session=new Map(profile?[['infuser.profile',profile]]:[]);
     const sessionStorage={getItem:k=>session.get(k)??null,setItem:(k,v)=>session.set(k,v)};
     const window={addEventListener:(name,fn)=>events.set(name,fn),dispatchEvent:()=>{}};
-    vm.runInNewContext(source,{window,document,localStorage,sessionStorage,Event:class {}});
+    vm.runInNewContext(source,{Date:OrdinaryDate,window,document,localStorage,sessionStorage,Event:class {}});
     return {
       themes:window.InfuserThemes,documentElement,styles,values,
       storage:event=>events.get('storage')(event),
@@ -524,4 +529,36 @@ test('per-profile appearance caches by player_id, migrates once, and isolates cr
   assert.equal(clean.has('infuser.appearance.pC'),true);
   assert.equal(clean.has('infuser.appearance.pB'),false,'deleted profile cache is removed');
   assert.equal(clean.has('infuser.theme.last'),true,'browser last theme stays intact');
+});
+
+
+test('Thanksgiving is only the fourth Thursday, with no saved holiday theme',async()=>{
+  for(const [year,day] of [[2024,28],[2025,27],[2026,26],[2027,25],[2028,23],[2029,22],[2030,28]]){
+    for(const offset of [-1,0,1,7]){
+      const app=boot('castle-keep',{now:new Date(year,10,day+offset,12).getTime()});
+      assert.equal(app.themes.seasonalLocked,offset===0,`${year} November ${day+offset}`);
+      assert.equal(app.themes.current,offset===0?'thanksgiving':'castle-keep');
+      assert.equal(app.themes.catalog.some(theme=>theme.id==='thanksgiving'),offset===0);
+      assert.equal(app.themes.snapshot().theme,'castle-keep');
+      assert.equal(app.values.get('infuser.theme'),'castle-keep');
+      if(offset===0){await app.themes.select('nightglass');assert.equal(app.themes.current,'thanksgiving');}
+    }
+  }
+});
+test('holiday override restores custom colors and survives profile switches without saving it',async()=>{
+  const app=boot('nightglass',{now:new Date(2026,10,25,23,59).getTime()});
+  app.themes.setCustomColors({primary:'#123456',accent:'#fedcba',secondary:'#89abcd'});
+  const saved=JSON.stringify(app.themes.snapshot()),storage=JSON.stringify([...app.values]);
+  app.setDate(new Date(2026,10,26));const entering=app.themes.refreshSeason();app.load('thanksgiving');await entering;
+  assert.equal(app.themes.current,'thanksgiving');assert.equal(JSON.stringify(app.themes.snapshot()),saved);
+  app.themes.setCustomColors({primary:'#ffffff'});app.themes.resetCustomColors();app.themes.selectScheme('deep-ocean');await app.themes.select('funny-pages');
+  assert.equal(JSON.stringify([...app.values]),storage,'holiday controls cannot overwrite preferences');
+  app.setDate(new Date(2026,10,27));await app.themes.refreshSeason();
+  assert.equal(app.themes.current,'nightglass');assert.equal(app.themes.currentScheme,'custom');assert.equal(JSON.stringify(app.themes.snapshot()),saved);
+  assert.equal(JSON.stringify([...app.values]),storage,'entering and leaving only changes presentation');
+  app.setDate(new Date(2026,10,26));await app.themes.refreshSeason();
+  await app.themes.bindProfile('friend',{theme:'field-notes',schemes:{},custom:{}});
+  assert.equal(app.themes.current,'thanksgiving');assert.equal(app.themes.snapshot().theme,'field-notes');
+  app.setDate(new Date(2026,10,27));const leaving=app.themes.refreshSeason();app.load('field-notes');await leaving;
+  assert.equal(app.themes.current,'field-notes');
 });
