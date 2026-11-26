@@ -50,7 +50,12 @@ try {
   assert.equal(await page.getByRole('button',{name:'Play',exact:true}).isDisabled(),true);
   assert.equal(await page.locator('#add-game').isVisible(),false);
   assert.equal(await page.locator('#friends').innerText().then(v=>v.includes('Frizz')),false);
-  await page.waitForFunction(()=>document.querySelector('#games img')?.naturalWidth===1024);
+  const cover=page.locator('#games .game-art img');
+  await page.waitForFunction(()=>document.querySelector('#games .game-art img')?.naturalWidth>0);
+  // The card selects a responsive variant; the authenticated master is 1024px.
+  assert.equal(await cover.evaluate(async img=>{
+    const master=new Image();master.src=img.src;await master.decode();return master.naturalWidth;
+  }),1024);
   await page.locator('#chat-toggle').click();
   await page.getByText('Other family only',{exact:true}).waitFor();
   assert.equal(await page.locator('#chat-form').isVisible(),false);
@@ -103,9 +108,9 @@ try {
     assert(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=width&&bounds.y+bounds.height<=850);
     assert(await dialog.evaluate(d=>d.scrollWidth<=d.clientWidth),'dialog has no horizontal overflow');
     const before=await page.locator('#close-admin').boundingBox();
-    await page.locator('.admin-panel').evaluate(e=>e.scrollTop=e.scrollHeight);
+    await dialog.locator('.admin-panel').evaluate(e=>e.scrollTop=e.scrollHeight);
     assert.deepEqual(await page.locator('#close-admin').boundingBox(),before,'close control stays fixed while tools scroll');
-    await page.locator('.admin-panel').evaluate(e=>e.scrollTop=0);
+    await dialog.locator('.admin-panel').evaluate(e=>e.scrollTop=0);
     await mkdir(new URL('../.local/admin-dialog/',import.meta.url),{recursive:true});
     await page.screenshot({path:new URL(`../.local/admin-dialog/${theme}-${width}.png`,import.meta.url).pathname});
   }
@@ -116,13 +121,18 @@ try {
   assert.equal(await page.locator('#invite-form input[name="name"]').inputValue(),'Unfinished invitation','closing preserves unfinished work');
   await page.locator('#close-admin').click();
   assert.equal(await page.locator('header #admin').count(),0,'admin tools occupy no header space');
-  const headerBounds=await page.locator('body > header').boundingBox();
+  async function headerInSameTheme(){
+    await page.locator('#games .game').first().waitFor();
+    await page.evaluate(async()=>{await InfuserThemes.select('nightglass');await document.fonts.ready;window.scrollTo(0,0);});
+    return page.locator('body > header').boundingBox();
+  }
+  const headerBounds=await headerInSameTheme();
   // Ordinary players have neither admin navigation nor the operator entry.
   await context.clearCookies();await context.addCookies([{name:'member',value:'user',url:'https://games.example.com'}]);
   await page.reload();await page.locator('#clubhouse').waitFor();
   assert.equal(await page.locator('#admin').isVisible(),false);
   assert.equal(await page.locator('#open-admin').count(),0);
-  assert.deepEqual(await page.locator('body > header').boundingBox(),headerBounds,'admin and player headers have the same layout');
+  assert.deepEqual(await headerInSameTheme(),headerBounds,'admin and player headers have the same layout');
   assert.equal(await page.locator('#operator-groups').count(),0);
   assert.deepEqual(errors,[]);
   console.log('Browser: inspect, cover, read-only chat, return home, mobile, rename and create groups, expiry, operator-only admin menu and focus return passed.');
