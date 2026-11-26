@@ -1,3 +1,4 @@
+import {pipeWithOrdinaryTheme} from './support/theme_calendar.mjs';
 // Real HTTPS, real service worker and notifications. Only the browser push-provider
 // subscription is substituted: CI does not need a Google/Apple push registration.
 import assert from 'node:assert/strict';
@@ -8,8 +9,9 @@ const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'../services/peerj
 const [base,certPath,keyPath]=process.argv.slice(2);
 const server=https.createServer({key:fs.readFileSync(keyPath),cert:fs.readFileSync(certPath)},(req,res)=>{
   const headers={...req.headers,host:'games.example.com'};
+  if(req.url.split('?')[0]==='/assets/themes.js')headers['accept-encoding']='identity';
   if(headers.origin)headers.origin='https://games.example.com';
-  const proxy=http.request(base+req.url,{method:req.method,headers},r=>{res.writeHead(r.statusCode,r.headers);r.pipe(res);});
+  const proxy=http.request(base+req.url,{method:req.method,headers},r=>{pipeWithOrdinaryTheme(req.url,r,res);});
   proxy.on('error',()=>{res.writeHead(502);res.end();});req.pipe(proxy);
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));

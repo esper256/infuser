@@ -3,7 +3,7 @@
 [data-theme="thanksgiving"]{
   color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   --page:#19100d;--panel:#2b1c16;--field:#21150f;--detail-panel:#302019;--surface:#3b291e;
-  --line:#73543b;--ink:#fff2dc;--quiet:#d2b99b;--accent:#ffc36d;--accent-hover:#ffda98;--accent-pressed:#e9a747;
+  --feedback-bubble:#433027;--line:#73543b;--ink:#fff2dc;--quiet:#d2b99b;--accent:#ffc36d;--accent-hover:#ffda98;--accent-pressed:#e9a747;
   --button-ink:#2b170a;--green:#b4d58b;--presence-online:#b4d58b;--warm:#ef956f;--focus:#f6daa0;
   --glass:linear-gradient(135deg,#42291eef,#281b16f5);--card-dock:linear-gradient(125deg,#694028e8,#302019f5);
   --browser-chrome:#19100d;--page-glow-1:#b952262c;--page-glow-2:#9f332325;
@@ -43,3 +43,9 @@
 [data-theme="thanksgiving"] .turkey-stampede{contain:strict}
 @media(max-width:650px){[data-theme="thanksgiving"] .thankfuser-wordmark{width:110px;font-size:22px}}
 @media(forced-colors:active){[data-theme="thanksgiving"] .thankfuser-wordmark{color:CanvasText;text-shadow:none}}
+
+[data-theme="thanksgiving"] .feed-row{background:#36251c;border-color:#806040;color:var(--ink)}
+[data-theme="thanksgiving"] .feed-entry:nth-child(3n+2) > .feed-row,
+[data-theme="thanksgiving"] .feed-row:nth-child(3n+2){background:#422d20;border-color:#96704b}
+[data-theme="thanksgiving"] .feed-row small{color:#edd6b8}
+[data-theme="thanksgiving"] .feed-row p{color:#d2b99b}

@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs node tests/feedback_journey.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -25,6 +26,7 @@ await page.route('https://library.test/**',async route=>{
   const file=path==='/library'?'index.html':path.startsWith('/assets/')?path.slice(8):null;
   if(file&&!file.includes('..'))try{
     let body=await fs.readFile(new URL('../web/'+file,import.meta.url));
+    if(file==='themes.js')body=ordinaryThemeCalendar(body.toString());
     if(file==='clubhouse.js')body=body.toString()+`\nme={name:'Private Name',player_id:'private-id',avatars:[],admin:${admin}};document.getElementById('clubhouse').hidden=false;document.getElementById('welcome').hidden=true;setupAccount();`;
     return route.fulfill({body,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});
   }catch{}

@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Opt-in browser journey against the real Rust fixture in groups_journey.rs.
 // INFUSER_GROUP_BROWSER_NODE=/path/to/node cargo test --test groups_journey -- --nocapture
 import assert from 'node:assert/strict';
@@ -19,6 +20,7 @@ try {
         const chunks=[];r.on('data',b=>chunks.push(b));r.on('end',()=>resolve({status:r.statusCode,headers:r.headers,body:Buffer.concat(chunks)}));
       });proxy.on('error',reject);proxy.end(request.postDataBuffer()||undefined);
     });
+    if(url.pathname==='/assets/themes.js'){response.body=ordinaryThemeCalendar(response.body.toString());delete response.headers['content-length'];}
     await route.fulfill(response);
   });
   page=await context.newPage();page.setDefaultTimeout(10000);page.on('console',m=>{if(m.type()==='error')console.error('Browser console:',m.text());});page.on('pageerror',error=>errors.push(error.message));

@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Optional real website/API journey, invoked by visits_journey.rs.
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -15,6 +16,7 @@ async function player(who){
         const chunks=[];r.on('data',b=>chunks.push(b));r.on('end',()=>resolve({status:r.statusCode,headers:r.headers,body:Buffer.concat(chunks)}));
       });request.on('error',reject);request.end(req.postDataBuffer()||undefined);
     });
+    if(url.pathname==='/assets/themes.js'){response.body=ordinaryThemeCalendar(response.body.toString());delete response.headers['content-length'];}
     await route.fulfill(response);
   });
   const page=await context.newPage();page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));

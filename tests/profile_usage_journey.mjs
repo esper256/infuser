@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs INFUSER_CHROMIUM=/path/to/chromium node tests/profile_usage_journey.mjs
 import assert from 'node:assert/strict';
 import {readFile,mkdir} from 'node:fs/promises';
@@ -27,7 +28,8 @@ try{
   }
   let file=path==='/library'?'web/index.html':path.startsWith('/assets/')?'web/'+path.slice(8):null;
   const avatar=/^\/assets\/avatars\/([^/]+)\/(\d+)\.webp$/.exec(path);if(avatar)file=`assets/avatars/${avatar[1]}-${avatar[2]}.webp`;
-  if(file)try{let body=await readFile(new URL(file,root));if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.profileReminderSettled=()=>!profileReminderBusy;';return route.fulfill({body,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webp')?'image/webp':'text/html'});}catch{}
+  if(file)try{let body=await readFile(new URL(file,root));
+  if(file==='web/themes.js')body=ordinaryThemeCalendar(body.toString());if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.profileReminderSettled=()=>!profileReminderBusy;';return route.fulfill({body,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webp')?'image/webp':'text/html'});}catch{}
   return route.fulfill({status:404,body:''});
  });
  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));

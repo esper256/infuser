@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Opt-in browser journey against godot_fixture --domain games.localhost.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -12,7 +13,7 @@ async function api(path,method='GET',body=''){
 await context.route('https://games.localhost/**',async route=>{
  const r=route.request(),path=new URL(r.url()).pathname;
  const files={'/library':'web/index.html','/desktop':'web/desktop.html','/assets/clubhouse.js':'web/clubhouse.js','/assets/clubhouse.css':'web/clubhouse.css','/assets/themes.js':'web/themes.js','/assets/themes/nightglass.css':'web/themes/nightglass.css','/assets/themes/cartridge-club.css':'web/themes/cartridge-club.css','/assets/themes/funny-pages.css':'web/themes/funny-pages.css','/assets/desktop.js':'web/desktop.js'};
- if(files[path])return route.fulfill({body:await fs.readFile(files[path]),contentType:path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html'});
+ if(files[path])return route.fulfill({body:path==='/assets/themes.js'?ordinaryThemeCalendar((await fs.readFile(files[path])).toString()):await fs.readFile(files[path]),contentType:path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html'});
  const response=await api(path,r.method(),r.postData()||'');
  return route.fulfill({...response,contentType:path.startsWith('/api/')?'application/json':'image/webp'});
 });

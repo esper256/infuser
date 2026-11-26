@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs INFUSER_CHROMIUM=/path/to/chromium node tests/profile_appearance_journey.mjs
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -102,7 +103,8 @@ try {
     if (avatar) file = `assets/avatars/${avatar[1]}-${avatar[2]}.webp`;
     if (file) {
       try {
-        const body = await readFile(new URL(file, root));
+        let body = await readFile(new URL(file, root));
+        if (file === 'web/themes.js') body = ordinaryThemeCalendar(body.toString());
         const contentType = file.endsWith('.js') ? 'text/javascript'
           : file.endsWith('.css') ? 'text/css'
           : file.endsWith('.svg') ? 'image/svg+xml'

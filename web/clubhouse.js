@@ -1442,7 +1442,7 @@ function renderAccount(){
     }
   }
   const appearanceScope=$('settings-appearance-scope');
-  if(appearanceScope){
+  if(appearanceScope&&!window.InfuserThemes.seasonalLocked){
     const text=me.inspecting
       ?'Read-only inspection. Return home to change appearance.'
       :visiting&&homeGroupName
@@ -1527,14 +1527,16 @@ function setupUserSettings(signOut){
   schemeGroup.append(schemeLabel,schemeHint,swatchRow,customPanel);
   appearance.replaceChildren(appearanceScope,themeLabel,schemeGroup);
 
-  let renderedSchemeTheme='';
+  let renderedSchemeTheme='',wasSeasonallyLocked=false;
   function syncAppearance(){
     const activeTheme=themes.current,locked=themes.seasonalLocked;
     const seasonal=themeSelect.querySelector('option[value="thanksgiving"]');
-    if(locked&&!seasonal){const option=el('option','Thankfuser');option.value='thanksgiving';themeSelect.append(option);}
+    if(locked&&!seasonal){const option=el('option','thankfuser');option.value='thanksgiving';themeSelect.append(option);}
     if(!locked&&seasonal)seasonal.remove();
     themeSelect.disabled=!!me.inspecting||locked;
-    appearanceScope.textContent=locked?'Happy Thanksgiving! Your usual theme and colors return tomorrow.':'Saved for this group across your devices.';
+    if(locked)appearanceScope.textContent='Happy Thanksgiving! Your usual theme and colors return tomorrow.';
+    else if(wasSeasonallyLocked)renderAccount();
+    wasSeasonallyLocked=locked;
     themeSelect.value=activeTheme;
     const schemes=themes.schemesFor(activeTheme);
     schemeGroup.hidden=!schemes.length;
