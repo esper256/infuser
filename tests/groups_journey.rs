@@ -332,8 +332,9 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         true
     );
     let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Other family","admin_email":"admin@example.com","admin_name":"Other admin"}))).await?["id"].as_str().unwrap().to_owned();
-    ok(c.member("admin", Method::POST, "/api/admin/members")
-        .json(&json!({"email":"user@example.com","name":"Other user"})))
+    ok(c.member("admin", Method::POST, "/api/admin/members").json(
+        &json!({"email":"user@example.com","name":"Other user","limited_communication":true}),
+    ))
     .await?;
     denied(c.member("admin", Method::GET, "/api/operator/groups")).await?;
     denied(c.member("admin", Method::GET, "/api/operator/health")).await?;
@@ -360,6 +361,61 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     );
     let (home, home_key) = c.publish("frizz", "home-special").await?;
     let (away, away_key) = c.publish("user", "away-special").await?;
+    // The invited profile can sign in, publish a full game and see emoji feedback.
+    let communication = "/api/admin/members/communication";
+    let access =
+        |email: &str, limited: bool| json!({"email":email,"limited_communication":limited});
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/me")).await?["limited_communication"],
+        true
+    );
+    denied(
+        c.member("user", Method::PUT, communication)
+            .json(&access("user@example.com", false)),
+    )
+    .await?;
+    denied(
+        c.member("admin", Method::PUT, communication)
+            .json(&access("frizz@example.com", true)),
+    )
+    .await?;
+    denied(c.member("user", Method::GET, "/api/chat")).await?;
+    denied(
+        c.member("user", Method::POST, "/api/chat")
+            .json(&json!({"client_id":"limited-message-test","text":"Hi"})),
+    )
+    .await?;
+    denied(
+        c.member("user", Method::POST, "/api/voice")
+            .json(&json!({"id":"valid-voice-lease-request"})),
+    )
+    .await?;
+    let reaction_path = format!("/api/apps/{away}/reaction");
+    ok(c.member("admin", Method::PUT, &reaction_path)
+        .json(&json!({"emoji":"⭐","text":"A private reaction note"})))
+    .await?;
+    let filtered = ok(c.member("user", Method::GET, "/api/library")).await?;
+    assert_eq!(filtered["apps"][0]["reactions"][0]["emoji"], "⭐");
+    assert_eq!(filtered["apps"][0]["reactions"][0]["text"], "");
+    assert!(!filtered.to_string().contains("A private reaction note"));
+    denied(
+        c.member("user", Method::PUT, &reaction_path)
+            .json(&json!({"emoji":"⭐","text":"A written note"})),
+    )
+    .await?;
+    ok(c.member("user", Method::PUT, &reaction_path)
+        .json(&json!({"emoji":"🚀","text":""})))
+    .await?;
+    ok(c.member("user", Method::DELETE, &reaction_path)).await?;
+    ok(c.member("admin", Method::PUT, communication)
+        .json(&access("user@example.com", false)))
+    .await?;
+    ok(c.member("user", Method::GET, "/api/chat")).await?;
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["reactions"][0]["text"],
+        "A private reaction note"
+    );
+    ok(c.member("admin", Method::DELETE, &reaction_path)).await?;
     // Ordered display credits are admin-only and never transfer publishing rights.
     ok(c.member("admin", Method::POST, "/api/admin/members")
         .json(&json!({"email":"artist@example.com","name":"Collaborator"})))

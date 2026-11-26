@@ -58,8 +58,10 @@ const tags = [
 
 try {
   const context = await browser.newContext({viewport: {width: 1280, height: 860}, serviceWorkers: 'block'});
+  const restrictedRequests=[];
   await context.route('https://library.test/**', async route => {
     const path = new URL(route.request().url()).pathname;
+    if(me.limited_communication && ['/api/chat','/api/voice'].includes(path)) restrictedRequests.push(path);
     if (path === '/api/me') return route.fulfill({json: me});
     if (path === '/api/profile/appearance') {
       if (route.request().method() === 'PUT') {
@@ -68,7 +70,7 @@ try {
       }
       return route.fulfill({json: {appearance: me.appearance}});
     }
-    if (path === '/api/library') return route.fulfill({json: {apps, friends, tags}});
+    if (path === '/api/library') return route.fulfill({json: {apps:me.limited_communication ? apps.map(game=>({...game,reactions:game.reactions.map(r=>({...r,text:''}))})) : apps, friends, tags,limited_communication:!!me.limited_communication}});
     if (path === '/api/chat') return route.fulfill({json: {messages: []}});
     if (path === '/api/voice') return route.fulfill({json: {configured: true, available: true, participants: [], self: null, settings: {}}});
     if (path === '/api/voice/settings') return route.fulfill({json: {}});
@@ -291,6 +293,18 @@ try {
   await dialog.waitFor({state: 'hidden'});
   await page.waitForFunction(() => document.activeElement?.id === 'account-trigger');
 
+  me.limited_communication=true;
+  me.admin=false;
+  await page.reload();
+  await page.locator('#visible-games .game-open').first().click();
+  await page.locator('#game-detail .game-feedback-row').waitFor();
+  assert.equal(await page.locator('#chat-toggle,#voice-toggle').count(),0);
+  assert.equal(await page.locator('#game-detail .feedback-emoji').first().textContent(),'🚀');
+  await page.locator('#game-detail .reaction-choice').first().click();
+  assert.equal(await page.locator('#reaction-text').isVisible(),false);
+  assert.equal(await page.locator('#reaction-attach').isVisible(),false);
+  assert(await page.locator('#reaction-form button[type=submit]').isVisible());
+  assert.deepEqual(restrictedRequests,[]);
   assert.deepEqual(errors, []);
   console.log('PASS: User settings dialog, Nightglass color schemes, custom color pickers, persistence, theme switching, and mobile layout.');
 } finally {

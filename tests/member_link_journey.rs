@@ -1222,6 +1222,7 @@ fn legacy(root: &Path) -> Result<()> {
             enabled: true,
             avatar: None,
             avatar_prompt_seen: false,
+            limited_communication: false,
         },
     );
     let mut value = serde_json::to_value(&data)?;

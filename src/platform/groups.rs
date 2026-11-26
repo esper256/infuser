@@ -132,6 +132,10 @@ impl Data {
                 enabled,
                 avatar,
                 avatar_prompt_seen,
+                limited_communication: self
+                    .members
+                    .get(email)
+                    .is_some_and(|m| m.limited_communication),
             },
         );
         if !enabled {

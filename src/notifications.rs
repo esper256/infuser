@@ -145,6 +145,10 @@ impl Database {
             data.profile_enabled(email),
             fault(403, "Membership is disabled.")
         );
+        ensure!(
+            !data.members[email].limited_communication,
+            fault(403, "Chat notifications are unavailable for this profile.")
+        );
         let owner: Option<String> = tx
             .query_row(
                 "SELECT email FROM push_subscriptions WHERE endpoint=?1",

@@ -149,6 +149,7 @@ async function refresh(afterWrite = false) {
   const starsAtRequest=starSettlements;
   try {
     const nextLibrary=await api('/api/library',{signal:AbortSignal.timeout(12000)});
+    if (!!nextLibrary.limited_communication !== !!me.limited_communication) {location.reload();return;}
     // A pre-settlement response can be stale; the write already queued a fresh read.
     if(starsAtRequest!==starSettlements)return;
     for(const game of nextLibrary.apps){
@@ -716,7 +717,7 @@ function voiceControlsExtent(cluster,axis,gap){
 }
 function columnPresenceCount(people,list,cluster){
   const gap=parseFloat(getComputedStyle(cluster).rowGap)||0;
-  const room=cluster.clientHeight-$('chat-toggle').offsetHeight-gap-voiceControlsExtent(cluster,'column',gap);
+  const room=cluster.clientHeight-($('chat-toggle')?.offsetHeight || 0)-gap-voiceControlsExtent(cluster,'column',gap);
   const self=list.querySelector('.presence-self');
   const outer=node=>{const style=getComputedStyle(node);return node.offsetHeight+parseFloat(style.marginTop)+parseFloat(style.marginBottom);};
   const base=self?outer(self):0;
@@ -736,7 +737,7 @@ function visiblePresenceCount(people){
   if(!cluster||!people.length)return people.length;
   if(chatDock()?.stack==='column')return columnPresenceCount(people,list,cluster);
   const gap=parseFloat(getComputedStyle(cluster).columnGap)||0;
-  const room=cluster.clientWidth-$('chat-toggle').offsetWidth-gap-voiceControlsExtent(cluster,'row',gap);
+  const room=cluster.clientWidth-($('chat-toggle')?.offsetWidth || 0)-gap-voiceControlsExtent(cluster,'row',gap);
   const self=list.querySelector('.presence-self');
   const outerWidth=node=>{const style=getComputedStyle(node);return node.offsetWidth+parseFloat(style.marginLeft)+parseFloat(style.marginRight);};
   const base=self?outerWidth(self):0;
@@ -1162,7 +1163,10 @@ function showReactionEditor(emoji) {
   chosenReaction.replaceChildren(reactionFace(emoji));
   const label = emojis.find(choice => choice[0] === emoji)?.[1] || emoji;
   chosenReaction.setAttribute('aria-label', 'Change emoji: ' + label);
-  $('reaction-text').focus();
+  const limited = !!me.limited_communication;
+  $('reaction-text').hidden=limited;
+  $('reaction-attach').hidden=limited;
+  (limited ? composer.querySelector('[type=submit]') : $('reaction-text')).focus();
 }
 
 function showEmojiChoices() {
@@ -1344,6 +1348,19 @@ async function adminRefresh(){
       };
       actions.append(mint);
     }
+    const communication=el('label'), limit=document.createElement('input');
+    limit.type='checkbox';limit.checked=!!m.limited_communication;
+    limit.onchange=async()=>{
+      limit.disabled=true;
+      try{await api('/api/admin/members/communication',{method:'PUT',body:JSON.stringify({email,limited_communication:limit.checked})});m.limited_communication=limit.checked;}
+      catch(error){limit.checked=!!m.limited_communication;showError(error);}
+      finally{limit.disabled=false;}
+    };
+    communication.className='member-communication';
+    limit.setAttribute('aria-label','Limit communication for '+m.name);
+    communication.append(limit,' Emoji only (no chat or voice)');
+    communication.title='Allow game publishing and emoji reactions. Hide chat, voice, and reaction notes and screenshots.';
+    actions.append(communication);
     row.append(label,actions);
     if(me.operator&&m.sign_in){
       const nodes=memberLinkLines(email,m.sign_in,null);
@@ -1484,7 +1501,7 @@ function openMemberRename(row,actions,email,member,updateLabel,rename){
   };
   form.append(label,save,cancel,error);row.append(form);input.focus();input.select();
 }
-$('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with this email.');await adminRefresh();}catch(error){showError(error);}};
+$('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));data.limited_communication=event.target.elements.limited_communication.checked;try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with this email.');await adminRefresh();}catch(error){showError(error);}};
 $('credential-form').onsubmit=async event=>{event.preventDefault();try{const data=Object.fromEntries(new FormData(event.target)),connection=await api('/api/admin/credentials',{method:'POST',body:JSON.stringify(data)});const blob=new Blob([JSON.stringify(connection,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=connection.app_id+'.credentials.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Connection file downloaded. Attach it in your game’s existing agent chat.');await adminRefresh();}catch(error){showError(error);}};
 function renderAccount(){
   $('greeting').textContent='Signed in as '+me.name+'.';$('account-trigger').setAttribute('aria-label',me.name+(me.inspecting?'':' · online')+' · Profile menu');
@@ -1863,7 +1880,7 @@ try {
     const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
     if(document.hasFocus()&&!document.hidden)active();
   }
-  voiceApi=initVoice({me,api,notice,diagnostics,onConfiguredChange:configured=>{
+  if(!me.limited_communication)voiceApi=initVoice({me,api,notice,diagnostics,onConfiguredChange:configured=>{
     const btn=$('open-voice-settings'),region=$('settings-voice-region');
     if(btn)btn.hidden=!configured;
     if(region)region.hidden=!configured;
@@ -1871,7 +1888,7 @@ try {
   window.addEventListener('infuser-voice-layout',()=>{if(library)renderPresence();});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
-  initClientUpdates({voiceInUse:voiceApi.inUse,markUpdate:()=>diagnostics?.markUpdate(),api});
+  initClientUpdates({voiceInUse:voiceApi?.inUse,markUpdate:()=>diagnostics?.markUpdate(),api});
   await refresh();void offerProfilePicture();setInterval(()=>{if(!document.hidden)refresh();},25000);
 } catch(error) {
   if(error.profileRequired){/* The profile selector owns this navigation. */}

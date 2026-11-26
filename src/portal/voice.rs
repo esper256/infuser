@@ -517,6 +517,10 @@ async fn join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestI
         applied_mic_muted: false,
         applied_deafened: false,
     };
+    ensure!(
+        allowed(&p, &lease, now()),
+        fault(403, "Voice access ended.")
+    );
     let token = v.participant_token(&lease, now());
     super::telemetry::voice_event(&p, &lease, "voice.grant", now());
     let id = lease.id.clone();
@@ -598,6 +602,12 @@ async fn ack(State(p): State<Platform>, h: HeaderMap, Json(body): Json<AckBody>)
     }
     Ok(reply(json!({"ok":true})))
 }
+pub(super) async fn disconnect_profile(p: &Platform, owner: &str) {
+    if let Some(service) = &p.voice {
+        remove_owner_lease(p, service, owner, None).await;
+    }
+}
+
 async fn remove_owner_lease(p: &Platform, v: &Service, owner: &str, filter_id: Option<&str>) {
     let _gate = v.gate.lock().await;
     let (removed, channel_peers) = {
@@ -852,7 +862,7 @@ async fn game_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
         fault(403, "read voice state from the game origin")
     );
     let (launch_id, launch) = p.game(&h)?;
-    if launch.guest {
+    if launch.guest || p.db.catalog()?.members[&launch.email].limited_communication {
         return Ok(reply(json!({"configured":false,"active":false})));
     }
     let Some(v) = &p.voice else {
@@ -927,7 +937,7 @@ async fn game_control(
         fault(403, "read voice state from the game origin")
     );
     let (launch_id, launch) = p.game(&h)?;
-    if launch.guest {
+    if launch.guest || p.db.catalog()?.members[&launch.email].limited_communication {
         return Ok(reply(json!({"configured":false,"active":false})));
     }
     let Some(v) = &p.voice else {

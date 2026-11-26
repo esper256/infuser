@@ -72,7 +72,7 @@ impl Channel {
     }
 
     pub fn access(&self, data: &Data, email: &str, inspecting: bool, time: u64) -> Option<Access> {
-        if !data.profile_enabled(email) {
+        if !data.profile_enabled(email) || data.members[email].limited_communication {
             return None;
         }
         let member = &data.members[email];

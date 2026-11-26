@@ -345,6 +345,9 @@ impl Database {
             data.profile_enabled(actor),
             fault(403, "Membership is disabled.")
         );
+        if data.members[actor].limited_communication {
+            return Ok(json!({"images":[]}));
+        }
         let (topic, calls) = load(&c, group)?;
         let available: Vec<_> = calls
             .into_iter()

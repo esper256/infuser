@@ -416,6 +416,40 @@ async fn voice_admission_reconnect_revocation_and_restart_follow_channel_access(
             .removed
             .contains(&hc["sub"].as_str().unwrap().to_owned())
     );
+    let active: Value = post("host", "host-restriction-test")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let change = |limited: bool| {
+        req(
+            reqwest::Method::PUT,
+            "/api/admin/members/communication",
+            "operator",
+        )
+        .json(&json!({"email":"host@example.com","limited_communication":limited}))
+    };
+    change(true).send().await?.error_for_status()?;
+    assert!(
+        media
+            .lock()
+            .unwrap()
+            .removed
+            .contains(&active["id"].as_str().unwrap().to_owned())
+    );
+    assert_eq!(
+        validate(active["token"].as_str().unwrap())
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        post("host", "host-blocked-join").send().await?.status(),
+        403
+    );
+    change(false).send().await?.error_for_status()?;
     let new_host: Value = post("host", "host-voice-request-001")
         .send()
         .await?

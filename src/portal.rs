@@ -679,6 +679,7 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/admin/game-authors", get(authors::inventory))
         .route("/api/admin/apps/{app}/authors", put(authors::set).layer(DefaultBodyLimit::max(16384)))
         .route("/api/admin/members", get(members).post(invite))
+        .route("/api/admin/members/communication", put(set_communication).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/members/handle", put(rename_member).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/apps/{app}/visibility", put(set_visibility).layer(DefaultBodyLimit::max(1024)))
         .route("/api/admin/games", get(games::list))
@@ -897,7 +898,7 @@ async fn me(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let appearance = p.db.appearance_load(&email)?;
     let home_group = data.groups.member(&email);
     Ok(reply(
-        json!({"name":member.name,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":home_group,"home_group_name":data.groups.names.get(home_group),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatar_prompt_seen":member.avatar_prompt_seen,"avatars":avatars::catalog(),"portraits":avatars::portraits(),"game_ports_admitted":admitted,"appearance":appearance}),
+        json!({"name":member.name,"limited_communication":member.limited_communication,"admin":member.admin&&!inspecting&&!h.contains_key(groups::VISIT),"operator":data.operator(&email),"inspecting":inspecting,"group":{"id":group,"name":data.groups.names.get(&group)},"home_group":home_group,"home_group_name":data.groups.names.get(home_group),"player_id":data.player_id(&email),"profile_count":profile_count,"avatar":member.avatar,"avatar_prompt_seen":member.avatar_prompt_seen,"avatars":avatars::catalog(),"portraits":avatars::portraits(),"game_ports_admitted":admitted,"appearance":appearance}),
     ))
 }
 #[derive(Deserialize)]
@@ -1153,6 +1154,11 @@ async fn react(
     );
     p.db.edit_transaction(|d, tx| {
         ensure!(d.deployed(&app).is_some(), fault(404, "unknown game"));
+        ensure!(
+            !d.members[&email].limited_communication
+                || (body.text.trim().is_empty() && body.screenshot.is_none()),
+            fault(403, "This profile can send emoji reactions only.")
+        );
         let previous = d
             .reactions
             .get(&app)
@@ -1333,7 +1339,42 @@ async fn rename_member(
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Communication {
+    email: String,
+    limited_communication: bool,
+}
+fn set_member_communication(
+    d: &mut platform::Data,
+    admin: &str,
+    email: &str,
+    limited: bool,
+) -> Result<String> {
+    let profile = d
+        .group_member_key(email, d.groups.member(admin))?
+        .ok_or_else(|| fault(404, "Member not found."))?;
+    d.members.get_mut(&profile).unwrap().limited_communication = limited;
+    Ok(profile)
+}
+async fn set_communication(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<Communication>,
+) -> Answer {
+    let admin = p.admin(&h, true).await?;
+    let profile = p
+        .db
+        .edit(|d| set_member_communication(d, &admin, &body.email, body.limited_communication))?;
+    if body.limited_communication {
+        voice::disconnect_profile(&p, &profile).await;
+    }
+    Ok(reply(json!({"ok":true})))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Invite {
+    #[serde(default)]
+    limited_communication: bool,
     email: String,
     name: String,
     #[serde(default)]
@@ -1346,7 +1387,7 @@ fn yes() -> bool {
 }
 async fn invite(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Invite>) -> Answer {
     let email = p.admin(&h, true).await?;
-    p.db.edit(|d| {
+    let limited = p.db.edit(|d| {
         let group = d.groups.member(&email).to_owned();
         let target = d.group_member_key(&body.email, &group)?;
         ensure!(
@@ -1357,8 +1398,15 @@ async fn invite(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Invite
             target.as_deref().is_none_or(|target| !d.operator(target)) || body.enabled,
             fault(403, "Only the operator can disable an operator account.")
         );
-        d.invite_to_group(&group, &body.email, &body.name, body.admin, body.enabled)
+        d.invite_to_group(&group, &body.email, &body.name, body.admin, body.enabled)?;
+        if body.limited_communication {
+            return set_member_communication(d, &email, &body.email, true).map(Some);
+        }
+        Ok(None)
     })?;
+    if let Some(profile) = limited {
+        voice::disconnect_profile(&p, &profile).await;
+    }
     Ok(reply(json!({"ok":true})))
 }
 async fn credentials(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1457,7 +1505,7 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let data = p.db.catalog()?;
     let build = data.launch_build(&id, &launch)?;
     let page = presence::open_page(&p.db, &id, &launch.host)?;
-    let voice_token = if !launch.guest {
+    let voice_token = if !launch.guest && !data.members[&launch.email].limited_communication {
         p.voice
             .as_ref()
             .map(|v| v.player_token(&id))

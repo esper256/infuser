@@ -824,6 +824,7 @@ mod tests {
                     enabled: true,
                     avatar: None,
                     avatar_prompt_seen: false,
+                    limited_communication: false,
                 },
             );
             data.metadata.insert(

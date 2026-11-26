@@ -37,7 +37,7 @@ export function setupPwa({panel,signOut,me,api,notice}) {
   add(install);
   const button=document.createElement('button');button.type='button';button.textContent='Group Chat notifications';
   const hint=document.createElement('small');hint.className='notification-hint';hint.setAttribute('role','status');
-  button.hidden=!!me.inspecting;add(button);add(hint);
+  button.hidden=!!me.inspecting||!!me.limited_communication;add(button);add(hint);
   const sound=document.createElement('button');sound.type='button';sound.hidden=true;
   const test=document.createElement('button');test.type='button';test.hidden=true;test.textContent='Send test notification';
   panel.insertBefore(sound,hint);panel.insertBefore(test,hint);
@@ -84,12 +84,12 @@ export function setupPwa({panel,signOut,me,api,notice}) {
   navigator.serviceWorker?.addEventListener('message',event=>{
     if(event.data?.type!=='infuser-reading-chat'||!event.ports[0])return;
     const panel=document.getElementById('chat-panel');
-    event.ports[0].postMessage(event.data.owner===me.player_id&&!me.inspecting&&
+    event.ports[0].postMessage(event.data.owner===me.player_id&&!me.inspecting&&!me.limited_communication&&
       !document.hidden&&document.hasFocus()&&!!panel&&!panel.hidden&&!document.querySelector('dialog[open]'));
   });
   const ownerKey='infuser-push-owner';
   async function refresh(){
-    if(!supported()||me.inspecting)return;
+    if(!supported()||me.inspecting||me.limited_communication)return;
     const reg=await registration;subscription=await reg.pushManager.getSubscription();
     if(subscription && localStorage.getItem(ownerKey)!==me.player_id){await clearNotifications();subscription=null;}
     if(subscription){
