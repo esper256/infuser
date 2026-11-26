@@ -1874,7 +1874,11 @@ try {
     const launch = controllerLaunches.get(button);
     if (launch) launch(); else button.click();
   });
-  setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
+  setupAccount();initGroups({me,api,onRename:group=>{
+    if(me.group?.id===group.id)me.group.name=group.name;
+    if(me.home_group===group.id)me.home_group_name=group.name;
+    renderAccount();
+  }});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api,diagnostics, profileAvatar,onSpeakerContext:arrangeChatParticipants,onHouseCall:updateConfetti});
   if(!me.inspecting){
     const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));

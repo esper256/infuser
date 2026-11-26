@@ -37,6 +37,8 @@ the account’s home group or its ordinary player behavior.
 Operators open their profile picture menu, then **Admin tools → Groups**. This entry is hidden from other players,
 including family admins without the operator role. During read-only inspection,
 the dropdown contains only Groups; family-management controls stay hidden.
+**Rename** changes the display name of any group, including the initial **Home** group. Members, games, and chat stay with the same group ID.
+Group names must be unique (ignoring case) and cannot be blank or contain invisible characters. Other signed-in members see the new name on their next page load.
 **Add a group** creates an empty group and invites its first admin by Google email. That admin
 signs in normally and invites their family through Admin tools. Infuser does not
 send invitation emails. If Google OAuth is still in testing mode, add their
@@ -145,6 +147,7 @@ group. Guessing an ID or copying another family’s link does not grant access.
 Operator routes use the normal Google session and Origin checks:
 
 - `GET /api/operator/groups` lists `{id,name,home}` records.
+- `PUT /api/operator/groups/{id}` accepts `{"name":"Family Arcade"}` and returns the existing ID and new display name. A name used by another group returns `409 Conflict`.
 - `POST /api/operator/groups` takes `{name,admin_email,admin_name}` and returns
   `{id,name}`. An email already used in another group gets a separate profile here.
 - `X-Infuser-Inspect-Group: GROUP_ID` selects the read-only group for an operator’s
