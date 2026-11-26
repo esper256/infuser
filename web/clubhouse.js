@@ -1,3 +1,4 @@
+import {initLibraryGamepad} from '/assets/library-gamepad.js';
 import { automaticLayout, connectedPads, captureGamepadLayouts, gamepadLaunchUrl, preference, savePreference } from '/assets/gamepads.js';
 import { watchInput } from '/assets/activity-input.js';
 import { initFeedback } from '/assets/feedback.js';
@@ -866,14 +867,19 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelTagHo
 $('games').addEventListener('contextmenu',event=>{
   if(tagHold||Date.now()<suppressContextUntil&&heldCard?.contains(event.target))event.preventDefault();
 });
+let activatingFromPad = false;
 async function start(game,button,card,{guest=false,intent}={}) {
   if(me.inspecting)return;
   if(game.native_only)return startDesktop(game,button,card,{guest});
-  // Open synchronously in the click event so browser popup blockers allow Play.
   const padLayouts = captureGamepadLayouts();
-  const tab = window.open('about:blank','_blank');
+  // Gamepad polling cannot grant browser popup activation. Use this Library tab for controller launches.
+  const sameTab = activatingFromPad;
+  const tab = sameTab ? window : window.open('about:blank','_blank');
   if(!tab){notice('Allow this site to open a game tab, then press Play again.');return;}
-  tab.document.title='Opening '+game.title;tab.document.body.textContent='Getting '+game.title+' ready…';
+  if (!sameTab) {
+    tab.document.title='Opening '+game.title;
+    tab.document.body.textContent='Getting '+game.title+' ready…';
+  }
   const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
   try {
@@ -886,8 +892,10 @@ async function start(game,button,card,{guest=false,intent}={}) {
       const status=await api('/api/launches/'+launch.launch_id);state=status.state;
       if(state==='failed'||state==='stopping'||state==='ended')throw Error(status.error||'The game could not start. Its creator can try an update.');
     }
-    tab.opener=null;tab.location.replace(gamepadLaunchUrl(launch.url, padLayouts));
-  } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
+    const url = gamepadLaunchUrl(launch.url, padLayouts);
+    if (sameTab) location.assign(url);
+    else { tab.opener=null; tab.location.replace(url); }
+  } catch(error) {if (!sameTab) tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
 }
 function desktopPlatform(){
   const platform=navigator.userAgentData?.platform||navigator.platform;
@@ -1815,6 +1823,10 @@ try {
     void api('/api/profile/appearance',{method:'PUT',body:JSON.stringify(migratedAppearance),signal:AbortSignal.timeout(12000)}).catch(()=>{});
   }
   $('welcome').hidden=true;$('clubhouse').hidden=false;
+  initLibraryGamepad(button => {
+    activatingFromPad = true;
+    try { button.click(); } finally { activatingFromPad = false; }
+  });
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api,diagnostics, profileAvatar,onSpeakerContext:arrangeChatParticipants,onHouseCall:updateConfetti});
   if(!me.inspecting){

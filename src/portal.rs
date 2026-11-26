@@ -636,6 +636,9 @@ pub fn router(platform: Platform) -> Router {
         .route("/assets/gamepads.js", get(|h: HeaderMap| async move {
             conditional::static_asset(&h, "text/javascript", include_bytes!("../web/gamepads.js"))
         }))
+        .route("/assets/library-gamepad.js", get(|h: HeaderMap| async move {
+            conditional::static_asset(&h, "text/javascript", include_bytes!("../web/library-gamepad.js"))
+        }))
         .route("/_infuser/sdk/v1/gamepads.js", get(sdk_v1::gamepads))
         .route("/assets/activity-input.js",get(sdk_v1::activity_input))
         .route("/_infuser/activity-input.js",get(sdk_v1::activity_input))

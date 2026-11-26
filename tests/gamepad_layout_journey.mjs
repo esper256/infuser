@@ -10,12 +10,13 @@ const pads = [
   {id:'Generic USB adapter', index:0, connected:true, mapping:'standard'},
   {id:'Wireless Controller (Vendor: 054c Product: 09cc)', index:2, connected:true, mapping:'standard'},
   {id:'Pro Controller (057e-2009)', index:3, connected:true, mapping:'standard'}
-];
+].map(pad => ({...pad, buttons:Array.from({length:17},()=>({pressed:false})), axes:[0,0]}));
 try {
   const context = await browser.newContext({serviceWorkers:'block'});
   await context.addInitScript(pads => {
     window.fixturePads = pads;
-    Object.defineProperty(navigator,'getGamepads',{value:()=>window.fixturePads});
+    window.padReads = 0;
+    Object.defineProperty(navigator,'getGamepads',{value:()=>{ window.padReads++; return window.fixturePads; }});
   }, pads);
   async function asset(route, file) {
     let body = await readFile(new URL(file,root));
@@ -30,8 +31,9 @@ try {
     }
     const me = {name:'Alex',player_id:'self',avatars:[],avatar_prompt_seen:true};
     const app = {id:'pond',title:'Pond',tags:[],players:[],join_targets:[],reactions:[],author:me};
-    const data = {'/api/me':me, '/api/library':{apps:[app],friends:[me],tags:[]},
+    const data = {'/api/me':me, '/api/library':{apps:[app,{...app,id:'river',title:'River'}],friends:[me],tags:[]},
       '/api/chat':{messages:[]}, '/api/voice':{participants:[],settings:{}},
+      '/api/apps/river/launch':{state:'ready',url:game+'/_infuser/launch#infuser=test-ticket'},
       '/api/apps/pond/launch':{state:'ready',url:game+'/_infuser/launch#infuser=test-ticket'}};
     return route.fulfill({json:data[path] || {}});
   });
@@ -78,18 +80,18 @@ try {
     window.open = (...args) => { window.fixturePads = []; return realOpen(...args); };
   });
   const opening = page.waitForEvent('popup');
-  await page.getByRole('button',{name:'Play',exact:true}).click();
+  await page.getByRole('button',{name:'Play',exact:true}).first().click();
   const popup = await opening;
   await popup.waitForURL(game+'/_infuser/play');
-  async function checkGame() {
-    const frame = popup.frameLocator('iframe').locator('body');
+  async function checkGame(gamePage) {
+    const frame = gamePage.frameLocator('iframe').locator('body');
     await frame.evaluate(async()=>{await import('/_infuser/sdk/v1.js');});
     assert.deepEqual(await frame.evaluate(()=>fixturePads.map(p=>[Infuser.gamepads.layout(p),Infuser.gamepads.faceButton(p,0)])),
       [['nintendo','B'],['playstation','×'],['nintendo','B']]);
   }
-  await checkGame();
+  await checkGame(popup);
   await popup.reload();
-  await checkGame();
+  await checkGame(popup);
   await page.evaluate(pads=>{window.fixturePads=pads;},pads);
   await page.locator('#account-trigger').click();
   await page.locator('#open-settings').click();
@@ -105,5 +107,59 @@ try {
     window.dispatchEvent(new Event('gamepadconnected'));
   }, pads);
   assert.equal(await selects.first().inputValue(),'auto');
+  await selects.first().selectOption('nintendo');
+  await popup.close();
+  await page.bringToFront();
+  await page.locator('#close-settings').click();
+  await page.waitForFunction(()=>document.activeElement.id === 'account-trigger');
+  await page.setViewportSize({width:1280,height:850});
+  await page.evaluate(()=>{
+    document.activeElement.blur();
+    window.fixturePads = [window.fixturePads[0]];
+    window.fixturePads[0].axes = [0.1,0];
+    window.dispatchEvent(new Event('gamepadconnected'));
+  });
+  async function button(index, pressed) {
+    const read = await page.evaluate(([index,pressed])=>{
+      fixturePads[0].buttons[index].pressed=pressed; return padReads;
+    },[index,pressed]);
+    await page.waitForFunction(before=>padReads>=before+2,read);
+  }
+  async function tap(index) { await button(index,true); await button(index,false); }
+  const hints=page.locator('.library-pad-hints');
+  await page.waitForFunction(()=>window.padReads>3);
+  assert.equal(await hints.count(),0,'connection and stick drift do not show hints');
+  await tap(12);
+  assert.equal(await hints.innerText(),'A · Open');
+  const firstCard=await page.evaluate(()=>document.activeElement.closest('.game').dataset.app);
+  await button(15,true);
+  assert.notEqual(await page.evaluate(()=>document.activeElement.closest('.game').dataset.app),firstCard);
+  await page.keyboard.press('Shift');
+  await hints.waitFor({state:'detached'});
+  await button(15,false);
+  assert.equal(await hints.count(),0,'a held direction cannot re-enable hints after a key');
+  await page.setViewportSize({width:390,height:850});
+  await tap(12);
+  assert.equal(await page.evaluate(()=>document.activeElement.closest('.game').dataset.app),firstCard);
+  await page.mouse.move(0,0);
+  assert(await hints.isVisible(),'mouse movement alone keeps hints');
+  await page.mouse.click(0,0);
+  await hints.waitFor({state:'detached'});
+  await tap(12);
+  await tap(1); // Nintendo A is the east face button.
+  const dialog=page.locator('#game-detail');
+  assert(await dialog.isVisible());
+  assert.match(await hints.innerText(),/A · Play.*B · Back/);
+  await tap(15); await tap(1);
+  assert(await dialog.locator('.play-menu[open]').isVisible());
+  await tap(0); assert.equal(await dialog.locator('.play-menu[open]').count(),0);
+  await tap(0); assert(!(await dialog.isVisible()));
+  await tap(1);
+  await page.evaluate(()=>{window.open=()=>{throw Error('controller Play must work with popups blocked');};});
+  await page.evaluate(()=>{fixturePads[0].buttons[1].pressed=true;});
+  await page.waitForURL(game+'/_infuser/play');
+  await checkGame(page);
+  assert.equal(await page.locator('.library-pad-hints').count(),0);
+  console.log('PASS: Library navigation, layout-aware hints, switching inputs, Play options, Back, same-tab controller launch.');
   console.log('PASS: automatic layouts, remembered override, real cross-origin game launch, SDK button labels and reload.');
 } finally { await browser.close(); }

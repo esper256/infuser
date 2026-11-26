@@ -1251,3 +1251,12 @@ button.feed-row:hover { border-color: var(--accent); }
 
 .thankfuser-wordmark{display:none}
 .stampede-turkey{position:absolute;left:0;top:0;line-height:1;filter:drop-shadow(0 5px 3px #0005);will-change:transform}
+
+.library-pad-hints {
+  position: fixed; z-index: 20; inset: auto auto max(12px, env(safe-area-inset-bottom)) 50%;
+  transform: translateX(-50%); padding: 5px 12px; border: 1px solid var(--line);
+  border-radius: 20px; background: var(--panel); color: var(--ink);
+  font-size: 14px; white-space: nowrap; pointer-events: none;
+}
+.library-pad-active .game:has(.game-open:focus),
+.library-pad-active #game-detail .actions :focus { outline: 2px solid var(--focus); outline-offset: 3px; }
