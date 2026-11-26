@@ -174,8 +174,6 @@ async fn revoke(State(p): State<Platform>, Path(id): Path<String>, h: HeaderMap)
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PlayRequest {
-    #[serde(default)]
-    gamepad_layouts: crate::native::PadLayouts,
     platform: String,
     #[serde(default)]
     guest: bool,
@@ -188,10 +186,6 @@ async fn play(
 ) -> Answer {
     let email = p.member(&h, true).await?;
     let (group, _) = p.group_view(&h, &email)?;
-    ensure!(
-        body.gamepad_layouts.len() <= 16,
-        fault(422, "too many gamepads")
-    );
     p.visible_app(&h, &email, &app)?;
     if !p.db.catalog()?.visits.is_empty() {
         p.reconcile_publications()?;
@@ -249,7 +243,6 @@ async fn play(
         n.requests.insert(
             hash(&id),
             Play {
-                gamepad_layouts: body.gamepad_layouts,
                 deployment,
                 visit,
                 email,
@@ -294,7 +287,7 @@ async fn claim(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Claim>)
         let game_token = secret();
         let game_host = crate::game_urls::host(d, &request.app, &launch_id, p.domain());
         let player = if request.guest { format!("guest-{launch_id}") } else { d.player_id(&device.email) };
-        let response = json!({"version":1,"app_id":request.app,"deployment_id":runtime,"visit":request.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":request.build,"title":b.manifest.title,"player_id":player,"guest":request.guest,"launch_id":launch_id,"game_origin":format!("https://{game_host}"),"token":game_token,"artifact":artifact,"gamepad_layouts":request.gamepad_layouts});
+        let response = json!({"version":1,"app_id":request.app,"deployment_id":runtime,"visit":request.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":request.build,"title":b.manifest.title,"player_id":player,"guest":request.guest,"launch_id":launch_id,"game_origin":format!("https://{game_host}"),"token":game_token,"artifact":artifact});
         let launch=Launch { deployment: request.deployment, visit: request.visit, intent: None, app: request.app, build: request.build, email: device.email.clone(), guest: request.guest, host: game_host, token_hash: hash(&game_token), exchanged: true, expires: now()+300, ended: false, end_reason: None, library_session: String::new(), grant_expires: 0, seen: now(), lease_id: None, lease_token: None };
         ensure!(d.launch_allowed(&launch,now()),fault(403,"Game authorization ended."));
         n.launch_devices.insert(launch_id.clone(),key.clone());

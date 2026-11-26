@@ -76,7 +76,7 @@ pub(super) async fn sessions() -> impl IntoResponse {
 }
 
 pub(super) async fn gamepads() -> impl IntoResponse {
-    javascript(include_str!("../../web/gamepads.js"))
+    javascript(include_str!("../../web/gamepad-layout.js"))
 }
 pub(super) async fn activity_input() -> impl IntoResponse {
     javascript(include_str!("../../web/activity-input.js"))

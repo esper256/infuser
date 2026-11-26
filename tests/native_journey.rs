@@ -126,8 +126,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         library["apps"][0]["native_platforms"],
         json!(["windows-x86_64"])
     );
-    let play_body =
-        json!({"platform":"windows-x86_64","guest":true,"gamepad_layouts":{"2":"nintendo"}});
+    let play_body = json!({"platform":"windows-x86_64","guest":true});
     assert_eq!(
         member(Method::POST, "/api/native/v1/play/native-pond", "user")
             .json(&play_body)
@@ -268,7 +267,6 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
             .status(),
         410
     );
-    assert_eq!(launch["gamepad_layouts"], json!({"2":"nintendo"}));
     assert_eq!(launch["guest"], true);
     assert!(launch["player_id"].as_str().unwrap().starts_with("guest-"));
     let game_host = launch["game_origin"]

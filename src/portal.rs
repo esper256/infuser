@@ -632,7 +632,10 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/presence/input", post(presence::library_input))
         .route("/_infuser/input", post(presence::game_input))
         .route("/_infuser/player-pages/{page}/close", post(presence::close_page))
-        .route("/assets/gamepads.js", get(sdk_v1::gamepads))
+        .route("/assets/gamepad-layout.js", get(sdk_v1::gamepads))
+        .route("/assets/gamepads.js", get(|h: HeaderMap| async move {
+            conditional::static_asset(&h, "text/javascript", include_bytes!("../web/gamepads.js"))
+        }))
         .route("/_infuser/sdk/v1/gamepads.js", get(sdk_v1::gamepads))
         .route("/assets/activity-input.js",get(sdk_v1::activity_input))
         .route("/_infuser/activity-input.js",get(sdk_v1::activity_input))

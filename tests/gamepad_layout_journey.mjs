@@ -7,9 +7,9 @@ const browser = await chromium.launch({executablePath:process.env.INFUSER_CHROMI
 const root = new URL('../', import.meta.url);
 const library = 'https://library.test', game = 'https://pond.test';
 const pads = [
-  {id:'Generic USB adapter', index:0, connected:true},
-  {id:'Wireless Controller (Vendor: 054c Product: 09cc)', index:2, connected:true},
-  {id:'Pro Controller (057e-2009)', index:3, connected:true}
+  {id:'Generic USB adapter', index:0, connected:true, mapping:'standard'},
+  {id:'Wireless Controller (Vendor: 054c Product: 09cc)', index:2, connected:true, mapping:'standard'},
+  {id:'Pro Controller (057e-2009)', index:3, connected:true, mapping:'standard'}
 ];
 try {
   const context = await browser.newContext({serviceWorkers:'block'});
@@ -42,7 +42,7 @@ try {
     if(path === '/_infuser/play') return route.fulfill({contentType:'text/html',body:'<iframe src="/"></iframe>'});
     if(path === '/') return route.fulfill({contentType:'text/html',body:'<script type="module" src="/_infuser/sdk/v1.js"></script>'});
     if(path === '/_infuser/sdk/v1.js') return asset(route,'sdk/v1/infuser.js');
-    if(path.endsWith('/gamepads.js')) return asset(route,'web/gamepads.js');
+    if(path.endsWith('/gamepads.js')) return asset(route,'web/gamepad-layout.js');
     if(path.startsWith('/_infuser/sdk/v1/')) return asset(route,'sdk/v1/'+path.split('/').pop());
     return route.fulfill({json:{}});
   });
@@ -55,13 +55,28 @@ try {
   }
   await settings();
   const selects = page.locator('#settings-gamepads select');
+  await selects.first().waitFor();
   assert.deepEqual(await selects.locator('option:checked').allTextContents(),
     ['Automatic (Xbox)','Automatic (PlayStation)','Automatic (Nintendo)']);
+  await selects.first().focus();
+  assert(await selects.first().evaluate(select => {
+    window.dispatchEvent(new Event('gamepadconnected'));
+    return document.activeElement === select;
+  }), 'an unchanged pad set preserves focus');
+  await page.evaluate(()=>{
+    fixturePads[0].mapping = '';
+    window.dispatchEvent(new Event('gamepadconnected'));
+  });
+  assert(await page.getByText('Non-standard mapping. Button labels may differ.').isVisible());
   await selects.first().selectOption('nintendo');
   await page.reload();
   await settings();
   assert.equal(await selects.first().inputValue(),'nintendo');
   await page.locator('#close-settings').click();
+  await page.evaluate(()=>{
+    const realOpen = window.open.bind(window);
+    window.open = (...args) => { window.fixturePads = []; return realOpen(...args); };
+  });
   const opening = page.waitForEvent('popup');
   await page.getByRole('button',{name:'Play',exact:true}).click();
   const popup = await opening;
@@ -75,6 +90,7 @@ try {
   await checkGame();
   await popup.reload();
   await checkGame();
+  await page.evaluate(pads=>{window.fixturePads=pads;},pads);
   await page.locator('#account-trigger').click();
   await page.locator('#open-settings').click();
   await selects.first().selectOption('auto');

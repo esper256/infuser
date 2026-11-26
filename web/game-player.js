@@ -1,3 +1,4 @@
+import {connectedPads} from '/_infuser/sdk/v1/gamepads.js';
 import { clientUpdateAction } from '/_infuser/client-updates.js';
 import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
@@ -289,10 +290,6 @@ try{
     });
     // Gamepad input does not produce DOM key or pointer events.
     let padTimer;
-    function connectedPads(){
-      try{return Array.from(navigator.getGamepads?.()||[]).filter(Boolean);}
-      catch{return [];} // Some embedding policies disable gamepad access.
-    }
     function checkPads(){
       if(document.hidden||!document.hasFocus())return;
       const pads=connectedPads();

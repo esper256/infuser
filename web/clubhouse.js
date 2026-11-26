@@ -1,4 +1,4 @@
-import { automaticLayout, connectedPads, nativeLayouts, gamepadLaunchUrl, preference, savePreference } from '/assets/gamepads.js';
+import { automaticLayout, connectedPads, captureGamepadLayouts, gamepadLaunchUrl, preference, savePreference } from '/assets/gamepads.js';
 import { watchInput } from '/assets/activity-input.js';
 import { initFeedback } from '/assets/feedback.js';
 import { screenshotTile, fillScreenshotPicker, attachmentDraft } from '/assets/screenshots.js';
@@ -870,6 +870,7 @@ async function start(game,button,card,{guest=false,intent}={}) {
   if(me.inspecting)return;
   if(game.native_only)return startDesktop(game,button,card,{guest});
   // Open synchronously in the click event so browser popup blockers allow Play.
+  const padLayouts = captureGamepadLayouts();
   const tab = window.open('about:blank','_blank');
   if(!tab){notice('Allow this site to open a game tab, then press Play again.');return;}
   tab.document.title='Opening '+game.title;tab.document.body.textContent='Getting '+game.title+' ready…';
@@ -885,7 +886,7 @@ async function start(game,button,card,{guest=false,intent}={}) {
       const status=await api('/api/launches/'+launch.launch_id);state=status.state;
       if(state==='failed'||state==='stopping'||state==='ended')throw Error(status.error||'The game could not start. Its creator can try an update.');
     }
-    tab.opener=null;tab.location.replace(gamepadLaunchUrl(launch.url));
+    tab.opener=null;tab.location.replace(gamepadLaunchUrl(launch.url, padLayouts));
   } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
 }
 function desktopPlatform(){
@@ -901,8 +902,7 @@ async function startDesktop(game,button,card,{guest=false}={}){
   const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
   try{
-    const gamepadLayouts = nativeLayouts();
-    const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest,...(Object.keys(gamepadLayouts).length ? {gamepad_layouts:gamepadLayouts} : {})})});
+    const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest})});
     document.querySelector('#desktop-launch')?.remove();
     const dialog=el('dialog');dialog.id='desktop-launch';dialog.setAttribute('aria-label','Open '+game.title);
     const heading=el('h2','Let’s play'),text=el('p','Open Infuser Play when your browser asks. First time? Install it, then press Play again.');
@@ -1618,9 +1618,13 @@ function setupUserSettings(signOut){
   voiceBody.replaceChildren(voiceRow);
 
   const padNames = {xbox:'Xbox', playstation:'PlayStation', nintendo:'Nintendo'};
+  let renderedPads;
   function renderGamepads() {
     const panel = $('settings-gamepads');
     const pads = connectedPads();
+    const signature = JSON.stringify(pads.map(pad => [pad.index, pad.id, pad.mapping]));
+    if (signature === renderedPads && panel.contains(document.activeElement)) return;
+    renderedPads = signature;
     panel.replaceChildren();
     if (!pads.length) {
       panel.append(el('p', 'Connect a controller and press a button to see it here.', 'quiet'));
@@ -1646,7 +1650,9 @@ function setupUserSettings(signOut){
         } catch { select.value = preference(pad.id); notice('Could not save this controller layout on this device.'); }
       };
       select.dataset.model = pad.id;
-      label.append(select); panel.append(label);
+      label.append(select);
+      if (pad.mapping !== 'standard') label.append(el('small', 'Non-standard mapping. Button labels may differ.', 'quiet'));
+      panel.append(label);
     }
     panel.append(el('p', 'Saved in this browser for each controller model. Applies when you launch a game.', 'quiet settings-scope'));
   }

@@ -29,9 +29,7 @@ const jumpLabel = Infuser.gamepads.faceButton(pad, jumpBinding.button);
 if (jumpLabel !== null) showJumpPrompt(jumpLabel);
 ```
 
-`faceButton` labels standard face positions 0–3 and returns null for other indices. Custom bindings should pass their actual standard face-button index. Engines that supply their own action mapping can use `layout(pad)` to pick their prompt artwork. On older Infuser installations, feature-detect `Infuser.gamepads` and use the game's usual prompts.
-
-Native games launched through an updated Infuser Play can read `gamepad_layouts` from the JSON file at `INFUSER_LAUNCH_FILE`, for example `{"2":"nintendo"}`. Keys are browser controller slots at launch. Native engine indices can differ: with a single controller use the single hint, and with several, let players associate hints with their local controllers. Treat a missing field or an empty map as automatic/Xbox.
+`layout` guesses the controller family (or uses the player's override) for any mapping. `faceButton` returns a label only for indices 0–3 on a pad with `mapping === "standard"`. It returns null for other mappings or indices. Custom bindings should pass their actual standard face-button index. Engines that supply their own action mapping can use `layout(pad)` to pick their prompt artwork. On older Infuser installations, feature-detect `Infuser.gamepads` and use the game's usual prompts.
 
 ## Face-button prompts
 
