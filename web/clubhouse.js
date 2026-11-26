@@ -1,3 +1,4 @@
+import {initLibraryGamepad} from '/assets/library-gamepad.js';
 import { automaticLayout, connectedPads, captureGamepadLayouts, gamepadLaunchUrl, preference, savePreference } from '/assets/gamepads.js';
 import { watchInput } from '/assets/activity-input.js';
 import { initFeedback } from '/assets/feedback.js';
@@ -123,7 +124,9 @@ function notice(message) {
   if($('admin').open){$('admin-status').textContent=message;return;}
   if($('user-settings')?.open){$('settings-status').textContent=message;return;}
   clearTimeout(noticeTimer);
-  const toast=$('notice');toast.textContent=message;toast.classList.add('visible');
+  const toast=$('notice'), host=$('game-detail').open ? $('game-detail') : document.querySelector('main');
+  if (toast.parentElement !== host) host.append(toast);
+  toast.textContent=message;toast.classList.add('visible');
   noticeTimer=setTimeout(()=>{toast.classList.remove('visible');toast.textContent='';},5000);
 }
 let diagnostics;
@@ -376,23 +379,28 @@ function renderGames() {
   if($('hidden-games').hidden!==!hiddenCards.length)$('hidden-games').hidden=!hiddenCards.length;setText($('hidden-game-count'),hiddenCards.length);
   layoutTagRows();
 }
+const controllerLaunches = new WeakMap();
+function bindLaunch(button, launch) {
+  button.onclick = () => launch(false);
+  controllerLaunches.set(button, () => launch(true));
+}
 function gameActions(game,card){
     const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
     const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
     const items=el('div',undefined,'play-menu-items');
     items.append(el('p',game.title,'menu-game-title'));
-    const guest=el('button','Play in guest mode');guest.onclick=()=>{menu.open=false;start(game,play,card,{guest:true});};items.append(guest);
+    const guest=el('button','Play in guest mode');bindLaunch(guest,viaPad=>{menu.open=false;start(game,play,card,{guest:true,viaPad});});items.append(guest);
     if(!game.native_only && game.native_platforms?.length){const desktop=el('button','Open in Infuser Play');desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card);};items.append(desktop);}
     for(const target of game.join_targets||[]){
-      const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
+      const join=el('button','Join '+target.name);bindLaunch(join,viaPad=>{menu.open=false;start(game,play,card,{viaPad,intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});});items.append(join);
     }
     if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
     play.disabled=!!me.inspecting||!!game.play_unavailable;guest.disabled=play.disabled;
     if(game.play_unavailable){play.title=game.play_unavailable;items.prepend(el('p',game.play_unavailable));for(const b of items.querySelectorAll('button'))if(b.textContent.startsWith('Join ')||b.textContent==='Open in Infuser Play')b.disabled=true;}
     if(me.inspecting)for(const button of items.querySelectorAll('button')){if(button.textContent!=='Copy game link')button.disabled=true;}
-    play.onclick=()=>start(game,play,card);actions.append(play,menu);
-  if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags');edit.onclick=()=>{menu.open=false;openTags(game);};items.append(edit);}
+    bindLaunch(play,viaPad=>start(game,play,card,{viaPad}));actions.append(play,menu);
+  if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags');edit.onclick=()=>{menu.open=false;arrow.focus();openTags(game);};items.append(edit);}
   return actions;
 }
 function gameAdminActions(game){
@@ -866,28 +874,57 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelTagHo
 $('games').addEventListener('contextmenu',event=>{
   if(tagHold||Date.now()<suppressContextUntil&&heldCard?.contains(event.target))event.preventDefault();
 });
-async function start(game,button,card,{guest=false,intent}={}) {
-  if(me.inspecting)return;
+let sameTabLaunchPending = false;
+async function start(game,button,card,{guest=false,intent,viaPad=false}={}) {
+  if(me.inspecting || card.dataset.launching || sameTabLaunchPending)return;
   if(game.native_only)return startDesktop(game,button,card,{guest});
-  // Open synchronously in the click event so browser popup blockers allow Play.
   const padLayouts = captureGamepadLayouts();
   const tab = window.open('about:blank','_blank');
-  if(!tab){notice('Allow this site to open a game tab, then press Play again.');return;}
-  tab.document.title='Opening '+game.title;tab.document.body.textContent='Getting '+game.title+' ready…';
+  const sameTab = !tab && viaPad;
+  const voiceBlocksNavigation = () => {
+    if (!sameTab || !voiceApi?.inUse()) return false;
+    notice('Press Play with the mouse or keyboard to keep voice chat running.');
+    return true;
+  };
+  if (voiceBlocksNavigation()) return;
+  if (!tab && !sameTab) {notice('Allow this site to open a game tab, then press Play again.');return;}
+  if (tab) {
+    tab.document.title='Opening '+game.title;
+    tab.document.body.textContent='Getting '+game.title+' ready…';
+  }
   const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
+  if (sameTab) sameTabLaunchPending = true;
+  let navigating = false, resetTimer;
+  function reset() {
+    clearTimeout(resetTimer);
+    window.removeEventListener('pageshow', restored);
+    if (sameTab) sameTabLaunchPending = false;
+    delete card.dataset.launching;
+    button.disabled=false;
+    button.textContent=originalLabel;
+  }
+  function restored(event) { if (event.persisted) reset(); }
   try {
     const launch=await api(`/api/apps/${game.id}/launch`,{method:'POST',body:JSON.stringify({guest,intent})});
     const deadline=Date.now()+120000;let state=launch.state;
     while(state!=='ready') {
-      if(tab.closed)throw Error('Game launch cancelled.');
+      if(tab?.closed)throw Error('Game launch cancelled.');
       if(Date.now()>deadline)throw Error('This game is taking a while. Try Play again shortly.');
       await new Promise(resolve=>setTimeout(resolve,1500));
       const status=await api('/api/launches/'+launch.launch_id);state=status.state;
       if(state==='failed'||state==='stopping'||state==='ended')throw Error(status.error||'The game could not start. Its creator can try an update.');
     }
-    tab.opener=null;tab.location.replace(gamepadLaunchUrl(launch.url, padLayouts));
-  } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
+    const url = gamepadLaunchUrl(launch.url, padLayouts);
+    if (sameTab) {
+      if (voiceBlocksNavigation()) return;
+      location.assign(url);
+      navigating = true;
+      window.addEventListener('pageshow', restored);
+      resetTimer = setTimeout(reset, 15000);
+    }
+    else { tab.opener=null; tab.location.replace(url); }
+  } catch(error) {tab?.close();showError(error);} finally {if (!navigating) reset();}
 }
 function desktopPlatform(){
   const platform=navigator.userAgentData?.platform||navigator.platform;
@@ -1651,7 +1688,8 @@ function setupUserSettings(signOut){
       };
       select.dataset.model = pad.id;
       label.append(select);
-      if (pad.mapping !== 'standard') label.append(el('small', 'Non-standard mapping. Button labels may differ.', 'quiet'));
+      if (pad.mapping !== 'standard') label.append(el('small', 'Non-standard mapping. Button labels may differ.', 'quiet'),
+        el('small', "This controller can't be used to browse the Library.", 'quiet'));
       panel.append(label);
     }
     panel.append(el('p', 'Saved in this browser for each controller model. Applies when you launch a game.', 'quiet settings-scope'));
@@ -1815,6 +1853,10 @@ try {
     void api('/api/profile/appearance',{method:'PUT',body:JSON.stringify(migratedAppearance),signal:AbortSignal.timeout(12000)}).catch(()=>{});
   }
   $('welcome').hidden=true;$('clubhouse').hidden=false;
+  initLibraryGamepad(button => {
+    const launch = controllerLaunches.get(button);
+    if (launch) launch(); else button.click();
+  });
   setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
   initChat({me, api,diagnostics, profileAvatar,onSpeakerContext:arrangeChatParticipants,onHouseCall:updateConfetti});
   if(!me.inspecting){

@@ -31,6 +31,12 @@ if (jumpLabel !== null) showJumpPrompt(jumpLabel);
 
 `layout` guesses the controller family (or uses the player's override) for any mapping. `faceButton` returns a label only for indices 0–3 on a pad with `mapping === "standard"`. It returns null for other mappings or indices. Custom bindings should pass their actual standard face-button index. Engines that supply their own action mapping can use `layout(pad)` to pick their prompt artwork. On older Infuser installations, feature-detect `Infuser.gamepads` and use the game's usual prompts.
 
+## Browsing the Library with a controller
+
+Use the D-pad or left stick to highlight a game. Confirm opens its expanded card, where Play gets focus. Move right for Play options. Back closes the options first, then the card. The Library uses Nintendo A/B, PlayStation Cross/Circle or Xbox A/B for Confirm/Back according to the selected layout.
+
+Library shortcuts appear after deliberate controller input and disappear on a keypress or pointer press. The input-method icons on the card describe the game's supported controls. Controller Play first opens a new tab. If the browser blocks the popup, Play uses the Library tab when voice is off. During a voice call, press Play with the mouse or keyboard to keep the Library connected. Each game decides which prompts to display during play.
+
 ## Face-button prompts
 
 Use the physical position for the binding and the player's chosen layout for the label. These are the face labels for common standard-mapped controllers **when the binding stays in the same physical position**.
