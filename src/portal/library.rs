@@ -211,6 +211,7 @@ impl View<'_> {
             "play_unavailable":if runtime!=id || data.groups.member(self.email)!=self.group {build.visit_unavailable()}else{None},
             "title":metadata::title(data,id,&build.manifest.title),
             "orientation":build.manifest.orientation,
+            "input_methods":data.metadata.get(id).map(|m|m.input_methods.as_slice()).unwrap_or_default(),
             "description":data.metadata.get(id).and_then(|m|m.description.as_deref()),
             "author_model":data.metadata.get(id).and_then(|m|m.author_model.as_deref()),
             "effort_level":data.metadata.get(id).and_then(|m|m.effort_level.as_deref()),

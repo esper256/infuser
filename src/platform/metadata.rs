@@ -20,6 +20,8 @@ pub struct GameMetadata {
     pub effort_level: Option<String>,
     #[serde(default)]
     pub estimated_prompts: Option<u32>,
+    #[serde(default)]
+    pub input_methods: Vec<String>,
 }
 
 pub(super) fn initialize(c: &Connection) -> Result<()> {
@@ -34,6 +36,7 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for name in [
+        "input_methods",
         "description",
         "art_prompt",
         "art_prompt_completed_revision",
@@ -63,12 +66,16 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
 }
 
 pub(super) fn read(c: &Connection) -> Result<BTreeMap<String, GameMetadata>> {
-    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated,description,art_prompt,art_prompt_completed_revision,title_locked,author_model,effort_level,estimated_prompts FROM game_metadata")?;
+    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated,description,art_prompt,art_prompt_completed_revision,title_locked,author_model,effort_level,estimated_prompts,input_methods FROM game_metadata")?;
     let rows = statement.query_map([], |r| {
         Ok((
             r.get(0)?,
             GameMetadata {
                 title: r.get(1)?,
+                input_methods: r
+                    .get::<_, Option<String>>(12)?
+                    .map(|methods| methods.split(',').map(String::from).collect())
+                    .unwrap_or_default(),
                 description: r.get(5)?,
                 art_prompt: r.get(6)?,
                 art_prompt_completed_revision: r.get(7)?,
@@ -95,6 +102,7 @@ pub struct MetadataUpdate<'a> {
     pub author_model: Option<Option<&'a str>>,
     pub effort_level: Option<Option<&'a str>>,
     pub estimated_prompts: Option<Option<u32>>,
+    pub input_methods: Option<&'a [String]>,
     pub art: Option<Option<&'a [u8]>>,
     /// Completing artwork must not overwrite a newer brief or a completed request.
     pub complete_prompt: Option<&'a str>,
@@ -166,6 +174,12 @@ impl Database {
             tx.execute(
                 "UPDATE game_metadata SET card_art=?2,card_art_revision=?3,updated=?4 WHERE app=?1",
                 params![app, art, revision, now()],
+            )?;
+        }
+        if let Some(methods) = update.input_methods {
+            tx.execute(
+                "UPDATE game_metadata SET input_methods=?2,updated=?3 WHERE app=?1",
+                params![app, (!methods.is_empty()).then(|| methods.join(",")), now()],
             )?;
         }
         if let Some(description) = update.description {

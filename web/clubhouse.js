@@ -468,6 +468,16 @@ function renderGameDetail(){
   for(const tag of game.tags||[]){const button=el('button',tagLabel(tag),'tag-chip');button.type='button';button.onclick=()=>{detailReturnFocus=$('game-search');dialog.close();activeTag=tag;renderFilters();renderGames();$('game-search').focus();};tags.append(button);}
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags','text-button');edit.type='button';edit.onclick=()=>openTags(game);tags.append(edit);}if(tags.childElementCount)info.append(tags);
   if(game.description)info.append(el('p',game.description,'game-description'));
+  const controlNames = {keyboard:'Keyboard', mouse:'Mouse', keyboard_mouse:'Keyboard + mouse', touch:'Touch', gamepad:'Gamepad'};
+  const controls = (game.input_methods || []).filter(method => Object.hasOwn(controlNames, method)).map(method => controlNames[method]);
+  if (controls.length) {
+    const row = el('p', 'Playable with ', 'detail-input-methods');
+    for (const [index, label] of controls.entries()) {
+      if (index) row.append(' · ');
+      row.append(el('span', label));
+    }
+    info.append(row);
+  }
   info.append(gameActions(game,info));
   if(!me.inspecting){
     const starRow=el('div',undefined,'detail-star-row');
@@ -1790,7 +1800,7 @@ First look for this game's existing connection to this server. Reuse it and its 
 
 Declare the actual play modes. For co-op with independent runs, follow the guide’s Play and Join Friend instructions even if this game already uses Infuser matchmaking. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Keep save and presence API calls at deliberate checkpoints or menus, never inside per-frame render or physics loops, and cap 3D WebGL render resolution to a 1080p pixel budget so 4K/HiDPI screens stay at 60 fps. Explain unsupported features rather than silently removing them.
 
-Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Set orientation in infuser.game.json to landscape or portrait for the game’s intended mobile layout, and set resolution to "native" once the game caps its own 3D render buffer (or is a lightweight 2D game) or leave the default "hd" 1080p player cap. Save a short factual game description through the metadata API. For every game type and engine: if high-quality image generation is not your strength, prefer a detailed art_prompt in game metadata for an Infuser art agent to fulfill later. Describe the real game's subjects, composition, style, palette, and mood. Otherwise upload high-quality art meeting the art spec. Do not spend time staging screenshots: use one only if it makes exceptional cover art with no UI, HUD, or browser chrome. An art prompt is a complete handoff; keep publishing.
+Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Test the game's complete control schemes and declare input_methods through the metadata API as described in docs/game-metadata.md. Set orientation in infuser.game.json to landscape or portrait for the game’s intended mobile layout, and set resolution to "native" once the game caps its own 3D render buffer (or is a lightweight 2D game) or leave the default "hd" 1080p player cap. Save a short factual game description through the metadata API. For every game type and engine: if high-quality image generation is not your strength, prefer a detailed art_prompt in game metadata for an Infuser art agent to fulfill later. Describe the real game's subjects, composition, style, palette, and mood. Otherwise upload high-quality art meeting the art spec. Do not spend time staging screenshots: use one only if it makes exceptional cover art with no UI, HUD, or browser chrome. An art prompt is a complete handoff; keep publishing.
 
 Build with this project's tools, publish, and verify publication_state and metadata with the publisher API. Run available local checks; test live launch, saves, guest play, and multiplayer only if an authorized game test session is already available. A missing Google login is not a blocker: do not ask me to log in for your automation or share Google credentials, cookies, or account access. Finish publication and mark unavailable live checks as untested. Use the publishing recipe; report missing server capabilities instead of trying to administer the Infuser host. Tell me what is active, queued, or untested, whether artwork is requested, and any reported platform issue links. Invite me to open ${newGameConnection.api_url} and press Play myself.`;
   $('add-game-title').textContent='Bring your game';

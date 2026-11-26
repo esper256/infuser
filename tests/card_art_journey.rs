@@ -620,6 +620,8 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         json!({"effort_level": " "}),
         json!({"effort_level": "e".repeat(41)}),
         json!({"effort_level": "hi\tgh"}),
+        json!({"input_methods":["gamepad","gamepad"]}),
+        json!({"input_methods":["invented"]}),
         json!({"estimated_prompts": 0}),
         json!({"estimated_prompts": 1_000_001}),
     ] {
@@ -635,6 +637,7 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     let authored = json_ok(publisher(Method::PATCH, metadata_path).json(&json!({
         "author_model": "  Claude Opus 4.6  ",
         "effort_level": " high ",
+        "input_methods": ["gamepad","touch"],
         "estimated_prompts": 14
     })))
     .await?;
@@ -655,6 +658,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     let lib_authored = json_ok(member("/api/library", "user")).await?;
     assert_eq!(lib_authored["apps"][0]["author_model"], "Claude Opus 4.6");
     assert_eq!(lib_authored["apps"][0]["effort_level"], "high");
+    assert_eq!(
+        lib_authored["apps"][0]["input_methods"],
+        json!(["gamepad", "touch"])
+    );
     assert_eq!(lib_authored["apps"][0]["estimated_prompts"], 19);
     let reopened_authored = platform::Database::open(temp.path())?.read()?;
     assert_eq!(
@@ -675,6 +682,10 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     assert_eq!(cleared_effort["author_model"], "Claude Opus 4.6");
     assert!(cleared_effort["effort_level"].is_null());
     assert_eq!(cleared_effort["estimated_prompts"], 19);
+    let cleared =
+        json_ok(publisher(Method::PATCH, metadata_path).json(&json!({"input_methods":null})))
+            .await?;
+    assert_eq!(cleared["input_methods"], json!([]));
     let mut replacement = Vec::new();
     image_webp::WebPEncoder::new(&mut replacement).encode(
         &vec![17; 1024 * 1024 * 3],

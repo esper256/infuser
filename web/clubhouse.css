@@ -798,6 +798,8 @@ button.feed-row:hover { border-color: var(--accent); }
 .detail-tags .tag-chip + .tag-chip::before { content: '·'; margin-right: 10px; }
 .detail-tags .text-button { margin-left: auto; }
 .game-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 0 0 22px; }
+.detail-input-methods { margin: 0 0 12px; color: var(--quiet); font-size: 14px; line-height: 1.5; }
+.detail-input-methods span { white-space: nowrap; }
 .detail-info > .actions { width: fit-content; margin: 0 0 16px; }
 .detail-star-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 18px; }
 .detail-star-btn {

@@ -174,6 +174,8 @@ understand, it must refuse to overwrite it. Each web build has its own origin,
 so a newly published build starts with fresh `localStorage` and IndexedDB.
 Use Infuser saves for progress that should survive an update.
 
+Design controls around actions, test each complete input method, and declare the tested methods through the [metadata API](game-metadata.md#input-methods). For gamepad navigation, reconnection and Xbox, PlayStation and Nintendo prompts, follow the [controls guide](game-controls.md).
+
 For every web game, set `orientation` in `infuser.game.json` to `landscape` or
 `portrait` according to its intended phone layout. The publisher sends it with each build.
 Older and default builds (`"resolution": "hd"`) are automatically protected by
