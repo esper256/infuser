@@ -1260,3 +1260,7 @@ button.feed-row:hover { border-color: var(--accent); }
 }
 .library-pad-active .game:has(.game-open:focus),
 .library-pad-active #game-detail .actions :focus { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+@media (max-width: 640px) {
+  .library-pad-hints.at-top { top: max(12px, env(safe-area-inset-top)); bottom: auto; }
+}

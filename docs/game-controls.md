@@ -35,7 +35,7 @@ if (jumpLabel !== null) showJumpPrompt(jumpLabel);
 
 Use the D-pad or left stick to highlight a game. Confirm opens its expanded card, where Play gets focus. Move right for Play options. Back closes the options first, then the card. The Library uses Nintendo A/B, PlayStation Cross/Circle or Xbox A/B for Confirm/Back according to the selected layout.
 
-Library shortcuts appear after deliberate controller input and disappear on a keypress or pointer press. The input-method icons on the card describe the game's supported controls. Starting a web game with the controller opens it in the current tab. Each game decides which prompts to display during play.
+Library shortcuts appear after deliberate controller input and disappear on a keypress or pointer press. The input-method icons on the card describe the game's supported controls. Controller Play first opens a new tab. If the browser blocks the popup, Play uses the Library tab when voice is off. During a voice call, press Play with the mouse or keyboard to keep the Library connected. Each game decides which prompts to display during play.
 
 ## Face-button prompts
 

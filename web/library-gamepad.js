@@ -23,30 +23,32 @@ function neighbor(current, cards, move) {
   const sign = move === 'left' || move === 'up' ? -1 : 1;
   const rect = button => button.closest('.game').getBoundingClientRect();
   const origin = rect(current);
-  let best = current, distance = Infinity;
+  let best, distance = Infinity, fallback = current, fallbackDistance = Infinity;
   for (const card of cards) {
     const box = rect(card);
     const aligned = horizontal ? box.top < origin.bottom && box.bottom > origin.top :
       box.left < origin.right && box.right > origin.left;
-    if (!aligned) continue;
     const dx = box.x + box.width / 2 - origin.x - origin.width / 2;
     const dy = box.y + box.height / 2 - origin.y - origin.height / 2;
     const forward = sign * (horizontal ? dx : dy);
     const side = Math.abs(horizontal ? dy : dx);
-    if (forward <= 1 || side > forward || forward + 2 * side >= distance) continue;
+    if (forward <= 1) continue;
+    const radius = Math.hypot(forward, side);
+    if (radius < fallbackDistance) { fallback = card; fallbackDistance = radius; }
+    if (!aligned || forward + 2 * side >= distance) continue;
     best = card;
     distance = forward + 2 * side;
   }
-  return best;
+  return best || fallback;
 }
 
 export function initLibraryGamepad(activate) {
   const detail = document.getElementById('game-detail');
-  const hints = document.createElement('aside');
+  const hints = document.createElement('div');
   hints.className = 'library-pad-hints';
-  hints.setAttribute('aria-label','Controller shortcuts');
+  hints.setAttribute('aria-hidden','true');
   const history = new Map();
-  let timer, owner;
+  let timer, owner, fastUntil;
   function hide() {
     if (owner === undefined) return;
     hints.remove();
@@ -54,28 +56,60 @@ export function initLibraryGamepad(activate) {
     owner = undefined;
     for (const state of history.values()) state.repeat = Infinity;
   }
-  function show(pad, family, action) {
+  function show(pad, text) {
     owner = pad.index;
     document.documentElement.classList.add('library-pad-active');
-    const confirm = family === 'nintendo' ? 1 : 0;
-    const names = layouts[family];
-    const text = [action && names[confirm] + ' · ' + action, detail.open && names[1-confirm] + ' · Back'].filter(Boolean).join('　');
     if (hints.textContent !== text) hints.textContent = text;
     const parent = detail.open ? detail : document.body;
     if (hints.parentElement !== parent) parent.append(hints);
+    if (matchMedia('(max-width: 640px)').matches) {
+      const target = document.activeElement.closest('.game') || document.activeElement;
+      const box = target.getBoundingClientRect();
+      hints.classList.toggle('at-top', box.bottom > innerHeight - hints.offsetHeight - 20);
+    }
   }
   function navigate(pad, move, accepted, back) {
     const otherDialog = 'dialog[open]:not(#game-detail)';
-    if (document.querySelector(otherDialog) || document.activeElement?.matches('input, textarea, select, [contenteditable=true]') ||
-        document.querySelector('.header-menu[open], #chat-toggle[aria-expanded=true], :popover-open, [data-launching]')) { hide(); return; }
     const saved = preference(pad.id);
     const family = saved === 'auto' ? automaticLayout(pad.id) : saved;
     const confirm = family === 'nintendo' ? back : accepted;
     const cancel = family === 'nintendo' ? accepted : back;
-    if (detail.open && cancel) {
-      const menu = detail.querySelector('.play-menu[open]');
-      if (menu) { menu.open = false; menu.querySelector('summary').focus(); }
-      else detail.close();
+    if (document.querySelector('[data-launching]')) {
+      if (cancel) show(pad, 'Starting…');
+      return;
+    }
+    const focused = document.activeElement;
+    if (focused.matches('input, textarea, select, [contenteditable=true]')) {
+      if (cancel) focused.blur();
+      hide();
+      return;
+    }
+    const dialog = focused.closest(otherDialog) || document.querySelector(otherDialog);
+    const scope = dialog || (detail.open ? detail : document);
+    const menu = scope.querySelector('.play-menu[open], .header-menu[open], .game-admin-menu[open], .feedback-actions[open]');
+    if (cancel && menu) {
+      menu.open = false;
+      menu.querySelector('summary').focus();
+    } else if (dialog) {
+      if (cancel) dialog.close(); // Native modal close restores its opener.
+      hide();
+      return;
+    } else if (document.querySelector(':popover-open, #chat-toggle[aria-expanded=true]')) {
+      if (cancel) {
+        const popover = document.querySelector(':popover-open');
+        if (popover) popover.hidePopover();
+        else {
+          const chat = document.getElementById('chat-toggle');
+          chat.click(); chat.focus();
+        }
+      }
+      hide();
+      return;
+    } else if (!detail.open && menu) {
+      hide();
+      return;
+    } else if (detail.open && cancel) {
+      detail.close();
     } else if (detail.open) {
       const actions = detail.querySelector('.actions');
       if (!actions) { hide(); return; }
@@ -102,10 +136,20 @@ export function initLibraryGamepad(activate) {
     }
     if (document.querySelector(otherDialog)) { hide(); return; }
     const target = document.activeElement;
-    show(pad, family, !detail.open ? 'Open' : target?.matches('summary') ? 'Options' :
-      target?.matches('.actions > button') ? 'Play' : target?.closest('.play-menu-items') ? 'Select' : '');
+    const action = !detail.open ? 'Open' : target?.matches('summary') ? 'Options' :
+      target?.matches('.actions > button') ? 'Play' : target?.closest('.play-menu-items') ? 'Select' : '';
+    const names = layouts[family], index = family === 'nintendo' ? 1 : 0;
+    show(pad, [action && names[index] + ' · ' + action, detail.open && names[1-index] + ' · Back'].filter(Boolean).join('　'));
+  }
+  function seed(pad) {
+    history.set(pad.index, {buttons:buttonMask(pad), move:direction(pad), repeat:Infinity});
+  }
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(poll, performance.now() < fastUntil ? 40 : 250);
   }
   function poll() {
+    if (document.hidden || !document.hasFocus()) { stop(); return; }
     const pads = connectedPads().filter(pad => pad.mapping === 'standard');
     if (!pads.length) { stop(); return; }
     for (const index of history.keys()) {
@@ -116,37 +160,39 @@ export function initLibraryGamepad(activate) {
     }
     const now = performance.now();
     for (const pad of pads) {
-      const state = history.get(pad.index) || {buttons:0, move:'', repeat:Infinity};
+      const state = history.get(pad.index);
+      if (!state) { seed(pad); continue; }
       const buttons = buttonMask(pad);
       const pressed = buttons & ~state.buttons;
       const move = direction(pad);
       const changed = move && move !== state.move;
       const repeat = move && owner === pad.index && now >= state.repeat;
+      if (buttons !== state.buttons || move !== state.move || repeat) fastUntil = now + 3000;
       state.buttons = buttons;
       state.move = move;
       if (changed || repeat) state.repeat = now + (changed ? 420 : 155);
-      history.set(pad.index, state);
       if (pressed || changed || repeat) navigate(pad, changed || repeat ? move : '', pressed & 1, pressed & 2);
     }
+    schedule();
   }
   function stop() {
-    clearInterval(timer); timer = undefined;
+    clearTimeout(timer); timer = undefined;
     history.clear(); hide();
   }
   function wake(event) {
     if (document.hidden || !document.hasFocus()) { stop(); return; }
-    if (timer !== undefined) return;
     const pads = connectedPads().filter(pad => pad.mapping === 'standard');
-    if (!pads.length) return;
-    // Returning to a tab with Confirm held must not open a card or start a game.
-    if (event?.type !== 'gamepadconnected') {
-      for (const pad of pads) history.set(pad.index, {buttons:buttonMask(pad), move:direction(pad), repeat:Infinity});
+    if (!pads.length) { stop(); return; }
+    for (const pad of pads) {
+      if (!history.has(pad.index) || event?.gamepad?.index === pad.index) seed(pad);
     }
-    timer = setInterval(poll, 40);
+    fastUntil = performance.now() + 3000;
+    schedule();
   }
   document.addEventListener('keydown', hide, true);
   document.addEventListener('pointerdown', hide, true);
   window.addEventListener('gamepadconnected', wake);
+  window.addEventListener('gamepaddisconnected', wake);
   window.addEventListener('blur', stop);
   window.addEventListener('focus', wake);
   window.addEventListener('pagehide', stop);

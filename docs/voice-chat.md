@@ -18,7 +18,7 @@ volume, per-participant mix, and processing preferences are saved per profile
 in SQLite; mic mute and deafen reset to unmuted on a fresh join. There are no
 room menus, recordings, video, or game-specific channels. Refreshing or leaving
 the Library disconnects; launching a game in another tab leaves the Library's
-voice connection running.
+voice connection running. If the browser blocks a controller launch popup during a call, the Library stays open and asks the player to press Play with the mouse or keyboard.
 
 While a player has an active voice connection in their Library tab, non-guest
 game tabs show the single-segment voice pill (`[ headset ▾ ]`) in the slim
