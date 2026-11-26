@@ -332,5 +332,5 @@ appearance lock, restoration at midnight, Recently control and turkey flock unde
 the production CSP with a mocked local API. Use the usual `INFUSER_PLAYWRIGHT`
 and `INFUSER_CHROMIUM` overrides. `node --test tests/themes.mjs` covers the holiday
 calendar across years and preservation of saved custom colors/profile choices.
-The ordinary Library/Settings journeys fix only the theme calendar to a non-holiday;
+Ordinary journeys that load `themes.js` fix only its calendar to a non-holiday;
 the rest of the app keeps its real timers and clock.

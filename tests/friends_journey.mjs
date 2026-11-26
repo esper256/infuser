@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Avatar Join Friend journey. Mock API, real Library UI and browser popups.
 // INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs node tests/friends_journey.mjs
 // Set INFUSER_TOUCH=1 to also exercise touch opening and coarse-pointer styles.
@@ -31,6 +32,7 @@ await context.route('https://library.test/**',async route=>{
  const avatar=/^\/assets\/avatars\/([^/]+)\/(\d+)\.webp$/.exec(path);if(avatar)file=`assets/avatars/${avatar[1]}-${avatar[2]}.webp`;
  if(file)try{
   let body=await fs.readFile(new URL(file,root));
+  if(file==='web/themes.js')body=ordinaryThemeCalendar(body.toString());
   if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.refreshLibrary=refresh;';
   return route.fulfill({body,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webp')?'image/webp':'text/html'});
  }catch{}

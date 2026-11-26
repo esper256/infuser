@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Offline Library polling and interaction soaks: existing Playwright 1.65.1, real web assets, real timers.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -120,6 +121,7 @@ try {
     let body;
     try {body = await readFile(new URL(file, root));}
     catch {unexpected.push(path); return route.fulfill({status: 404, body: ''});}
+    if (file === 'web/themes.js') body = ordinaryThemeCalendar(body.toString());
     if (file === 'web/clubhouse.js') {
       body = replace(body.toString(), 'try {\n  me=await api', "refresh=window.__leakSoak.observe('library',refresh);\ntry {\n  me=await api");
       body = replace(body, 'setInterval(()=>{if(!document.hidden)refresh();},25000);', "setInterval(window.__leakSoak.tag('library',()=>{if(!document.hidden)refresh();}),25000);");

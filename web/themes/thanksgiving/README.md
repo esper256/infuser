@@ -1,6 +1,6 @@
 # Thanksgiving artwork
 
-`turkey.png` is the final approved transparent, full-resolution generated mascot.
+`turkey.png` is the final approved transparent, 256px generated mascot.
 The controller faces the turkey; only its back and triggers face the viewer.
 Intermediate versions are not shipped.
 

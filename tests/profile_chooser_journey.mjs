@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import {mkdir} from 'node:fs/promises';
@@ -17,7 +18,8 @@ async function context(who){
       const proxy=http.request(base+url.pathname+url.search,{method:request.method(),headers},r=>{
         const chunks=[];r.on('data',b=>chunks.push(b));r.on('end',()=>resolve({status:r.statusCode,headers:r.headers,body:Buffer.concat(chunks)}));
       });proxy.on('error',reject);proxy.end(request.postDataBuffer()||undefined);
-    });await route.fulfill(response);
+    });if(url.pathname==='/assets/themes.js'){response.body=ordinaryThemeCalendar(response.body.toString());delete response.headers['content-length'];}
+    await route.fulfill(response);
   });return c;
 }
 const choose=async(page,name)=>{await page.getByRole('button',{name:new RegExp(name)}).click();await page.waitForURL('**/library');await page.locator('#account-trigger').waitFor();};

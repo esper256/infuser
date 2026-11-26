@@ -1,3 +1,4 @@
+import {pipeWithOrdinaryTheme} from './theme_calendar.mjs';
 // Loopback TLS proxy for synthetic dedicated-server browser journeys only.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -5,7 +6,7 @@ import https from 'node:https';
 export const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT || '../../services/peerjs/node_modules/playwright/index.mjs');
 export const browserOptions={headless:true,executablePath:process.env.INFUSER_CHROMIUM,args:['--ignore-certificate-errors','--no-proxy-server','--host-resolver-rules=MAP *.games.example.com 127.0.0.1, MAP games.example.com 127.0.0.1']};
 export async function startProxy(config) {
-const headers=req=>({...req.headers,host:req.headers.host.split(':')[0],...(req.headers.origin?{origin:new URL(req.headers.origin).origin.replace(/:\d+$/,'')}: {})});
+const headers=req=>({...req.headers,...(req.url.split('?')[0]==='/assets/themes.js'?{'accept-encoding':'identity'}:{}),host:req.headers.host.split(':')[0],...(req.headers.origin?{origin:new URL(req.headers.origin).origin.replace(/:\d+$/,'')}: {})});
 const proxy=https.createServer({cert:fs.readFileSync(config.cert),key:fs.readFileSync(config.key)},(req,res)=>{
   const upstream=http.request(config.api+req.url,{method:req.method,headers:headers(req)},r=>{
     if((req.url.startsWith('/api/apps/') && req.url.endsWith('/launch') || req.url==='/api/voice' && req.method==='POST') && r.statusCode===200){
@@ -13,7 +14,7 @@ const proxy=https.createServer({cert:fs.readFileSync(config.cert),key:fs.readFil
         const value=JSON.parse(body);if(value.url){const url=new URL(value.url);url.port=String(proxy.address().port);value.url=url.href;}
         const h={...r.headers};delete h['content-length'];res.writeHead(r.statusCode,h);res.end(JSON.stringify(value));
       });
-    }else{res.writeHead(r.statusCode,r.headers);r.pipe(res);}
+    }else{pipeWithOrdinaryTheme(req.url,r,res);}
   });
   upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 });

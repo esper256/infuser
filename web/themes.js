@@ -10,7 +10,7 @@
   const sessionProfileKey = 'infuser.profile';
   const defaultId = 'nightglass';
   const holidayId = 'thanksgiving';
-  const holidayTheme = Object.freeze({id: holidayId, name: 'Thankfuser', status: 'seasonal'});
+  const holidayTheme = Object.freeze({id: holidayId, name: 'thankfuser', status: 'seasonal'});
   // U.S. Thanksgiving in each device's local calendar: the fourth Thursday.
   const isThanksgiving = date => date.getMonth() === 10 && date.getDay() === 4 && date.getDate() >= 22 && date.getDate() <= 28;
   let holidayActive = isThanksgiving(new Date());
@@ -406,10 +406,10 @@
       if (image.getAttribute('src') !== src) image.setAttribute('src', src);
     }
     const wordmark = document.querySelector('.brand-wordmark');
-    if (wordmark) wordmark.setAttribute('aria-label', (holidayActive ? 'Thankfuser' : 'Infuser') + ' Library');
+    if (wordmark) wordmark.setAttribute('aria-label', (holidayActive ? 'thankfuser' : 'Infuser') + ' Library');
     const chooser = document.querySelector('.chooser-brand > span');
-    if (chooser) chooser.textContent = holidayActive ? 'Thankfuser' : 'Infuser';
-    if (/^(Infuser|Thankfuser)( ·|$)/.test(document.title)) document.title = document.title.replace(/^(Infuser|Thankfuser)/, holidayActive ? 'Thankfuser' : 'Infuser');
+    if (chooser) chooser.textContent = holidayActive ? 'thankfuser' : 'Infuser';
+    if (/^(Infuser|thankfuser)( ·|$)/.test(document.title)) document.title = document.title.replace(/^(Infuser|thankfuser)/, holidayActive ? 'thankfuser' : 'Infuser');
   }
   function applyNow(id) {
     preferredTheme = id;

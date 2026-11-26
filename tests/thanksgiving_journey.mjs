@@ -7,7 +7,7 @@ await mkdir(out,{recursive:true});
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 const original={theme:'nightglass',schemes:{nightglass:'custom'},custom:{nightglass:{primary:'#123456',accent:'#fedcba',secondary:'#89abcd'}}};
 const me={player_id:'self',name:'Alex',avatar:'',avatar_prompt_seen:true,admin:false,profile_count:1,group:{id:'home',name:'Home'},appearance:original,avatars:[]};
-const app={id:'lantern-keep',title:'Lantern Keep',description:'A cozy adventure.',tags:['cozy'],updated:1795716000,author:{id:'self',name:'Alex'},reactions:[],players:[],join_targets:[]};
+const app={id:'lantern-keep',title:'Lantern Keep',description:'A cozy adventure.',tags:['cozy'],updated:1795716000,author:{id:'self',name:'Alex'},reactions:[{id:'friend',name:'Sam',emoji:'👏',text:'Cozy adventure!',updated:1795716060}],players:[],join_targets:[]};
 const csp="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 const appearanceWrites=[];
 try{
@@ -42,11 +42,31 @@ try{
  await page.goto('https://library.test/library');await page.locator('#account-trigger').waitFor();await page.locator('.game-open').waitFor();
  assert.equal(await page.evaluate(()=>InfuserThemes.current),'thanksgiving');
  assert.deepEqual(await page.evaluate(()=>InfuserThemes.snapshot()),original);
- assert.equal(await page.locator('.brand-wordmark').getAttribute('aria-label'),'Thankfuser Library');
+ assert.equal(await page.locator('.brand-wordmark').getAttribute('aria-label'),'thankfuser Library');
  await page.locator('.brand-icon').evaluate(img=>img.decode());
  assert((await page.locator('.brand-icon').getAttribute('src')).endsWith('/thanksgiving/turkey.png'));
- assert.equal(await page.locator('.thankfuser-wordmark').innerText(),'Thankfuser');
- await page.locator('#recent-toggle').click();assert(await page.locator('#activity').isVisible());await page.locator('#close-recent').click();
+ assert.equal(await page.locator('.thankfuser-wordmark').innerText(),'thankfuser');
+ async function checkWarmContrast(selector,background){
+   const nodes=page.locator(selector);assert(await nodes.count()>0,selector+' is rendered');
+   for(const node of await nodes.all()){
+     await node.evaluate(async el=>{await Promise.all(el.getAnimations().map(a=>a.finished));});
+     const colors=await node.evaluate(el=>{
+       let surface=el;while(getComputedStyle(surface).backgroundColor==='rgba(0, 0, 0, 0)')surface=surface.parentElement;
+       return {ink:getComputedStyle(el).color,paper:getComputedStyle(surface).backgroundColor};
+     });
+     const rgb=color=>color.match(/[\d.]+/g).slice(0,3).map(Number);
+     const luminance=color=>rgb(color).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+     const [light,dark]=[luminance(colors.ink),luminance(colors.paper)].sort((a,b)=>b-a);
+     assert((light+.05)/(dark+.05)>=4.5,selector+' text contrast: '+JSON.stringify(colors));
+     assert([background].flat().includes(colors.paper),selector+' uses the warm surface: '+colors.paper);
+   }
+ }
+ await page.locator('#recent-toggle').click();assert(await page.locator('#activity').isVisible());
+ for(const selector of ['#feed .feed-row','#feed .feed-row small','#feed .feed-row p'])await checkWarmContrast(selector,['rgb(54, 37, 28)','rgb(66, 45, 32)']);
+ await page.locator('#close-recent').click();
+ await page.locator('.game-open').click();await page.locator('#game-detail').waitFor();
+ for(const selector of ['.detail-star-btn','.reaction-choice','.feedback-bubble'])await checkWarmContrast(selector,'rgb(67, 48, 39)');
+ await page.locator('#close-game-detail').click();
  const saved=await page.evaluate(()=>localStorage.getItem('infuser.appearance.self'));
  await page.locator('#account-trigger').click();await page.locator('#open-settings').click();
  assert(await page.locator('#theme-scheme-group').isHidden(),'holiday cannot edit saved color schemes');
@@ -89,6 +109,7 @@ try{
  assert.equal(await page.evaluate(()=>InfuserThemes.catalog.some(t=>t.id==='thanksgiving')),false);
  assert((await page.locator('.brand-icon').getAttribute('src')).startsWith('data:'));
  await page.locator('#account-trigger').click();await page.locator('#open-settings').click();
+ assert.equal(await page.locator('#settings-appearance-scope').innerText(),'Saved for Home across your devices.');
  assert(await page.locator('#theme-picker').isEnabled());assert.equal(await page.locator('#theme-picker option[value=thanksgiving]').count(),0);await page.locator('#close-settings').click();
  await page.evaluate(()=>testHolidayConfetti(document.querySelector('.game-open')));
  await page.locator('.update-confetti').waitFor();assert.equal(await page.locator('.turkey-stampede').count(),0);

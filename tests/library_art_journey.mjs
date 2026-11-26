@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Opt-in browser regression: INFUSER_PLAYWRIGHT=/path/to/playwright/index.mjs
 // node tests/library_art_journey.mjs (no running server or account required).
 import assert from 'node:assert/strict';
@@ -20,6 +21,7 @@ await page.route('https://library.test/**',async route=>{
   if(file&&!file.includes('..')){
     try{
       let body=await fs.readFile(new URL('../web/'+file,import.meta.url));
+      if(file==='themes.js')body=ordinaryThemeCalendar(body.toString());
       if(file==='clubhouse.js'){
         if(process.env.INFUSER_CLUBHOUSE_SOURCE)body=await fs.readFile(process.env.INFUSER_CLUBHOUSE_SOURCE);
         body=body.toString()+`\nwindow.testLibrary={render(data){me={admin:false,avatars:[]};library=data;document.getElementById('clubhouse').hidden=false;document.getElementById('welcome').hidden=true;renderGames();},openDetails(){openGameDetail(library.apps[0]);}};`;
