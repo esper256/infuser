@@ -331,19 +331,93 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["stale"],
         true
     );
-    let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Second group","admin_email":"admin@example.com","admin_name":"Other admin"}))).await?["id"].as_str().unwrap().to_owned();
+    let create = |name: &str| {
+        c.member("frizz", Method::POST, "/api/operator/groups")
+            .json(
+                &json!({"name":name,"admin_email":"admin@example.com","admin_name":"Other admin"}),
+            )
+    };
+    let group = ok(create("Second group")).await?["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let rename = |actor: &str, id: &str, name: &str| {
         c.member(actor, Method::PUT, &format!("/api/operator/groups/{id}"))
             .json(&json!({"name":name}))
     };
-    denied(rename("admin", &group, "Forbidden")).await?;
+    assert_eq!(
+        rename("admin", &group, "Forbidden").send().await?.status(),
+        403
+    );
+    let rename_request = |origin: &str| {
+        c.http
+            .put(format!("{}/api/operator/groups/{group}", c.url))
+            .header("host", "games.example.com")
+            .header("origin", origin)
+            .json(&json!({"name":"Forbidden"}))
+    };
+    assert_eq!(
+        rename_request("https://games.example.com")
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    assert_eq!(
+        rename_request("https://evil.example")
+            .header("cookie", "member=frizz")
+            .send()
+            .await?
+            .status(),
+        403
+    );
     denied(rename("frizz", &group, "Forbidden").header("x-infuser-inspect-group", &group)).await?;
     assert_eq!(
         rename("frizz", "missing", "New").send().await?.status(),
         404
     );
-    for invalid in ["  ", "Control\ncharacter", &"x".repeat(61)] {
-        assert_eq!(rename("frizz", &group, invalid).send().await?.status(), 422);
+    for invalid in [
+        "  ",
+        "Control\ncharacter",
+        &"x".repeat(61),
+        "\u{200b}",
+        "\u{3164}",
+        "\u{2800}",
+        "A\u{202e}B",
+    ] {
+        for request in [create(invalid), rename("frizz", &group, invalid)] {
+            let response = request.send().await?;
+            assert_eq!(response.status(), 422);
+            assert_eq!(
+                response.json::<Value>().await?["error"],
+                "Use a group name of 1–60 characters."
+            );
+        }
+    }
+    for valid in [
+        &"x".repeat(60),
+        &"🎮".repeat(60),
+        "Familia Pérez",
+        "日本のクラブ",
+        "🎮",
+        "Straße",
+    ] {
+        let response = rename("frizz", &group, valid).send().await?;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.json::<Value>().await?["name"], valid);
+    }
+    for request in [rename("frizz", "home", " STRASSE "), create(" STRASSE ")] {
+        let response = request.send().await?;
+        assert_eq!(response.status(), 409);
+        assert_eq!(
+            response.json::<Value>().await?["error"],
+            "Another group already uses that name."
+        );
+    }
+    for own_name in ["Home", "home"] {
+        let response = rename("frizz", "home", own_name).send().await?;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.json::<Value>().await?["name"], own_name);
     }
     assert_eq!(
         ok(rename("frizz", "home", "Family Arcade")).await?,
@@ -361,6 +435,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         &json!({"email":"user@example.com","name":"Other user","limited_communication":true}),
     ))
     .await?;
+    assert_eq!(
+        rename("user", &group, "Forbidden").send().await?.status(),
+        403
+    );
     denied(c.member("admin", Method::GET, "/api/operator/groups")).await?;
     denied(c.member("admin", Method::GET, "/api/operator/health")).await?;
     denied(
@@ -1067,7 +1145,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         )?))
         .is_err()
     );
-    // Optional real UI check against this HTTP fixture; default CI remains fast.
+    // Run the real Groups dialog against this same HTTP fixture when requested.
     if let Ok(node) = std::env::var("INFUSER_GROUP_BROWSER_NODE") {
         let status = tokio::process::Command::new(node)
             .args(["tests/groups_journey.mjs", &c.url, &group])

@@ -186,10 +186,32 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
 fn group_name(raw: &str) -> Result<&str> {
     let name = raw.trim();
     ensure!(
-        !name.is_empty() && name.chars().count() <= 60 && !name.chars().any(char::is_control),
+        !name.is_empty()
+            && name.chars().count() <= 60
+            && !name.chars().any(|c| c.is_control()
+                || matches!(c,
+                    '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' |
+                    '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' |
+                    '\u{feff}' | '\u{3164}' | '\u{2800}'
+                )),
         fault(422, "Use a group name of 1–60 characters.")
     );
     Ok(name)
+}
+
+fn ensure_unique_name(
+    groups: &platform::groups::Groups,
+    name: &str,
+    own_id: Option<&str>,
+) -> Result<()> {
+    ensure!(
+        !groups
+            .names
+            .iter()
+            .any(|(id, other)| Some(id.as_str()) != own_id && unicase::eq(other.trim(), name)),
+        fault(409, "Another group already uses that name.")
+    );
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -203,17 +225,18 @@ async fn rename(
     Path(id): Path<String>,
     Json(body): Json<Rename>,
 ) -> Answer {
-    p.operator(&h, true).await?;
+    let actor = p.operator(&h, true).await?;
     let name = group_name(&body.name)?;
     p.db.edit(|d| {
-        let current = d
-            .groups
-            .names
-            .get_mut(&id)
-            .ok_or_else(|| fault(404, "Group not found."))?;
-        *current = name.to_owned();
+        ensure!(
+            d.groups.names.contains_key(&id),
+            fault(404, "Group not found.")
+        );
+        ensure_unique_name(&d.groups, name, Some(&id))?;
+        d.groups.names.insert(id.clone(), name.into());
         Ok(())
     })?;
+    tracing::info!(actor=%actor, group=%id, "operator renamed group");
     Ok(reply(json!({"id":id,"name":name})))
 }
 #[derive(Deserialize)]
@@ -224,7 +247,7 @@ struct Create {
     admin_name: String,
 }
 async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create>) -> Answer {
-    p.operator(&h, true).await?;
+    let actor = p.operator(&h, true).await?;
     ensure!(
         p.config().controller.private_groups,
         fault(
@@ -235,8 +258,10 @@ async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create
     let name = group_name(&body.name)?;
     let id = format!("group-{}", &secret()[..12]);
     p.db.edit(|d| {
+        ensure_unique_name(&d.groups, name, None)?;
         d.groups.names.insert(id.clone(), name.into());
         d.invite_to_group(&id, &body.admin_email, &body.admin_name, true, true)
     })?;
+    tracing::info!(actor=%actor, group=%id, "operator created group");
     Ok(reply(json!({"id":id,"name":name})))
 }

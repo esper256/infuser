@@ -946,6 +946,7 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+ "unicase",
  "webp",
  "zip",
 ]

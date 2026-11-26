@@ -38,7 +38,14 @@ try {
   await homeName.fill('Arcade Club');await homeName.press('Enter');
   await homeRow.getByText('Arcade Club',{exact:true}).waitFor();
   await homeRow.getByRole('button',{name:'Rename'}).click();
-  await page.getByRole('textbox',{name:'New name for Arcade Club'}).press('Escape');
+  const editing=page.getByRole('textbox',{name:'New name for Arcade Club'});
+  await editing.fill('OTHER FAMILY');await editing.press('Enter');
+  const dialog=page.locator('#groups-dialog');
+  await dialog.getByText('Another group already uses that name.',{exact:true}).waitFor();
+  assert(await editing.isEditable());
+  assert(await dialog.getByRole('button',{name:'Save',exact:true}).isEnabled());
+  assert(await dialog.getByRole('button',{name:'Cancel',exact:true}).isEnabled());
+  await editing.press('Escape');
   await homeRow.getByText('Arcade Club',{exact:true}).waitFor();
   await page.getByText('Host health',{exact:true}).click();
   await page.getByText('Monitoring data is stale. Check the host health timer.',{exact:true}).waitFor();

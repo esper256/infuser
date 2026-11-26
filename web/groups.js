@@ -57,9 +57,9 @@ export function initGroups({me,api,onRename}) {
   }
   function editName(group,row,label,view,rename){
     const form=el('form'),input=el('input'),save=el('button','Save'),cancel=el('button','Cancel');
-    input.required=true;input.maxLength=60;input.value=group.name;input.setAttribute('aria-label','New name for '+group.name);
+    input.required=true;input.value=group.name;input.setAttribute('aria-label','New name for '+group.name);
     form.className='group-rename';cancel.type='button';
-    function finish(){row.replaceChildren(label,rename,view);rename.focus();}
+    function finish(){error.textContent='';row.replaceChildren(label,rename,view);rename.focus();}
     cancel.onclick=finish;
     input.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();finish();}};
     form.onsubmit=async event=>{
@@ -75,8 +75,8 @@ export function initGroups({me,api,onRename}) {
   if(!me.inspecting){
     const details=el('details');details.append(el('summary','Add a group'));
     const form=el('form');form.className='group-form';
-    for(const [name,label,type,max] of [['name','Group name','text',60],['admin_email',"Admin’s Google email",'email',253],['admin_name',"Admin’s display name",'text',40]]){
-      const field=el('label',label),input=el('input');input.name=name;input.type=type;input.required=true;input.maxLength=max;field.append(input);form.append(field);}
+    for(const [name,label,type,max] of [['name','Group name','text'],['admin_email',"Admin’s Google email",'email',253],['admin_name',"Admin’s display name",'text',40]]){
+      const field=el('label',label),input=el('input');input.name=name;input.type=type;input.required=true;if(max)input.maxLength=max;field.append(input);form.append(field);}
     const create=el('button','Create group');form.append(create);details.append(form);dialog.append(details);
     form.onsubmit=async event=>{event.preventDefault();create.disabled=true;error.textContent='';
       try{await api('/api/operator/groups',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form)))});form.reset();details.open=false;await load();error.textContent='Created. Their admin can sign in with that Google account. No email is sent.';}

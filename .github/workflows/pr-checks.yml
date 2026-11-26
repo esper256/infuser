@@ -34,8 +34,15 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - name: Install Chromium for the Groups journey
+        if: matrix.check == 'fast-tests'
+        run: |
+          npm ci --prefix services/peerjs
+          services/peerjs/node_modules/.bin/playwright install --with-deps chromium
       - name: Fast Rust journeys
         if: matrix.check == 'fast-tests'
+        env:
+          INFUSER_GROUP_BROWSER_NODE: node
         run: cargo test --locked
       - name: Fast SDK and theme journeys
         if: ${{ !cancelled() && matrix.check == 'fast-tests' }}
