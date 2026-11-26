@@ -25,6 +25,8 @@ scoped deployments, saves, presence, and expiring access. Preserve those boundar
 in compatibility acceptance before freezing the affected contracts; existing
 home-group saves and games stay compatible.
 
+Hosted games can use the optional `gamepad_layouts.v1` capability for player-selected controller prompts. See [Game controls](game-controls.md#use-the-layout-supplied-by-infuser) for the SDK calls, automatic fallback and standard-mapping requirement.
+
 ## Review before calling the SDK 1.0
 
 Approved product decisions:

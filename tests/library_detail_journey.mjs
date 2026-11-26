@@ -91,6 +91,16 @@ try {
  async function close(){await page.locator('#close-game-detail').click();await page.waitForFunction(()=>!document.querySelector('#game-detail').open);}
  async function open(){await card().locator('.game-open').click();await dialog.waitFor();}
  async function popup(action){const opening=page.waitForEvent('popup');await action();const tab=await opening;await tab.waitForURL('**/game-fixture');await tab.close();}
+ await open();assert.equal(await dialog.locator('.detail-input-methods').count(),0);
+ game.input_methods=['keyboard_mouse','gamepad'];await page.evaluate(()=>refreshTestLibrary());
+ assert.equal(await dialog.locator('.detail-input-methods').textContent(),'Playable with Keyboard + mouse · Gamepad');
+ assert.equal(await dialog.locator('.detail-input-methods svg[aria-hidden=true]').count(),2);
+ assert.equal(await card().locator('.detail-input-methods').count(),0);
+ const previousViewport=page.viewportSize();
+ await page.setViewportSize({width:320,height:640});
+ assert(await dialog.locator('.detail-input-methods').evaluate(row=>row.scrollWidth<=row.clientWidth));
+ await page.setViewportSize(previousViewport);
+ delete game.input_methods;await page.evaluate(()=>refreshTestLibrary());await close();
  // Admin credits reorder without granting ownership; compact portraits keep the dock size.
  const originalCreator=await card().locator('.creator').boundingBox();
  // A JSON service error from launch keeps its actionable server message.

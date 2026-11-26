@@ -116,7 +116,9 @@ export const launchIntent = {
   // At most once: refresh and lost-response retries cannot silently replay a join.
   consume: () => request('launch-intent/v1/consume', {method:'POST',signal:AbortSignal.timeout(5000)})
 };
-export const Infuser = { ready, saves, leave, peers, cloud, runtime, presence, launchIntent };
+import {gamepads} from '/_infuser/sdk/v1/gamepads.js';
+export {gamepads};
+export const Infuser = { gamepads, ready, saves, leave, peers, cloud, runtime, presence, launchIntent };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.

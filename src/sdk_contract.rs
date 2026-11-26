@@ -62,6 +62,7 @@ impl Requirement {
 pub fn capabilities(relay: bool) -> Value {
     let mut available = vec![
         "identity.v1",
+        "gamepad_layouts.v1",
         "saves.v1",
         "cloud_checkpoints.v1",
         "runtime_sessions.v1",

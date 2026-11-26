@@ -7,6 +7,7 @@ import vm from 'node:vm';
 function load(path){
   return readFileSync(new URL(path,import.meta.url),'utf8')
       .replace(/^import \{sessionDenials.*;$/m,()=>readFileSync(new URL('../sdk/v1/session-fetch.js',import.meta.url),'utf8'))
+      .replace(/^import \{gamepads\}.*;$/m,'const gamepads = {};').replace('export {gamepads};','')
       .replace(/^import .*;$/m,'const checkpoints = {};').replace(/^export /gm,'');
 }
 

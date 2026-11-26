@@ -1,5 +1,8 @@
 use super::*;
 
+pub(super) const INPUT_METHODS: &[&str] =
+    &["keyboard", "mouse", "keyboard_mouse", "touch", "gamepad"];
+
 pub(super) fn title<'a>(data: &'a platform::Data, app: &str, fallback: &'a str) -> &'a str {
     data.metadata
         .get(app)
@@ -25,7 +28,7 @@ fn view(d: &platform::Data, app: &str, root: &std::path::Path) -> Result<Value> 
     Ok(
         json!({"app_id":app,"private_group":d.groups.app(app),"build":active.build,"listed":active.listed,
         "title":title(d,app,&build.manifest.title),"title_override":metadata.title,"title_locked":metadata.title_locked,"orientation":build.manifest.orientation,
-        "description":metadata.description,
+        "description":metadata.description,"input_methods":metadata.input_methods,
         "author_model":metadata.author_model,"effort_level":metadata.effort_level,"estimated_prompts":metadata.estimated_prompts,
         "art_prompt":metadata.art_prompt,"art_prompt_revision":prompt_revision,"art_prompt_pending":prompt_pending,
         "card_art_url":card_art::url(app,&active.build,build,d.metadata.get(app),root),
@@ -94,6 +97,15 @@ pub(super) struct Patch {
     effort_level: Option<Option<String>>,
     #[serde(default, deserialize_with = "present_u32")]
     estimated_prompts: Option<Option<u32>>,
+    #[serde(default, deserialize_with = "present_methods")]
+    input_methods: Option<Vec<String>>,
+}
+fn present_methods<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<Vec<String>>, D::Error> {
+    Ok(Some(
+        Option::<Vec<String>>::deserialize(d)?.unwrap_or_default(),
+    ))
 }
 fn present_text<'de, D: serde::Deserializer<'de>>(
     d: D,
@@ -118,12 +130,27 @@ pub(super) async fn patch_metadata(
             || body.art_prompt.is_some()
             || body.author_model.is_some()
             || body.effort_level.is_some()
-            || body.estimated_prompts.is_some(),
+            || body.estimated_prompts.is_some()
+            || body.input_methods.is_some(),
         fault(
             400,
-            "provide title, description, art_prompt, author_model, effort_level, or estimated_prompts; null clears that field"
+            "provide title, description, art_prompt, author_model, effort_level, estimated_prompts, or input_methods; null clears that field"
         )
     );
+    if let Some(methods) = &body.input_methods {
+        ensure!(
+            methods.len() <= INPUT_METHODS.len()
+                && methods
+                    .iter()
+                    .enumerate()
+                    .all(|(index, method)| INPUT_METHODS.contains(&method.as_str())
+                        && !methods[..index].contains(method)),
+            fault(
+                422,
+                "input_methods must contain distinct supported input methods"
+            )
+        );
+    }
     let title = body.title.as_ref().map(|v| v.as_deref().map(str::trim));
     let description = body
         .description
@@ -215,6 +242,7 @@ pub(super) async fn patch_metadata(
             author_model,
             effort_level,
             estimated_prompts,
+            input_methods: body.input_methods.as_deref(),
             ..Default::default()
         },
     )?;

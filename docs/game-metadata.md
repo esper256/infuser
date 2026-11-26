@@ -24,7 +24,7 @@ Authenticate with the connection's bearer token, scoped to its `app_id`.
 | Method | Path | Effect |
 | --- | --- | --- |
 | GET | `/api/publisher/apps/APP/metadata` | Read title, description, model authorship, art prompt, cover, tags, slug, build, and visibility |
-| PATCH | `/api/publisher/apps/APP/metadata` | Set any of `title`, `description`, `art_prompt`, `author_model`, `effort_level`, `estimated_prompts` |
+| PATCH | `/api/publisher/apps/APP/metadata` | Set any of `title`, `description`, `art_prompt`, `author_model`, `effort_level`, `estimated_prompts`, `input_methods` |
 | PUT | `/api/publisher/apps/APP/card-art` | Replace the independent cover with raw `image/webp` bytes |
 | DELETE | `/api/publisher/apps/APP/card-art` | Remove the override; use build art or the fallback |
 | PUT | `/api/publisher/apps/APP/tags` | Set `{"tags":["chill","arcade"]}` |
@@ -51,6 +51,18 @@ Example patch:
 ```json
 {"description":"Race tiny hovercraft through moonlit canals, alone or with friends. Low-poly boats and glowing buoys define the scene."}
 ```
+
+## Input methods
+
+Read `game_metadata.input_methods` from publisher capabilities for the accepted IDs.
+PATCH the complete list of tested ways to play, for example
+`{"input_methods":["keyboard_mouse","gamepad"]}`. The signed-in Library shows
+“Playable with Keyboard + mouse · Gamepad” on the expanded game card.
+Use `keyboard`, `mouse`, `keyboard_mouse`, `touch` or `gamepad`.
+Each ID may appear once. Omit the field to preserve it. Send null or an empty list
+to clear it. Existing games show no control claim until the publisher supplies one.
+Declarations survive publication. Review them whenever bindings or menus change.
+See the [gamepad and controls guide](game-controls.md) for testing and button labels.
 
 ## Model authorship (optional)
 
@@ -113,6 +125,7 @@ Every mutation returns the same shape as GET:
   "author_model": "Claude Opus 4.6",
   "effort_level": "high",
   "estimated_prompts": 18,
+  "input_methods": ["keyboard_mouse", "gamepad"],
   "art_prompt": null,
   "art_prompt_revision": null,
   "art_prompt_pending": false,

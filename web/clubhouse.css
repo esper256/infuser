@@ -355,6 +355,7 @@ img.avatar { object-fit: cover; }
 #settings-pwa button[aria-pressed="true"] { border-color: var(--accent); }
 #settings-pwa .notification-hint { flex: 1 0 100%; max-width: none; }
 .settings-scope { flex: 1 0 100%; margin: 0 0 10px; }
+#settings-gamepads { display: grid; gap: 10px; overflow-wrap: anywhere; }
 #settings-pwa .settings-scope { margin-bottom: 2px; }
 .admin-region { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; }
 .admin-region > summary { padding: 14px 16px; color: var(--ink); font-size: 16px; font-weight: 600; border-radius: inherit; }
@@ -798,6 +799,9 @@ button.feed-row:hover { border-color: var(--accent); }
 .detail-tags .tag-chip + .tag-chip::before { content: '·'; margin-right: 10px; }
 .detail-tags .text-button { margin-left: auto; }
 .game-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 0 0 22px; }
+.detail-input-methods { margin: 0 0 12px; color: var(--quiet); font-size: 14px; line-height: 1.5; }
+.detail-input-methods span { display: inline-flex; align-items: center; gap: .3em; white-space: nowrap; }
+.detail-input-methods svg { width: 1.2em; height: 1.2em; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .detail-info > .actions { width: fit-content; margin: 0 0 16px; }
 .detail-star-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 18px; }
 .detail-star-btn {
