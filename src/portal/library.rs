@@ -30,6 +30,7 @@ impl View<'_> {
         let runtime = data.deployment_for(id, self.group).unwrap_or(id);
         let app = data.deployed(runtime).unwrap_or(app);
         let build = &data.builds[&build_key(id, &app.build)];
+        let limited = data.members[self.email].limited_communication;
         let reactions: Vec<_> = data
             .reactions
             .get(runtime)
@@ -47,9 +48,9 @@ impl View<'_> {
                     "avatar":data.members[email].avatar,
                     "mine":email == self.email,
                     "emoji":reaction.emoji,
-                    "text":reaction.text,
+                    "text":if limited { "" } else { &reaction.text },
                     "updated":reaction.updated,
-                    "screenshot":reaction.screenshot,
+                    "screenshot":reaction.screenshot.as_ref().filter(|_| !limited),
                 })
             })
             .collect();
@@ -313,6 +314,7 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     Ok(conditional::json(
         json!({
             "apps":apps,
+            "limited_communication":data.members[&email].limited_communication,
             "friends":friends,
             "platform_updates":platform_updates,
             "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.profile_enabled(e)).map(|(e,_)|json!({"id":data.player_id(e),"name":data.members[e].name})).collect::<Vec<_>>()})),

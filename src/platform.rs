@@ -44,6 +44,8 @@ pub struct Member {
     pub avatar: Option<String>,
     #[serde(default)]
     pub avatar_prompt_seen: bool,
+    #[serde(default)]
+    pub limited_communication: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Credential {

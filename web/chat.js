@@ -34,6 +34,9 @@ function messageText(value){
 }
 // Shared Library room. All message text stays text, never markup or links.
 export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=()=>{},onHouseCall=()=>{}}) {
+  const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
+  presence.before(cluster);cluster.append(presence);
+  if(me.limited_communication)return;
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const emptyMessage=me.inspecting?'No messages yet.':'No messages yet. Start the conversation.';
   const root=document.createElement('aside');root.id='library-chat';root.setAttribute('aria-label','Library chat');
@@ -59,8 +62,7 @@ export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=(
   function attach(id){if(sending)return;screenshot=id;attachmentDraft(draft,id,request,()=>attach(null));input.oninput();}
   const emojiPicker=initChatEmoji({root,input,button:$('emoji-toggle'),panel:$('emoji-panel'),api:request,onScreenshot:attach,onHouseCall:id=>send(id)});
   if(me.inspecting)$('form').hidden=true;
-  const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
-  presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
+  cluster.append($('toggle'));root.hidden=true;
   let messages=[], reads=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,readAck=0,readFlight=0,readHold=false,positionFrame,positionSignature,speakerSignature,scrollDirection=0,scrollSpeed=0,lastScrollTop=0,lastScrollAt=0;
   let seenMessage=0,suppressConfetti=true;
   const motion=matchMedia('(prefers-reduced-motion: reduce)');

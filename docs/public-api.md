@@ -167,6 +167,8 @@ data also require the exact website HTTPS Origin. A publisher credential cannot
 be used as a player login.
 
 - `GET /api/me`, `GET /api/library` — identity, games, friends, reactions.
+- Admins can select **Emoji reactions only (no chat or voice)** on an invitation or in Admin tools → Members. This applies to the member’s profile in that Library and follows the profile on visits. Sign-in and game publishing still work. The Library returns reaction emojis with empty notes and no shared screenshots. Chat, chat notifications and voice are unavailable. Clearing the setting restores access.
+- `PUT /api/admin/members/communication` accepts `{"email":"<member handle or email>","limited_communication":true}`. Both the member list and the member’s own Library and identity responses include `limited_communication`.
   Library games include `author: {id, name, avatar}` from the existing owner/member records,
   or `null` for an unrecorded owner. `id` is the same opaque player ID used for
   presence; no email is exposed. `avatar` is a curated picture ID or `null` for

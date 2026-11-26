@@ -36,7 +36,8 @@ try {
   }
   else if(path==='/api/admin/game-authors')data={games:apps.map(g=>({id:g.id,title:g.title,authors:g.authors??(g.author?[g.author]:[])})),members:[author,friend]};
   else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:502,body:''});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
-  else if(path==='/api/admin/members')data={members:{}};
+  else if(path==='/api/admin/members')data={members:{'orbit@example.com':{name:'OrbitFox',enabled:true,admin:false}}};
+  else if(path==='/api/admin/members/communication')data={ok:true};
   else if(path==='/api/admin/games')data={games:[]};
   else if(path==='/api/admin/credentials')data={credentials:[]};
   else if(path==='/api/admin/peer-health')data={sessions:[]};
@@ -112,6 +113,13 @@ try {
  await page.unroute('**/api/apps/firefly-drift/launch');
 
  await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
+ const membersSummary=page.locator('#admin summary').filter({hasText:/^Members$/});
+ await membersSummary.click();
+ const limit=page.getByRole('checkbox',{name:'Limit communication for OrbitFox'});
+ const saveLimit=page.waitForRequest(r=>r.url().endsWith('/api/admin/members/communication') && r.method()==='PUT');
+ await limit.check();
+ assert.deepEqual((await saveLimit).postDataJSON(),{email:'orbit@example.com',limited_communication:true});
+ await membersSummary.click();
  const editor=page.locator('#game-authors');await page.locator('#admin summary').filter({hasText:'Game authors'}).click();await editor.getByLabel('Game to credit').selectOption(game.id);
  await editor.getByLabel('Author to add').selectOption(friend.id);await editor.getByRole('button',{name:'Add',exact:true}).click();
  await editor.getByLabel('Move earlier '+friend.name,{exact:true}).click();

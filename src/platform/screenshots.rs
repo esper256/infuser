@@ -150,7 +150,10 @@ impl Database {
                         .is_some_and(|a| a.sees(message));
             }
         }
-        if !allowed && let Some(runtime) = runtime {
+        if !allowed
+            && !data.members[viewer].limited_communication
+            && let Some(runtime) = runtime
+        {
             // The portal already checks that this deployment is visible in the selected context.
             allowed = data.reactions.get(runtime).is_some_and(|reactions| {
                 reactions.iter().any(|(author, r)| {

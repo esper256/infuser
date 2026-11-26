@@ -28,6 +28,7 @@ fn people() -> Data {
                 admin: email != "host",
                 avatar: None,
                 avatar_prompt_seen: false,
+                limited_communication: false,
             },
         );
     }
@@ -393,5 +394,30 @@ fn explicit_channel_uses_same_policy_for_messages_and_notifications_without_new_
             .is_err()
     );
     assert!(db.push_targets()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn limiting_communication_excludes_already_queued_and_future_messages() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db = Database::open(dir.path())?;
+    db.edit(|d| {
+        *d = people();
+        Ok(())
+    })?;
+    db.push_subscribe("visitor", &subscription("visitor"))?;
+    db.chat_send("other", "before-restriction", "Queued message")?;
+    assert_eq!(db.push_targets()?.len(), 1);
+    db.edit(|d| {
+        d.members.get_mut("visitor").unwrap().limited_communication = true;
+        Ok(())
+    })?;
+    assert!(db.push_targets()?.is_empty());
+    db.chat_send("other", "after-restriction", "Another message")?;
+    assert!(db.push_targets()?.is_empty());
+    assert!(
+        db.push_subscribe("visitor", &subscription("visitor"))
+            .is_err()
+    );
     Ok(())
 }
