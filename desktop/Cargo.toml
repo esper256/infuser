@@ -29,3 +29,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 [profile.release]
 lto = "thin"
 strip = true
+
+# Stays its own workspace. The controller workspace vendors TURN.
+[workspace]

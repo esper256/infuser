@@ -20,7 +20,7 @@ use std::{
     os::fd::AsRawFd,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 use tokio::{
@@ -34,12 +34,17 @@ const TOTAL: usize = 64;
 const WRITER_QUEUE: usize = 32;
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(5);
 const AUTHENTICATE: std::time::Duration = std::time::Duration::from_secs(30);
+const IDLE: std::time::Duration = std::time::Duration::from_secs(60);
+const ALLOCATE_SUCCESS: u16 = 0x0103;
 
 struct Client {
+    addr: SocketAddr,
     tx: mpsc::Sender<Vec<u8>>,
     cancel: tokio::sync::watch::Sender<bool>,
     opened: std::time::Instant,
     authed: Arc<AtomicBool>,
+    allocated: Arc<AtomicBool>,
+    allocations: Arc<AtomicU64>,
 }
 
 pub enum Flow {
@@ -59,11 +64,15 @@ pub fn on_accept_error(error: &io::Error) -> Flow {
 pub struct TcpTurn {
     local: SocketAddr,
     incoming: tokio::sync::Mutex<mpsc::Receiver<(Vec<u8>, SocketAddr)>>,
-    writers: Arc<Mutex<HashMap<SocketAddr, Client>>>,
+    writers: Arc<Mutex<HashMap<u64, Client>>>,
     pending: Arc<Mutex<Option<String>>>,
     book: Arc<Book>,
     closed: Arc<AtomicBool>,
     finished: Mutex<Option<mpsc::UnboundedReceiver<SocketAddr>>>,
+    /// Counts TCP headers consumed. Unit tests wait on this so an outbound
+    /// packet is sent while a frame body is still unread.
+    #[allow(dead_code)]
+    headers: tokio::sync::watch::Sender<u64>,
 }
 
 impl TcpTurn {
@@ -73,6 +82,23 @@ impl TcpTurn {
 
     pub fn take_finished(&self) -> Option<mpsc::UnboundedReceiver<SocketAddr>> {
         self.finished.lock().unwrap().take()
+    }
+
+    /// The last allocation for this client closed or expired.
+    pub fn allocation_closed(&self, addr: SocketAddr) {
+        let writers = self.writers.lock().unwrap();
+        let Some(client) = writers.values().find(|client| client.addr == addr) else {
+            return;
+        };
+        let previous = client.allocations.load(Ordering::Relaxed);
+        if previous == 0 {
+            return;
+        }
+        client.allocations.fetch_sub(1, Ordering::Relaxed);
+        if previous == 1 {
+            client.allocated.store(false, Ordering::Relaxed);
+            let _ = client.cancel.send(true);
+        }
     }
 
     pub async fn bind(
@@ -90,7 +116,10 @@ impl TcpTurn {
         let accept_writers = Arc::clone(&writers);
         let accept_closed = Arc::clone(&closed);
         let slots = Arc::new(tokio::sync::Notify::new());
+        let (headers, _) = tokio::sync::watch::channel(0);
+        let accept_headers = headers.clone();
         tokio::spawn(async move {
+            let mut next_id = 1u64;
             loop {
                 if accept_closed.load(Ordering::Relaxed) {
                     break;
@@ -101,16 +130,23 @@ impl TcpTurn {
                             drop(stream);
                             continue;
                         }
+                        let id = next_id;
+                        next_id += 1;
                         let (writer_tx, writer_rx) = mpsc::channel(WRITER_QUEUE);
                         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
                         let authed = Arc::new(AtomicBool::new(false));
+                        let allocated = Arc::new(AtomicBool::new(false));
+                        let allocations = Arc::new(AtomicU64::new(0));
                         accept_writers.lock().unwrap().insert(
-                            peer,
+                            id,
                             Client {
+                                addr: peer,
                                 tx: writer_tx,
                                 cancel: cancel_tx,
                                 opened: std::time::Instant::now(),
                                 authed: Arc::clone(&authed),
+                                allocated: Arc::clone(&allocated),
+                                allocations,
                             },
                         );
                         let incoming = incoming_tx.clone();
@@ -118,12 +154,21 @@ impl TcpTurn {
                         let writers = Arc::clone(&accept_writers);
                         let finished = finished_tx.clone();
                         let slots = Arc::clone(&slots);
+                        let headers = accept_headers.clone();
                         tokio::spawn(async move {
-                            serve_connection(
-                                stream, peer, incoming, writer_rx, metrics, cancel_rx, authed,
-                            )
+                            serve_connection(Conn {
+                                stream,
+                                peer,
+                                incoming,
+                                outbound: writer_rx,
+                                metrics,
+                                cancel: cancel_rx,
+                                authed,
+                                allocated,
+                                headers,
+                            })
                             .await;
-                            writers.lock().unwrap().remove(&peer);
+                            writers.lock().unwrap().remove(&id);
                             slots.notify_waiters();
                             let _ = finished.send(peer);
                         });
@@ -134,7 +179,7 @@ impl TcpTurn {
                         }
                         tracing::warn!(%error, "TURN TCP accept failed");
                         if matches!(on_accept_error(&error), Flow::WaitForClose) {
-                            slots.notified().await;
+                            wait_for_close(&slots).await;
                         }
                     }
                 }
@@ -148,68 +193,100 @@ impl TcpTurn {
             book,
             closed,
             finished: Mutex::new(Some(finished_rx)),
+            headers,
         })
     }
 }
 
-fn admit_or_evict(writers: &Mutex<HashMap<SocketAddr, Client>>, peer: SocketAddr) -> bool {
+/// A close that already happened does not store a permit, and the full table
+/// may belong to something other than a TURN connection. Wake on either.
+async fn wait_for_close(slots: &tokio::sync::Notify) {
+    tokio::select! {
+        _ = slots.notified() => {}
+        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+    }
+}
+
+fn admit_or_evict(writers: &Mutex<HashMap<u64, Client>>, peer: SocketAddr) -> bool {
     let mut writers = writers.lock().unwrap();
-    let same = writers.keys().filter(|addr| addr.ip() == peer.ip()).count();
+    let same = writers
+        .values()
+        .filter(|client| client.addr.ip() == peer.ip())
+        .count();
     if writers.len() < TOTAL && same < PER_SOURCE {
         return true;
     }
     let victim = writers
         .iter()
         .filter(|(_, client)| !client.authed.load(Ordering::Relaxed))
-        .filter(|(addr, _)| same < PER_SOURCE || addr.ip() == peer.ip())
+        .filter(|(_, client)| same < PER_SOURCE || client.addr.ip() == peer.ip())
         .min_by_key(|(_, client)| client.opened)
-        .map(|(addr, _)| *addr);
-    let Some(addr) = victim else {
+        .map(|(id, _)| *id);
+    let Some(id) = victim else {
         return false;
     };
-    if let Some(client) = writers.remove(&addr) {
+    if let Some(client) = writers.remove(&id) {
         let _ = client.cancel.send(true);
     }
     true
 }
 
-async fn serve_connection(
+struct Conn {
     stream: TcpStream,
     peer: SocketAddr,
     incoming: mpsc::Sender<(Vec<u8>, SocketAddr)>,
-    mut outbound: mpsc::Receiver<Vec<u8>>,
+    outbound: mpsc::Receiver<Vec<u8>>,
     metrics: SharedRelay,
-    mut cancel: tokio::sync::watch::Receiver<bool>,
+    cancel: tokio::sync::watch::Receiver<bool>,
     authed: Arc<AtomicBool>,
-) {
-    let fd = stream.as_raw_fd();
-    let (mut read, mut write) = stream.into_split();
+    allocated: Arc<AtomicBool>,
+    headers: tokio::sync::watch::Sender<u64>,
+}
+
+async fn serve_connection(mut link: Conn) {
+    let fd = link.stream.as_raw_fd();
+    let (mut read, mut write) = link.stream.into_split();
+    let (frames_tx, mut frames) = mpsc::channel(8);
+    // `read_exact` is not cancel-safe. This task is the only reader, so an
+    // outbound packet cannot discard a half-consumed frame.
+    let headers = link.headers.clone();
+    let reader = tokio::spawn(async move {
+        while let Ok(frame) = read_frame(&mut read, &headers).await {
+            if frames_tx.send(frame).await.is_err() {
+                break;
+            }
+        }
+    });
     let started = std::time::Instant::now();
+    let mut last_frame = started;
     let mut saw_frame = false;
     loop {
         let frame_left = FIRST_FRAME.saturating_sub(started.elapsed());
         let auth_left = AUTHENTICATE.saturating_sub(started.elapsed());
+        let idle_left = IDLE.saturating_sub(last_frame.elapsed());
         tokio::select! {
-            changed = cancel.changed() => {
-                if changed.is_err() || *cancel.borrow() {
+            changed = link.cancel.changed() => {
+                if changed.is_err() || *link.cancel.borrow() {
                     break;
                 }
             }
             _ = tokio::time::sleep(frame_left), if !saw_frame => break,
-            _ = tokio::time::sleep(auth_left), if !authed.load(Ordering::Relaxed) => break,
-            frame = read_frame(&mut read) => {
-                let Ok(frame) = frame else { break };
+            _ = tokio::time::sleep(auth_left), if !link.authed.load(Ordering::Relaxed) => break,
+            _ = tokio::time::sleep(idle_left), if !link.allocated.load(Ordering::Relaxed) => break,
+            frame = frames.recv() => {
+                let Some(frame) = frame else { break };
                 saw_frame = true;
+                last_frame = std::time::Instant::now();
                 if let Some(rtt_us) = tcp_rtt_us(fd)
                     && rtt_us > 0
                 {
-                    metrics.tcp_rtt.observe(u64::from(rtt_us / 1000));
+                    link.metrics.tcp_rtt.observe(u64::from(rtt_us / 1000));
                 }
-                if incoming.send((frame, peer)).await.is_err() {
+                if link.incoming.send((frame, link.peer)).await.is_err() {
                     break;
                 }
             }
-            packet = outbound.recv() => {
+            packet = link.outbound.recv() => {
                 let Some(packet) = packet else { break };
                 if write.write_all(&packet).await.is_err() {
                     break;
@@ -217,31 +294,32 @@ async fn serve_connection(
             }
         }
     }
+    reader.abort();
 }
 
-fn remember(
-    packet: &[u8],
-    source: SocketAddr,
-    pending: &Mutex<Option<String>>,
-    book: &Book,
-) -> bool {
+fn remember(packet: &[u8], source: SocketAddr, pending: &Mutex<Option<String>>, book: &Book) {
     if stun::parse(packet).is_some_and(|message| message.class_type == BINDING_REQUEST) {
         book.note_binding(source.ip());
     }
     if stun::allocate_username(packet).is_some() {
-        let peer = stun::allocate_username(packet)
+        *pending.lock().unwrap() = stun::allocate_username(packet)
             .and_then(|username| peer_from_username(username, now()))
             .map(str::to_owned);
-        let authed = peer.is_some();
-        *pending.lock().unwrap() = peer;
-        return authed;
     }
-    false
 }
 
-async fn read_frame<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<Vec<u8>> {
+fn allocate_success(packet: &[u8]) -> bool {
+    stun::parse(packet).is_some_and(|message| message.class_type == ALLOCATE_SUCCESS)
+}
+
+async fn read_frame<R: AsyncRead + Unpin>(
+    stream: &mut R,
+    headers: &tokio::sync::watch::Sender<u64>,
+) -> io::Result<Vec<u8>> {
     let mut header = [0u8; 4];
     stream.read_exact(&mut header).await?;
+    // After the header is consumed, an outbound packet must not restart the read.
+    headers.send_modify(|count| *count += 1);
     let total = stun::tcp_frame_len(&header)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "turn frame"))?;
     if total < 4 {
@@ -273,9 +351,17 @@ fn tcp_rtt_us(fd: std::os::fd::RawFd) -> Option<u32> {
     Some(u32::from_ne_bytes(info[68..72].try_into().ok()?))
 }
 
-fn drop_slow(writers: &Mutex<HashMap<SocketAddr, Client>>, target: SocketAddr) {
-    if let Some(client) = writers.lock().unwrap().remove(&target) {
-        let _ = client.cancel.send(true);
+fn drop_slow(writers: &Mutex<HashMap<u64, Client>>, target: SocketAddr) {
+    let mut writers = writers.lock().unwrap();
+    let ids: Vec<_> = writers
+        .iter()
+        .filter(|(_, client)| client.addr == target)
+        .map(|(id, _)| *id)
+        .collect();
+    for id in ids {
+        if let Some(client) = writers.remove(&id) {
+            let _ = client.cancel.send(true);
+        }
     }
 }
 
@@ -297,11 +383,7 @@ impl util::Conn for TcpTurn {
             .await
             .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "turn tcp closed"))?;
         drop(incoming);
-        if remember(&frame, addr, &self.pending, &self.book)
-            && let Some(client) = self.writers.lock().unwrap().get(&addr)
-        {
-            client.authed.store(true, Ordering::Relaxed);
-        }
+        remember(&frame, addr, &self.pending, &self.book);
         if frame.len() > buf.len() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "turn frame too large").into());
         }
@@ -314,13 +396,20 @@ impl util::Conn for TcpTurn {
     }
 
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> util::Result<usize> {
-        let writer = self
-            .writers
-            .lock()
-            .unwrap()
-            .get(&target)
-            .map(|client| client.tx.clone())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "turn tcp peer"))?;
+        let writer = {
+            let writers = self.writers.lock().unwrap();
+            let client = writers.values().find(|client| client.addr == target);
+            if allocate_success(buf)
+                && let Some(client) = client
+            {
+                client.authed.store(true, Ordering::Relaxed);
+                client.allocated.store(true, Ordering::Relaxed);
+                client.allocations.fetch_add(1, Ordering::Relaxed);
+            }
+            client
+                .map(|client| client.tx.clone())
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "turn tcp peer"))?
+        };
         match writer.try_send(buf.to_vec()) {
             Ok(()) => Ok(buf.len()),
             Err(TrySendError::Full(_)) | Err(TrySendError::Closed(_)) => {
@@ -375,14 +464,17 @@ mod tests {
         packet
     }
 
-    fn client(authed: bool) -> Client {
+    fn client(addr: SocketAddr, authed: bool) -> Client {
         let (tx, _) = mpsc::channel(1);
         let (cancel, _) = tokio::sync::watch::channel(false);
         Client {
+            addr,
             tx,
             cancel,
             opened: std::time::Instant::now(),
             authed: Arc::new(AtomicBool::new(authed)),
+            allocated: Arc::new(AtomicBool::new(false)),
+            allocations: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -394,15 +486,15 @@ mod tests {
             writers
                 .lock()
                 .unwrap()
-                .insert(SocketAddr::new(one, port), client(true));
+                .insert(u64::from(port), client(SocketAddr::new(one, port), true));
         }
         assert!(!admit_or_evict(&writers, SocketAddr::new(one, 99)));
         writers.lock().unwrap().clear();
         for port in 1..=TOTAL as u16 {
-            writers
-                .lock()
-                .unwrap()
-                .insert(SocketAddr::new(one, port), client(port != 1));
+            writers.lock().unwrap().insert(
+                u64::from(port),
+                client(SocketAddr::new(one, port), port != 1),
+            );
         }
         assert!(admit_or_evict(
             &writers,
@@ -412,7 +504,8 @@ mod tests {
             !writers
                 .lock()
                 .unwrap()
-                .contains_key(&SocketAddr::new(one, 1))
+                .values()
+                .any(|client| client.addr == SocketAddr::new(one, 1))
         );
     }
 
@@ -430,6 +523,16 @@ mod tests {
             on_accept_error(&io::Error::from_raw_os_error(libc::ECONNABORTED)),
             Flow::Continue
         ));
+    }
+
+    #[tokio::test]
+    async fn an_exhausted_file_table_wakes_without_a_close() {
+        let slots = tokio::sync::Notify::new();
+        let started = std::time::Instant::now();
+        wait_for_close(&slots).await;
+        let elapsed = started.elapsed();
+        assert!(elapsed >= std::time::Duration::from_millis(900));
+        assert!(elapsed < std::time::Duration::from_secs(3));
     }
 
     #[tokio::test]
@@ -537,5 +640,73 @@ mod tests {
             (format!("{expires}:beta"), "beta".into()),
         ];
         assert_eq!(seen, expect);
+    }
+
+    #[tokio::test]
+    async fn a_split_frame_survives_an_outbound_packet() {
+        let metrics = Arc::new(RelayMetrics::new());
+        let book = Arc::new(Book::new(Arc::clone(&metrics), None));
+        let turn = TcpTurn::bind(
+            (Ipv4Addr::LOCALHOST, 0).into(),
+            Arc::new(Mutex::new(None)),
+            book,
+            metrics,
+        )
+        .await
+        .unwrap();
+        let mut client = TcpStream::connect(turn.local).await.unwrap();
+        let mut headers = turn.headers.subscribe();
+        client.write_all(&binding()).await.unwrap();
+        let mut buf = [0u8; 64];
+        let (_, addr) = turn.recv_from(&mut buf).await.unwrap();
+        let mut second = binding();
+        second[8] = 9;
+        let seen = *headers.borrow_and_update();
+        client.write_all(&second[..10]).await.unwrap();
+        while *headers.borrow() == seen {
+            headers.changed().await.unwrap();
+        }
+        turn.send_to(&binding(), addr).await.unwrap();
+        client.write_all(&second[10..]).await.unwrap();
+        let (size, _) = turn.recv_from(&mut buf).await.unwrap();
+        assert_eq!(&buf[..size], &second);
+    }
+
+    #[tokio::test]
+    async fn a_forged_allocate_stays_unauthed_and_is_closed() {
+        let metrics = Arc::new(RelayMetrics::new());
+        let book = Arc::new(Book::new(Arc::clone(&metrics), None));
+        let turn = TcpTurn::bind(
+            (Ipv4Addr::LOCALHOST, 0).into(),
+            Arc::new(Mutex::new(None)),
+            book,
+            metrics,
+        )
+        .await
+        .unwrap();
+        let mut client = TcpStream::connect(turn.local).await.unwrap();
+        let username = format!("{}:attacker", crate::controller::now() + 86_400 * 365);
+        let started = std::time::Instant::now();
+        client.write_all(&allocate(&username)).await.unwrap();
+        let mut buf = [0u8; 256];
+        let (_, addr) = turn.recv_from(&mut buf).await.unwrap();
+        let authed = turn
+            .writers
+            .lock()
+            .unwrap()
+            .values()
+            .find(|client| client.addr == addr)
+            .unwrap()
+            .authed
+            .load(Ordering::Relaxed);
+        assert!(!authed);
+        let mut byte = [0u8; 1];
+        let closed =
+            tokio::time::timeout(std::time::Duration::from_secs(45), client.read(&mut byte)).await;
+        assert!(
+            matches!(closed, Ok(Ok(0)) | Ok(Err(_))),
+            "forged Allocate left the connection open: {closed:?}"
+        );
+        assert!(started.elapsed() >= std::time::Duration::from_secs(25));
     }
 }

@@ -134,6 +134,12 @@ pub trait Service: Send + Sync {
     async fn check_rollback(&self, _binary: &Path) -> Result<()> {
         Ok(())
     }
+    /// Config and, when embedded, the relay fingerprint. State compatibility is
+    /// checked after the snapshot is restored, because the live state may be
+    /// newer than the binary being restored.
+    async fn check_before_rollback(&self, _binary: &Path) -> Result<()> {
+        Ok(())
+    }
     /// Consistent snapshot of the release still running, taken before its symlink moves.
     async fn preserve_state(&self, _release: &str) -> Result<()> {
         Ok(())
@@ -276,24 +282,7 @@ impl Service for Systemd {
         )
     }
     async fn check(&self, binary: &Path) -> Result<()> {
-        let output = tokio::time::timeout(
-            Duration::from_secs(15),
-            tokio::process::Command::new(binary)
-                .arg("check")
-                .arg(&self.config.controller_config)
-                .stdin(Stdio::null())
-                .kill_on_drop(true)
-                .output(),
-        )
-        .await??;
-        ensure!(
-            output.status.success(),
-            "candidate does not accept the installed configuration: {}",
-            String::from_utf8_lossy(&output.stderr)
-                .chars()
-                .take(300)
-                .collect::<String>()
-        );
+        accept_config(binary, &self.config.controller_config).await?;
         let compatibility = tokio::time::timeout(
             Duration::from_secs(15),
             tokio::process::Command::new(binary)
@@ -310,25 +299,13 @@ impl Service for Systemd {
         );
         Ok(())
     }
+    async fn check_before_rollback(&self, binary: &Path) -> Result<()> {
+        accept_config(binary, &self.config.controller_config).await?;
+        turn_fingerprint_ok(binary, &self.config.controller_config).await
+    }
     async fn check_rollback(&self, binary: &Path) -> Result<()> {
         self.check(binary).await?;
-        if !turn_embedded(&self.config.controller_config)? {
-            return Ok(());
-        }
-        let listed = tokio::time::timeout(
-            Duration::from_secs(8),
-            tokio::process::Command::new(binary)
-                .arg("turn-fingerprint")
-                .stdin(Stdio::null())
-                .kill_on_drop(true)
-                .output(),
-        )
-        .await??;
-        ensure!(
-            listed.status.success(),
-            "this binary cannot run the embedded relay"
-        );
-        Ok(())
+        turn_fingerprint_ok(binary, &self.config.controller_config).await
     }
     async fn preserve_state(&self, release: &str) -> Result<()> {
         let state_dir = platform_state_dir(&self.config.controller_config)?;
@@ -473,6 +450,48 @@ async fn turn_note(config: &Settings, service: &dyn Service) -> String {
         Ok(false) => String::new(),
         Err(error) => format!(" The relay did not restart: {error}."),
     }
+}
+
+async fn accept_config(binary: &Path, config: &Path) -> Result<()> {
+    let output = tokio::time::timeout(
+        Duration::from_secs(15),
+        tokio::process::Command::new(binary)
+            .arg("check")
+            .arg(config)
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await??;
+    ensure!(
+        output.status.success(),
+        "candidate does not accept the installed configuration: {}",
+        String::from_utf8_lossy(&output.stderr)
+            .chars()
+            .take(300)
+            .collect::<String>()
+    );
+    Ok(())
+}
+
+async fn turn_fingerprint_ok(binary: &Path, config: &Path) -> Result<()> {
+    if !turn_embedded(config)? {
+        return Ok(());
+    }
+    let listed = tokio::time::timeout(
+        Duration::from_secs(8),
+        tokio::process::Command::new(binary)
+            .arg("turn-fingerprint")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await??;
+    ensure!(
+        listed.status.success(),
+        "this binary cannot run the embedded relay"
+    );
+    Ok(())
 }
 
 fn turn_embedded(path: &Path) -> Result<bool> {
@@ -1217,7 +1236,7 @@ pub async fn rollback(config: &Settings, service: &dyn Service) -> Result<String
     };
     let target = release_by_name(&config.install_dir, &target_name)?;
     service
-        .check_rollback(&target.join("infuser"))
+        .check_before_rollback(&target.join("infuser"))
         .await
         .context("refusing to roll back to a binary that cannot read the live config")?;
     let snapshot_dir = config.state_dir.join("rollback").join(&target_name);

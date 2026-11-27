@@ -157,17 +157,26 @@ pub async fn start(params: Params) -> Result<Running> {
         )
         .await?;
         port = tcp.port();
+        let tcp = Arc::new(tcp);
         let finished = tcp.take_finished();
+        let (closed_tx, mut closed_rx) =
+            tokio::sync::mpsc::channel::<turn::allocation::AllocationInfo>(32);
+        let closing = Arc::clone(&tcp);
+        tokio::spawn(async move {
+            while let Some(info) = closed_rx.recv().await {
+                closing.allocation_closed(info.five_tuple.src_addr);
+            }
+        });
         let server = Arc::new(
             Server::new(ServerConfig {
                 conn_configs: vec![ConnConfig {
-                    conn: Arc::new(tcp),
+                    conn: tcp,
                     relay_addr_generator: Box::new(Generator::new(Arc::clone(&pool), pending)),
                 }],
                 realm: params.realm,
                 auth_handler: auth,
                 channel_bind_timeout: Duration::from_secs(0),
-                alloc_close_notify: None,
+                alloc_close_notify: Some(closed_tx),
             })
             .await
             .map_err(|error| anyhow::anyhow!(error))?,

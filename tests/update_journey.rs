@@ -281,3 +281,68 @@ async fn release_download_activation_failure_and_interrupted_rollback() -> Resul
     server.abort();
     Ok(())
 }
+
+#[tokio::test]
+async fn manual_rollback_proceeds_when_the_live_identity_is_newer() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let current = "a".repeat(40);
+    let previous = "b".repeat(40);
+    let install = dir.path().join("install");
+    fs::create_dir_all(install.join("releases").join(&current))?;
+    fs::create_dir_all(install.join("releases").join(&previous))?;
+    symlink(
+        install.join("releases").join(&current),
+        install.join("current"),
+    )?;
+    symlink(
+        install.join("releases").join(&previous),
+        install.join("previous"),
+    )?;
+    let platform = dir.path().join("platform");
+    fs::create_dir_all(&platform)?;
+    let config_path = dir.path().join("infuser.toml");
+    fs::write(
+        &config_path,
+        format!("[controller]\nstate_dir = \"{}\"\n", platform.display()),
+    )?;
+    let state = dir.path().join("state");
+    let snapshot = state.join("rollback").join(&previous);
+    fs::create_dir_all(&snapshot)?;
+    fs::write(
+        snapshot.join("snapshot.json"),
+        serde_json::json!({
+            "version": 1,
+            "release": previous,
+            "created": 1,
+            "verified": true,
+            "databases": [],
+            "files": []
+        })
+        .to_string(),
+    )?;
+    let config = updater::Settings {
+        repository: "example/infuser".into(),
+        install_dir: install.clone(),
+        state_dir: state,
+        controller_config: config_path,
+        service: "infuser.service".into(),
+        health_url: "http://127.0.0.1/healthz".into(),
+    };
+    let service = TestService {
+        install: install.clone(),
+        bad: "c".repeat(40),
+        restarts: Mutex::new(0),
+        busy: std::sync::atomic::AtomicBool::new(false),
+        rollback_allowed: std::sync::atomic::AtomicBool::new(false),
+        maintenance: std::sync::atomic::AtomicBool::new(false),
+        advance: Mutex::new(None),
+    };
+    let restored = updater::rollback(&config, &service).await?;
+    assert!(restored.contains(&previous));
+    assert_eq!(
+        fs::read_link(install.join("current"))?.file_name().unwrap(),
+        previous.as_str()
+    );
+    assert_eq!(*service.restarts.lock().unwrap(), 1);
+    Ok(())
+}

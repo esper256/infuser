@@ -31,6 +31,18 @@ pub struct PeerTraffic {
 pub struct Snapshot {
     pub bindings: Vec<IpAddr>,
     pub peers: Vec<PeerTraffic>,
+    /// Unix seconds when the daemon stored this snapshot. Zero on the relay.
+    #[serde(skip)]
+    pub at: u64,
+    /// Bridge connection that produced it. Zero on the relay.
+    #[serde(skip)]
+    pub conn: u64,
+}
+
+impl Snapshot {
+    pub fn is_current(&self, now: u64) -> bool {
+        self.at != 0 && now.saturating_sub(self.at) <= 15
+    }
 }
 
 impl Snapshot {
@@ -165,6 +177,7 @@ impl Book {
         Snapshot {
             bindings: self.bindings.lock().unwrap().iter().copied().collect(),
             peers: self.peers.lock().unwrap().values().cloned().collect(),
+            ..Default::default()
         }
     }
 
@@ -191,6 +204,7 @@ impl Book {
         let snapshot = Snapshot {
             bindings,
             peers: listed,
+            ..Default::default()
         };
         *self.latest.lock().unwrap() = snapshot.clone();
         snapshot

@@ -111,10 +111,9 @@ fn stun_request(packet: &[u8]) -> bool {
 }
 
 fn has_integrity(packet: &[u8]) -> bool {
-    let Some(stun) = stun::parse(packet) else {
+    if stun::parse(packet).is_none() {
         return false;
-    };
-    let _ = stun;
+    }
     let length = u16::from_be_bytes([packet[2], packet[3]]) as usize;
     let mut attributes = &packet[20..20 + length];
     while attributes.len() >= 4 {
@@ -146,6 +145,7 @@ impl SourceLimit {
     }
 
     fn allow(&self, ip: IpAddr, authenticated: bool) -> bool {
+        let ip = source_key(ip);
         let cost = if authenticated {
             AUTH_COST
         } else {
@@ -172,6 +172,19 @@ impl SourceLimit {
         let allowed = bucket.allow(cost);
         buckets.insert(ip, bucket);
         allowed
+    }
+}
+
+/// IPv4 stays one address. IPv6 is one bucket per /64, so a prefix cannot
+/// fill the table with a fresh address per packet.
+fn source_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(address) => {
+            let mut prefix = address.octets();
+            prefix[8..].fill(0);
+            IpAddr::V6(prefix.into())
+        }
     }
 }
 
@@ -205,5 +218,18 @@ mod tests {
         let left: Vec<_> = limit.buckets.lock().unwrap().keys().copied().collect();
         assert_eq!(left.len(), 2);
         assert!(left.contains(&c));
+    }
+
+    #[test]
+    fn addresses_in_one_ipv6_prefix_share_a_bucket() {
+        let limit = SourceLimit::new(2);
+        let first: IpAddr = "2001:db8:1:2::1".parse().unwrap();
+        let second: IpAddr = "2001:db8:1:2::ffff".parse().unwrap();
+        let other: IpAddr = "2001:db8:9:9::1".parse().unwrap();
+        assert!(limit.allow(first, false));
+        assert!(limit.allow(second, false));
+        assert_eq!(limit.buckets.lock().unwrap().len(), 1);
+        assert!(limit.allow(other, false));
+        assert_eq!(limit.buckets.lock().unwrap().len(), 2);
     }
 }

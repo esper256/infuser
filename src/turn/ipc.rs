@@ -246,7 +246,12 @@ pub fn serve(
                 Err(error) => {
                     tracing::warn!(%error, "TURN IPC accept failed");
                     if matches!(error.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) {
-                        slots.notified().await;
+                        // A close that already happened stores no permit, and the
+                        // full table may not be one of these connections.
+                        tokio::select! {
+                            _ = slots.notified() => {}
+                            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                        }
                     }
                     continue;
                 }
@@ -264,12 +269,36 @@ pub fn serve(
     Ok(())
 }
 
+static NEXT_BRIDGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+struct ClearView {
+    view: Arc<Mutex<Option<Snapshot>>>,
+    conn: u64,
+}
+
+impl Drop for ClearView {
+    fn drop(&mut self) {
+        let mut slot = self.view.lock().unwrap();
+        if slot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.conn == self.conn)
+        {
+            *slot = None;
+        }
+    }
+}
+
 async fn drive_daemon(
     stream: UnixStream,
     mut roster: watch::Receiver<Admitted>,
     view: Arc<Mutex<Option<Snapshot>>>,
     ready: Arc<tokio::sync::Notify>,
 ) -> Result<(), ()> {
+    let conn = NEXT_BRIDGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _clear = ClearView {
+        view: Arc::clone(&view),
+        conn,
+    };
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     let hello = lines.next_line().await.map_err(|_| ())?.ok_or(())?;
@@ -287,7 +316,7 @@ async fn drive_daemon(
             incoming = lines.next_line() => {
                 match incoming {
                     Ok(Some(incoming)) => {
-                        if store_view(&incoming, &view, &ready).is_err() {
+                        if store_view(&incoming, &view, &ready, conn).is_err() {
                             return Err(());
                         }
                     }
@@ -331,6 +360,7 @@ fn store_view(
     text: &str,
     view: &Mutex<Option<Snapshot>>,
     ready: &tokio::sync::Notify,
+    conn: u64,
 ) -> Result<(), ()> {
     let message: Message = match serde_json::from_str(text) {
         Ok(message) => message,
@@ -346,6 +376,8 @@ fn store_view(
     *view.lock().unwrap() = Some(Snapshot {
         bindings: message.bindings,
         peers: message.allocations,
+        at: crate::controller::now(),
+        conn,
     });
     ready.notify_one();
     Ok(())
@@ -420,6 +452,16 @@ mod tests {
         assert!(admitted.allows("alpha"));
         drop(tx);
         relay.abort();
-        daemon.abort();
+        let _ = daemon.await.unwrap();
+        assert!(view.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_snapshot_older_than_fifteen_seconds_is_not_current() {
+        let mut snapshot = Snapshot::default();
+        assert!(!snapshot.is_current(100));
+        snapshot.at = 100;
+        assert!(snapshot.is_current(115));
+        assert!(!snapshot.is_current(116));
     }
 }

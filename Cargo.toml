@@ -63,3 +63,9 @@ required-features = ["fixtures"]
 [profile.release]
 lto = "thin"
 strip = true
+
+[workspace]
+members = [".", "vendor/turn"]
+exclude = ["desktop"]
+default-members = ["."]
+resolver = "2"

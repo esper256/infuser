@@ -428,6 +428,7 @@ impl Platform {
             .lock()
             .unwrap()
             .clone()
+            .filter(|view| view.is_current(now()))
             .map(|view| view.label_view());
         self.path_memory.label(&crate::turn::Query {
             server: on_dedicated_server(self, launch_id),
@@ -1931,7 +1932,13 @@ async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (group, _) = p.group_view(&h, &email)?;
     let data = p.db.catalog()?;
     let mut report = p.peers.diagnostics(now());
-    if let Some(mut relay) = p.turn_view.lock().unwrap().clone() {
+    if let Some(mut relay) = p
+        .turn_view
+        .lock()
+        .unwrap()
+        .clone()
+        .filter(|view| view.is_current(now()))
+    {
         let apps = data
             .apps
             .keys()

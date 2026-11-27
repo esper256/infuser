@@ -8,6 +8,7 @@ use std::{
 
 pub const MAX_BYTES_PER_SECOND: f64 = 524_288.0;
 pub const GLOBAL_BYTES_PER_SECOND: f64 = 8_388_608.0;
+pub const STUN_BYTES_PER_SECOND: f64 = 8_192.0;
 
 pub struct Bucket {
     rate: f64,
@@ -30,6 +31,10 @@ impl Bucket {
 
     pub fn global() -> Self {
         Self::new(GLOBAL_BYTES_PER_SECOND, GLOBAL_BYTES_PER_SECOND)
+    }
+
+    pub fn stun() -> Self {
+        Self::new(STUN_BYTES_PER_SECOND, STUN_BYTES_PER_SECOND)
     }
 
     pub fn refund(&self, bytes: usize) {

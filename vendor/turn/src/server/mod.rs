@@ -29,6 +29,7 @@ const INBOUND_MTU: usize = crate::proto::UDP_RECEIVE_BUFFER_SIZE;
 
 static NONCE_KEY: OnceLock<Vec<u8>> = OnceLock::new();
 static PEER_FILTER: OnceLock<fn(SocketAddr) -> bool> = OnceLock::new();
+#[allow(clippy::type_complexity)]
 static RELAY_HOOK: OnceLock<fn(&(dyn Conn + Send + Sync), &[u8], SocketAddr, bool) -> bool> =
     OnceLock::new();
 

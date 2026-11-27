@@ -83,7 +83,7 @@ impl Memory {
         };
         let kinds: Vec<_> = subjects(seat)
             .into_iter()
-            .map(|peer| classify(peer, view))
+            .map(|peer| classify(peer, seat, view))
             .collect();
         Some(format_kinds(&kinds))
     }
@@ -113,12 +113,14 @@ fn binding(peer: &Participant, view: &View) -> bool {
 
 /// A pair is relayed when either allocation forwarded game packets to the
 /// other person's address, or to that person's allocation on this relay.
-fn relayed(subject: &Participant, view: &View) -> bool {
-    for allocation in view
-        .allocations
-        .iter()
-        .filter(|allocation| allocation.peer == subject.id && allocation.packets > 0)
-    {
+fn in_room(seat: &Seat, allocation: &Allocation) -> bool {
+    seat.peers.iter().any(|peer| peer.id == allocation.peer)
+}
+
+fn relayed(subject: &Participant, seat: &Seat, view: &View) -> bool {
+    for allocation in view.allocations.iter().filter(|allocation| {
+        in_room(seat, allocation) && allocation.peer == subject.id && allocation.packets > 0
+    }) {
         // Game packets left this allocation toward someone else, including the
         // relay's own public address when the far side is also relayed here.
         if !allocation.reached.is_empty()
@@ -131,7 +133,8 @@ fn relayed(subject: &Participant, view: &View) -> bool {
         }
     }
     view.allocations.iter().any(|allocation| {
-        allocation.packets > 0
+        in_room(seat, allocation)
+            && allocation.packets > 0
             && allocation.peer != subject.id
             && (allocation.reached.iter().any(|id| id == &subject.id)
                 || subject
@@ -140,8 +143,8 @@ fn relayed(subject: &Participant, view: &View) -> bool {
     })
 }
 
-fn classify(peer: &Participant, view: &View) -> Kind {
-    if relayed(peer, view) {
+fn classify(peer: &Participant, seat: &Seat, view: &View) -> Kind {
+    if relayed(peer, seat, view) {
         return Kind::Relayed;
     }
     if binding(peer, view) {
@@ -159,8 +162,8 @@ fn format_kinds(kinds: &[Kind]) -> String {
     }
     let mut parts = Vec::new();
     for (kind, word) in [
-        (Kind::Stun, "STUN"),
         (Kind::Relayed, "relayed"),
+        (Kind::Stun, "STUN"),
         (Kind::Lan, "LAN"),
     ] {
         let count = kinds.iter().filter(|item| **item == kind).count();
@@ -326,7 +329,7 @@ mod tests {
             memory
                 .label(&query(false, true, Some(room), Some(view)))
                 .as_deref(),
-            Some("3 STUN, 1 relayed")
+            Some("1 relayed, 3 STUN")
         );
     }
 
@@ -487,6 +490,33 @@ mod tests {
                 ))
                 .as_deref(),
             Some("Relayed")
+        );
+    }
+
+    #[test]
+    fn another_rooms_allocation_does_not_mark_a_stranger_relayed() {
+        let room = seat(
+            "me",
+            false,
+            vec![
+                peer("me", Some("198.51.100.7")),
+                peer("host", Some("203.0.113.1")),
+            ],
+        );
+        let view = View {
+            bindings: vec!["198.51.100.7".parse().unwrap()],
+            allocations: vec![Allocation {
+                peer: "someone-in-another-room".into(),
+                packets: 9,
+                remotes: vec!["198.51.100.7".parse().unwrap()],
+                reached: vec![],
+            }],
+        };
+        assert_eq!(
+            Memory
+                .label(&query(false, true, Some(room), Some(view)))
+                .as_deref(),
+            Some("STUN")
         );
     }
 }

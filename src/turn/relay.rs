@@ -162,6 +162,7 @@ pub struct Meter {
     id: u64,
     book: Arc<Book>,
     bucket: Bucket,
+    stun: Bucket,
     global: Arc<Bucket>,
     metrics: SharedRelay,
     outbound: Direction,
@@ -210,10 +211,24 @@ impl Meter {
     }
 
     fn budget(&self, bytes: usize) -> bool {
+        self.spend(&self.bucket, bytes)
+    }
+
+    /// Real STUN, at most 576 bytes, uses its own bucket and still spends the
+    /// global one. Everything else, including a `0x00` prefix, uses the game bucket.
+    fn charge(&self, packet: &[u8]) -> bool {
+        if packet.len() <= 576 && stun::parse(packet).is_some() {
+            self.spend(&self.stun, packet.len())
+        } else {
+            self.budget(packet.len())
+        }
+    }
+
+    fn spend(&self, local: &Bucket, bytes: usize) -> bool {
         if !self.global.allow(bytes) {
             return false;
         }
-        if self.bucket.allow(bytes) {
+        if local.allow(bytes) {
             return true;
         }
         self.global.refund(bytes);
@@ -279,6 +294,7 @@ impl RelayAddressGenerator for Generator {
             id,
             book: Arc::clone(&self.pool.book),
             bucket: Bucket::game(),
+            stun: Bucket::stun(),
             global: Arc::clone(&self.pool.global),
             metrics: Arc::clone(&self.pool.metrics),
             outbound: Direction::new(),
@@ -362,7 +378,7 @@ impl util::Conn for Meter {
                 std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied peer").into(),
             );
         }
-        if buf.first().is_some_and(|byte| *byte >= 4) && !self.budget(buf.len()) {
+        if !self.charge(buf) {
             return Ok(buf.len());
         }
         let sent = self.inner.send_to(buf, target).await?;
@@ -402,7 +418,7 @@ pub fn account_relay(
         meter.metrics.denied.fetch_add(1, Ordering::Relaxed);
         return false;
     }
-    if packet.first().is_some_and(|byte| *byte >= 4) && !meter.budget(packet.len()) {
+    if !meter.charge(packet) {
         return false;
     }
     meter.observe(packet, false, Some(src));
@@ -500,5 +516,41 @@ mod tests {
         assert!(account_relay(conn.as_ref(), &[0x40; 1024], from, true));
         assert_eq!(book.snapshot().peers[0].packets, 1);
         assert!(!pool.global.allow(8_388_608));
+    }
+
+    #[tokio::test]
+    async fn zero_prefixed_packets_are_dropped_when_the_bucket_is_empty() {
+        let metrics = Arc::new(RelayMetrics::new());
+        let book = Arc::new(Book::new(Arc::clone(&metrics), None));
+        let pool = Arc::new(Pool::new(
+            Ipv4Addr::LOCALHOST,
+            Ipv4Addr::LOCALHOST,
+            33_300,
+            33_308,
+            Arc::clone(&book),
+            Arc::clone(&metrics),
+        ));
+        let sink = UdpSocket::bind((Ipv4Addr::LOCALHOST, 33_308))
+            .await
+            .unwrap();
+        let generator = Generator::new(pool.clone(), Arc::new(Mutex::new(Some("peer-a".into()))));
+        let (conn, _) = generator.allocate_conn(true, 0).await.unwrap();
+        assert!(pool.global.allow(8_388_608));
+        let target = sink.local_addr().unwrap();
+        let mut prefixed = [0u8; 1200];
+        prefixed[0] = 0x00;
+        for _ in 0..50 {
+            conn.send_to(&prefixed, target).await.unwrap();
+        }
+        let mut buf = [0u8; 2000];
+        let arrived = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            sink.recv_from(&mut buf),
+        )
+        .await;
+        assert!(
+            arrived.is_err(),
+            "0x00-prefixed packets were relayed with an empty bucket"
+        );
     }
 }
