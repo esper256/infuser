@@ -207,8 +207,7 @@ async fn main() -> Result<()> {
         let revoke = args.iter().any(|arg| arg == "--revoke");
         let list = args.iter().any(|arg| arg == "--list");
         ensure!(
-            !member.starts_with('-')
-                && !(revoke && list)
+            !(member.starts_with('-') || (revoke && list))
                 && args.len() == if revoke || list { 4 } else { 3 },
             "usage: infuser member-link CONFIG MEMBER [--revoke|--list]"
         );
