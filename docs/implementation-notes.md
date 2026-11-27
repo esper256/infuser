@@ -65,14 +65,14 @@ which is what a start killed during the pass leaves behind, is kept when it
 decodes to the source instead of being compressed again. The record lives
 under `precompress/` in the state directory, outside the files players can
 request. Siblings are not catalog entries, so they do not count toward the
-content budget or the 256 MiB upload limit, and a direct request for the
+content budget or the 512 MiB build limit, and a direct request for the
 sibling name is a 404.
 
-A sibling is stored only when the original is at least 8 KiB and the copy saves
+A sibling is stored only when the original is between 8 KiB and 64 MiB inclusive and the copy saves
 at least 4 KiB and 10 percent. Images, audio, archives, `.unityweb`, and an
 uploaded `.br` or `.gz` are left alone. Brotli quality is 5 with a 4 MiB window,
 and gzip is level 6, so one engine module finishes well inside the publisher
-client's two-minute timeout and the service memory limit. Writing a copy that
+client's four-minute timeout and the service memory limit. Writing a copy that
 would cross the free-disk reserve is skipped; the original is still served.
 That skip is not remembered, so a later start tries again.
 

@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, path::Path};
 
+const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+
 #[derive(Default, Serialize, Deserialize)]
 pub struct Data {
     pub pairs: BTreeMap<String, Pair>,
@@ -44,7 +46,7 @@ pub fn read(root: &Path) -> Result<Option<Manifest>> {
         return Ok(None);
     }
     ensure!(
-        path.metadata()?.len() <= 128 * 1024,
+        path.metadata()?.len() <= MAX_MANIFEST_BYTES as u64,
         "native manifest is too large"
     );
     let value: Manifest = serde_json::from_slice(&std::fs::read(path)?)?;
@@ -96,7 +98,10 @@ pub fn pack(
     for (platform, root) in exports {
         let mut files = Vec::new();
         crate::publisher::walk(root, root, &mut files)?;
-        ensure!(files.len() <= 512, "too many native export files");
+        ensure!(
+            files.len() <= infuser_native_protocol::MAX_FILES,
+            "too many native export files"
+        );
         files.sort_by(|a, b| a.0.cmp(&b.0));
         let archive = format!("infuser-native/{platform}.zip");
         let path = dir.path().join(&archive);
@@ -113,7 +118,11 @@ pub fn pack(
             total = total
                 .checked_add(size)
                 .ok_or_else(|| anyhow::anyhow!("native size overflow"))?;
-            ensure!(total <= MAX_UNPACKED, "native export exceeds 512 MiB");
+            ensure!(
+                total <= MAX_UNPACKED,
+                "native export exceeds {} MiB",
+                MAX_UNPACKED / crate::publish_limits::MIB
+            );
             let mut input = std::fs::File::open(&source)?;
             if !name.contains('/') {
                 let mut magic = [0u8; 4];
@@ -151,7 +160,8 @@ pub fn pack(
         );
         ensure!(
             path.metadata()?.len() <= MAX_ARCHIVE,
-            "compressed native export exceeds 64 MiB"
+            "compressed native export exceeds {} MiB",
+            MAX_ARCHIVE / crate::publish_limits::MIB
         );
         manifest.platforms.insert(
             platform.clone(),
@@ -166,7 +176,10 @@ pub fn pack(
     }
     manifest.validate()?;
     let bytes = serde_json::to_vec_pretty(&manifest)?;
-    ensure!(bytes.len() <= 128 * 1024, "native file inventory too large");
+    ensure!(
+        bytes.len() <= MAX_MANIFEST_BYTES,
+        "native file inventory too large"
+    );
     std::fs::write(dir.path().join(MANIFEST), bytes)?;
     Ok(dir)
 }

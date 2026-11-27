@@ -54,7 +54,7 @@ Keep the filenames produced by Unity. Infuser leaves those encoded files as
 exported and does not replace them. If the export requires shared memory,
 set `cross_origin_isolation: true`; third-party resources must then satisfy the
 browser's isolation rules. This flag does not add thread support to Unity code.
-Current limits are **64 MiB per file and 256 MiB per build**. Read the server's
+Current limits are **128 MiB per file and 512 MiB / 8,192 files per build**. Read the server's
 publishing capabilities for its limits. Reduce textures/audio or split supported
 content bundles if necessary; report a size blocker rather than silently dropping assets.
 

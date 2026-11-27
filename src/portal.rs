@@ -269,7 +269,9 @@ impl Platform {
             grants: Arc::new(Mutex::new(BTreeMap::new())),
             publication_events: Default::default(),
             publishing: Arc::new(Mutex::new(())),
-            publication_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            publication_slots: Arc::new(tokio::sync::Semaphore::new(
+                crate::publish_limits::ADMISSION_SLOTS,
+            )),
             app_mutations: Default::default(),
             peers: Arc::new(
                 crate::peers::Rooms::recovering(resume_after).observed(controller.timeline.clone()),

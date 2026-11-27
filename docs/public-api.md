@@ -79,7 +79,7 @@ The manifest follows `examples/game-manifest.json`. IDs are lowercase slug strin
 up to 48 characters, beginning with a letter. Upload a UTF-8 `index.html` including
 `<script type="module" src="/_infuser/sdk/v1.js"></script>` for a major-1
 declaration, or `/_infuser/sdk.js` for legacy builds; the CLI adds it for you.
-Files are limited to 64 MiB, builds to 256 MiB/4096 files, and each app to 12 builds.
+Files are limited to 128 MiB with a 240-second upload deadline, builds to 512 MiB/8,192 files, and each app to 12 builds.
 The installation also has an aggregate content budget and a free-disk reserve.
 Drafts can be resumed by checking the file inventory. Published files are immutable.
 No arbitrary remote URLs are fetched and no build scripts execute on the host.

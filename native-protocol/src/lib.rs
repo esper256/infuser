@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const MANIFEST: &str = "infuser-native/v1.json";
-pub const MAX_ARCHIVE: u64 = 64 * 1024 * 1024;
-pub const MAX_UNPACKED: u64 = 512 * 1024 * 1024;
+pub const MAX_ARCHIVE: u64 = 128 * 1024 * 1024;
+pub const MAX_UNPACKED: u64 = 1024 * 1024 * 1024;
+pub const MAX_FILES: usize = 1024;
 pub const PLATFORMS: [&str; 2] = ["linux-x86_64", "windows-x86_64"];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -96,7 +97,7 @@ impl Manifest {
                 "Windows entrypoint must be an exe"
             );
             ensure!(
-                !artifact.files.is_empty() && artifact.files.len() <= 512,
+                !artifact.files.is_empty() && artifact.files.len() <= MAX_FILES,
                 "native file count exceeded"
             );
             let mut folded = BTreeSet::new();

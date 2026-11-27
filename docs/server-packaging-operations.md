@@ -23,8 +23,9 @@ Node is not installed on the host. Docker 25+ is needed for readiness probe inte
 
 The existing CPU/RAM budget must accommodate a 768 MiB / 500 millicore packaging
 reservation. Packaging waits for room in that budget. At least 2 GiB of temporary
-working space must remain above the disk reserve. Source limits are 8 MiB per file,
-64 MiB and 4,096 files per build; registry downloads are bounded separately.
+working space must remain above the disk reserve. Source limits are 16 MiB per file and 128 MiB / 8,192 files per build.
+The worker has 20 minutes to build in its 512 MiB work tmpfs. The publisher waits
+up to 30 minutes for packaging. Registry downloads are bounded separately.
 The image budget conservatively counts each retained image's reported size,
 including shared base layers. Remove unused builds through the publisher API to
 release their images; no global Docker prune is used. Keep this configuration guard
