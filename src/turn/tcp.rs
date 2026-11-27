@@ -20,7 +20,7 @@ use std::{
     os::fd::AsRawFd,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
 };
 use tokio::{
@@ -44,7 +44,6 @@ struct Client {
     opened: std::time::Instant,
     authed: Arc<AtomicBool>,
     allocated: Arc<AtomicBool>,
-    allocations: Arc<AtomicU64>,
 }
 
 pub enum Flow {
@@ -67,12 +66,19 @@ pub struct TcpTurn {
     writers: Arc<Mutex<HashMap<u64, Client>>>,
     pending: Arc<Mutex<Option<String>>>,
     book: Arc<Book>,
-    closed: Arc<AtomicBool>,
     finished: Mutex<Option<mpsc::UnboundedReceiver<SocketAddr>>>,
+    /// Stops the accept loop. `Conn::close` does not touch this: an allocation
+    /// ending must not drop the shared listener.
+    stop: Mutex<Option<Stop>>,
     /// Counts TCP headers consumed. Unit tests wait on this so an outbound
     /// packet is sent while a frame body is still unread.
-    #[allow(dead_code)]
+    #[cfg(test)]
     headers: tokio::sync::watch::Sender<u64>,
+}
+
+struct Stop {
+    stop: tokio::sync::oneshot::Sender<()>,
+    done: tokio::sync::oneshot::Receiver<()>,
 }
 
 impl TcpTurn {
@@ -84,21 +90,25 @@ impl TcpTurn {
         self.finished.lock().unwrap().take()
     }
 
-    /// The last allocation for this client closed or expired.
+    /// The allocation for this connection closed or expired. One TCP connection
+    /// has one allocation, so a repeated close does not cancel twice.
     pub fn allocation_closed(&self, addr: SocketAddr) {
         let writers = self.writers.lock().unwrap();
         let Some(client) = writers.values().find(|client| client.addr == addr) else {
             return;
         };
-        let previous = client.allocations.load(Ordering::Relaxed);
-        if previous == 0 {
-            return;
-        }
-        client.allocations.fetch_sub(1, Ordering::Relaxed);
-        if previous == 1 {
-            client.allocated.store(false, Ordering::Relaxed);
+        if client.allocated.swap(false, Ordering::Relaxed) {
             let _ = client.cancel.send(true);
         }
+    }
+
+    /// Drops the listener. `Running::close` calls this; an allocation does not.
+    pub async fn shutdown(&self) {
+        let Some(Stop { stop, done }) = self.stop.lock().unwrap().take() else {
+            return;
+        };
+        let _ = stop.send(());
+        let _ = done.await;
     }
 
     pub async fn bind(
@@ -112,19 +122,21 @@ impl TcpTurn {
         let (incoming_tx, incoming_rx) = mpsc::channel(256);
         let (finished_tx, finished_rx) = mpsc::unbounded_channel();
         let writers = Arc::new(Mutex::new(HashMap::new()));
-        let closed = Arc::new(AtomicBool::new(false));
         let accept_writers = Arc::clone(&writers);
-        let accept_closed = Arc::clone(&closed);
         let slots = Arc::new(tokio::sync::Notify::new());
-        let (headers, _) = tokio::sync::watch::channel(0);
+        #[cfg(test)]
+        let (headers, _) = tokio::sync::watch::channel(0u64);
+        #[cfg(test)]
         let accept_headers = headers.clone();
+        let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             let mut next_id = 1u64;
             loop {
-                if accept_closed.load(Ordering::Relaxed) {
-                    break;
-                }
-                match listener.accept().await {
+                tokio::select! {
+                    biased;
+                    _ = &mut stop_rx => break,
+                    accepted = listener.accept() => match accepted {
                     Ok((stream, peer)) => {
                         if !admit_or_evict(&accept_writers, peer) {
                             drop(stream);
@@ -136,7 +148,6 @@ impl TcpTurn {
                         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
                         let authed = Arc::new(AtomicBool::new(false));
                         let allocated = Arc::new(AtomicBool::new(false));
-                        let allocations = Arc::new(AtomicU64::new(0));
                         accept_writers.lock().unwrap().insert(
                             id,
                             Client {
@@ -146,7 +157,6 @@ impl TcpTurn {
                                 opened: std::time::Instant::now(),
                                 authed: Arc::clone(&authed),
                                 allocated: Arc::clone(&allocated),
-                                allocations,
                             },
                         );
                         let incoming = incoming_tx.clone();
@@ -154,6 +164,7 @@ impl TcpTurn {
                         let writers = Arc::clone(&accept_writers);
                         let finished = finished_tx.clone();
                         let slots = Arc::clone(&slots);
+                        #[cfg(test)]
                         let headers = accept_headers.clone();
                         tokio::spawn(async move {
                             serve_connection(Conn {
@@ -165,6 +176,7 @@ impl TcpTurn {
                                 cancel: cancel_rx,
                                 authed,
                                 allocated,
+                                #[cfg(test)]
                                 headers,
                             })
                             .await;
@@ -174,16 +186,16 @@ impl TcpTurn {
                         });
                     }
                     Err(error) => {
-                        if accept_closed.load(Ordering::Relaxed) {
-                            break;
-                        }
                         tracing::warn!(%error, "TURN TCP accept failed");
                         if matches!(on_accept_error(&error), Flow::WaitForClose) {
                             wait_for_close(&slots).await;
                         }
                     }
                 }
+                }
             }
+            drop(listener);
+            let _ = done_tx.send(());
         });
         Ok(Self {
             local,
@@ -191,8 +203,12 @@ impl TcpTurn {
             writers,
             pending,
             book,
-            closed,
             finished: Mutex::new(Some(finished_rx)),
+            stop: Mutex::new(Some(Stop {
+                stop: stop_tx,
+                done: done_rx,
+            })),
+            #[cfg(test)]
             headers,
         })
     }
@@ -240,6 +256,7 @@ struct Conn {
     cancel: tokio::sync::watch::Receiver<bool>,
     authed: Arc<AtomicBool>,
     allocated: Arc<AtomicBool>,
+    #[cfg(test)]
     headers: tokio::sync::watch::Sender<u64>,
 }
 
@@ -249,9 +266,16 @@ async fn serve_connection(mut link: Conn) {
     let (frames_tx, mut frames) = mpsc::channel(8);
     // `read_exact` is not cancel-safe. This task is the only reader, so an
     // outbound packet cannot discard a half-consumed frame.
+    #[cfg(test)]
     let headers = link.headers.clone();
     let reader = tokio::spawn(async move {
-        while let Ok(frame) = read_frame(&mut read, &headers).await {
+        while let Ok(frame) = read_frame(
+            &mut read,
+            #[cfg(test)]
+            &headers,
+        )
+        .await
+        {
             if frames_tx.send(frame).await.is_err() {
                 break;
             }
@@ -314,11 +338,12 @@ fn allocate_success(packet: &[u8]) -> bool {
 
 async fn read_frame<R: AsyncRead + Unpin>(
     stream: &mut R,
-    headers: &tokio::sync::watch::Sender<u64>,
+    #[cfg(test)] headers: &tokio::sync::watch::Sender<u64>,
 ) -> io::Result<Vec<u8>> {
     let mut header = [0u8; 4];
     stream.read_exact(&mut header).await?;
     // After the header is consumed, an outbound packet must not restart the read.
+    #[cfg(test)]
     headers.send_modify(|count| *count += 1);
     let total = stun::tcp_frame_len(&header)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "turn frame"))?;
@@ -403,8 +428,9 @@ impl util::Conn for TcpTurn {
                 && let Some(client) = client
             {
                 client.authed.store(true, Ordering::Relaxed);
+                // A retransmitted Allocate replays this success. One connection
+                // has one allocation, so a second write must not count again.
                 client.allocated.store(true, Ordering::Relaxed);
-                client.allocations.fetch_add(1, Ordering::Relaxed);
             }
             client
                 .map(|client| client.tx.clone())
@@ -428,7 +454,8 @@ impl util::Conn for TcpTurn {
     }
 
     async fn close(&self) -> util::Result<()> {
-        self.closed.store(true, Ordering::Relaxed);
+        // Allocation::close calls this on the shared listener. Stopping here
+        // would refuse every later TCP client until the process restarts.
         Ok(())
     }
 
@@ -474,7 +501,6 @@ mod tests {
             opened: std::time::Instant::now(),
             authed: Arc::new(AtomicBool::new(authed)),
             allocated: Arc::new(AtomicBool::new(false)),
-            allocations: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -708,5 +734,65 @@ mod tests {
             "forged Allocate left the connection open: {closed:?}"
         );
         assert!(started.elapsed() >= std::time::Duration::from_secs(25));
+    }
+
+    fn success() -> [u8; 20] {
+        let mut packet = [0u8; 20];
+        packet[0..2].copy_from_slice(&0x0103u16.to_be_bytes());
+        packet[4..8].copy_from_slice(&[0x21, 0x12, 0xa4, 0x42]);
+        packet
+    }
+
+    #[tokio::test]
+    async fn closing_the_shared_connection_still_serves_a_new_client() {
+        let metrics = Arc::new(RelayMetrics::new());
+        let book = Arc::new(Book::new(Arc::clone(&metrics), None));
+        let turn = TcpTurn::bind(
+            (Ipv4Addr::LOCALHOST, 0).into(),
+            Arc::new(Mutex::new(None)),
+            book,
+            metrics,
+        )
+        .await
+        .unwrap();
+        util::Conn::close(&turn).await.unwrap();
+        let mut client = TcpStream::connect(turn.local).await.unwrap();
+        let request = binding();
+        client.write_all(&request).await.unwrap();
+        let mut buf = [0u8; 64];
+        let (size, _) = turn.recv_from(&mut buf).await.unwrap();
+        assert_eq!(&buf[..size], &request);
+    }
+
+    #[tokio::test]
+    async fn a_replayed_allocate_success_closes_with_the_allocation() {
+        let metrics = Arc::new(RelayMetrics::new());
+        let book = Arc::new(Book::new(Arc::clone(&metrics), None));
+        let turn = TcpTurn::bind(
+            (Ipv4Addr::LOCALHOST, 0).into(),
+            Arc::new(Mutex::new(None)),
+            book,
+            metrics,
+        )
+        .await
+        .unwrap();
+        let mut client = TcpStream::connect(turn.local).await.unwrap();
+        client.write_all(&binding()).await.unwrap();
+        let mut buf = [0u8; 64];
+        let (_, addr) = turn.recv_from(&mut buf).await.unwrap();
+        let response = success();
+        turn.send_to(&response, addr).await.unwrap();
+        turn.send_to(&response, addr).await.unwrap();
+        turn.allocation_closed(addr);
+        let mut buf = [0u8; 64];
+        loop {
+            match tokio::time::timeout(std::time::Duration::from_secs(2), client.read(&mut buf))
+                .await
+            {
+                Ok(Ok(0)) | Ok(Err(_)) => break,
+                Ok(Ok(_)) => continue,
+                Err(_) => panic!("a replayed Allocate success kept the connection"),
+            }
+        }
     }
 }

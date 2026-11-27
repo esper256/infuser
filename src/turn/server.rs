@@ -45,6 +45,7 @@ pub const OTHER_ENGINE_EXIT: i32 = 78;
 pub struct Running {
     pub port: u16,
     servers: Vec<Arc<Server>>,
+    tcp: Vec<Arc<TcpTurn>>,
     book: Arc<Book>,
     metrics: Arc<RelayMetrics>,
     pub admission_generation: tokio::sync::watch::Receiver<u64>,
@@ -65,6 +66,9 @@ impl Running {
                 .close()
                 .await
                 .map_err(|error| anyhow::anyhow!(error))?;
+        }
+        for listener in self.tcp {
+            listener.shutdown().await;
         }
         Ok(())
     }
@@ -125,6 +129,7 @@ pub async fn start(params: Params) -> Result<Running> {
     ));
     let mut port = params.listen_port;
     let mut servers = Vec::new();
+    let mut tcp_listeners = Vec::new();
     if params.udp {
         let socket = UdpSocket::bind((params.listen_ip, params.listen_port)).await?;
         port = socket.local_addr()?.port();
@@ -158,6 +163,7 @@ pub async fn start(params: Params) -> Result<Running> {
         .await?;
         port = tcp.port();
         let tcp = Arc::new(tcp);
+        tcp_listeners.push(Arc::clone(&tcp));
         let finished = tcp.take_finished();
         let (closed_tx, mut closed_rx) =
             tokio::sync::mpsc::channel::<turn::allocation::AllocationInfo>(32);
@@ -202,6 +208,7 @@ pub async fn start(params: Params) -> Result<Running> {
     Ok(Running {
         port,
         servers,
+        tcp: tcp_listeners,
         book,
         metrics,
         admission_generation: generation_rx,
@@ -306,6 +313,7 @@ mod tests {
     use super::*;
     use crate::turn::auth::credential;
     use std::net::Ipv4Addr;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use turn::client::{Client, ClientConfig};
     use util::Conn;
 
@@ -376,6 +384,183 @@ mod tests {
         let rejected = client(&secret, &format!("{expires}:gamma"), port).await;
         assert!(rejected.allocate().await.is_err());
         running.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_second_tcp_client_allocates_after_the_first_hangs_up() {
+        let secret = b"0123456789abcdef0123456789abcdef".to_vec();
+        let expires = crate::controller::now() + 3600;
+        let running = relay(&secret).await;
+        let first = tcp_client(&secret, &format!("{expires}:alpha"), running.port).await;
+        first.allocate().await.unwrap();
+        let _ = first.close().await;
+        drop(first);
+        let closed = async {
+            loop {
+                if !running
+                    .snapshot()
+                    .peers
+                    .iter()
+                    .any(|peer| peer.peer == "alpha")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(2), closed)
+            .await
+            .expect("the first allocation did not close");
+        let second = tcp_client(&secret, &format!("{expires}:beta"), running.port).await;
+        second
+            .allocate()
+            .await
+            .expect("TCP TURN stopped accepting after the first allocation");
+        let _ = second.close().await;
+        running.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn closing_the_server_frees_the_tcp_port() {
+        let secret = b"0123456789abcdef0123456789abcdef".to_vec();
+        let running = relay(&secret).await;
+        let port = running.port;
+        running.close().await.unwrap();
+        tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port))
+            .await
+            .expect("the TCP port was still taken");
+    }
+
+    async fn relay(secret: &[u8]) -> Running {
+        start(Params {
+            secret: secret.to_vec(),
+            realm: "turn.test".into(),
+            listen_ip: Ipv4Addr::LOCALHOST,
+            listen_port: 0,
+            public_ip: Ipv4Addr::LOCALHOST,
+            relay_start: 34_400,
+            relay_end: 34_420,
+            udp: false,
+            tcp: true,
+            admit: {
+                let admitted = Admission::new();
+                admitted.replace(["alpha".into(), "beta".into()].into());
+                admitted
+            },
+            metrics_path: None,
+            socket: None,
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn tcp_client(secret: &[u8], username: &str, port: u16) -> Client {
+        let conn = Arc::new(Framed::connect(format!("127.0.0.1:{port}").parse().unwrap()).await);
+        let client = Client::new(ClientConfig {
+            stun_serv_addr: format!("127.0.0.1:{port}"),
+            turn_serv_addr: format!("127.0.0.1:{port}"),
+            username: username.into(),
+            password: credential(secret, username),
+            realm: String::new(),
+            software: String::new(),
+            rto_in_ms: 100,
+            conn,
+            vnet: None,
+        })
+        .await
+        .unwrap();
+        client.listen().await.unwrap();
+        client
+    }
+
+    struct Framed {
+        local: SocketAddr,
+        remote: SocketAddr,
+        write: tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>,
+        incoming: tokio::sync::Mutex<tokio::sync::mpsc::Receiver<Vec<u8>>>,
+    }
+
+    impl Framed {
+        async fn connect(addr: SocketAddr) -> Self {
+            let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let local = stream.local_addr().unwrap();
+            let remote = stream.peer_addr().unwrap();
+            let (mut read, write) = stream.into_split();
+            let (tx, rx) = tokio::sync::mpsc::channel(16);
+            tokio::spawn(async move {
+                loop {
+                    let mut header = [0u8; 4];
+                    if read.read_exact(&mut header).await.is_err() {
+                        break;
+                    }
+                    let Some(total) = crate::turn::stun::tcp_frame_len(&header) else {
+                        break;
+                    };
+                    let mut frame = vec![0u8; total];
+                    frame[..4].copy_from_slice(&header);
+                    if total > 4 && read.read_exact(&mut frame[4..]).await.is_err() {
+                        break;
+                    }
+                    if tx.send(frame).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            Self {
+                local,
+                remote,
+                write: tokio::sync::Mutex::new(write),
+                incoming: tokio::sync::Mutex::new(rx),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Conn for Framed {
+        async fn connect(&self, _addr: SocketAddr) -> util::Result<()> {
+            Ok(())
+        }
+        async fn recv(&self, buf: &mut [u8]) -> util::Result<usize> {
+            let (size, _) = self.recv_from(buf).await?;
+            Ok(size)
+        }
+        async fn recv_from(&self, buf: &mut [u8]) -> util::Result<(usize, SocketAddr)> {
+            let frame = self
+                .incoming
+                .lock()
+                .await
+                .recv()
+                .await
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed"))?;
+            if frame.len() > buf.len() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "frame too large",
+                )
+                .into());
+            }
+            buf[..frame.len()].copy_from_slice(&frame);
+            Ok((frame.len(), self.remote))
+        }
+        async fn send(&self, buf: &[u8]) -> util::Result<usize> {
+            self.send_to(buf, self.remote).await
+        }
+        async fn send_to(&self, buf: &[u8], _target: SocketAddr) -> util::Result<usize> {
+            self.write.lock().await.write_all(buf).await?;
+            Ok(buf.len())
+        }
+        fn local_addr(&self) -> util::Result<SocketAddr> {
+            Ok(self.local)
+        }
+        fn remote_addr(&self) -> Option<SocketAddr> {
+            Some(self.remote)
+        }
+        async fn close(&self) -> util::Result<()> {
+            Ok(())
+        }
+        fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+            self
+        }
     }
 
     async fn client(secret: &[u8], username: &str, port: u16) -> Client {
