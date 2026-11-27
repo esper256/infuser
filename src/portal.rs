@@ -1005,8 +1005,7 @@ async fn launch(
         .as_ref()
         .is_some_and(|m| matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld));
     let needs_server = b.manifest.server_start.is_none()
-        && ((body.mode.as_deref() == Some("multiplayer") && managed)
-            || (body.mode.is_none() && managed)
+        && ((managed && matches!(body.mode.as_deref(), None | Some("multiplayer")))
             || matches!(b.manifest.solo_runtime, Some(SoloRuntime::SharedServer)));
     let id = secret()[..32].to_string();
     let token = secret();
