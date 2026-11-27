@@ -113,22 +113,36 @@ impl Data {
         } else {
             email
         };
-        let avatar = self.members.get(&email).and_then(|m| m.avatar.clone());
+        self.set_member(&email, name, admin, enabled);
+        self.groups.members.insert(email, group.into());
+        self.initialize_identities()
+    }
+
+    pub(super) fn set_member(&mut self, email: &str, name: &str, admin: bool, enabled: bool) {
+        let avatar = self.members.get(email).and_then(|m| m.avatar.clone());
         let avatar_prompt_seen = self
             .members
-            .get(&email)
+            .get(email)
             .is_some_and(|m| m.avatar_prompt_seen);
         self.members.insert(
-            email.clone(),
+            email.to_owned(),
             Member {
                 name: name.into(),
                 admin,
                 enabled,
                 avatar,
                 avatar_prompt_seen,
+                limited_communication: self
+                    .members
+                    .get(email)
+                    .is_some_and(|m| m.limited_communication),
             },
         );
-        self.groups.members.insert(email, group.into());
-        self.initialize_identities()
+        if !enabled {
+            let time = now();
+            for launch in self.launches.values_mut().filter(|l| l.email == email) {
+                launch.end(time, LaunchEnd::ProfileDisabled);
+            }
+        }
     }
 }

@@ -59,6 +59,10 @@
   --glass: #fffdf8;
   --focus: #1d4ed8;
   --browser-chrome: #f4ecda;
+  --voice-danger-bg: #c62828;
+  --voice-danger-border: #1a1208;
+  --voice-danger-ink: #ffffff;
+  --voice-leave-ink: #9b1c1c;
 }
 
 [data-theme="funny-pages"] body {
@@ -116,12 +120,50 @@
   background: var(--caption);
   box-shadow: 3px 3px 0 var(--ink-line);
 }
-[data-theme="funny-pages"] #chat-toggle,
-[data-theme="funny-pages"] #voice-toggle {
+[data-theme="funny-pages"] #chat-toggle {
   background: var(--caption);
   border: 3px solid var(--ink-line);
   box-shadow: 3px 3px 0 var(--ink-line);
   color: var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split {
+  background: transparent;
+  box-shadow: 3px 3px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split > button {
+  background: var(--caption);
+  border: 3px solid var(--ink-line);
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split-toggle { border-right: 0; }
+[data-theme="funny-pages"] .voice-split-caret { border-left: 0; }
+[data-theme="funny-pages"] .voice-split-divider { background: var(--ink-line); }
+[data-theme="funny-pages"] .voice-split > button:hover {
+  background: var(--burst);
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split-toggle[aria-pressed="true"],
+[data-theme="funny-pages"] .voice-split-toggle[aria-pressed="true"]:hover {
+  background: #dcfce7;
+  color: #0e6b31;
+  border-color: #0e6b31;
+}
+[data-theme="funny-pages"] .voice-split[data-deafened="true"] > button,
+[data-theme="funny-pages"] .voice-split[data-deafened="true"] > button:hover {
+  background: var(--voice-danger-bg);
+  color: var(--voice-danger-ink);
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split-caret[aria-expanded="true"],
+[data-theme="funny-pages"] .voice-split-caret[aria-expanded="true"]:hover {
+  background: var(--burst);
+  color: var(--ink-line);
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] .voice-split-badge {
+  background: var(--voice-danger-bg);
+  color: var(--voice-danger-ink);
+  border-color: var(--ink-line);
 }
 
 @media (min-width: 960px) {
@@ -255,11 +297,6 @@
     border-left-width: 0;
     z-index: 6;
   }
-}
-
-@media (max-width: 380px) {
-  [data-theme="funny-pages"] .brand-wordmark img { width: 92px; }
-  [data-theme="funny-pages"] .brand-wordmark { padding: 4px 6px 5px; box-shadow: 3px 3px 0 var(--accent); }
 }
 
 /* Control strip. Areas stay filters, then search, then Add a game. */
@@ -544,12 +581,44 @@
 
 /* Recently entries and the profile menu are caption cards. */
 [data-theme="funny-pages"] #activity.recent-panel,
-[data-theme="funny-pages"] .account-menu {
+[data-theme="funny-pages"] .account-menu,
+[data-theme="funny-pages"] #voice-mixer {
   border: 4px solid var(--ink-line);
   border-radius: 16px;
   background: var(--caption);
   color: var(--ink);
   box-shadow: 6px 6px 0 var(--ink-line);
+}
+[data-theme="funny-pages"] #voice-mixer .vm-action,
+[data-theme="funny-pages"] #voice-mixer .vm-pct,
+[data-theme="funny-pages"] #voice-mixer .vm-peer-mute {
+  background: #fff;
+  color: var(--ink-line);
+  border: 2px solid var(--ink-line);
+}
+[data-theme="funny-pages"] #voice-mixer .vm-action:hover,
+[data-theme="funny-pages"] #voice-mixer .vm-pct:hover,
+[data-theme="funny-pages"] #voice-mixer .vm-peer-mute:hover {
+  background: var(--burst);
+  color: var(--ink-line);
+}
+[data-theme="funny-pages"] #voice-mixer .vm-action[data-active="true"],
+[data-theme="funny-pages"] #voice-mixer .vm-action[data-active="true"]:hover,
+[data-theme="funny-pages"] #voice-mixer .vm-peer-mute[data-muted="true"],
+[data-theme="funny-pages"] #voice-mixer .vm-peer-mute[data-muted="true"]:hover,
+[data-theme="funny-pages"] #voice-mixer .vm-leave:hover {
+  background: var(--voice-danger-bg);
+  color: var(--voice-danger-ink);
+  border-color: var(--ink-line);
+}
+[data-theme="funny-pages"] #voice-mixer .vm-leave {
+  color: var(--voice-leave-ink);
+  border-color: var(--voice-leave-ink);
+}
+[data-theme="funny-pages"] #voice-mixer .vm-field select {
+  border: 2px solid var(--ink-line);
+  background: #fff;
+  color: var(--ink-line);
 }
 [data-theme="funny-pages"] .account-menu { z-index: 40; }
 [data-theme="funny-pages"] .friend-actions .friend-portrait { border: 3px solid var(--ink-line); box-shadow: 3px 3px 0 var(--ink-line); }
@@ -599,7 +668,16 @@
   background: var(--burst);
   border-radius: 16px 16px 6px 16px;
 }
-[data-theme="funny-pages"] .own .chat-bubble::before { background: var(--burst); border-color: var(--ink-line); }
+/* The rule above pins every tail to the left and wins the tie with the
+   shared own-message rule, so the viewer's wedge was aimed away from the
+   picture on the right. Put that wedge back on the right. */
+[data-theme="funny-pages"] .own .chat-bubble::before {
+  left: auto;
+  right: -8px;
+  transform: rotate(225deg);
+  background: var(--burst);
+  border-color: var(--ink-line);
+}
 [data-theme="funny-pages"] .own .chat-meta strong { color: var(--ink-line); }
 [data-theme="funny-pages"] .chat-message .chat-portrait {
   border: 3px solid var(--ink-line);
@@ -618,11 +696,19 @@
   word-break: normal;
 }
 [data-theme="funny-pages"] .feed-platform { box-shadow: inset 4px 0 0 var(--accent); }
-[data-theme="funny-pages"] .feed-platform-badge { color: var(--accent); }
 [data-theme="funny-pages"] .account-menu > button,
 [data-theme="funny-pages"] .account-menu > a { color: var(--ink-line); border-radius: 10px; }
 [data-theme="funny-pages"] .account-menu > button:hover,
 [data-theme="funny-pages"] .account-menu > a:hover { background: var(--burst); color: var(--ink-line); }
+[data-theme="funny-pages"] .account-menu > a.sign-out {
+  border: 2px solid var(--ink-line);
+  background: #b8232d;
+  color: #fff;
+}
+[data-theme="funny-pages"] .account-menu > a.sign-out:hover {
+  background: #d32834;
+  color: #fff;
+}
 [data-theme="funny-pages"] .account-menu label { color: var(--ink); }
 [data-theme="funny-pages"] .account-menu select {
   border: 3px solid var(--ink-line);

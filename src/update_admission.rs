@@ -507,7 +507,7 @@ fn maintenance_lease() -> Item {
 }
 
 fn launch_open(launch: &crate::platform::Launch, time: u64) -> bool {
-    launch.expires > time && launch.seen.saturating_add(OPEN_SECONDS) > time
+    launch.live(time) && launch.seen.saturating_add(OPEN_SECONDS) > time
 }
 
 fn launch_names<'a>(
@@ -824,6 +824,7 @@ mod tests {
                     enabled: true,
                     avatar: None,
                     avatar_prompt_seen: false,
+                    limited_communication: false,
                 },
             );
             data.metadata.insert(

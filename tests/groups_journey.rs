@@ -331,10 +331,114 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         ok(c.member("frizz", Method::GET, "/api/operator/health")).await?["stale"],
         true
     );
-    let group=ok(c.member("frizz",Method::POST,"/api/operator/groups").json(&json!({"name":"Other family","admin_email":"admin@example.com","admin_name":"Other admin"}))).await?["id"].as_str().unwrap().to_owned();
-    ok(c.member("admin", Method::POST, "/api/admin/members")
-        .json(&json!({"email":"user@example.com","name":"Other user"})))
+    let create = |name: &str| {
+        c.member("frizz", Method::POST, "/api/operator/groups")
+            .json(
+                &json!({"name":name,"admin_email":"admin@example.com","admin_name":"Other admin"}),
+            )
+    };
+    let group = ok(create("Second group")).await?["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let rename = |actor: &str, id: &str, name: &str| {
+        c.member(actor, Method::PUT, &format!("/api/operator/groups/{id}"))
+            .json(&json!({"name":name}))
+    };
+    assert_eq!(
+        rename("admin", &group, "Forbidden").send().await?.status(),
+        403
+    );
+    let rename_request = |origin: &str| {
+        c.http
+            .put(format!("{}/api/operator/groups/{group}", c.url))
+            .header("host", "games.example.com")
+            .header("origin", origin)
+            .json(&json!({"name":"Forbidden"}))
+    };
+    assert_eq!(
+        rename_request("https://games.example.com")
+            .send()
+            .await?
+            .status(),
+        401
+    );
+    assert_eq!(
+        rename_request("https://evil.example")
+            .header("cookie", "member=frizz")
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    denied(rename("frizz", &group, "Forbidden").header("x-infuser-inspect-group", &group)).await?;
+    assert_eq!(
+        rename("frizz", "missing", "New").send().await?.status(),
+        404
+    );
+    for invalid in [
+        "  ",
+        "Control\ncharacter",
+        &"x".repeat(61),
+        "\u{200b}",
+        "\u{3164}",
+        "\u{2800}",
+        "A\u{202e}B",
+    ] {
+        for request in [create(invalid), rename("frizz", &group, invalid)] {
+            let response = request.send().await?;
+            assert_eq!(response.status(), 422);
+            assert_eq!(
+                response.json::<Value>().await?["error"],
+                "Use a group name of 1–60 characters."
+            );
+        }
+    }
+    for valid in [
+        &"x".repeat(60),
+        &"🎮".repeat(60),
+        "Familia Pérez",
+        "日本のクラブ",
+        "🎮",
+        "Straße",
+    ] {
+        let response = rename("frizz", &group, valid).send().await?;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.json::<Value>().await?["name"], valid);
+    }
+    for request in [rename("frizz", "home", " STRASSE "), create(" STRASSE ")] {
+        let response = request.send().await?;
+        assert_eq!(response.status(), 409);
+        assert_eq!(
+            response.json::<Value>().await?["error"],
+            "Another group already uses that name."
+        );
+    }
+    for own_name in ["Home", "home"] {
+        let response = rename("frizz", "home", own_name).send().await?;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.json::<Value>().await?["name"], own_name);
+    }
+    assert_eq!(
+        ok(rename("frizz", "home", "Family Arcade")).await?,
+        json!({"id":"home","name":"Family Arcade"})
+    );
+    assert_eq!(
+        ok(rename("frizz", &group, " Other family ")).await?,
+        json!({"id":group,"name":"Other family"})
+    );
+    assert_eq!(
+        ok(c.member("admin", Method::GET, "/api/me")).await?["group"],
+        json!({"id":group,"name":"Other family"})
+    );
+    ok(c.member("admin", Method::POST, "/api/admin/members").json(
+        &json!({"email":"user@example.com","name":"Other user","limited_communication":true}),
+    ))
     .await?;
+    assert_eq!(
+        rename("user", &group, "Forbidden").send().await?.status(),
+        403
+    );
     denied(c.member("admin", Method::GET, "/api/operator/groups")).await?;
     denied(c.member("admin", Method::GET, "/api/operator/health")).await?;
     denied(
@@ -360,6 +464,61 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
     );
     let (home, home_key) = c.publish("frizz", "home-special").await?;
     let (away, away_key) = c.publish("user", "away-special").await?;
+    // The invited profile can sign in, publish a full game and see emoji feedback.
+    let communication = "/api/admin/members/communication";
+    let access =
+        |email: &str, limited: bool| json!({"email":email,"limited_communication":limited});
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/me")).await?["limited_communication"],
+        true
+    );
+    denied(
+        c.member("user", Method::PUT, communication)
+            .json(&access("user@example.com", false)),
+    )
+    .await?;
+    denied(
+        c.member("admin", Method::PUT, communication)
+            .json(&access("frizz@example.com", true)),
+    )
+    .await?;
+    denied(c.member("user", Method::GET, "/api/chat")).await?;
+    denied(
+        c.member("user", Method::POST, "/api/chat")
+            .json(&json!({"client_id":"limited-message-test","text":"Hi"})),
+    )
+    .await?;
+    denied(
+        c.member("user", Method::POST, "/api/voice")
+            .json(&json!({"id":"valid-voice-lease-request"})),
+    )
+    .await?;
+    let reaction_path = format!("/api/apps/{away}/reaction");
+    ok(c.member("admin", Method::PUT, &reaction_path)
+        .json(&json!({"emoji":"⭐","text":"A private reaction note"})))
+    .await?;
+    let filtered = ok(c.member("user", Method::GET, "/api/library")).await?;
+    assert_eq!(filtered["apps"][0]["reactions"][0]["emoji"], "⭐");
+    assert_eq!(filtered["apps"][0]["reactions"][0]["text"], "");
+    assert!(!filtered.to_string().contains("A private reaction note"));
+    denied(
+        c.member("user", Method::PUT, &reaction_path)
+            .json(&json!({"emoji":"⭐","text":"A written note"})),
+    )
+    .await?;
+    ok(c.member("user", Method::PUT, &reaction_path)
+        .json(&json!({"emoji":"🚀","text":""})))
+    .await?;
+    ok(c.member("user", Method::DELETE, &reaction_path)).await?;
+    ok(c.member("admin", Method::PUT, communication)
+        .json(&access("user@example.com", false)))
+    .await?;
+    ok(c.member("user", Method::GET, "/api/chat")).await?;
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["reactions"][0]["text"],
+        "A private reaction note"
+    );
+    ok(c.member("admin", Method::DELETE, &reaction_path)).await?;
     // Ordered display credits are admin-only and never transfer publishing rights.
     ok(c.member("admin", Method::POST, "/api/admin/members")
         .json(&json!({"email":"artist@example.com","name":"Collaborator"})))
@@ -517,6 +676,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         "music",
         "smile",
         "together",
+        "fire",
+        "spooky",
+        "trophy",
+        "celebrate",
     ] {
         let response = c
             .member("user", Method::GET, &format!("/assets/reactions/{id}.webp"))
@@ -553,6 +716,10 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         "🎵",
         "😄",
         "🤝",
+        "🔥",
+        "👻",
+        "🏆",
+        "🎉",
     ] {
         ok(
             c.member("user", Method::PUT, &format!("/api/apps/{away}/reaction"))
@@ -580,6 +747,39 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
             .json(&json!({"emoji":"🚀","text":"Our game"})),
     )
     .await?;
+    // Per-user starred games stay private to the user, respect group boundaries, and toggle cleanly.
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["starred"],
+        false
+    );
+    assert_eq!(
+        ok(c.member("user", Method::PUT, &format!("/api/apps/{away}/star"))).await?["starred"],
+        true
+    );
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["starred"],
+        true
+    );
+    // Another member in the same group (or another group) does not see user's star, nor can user star a foreign game.
+    assert_eq!(
+        ok(c.member("frizz", Method::GET, "/api/library")).await?["apps"][0]["starred"],
+        false
+    );
+    assert_eq!(
+        c.member("user", Method::PUT, &format!("/api/apps/{home}/star"))
+            .send()
+            .await?
+            .status(),
+        404
+    );
+    assert_eq!(
+        ok(c.member("user", Method::DELETE, &format!("/api/apps/{away}/star"))).await?["starred"],
+        false
+    );
+    assert_eq!(
+        ok(c.member("user", Method::GET, "/api/library")).await?["apps"][0]["starred"],
+        false
+    );
     for (who, own, foreign, own_tag, foreign_tag) in [
         ("frizz", &home, &away, "home-special", "away-special"),
         ("user", &away, &home, "away-special", "home-special"),
@@ -945,7 +1145,7 @@ async fn families_are_isolated_and_operator_inspects_without_joining() -> Result
         )?))
         .is_err()
     );
-    // Optional real UI check against this HTTP fixture; default CI remains fast.
+    // Run the real Groups dialog against this same HTTP fixture when requested.
     if let Ok(node) = std::env::var("INFUSER_GROUP_BROWSER_NODE") {
         let status = tokio::process::Command::new(node)
             .args(["tests/groups_journey.mjs", &c.url, &group])

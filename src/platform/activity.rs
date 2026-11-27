@@ -2,6 +2,54 @@
 //! binaries read and write `platform` without losing launches or guest saves.
 use super::*;
 
+#[derive(Clone, Debug)]
+pub(crate) struct SessionEnded {
+    pub status: u16,
+    pub reason: LaunchEnd,
+    pub launch: Option<String>,
+}
+
+impl std::fmt::Display for SessionEnded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.reason.message())
+    }
+}
+impl std::error::Error for SessionEnded {}
+
+pub(crate) fn denied(id: Option<&str>, status: u16, reason: LaunchEnd) -> anyhow::Error {
+    SessionEnded {
+        status,
+        reason,
+        launch: id.map(crate::portal::telemetry::launch_ref),
+    }
+    .into()
+}
+
+impl Data {
+    pub(crate) fn launch_build(&self, id: &str, launch: &Launch) -> Result<&Build> {
+        self.builds
+            .get(&format!("{}/{}", launch.app, launch.build))
+            .ok_or_else(|| denied(Some(id), 410, LaunchEnd::BuildRemoved))
+    }
+
+    pub(crate) fn authorize_launch(&self, id: &str, launch: &Launch, time: u64) -> Result<()> {
+        if let Err(reason) = self.launch_access(launch, time) {
+            return Err(denied(Some(id), 403, launch.end_reason.unwrap_or(reason)));
+        }
+        if !launch.authorized(time) {
+            let reason = if launch.ended {
+                launch.end_reason.unwrap_or(LaunchEnd::Ended)
+            } else if !launch.exchanged {
+                LaunchEnd::Unexchanged
+            } else {
+                LaunchEnd::Stale
+            };
+            return Err(denied(Some(id), 401, reason));
+        }
+        Ok(())
+    }
+}
+
 pub(super) fn initialize(c: &mut Connection) -> Result<()> {
     let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let kind: String = tx.query_row(
@@ -38,7 +86,8 @@ pub(super) fn initialize(c: &mut Connection) -> Result<()> {
             END;")?;
     }
     tx.execute_batch(
-        "CREATE TABLE IF NOT EXISTS profile_input(profile TEXT PRIMARY KEY, seen INTEGER NOT NULL);
+        "CREATE INDEX IF NOT EXISTS runtime_launch_token ON runtime_launches(json_extract(data,'$.token_hash'));
+        CREATE TABLE IF NOT EXISTS profile_input(profile TEXT PRIMARY KEY, seen INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS launch_modes(launch TEXT PRIMARY KEY, mode TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS player_pages(page TEXT PRIMARY KEY,host TEXT NOT NULL,closed INTEGER NOT NULL DEFAULT 0);
         CREATE TRIGGER IF NOT EXISTS remove_player_pages AFTER DELETE ON runtime_launches
@@ -96,7 +145,26 @@ pub(super) fn load(c: &Connection, data: &mut Data) -> Result<()> {
     }
     Ok(())
 }
+fn lookup(c: &Connection, token_hash: &str) -> Result<Option<(String, Launch)>> {
+    let row: Option<(String, String)> = c
+        .query_row(
+            "SELECT id,data FROM runtime_launches WHERE json_extract(data,'$.token_hash')=?1",
+            [token_hash],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    row.map(|(id, raw)| Ok((id, serde_json::from_str(&raw)?)))
+        .transpose()
+}
+
 impl Database {
+    pub(crate) fn diagnostic_launch(
+        &self,
+        token_hash: &str,
+        host: &str,
+    ) -> Result<Option<(String, Launch)>> {
+        Ok(lookup(&self.connection.lock().unwrap(), token_hash)?.filter(|(_, l)| l.host == host))
+    }
     pub fn see_member(&self, email: &str, time: u64) -> Result<()> {
         self.connection.lock().unwrap().execute(
             "INSERT INTO runtime_presence VALUES(?1,?2)
@@ -109,26 +177,12 @@ impl Database {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction()?;
         let data = self.cached_catalog(&tx)?;
-        let mut stmt = tx.prepare("SELECT id,data FROM runtime_launches")?;
-        let mut found = None;
-        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
-            let (id, raw) = row?;
-            let l: Launch = serde_json::from_str(&raw)?;
-            if l.token_hash == token_hash && l.host == host && l.exchanged && l.expires > time {
-                found = Some((id, l));
-                break;
-            }
+        let (id, l) =
+            lookup(&tx, token_hash)?.ok_or_else(|| denied(None, 401, LaunchEnd::Unknown))?;
+        if l.host != host {
+            return Err(denied(Some(&id), 401, LaunchEnd::WrongHost));
         }
-        let (id, l) = found
-            .ok_or_else(|| crate::portal::fault(401, "Game session expired. Launch it again."))?;
-        ensure!(
-            data.profile_enabled(&l.email),
-            crate::portal::fault(403, "Membership is disabled.")
-        );
-        ensure!(
-            data.launch_allowed(&l, time),
-            crate::portal::fault(403, "Game authorization ended.")
-        );
+        data.authorize_launch(&id, &l, time)?;
         Ok((id, l))
     }
     pub fn insert_launch(&self, id: &str, launch: &Launch) -> Result<()> {
@@ -139,7 +193,7 @@ impl Database {
         )?;
         Ok(())
     }
-    pub fn extend_launch_grant(&self, id: &str, grant_expires: u64) -> Result<()> {
+    pub fn extend_launch_grant(&self, id: &str, time: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(raw) = tx
@@ -149,8 +203,10 @@ impl Database {
             .optional()?
         {
             let mut launch: Launch = serde_json::from_str(&raw)?;
-            if !launch.exchanged {
-                launch.grant_expires = grant_expires;
+            if launch.live(time) && !launch.exchanged && launch.grant_expires != 0 {
+                launch.grant_expires = time + 120;
+                launch.seen = time;
+                launch.expires = time + 300;
                 tx.execute(
                     "UPDATE runtime_launches SET data=?2 WHERE id=?1",
                     params![id, serde_json::to_string(&launch)?],
@@ -164,25 +220,8 @@ impl Database {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let policy = self.cached_catalog(&tx)?;
-        let mut found = None;
-        {
-            let mut stmt = tx.prepare("SELECT id,data FROM runtime_launches")?;
-            for row in
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
-            {
-                let (id, raw) = row?;
-                let l: Launch = serde_json::from_str(&raw)?;
-                if l.token_hash == token_hash
-                    && l.host == host
-                    && !l.exchanged
-                    && l.grant_expires > time
-                {
-                    found = Some((id, l));
-                    break;
-                }
-            }
-        }
-        let (id, mut l) = found
+        let (id, mut l) = lookup(&tx, token_hash)?
+            .filter(|(_, l)| l.host == host && !l.ended && !l.exchanged && l.grant_expires > time)
             .ok_or_else(|| crate::portal::fault(401, "launch link expired or already used"))?;
         ensure!(
             policy.profile_enabled(&l.email),
@@ -214,13 +253,10 @@ impl Database {
                 r.get(0)
             })
             .optional()?;
-        let mut launch: Launch = serde_json::from_str(
-            &raw.ok_or_else(|| crate::portal::fault(410, "game session expired"))?,
-        )?;
-        ensure!(
-            launch.expires > time,
-            crate::portal::fault(410, "game session expired")
-        );
+        let mut launch: Launch =
+            serde_json::from_str(&raw.ok_or_else(|| denied(Some(id), 410, LaunchEnd::Unknown))?)?;
+        self.cached_catalog(&tx)?
+            .authorize_launch(id, &launch, time)?;
         let intent = launch.intent.take();
         if intent.is_some() {
             tx.execute(
@@ -231,9 +267,10 @@ impl Database {
         tx.commit()?;
         Ok(intent)
     }
-    pub fn expire_launch(&self, id: &str, time: u64) -> Result<()> {
+    pub fn expire_launch(&self, id: &str, time: u64) -> Result<bool> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut changed = false;
         if let Some(raw) = tx
             .query_row("SELECT data FROM runtime_launches WHERE id=?1", [id], |r| {
                 r.get::<_, String>(0)
@@ -241,17 +278,17 @@ impl Database {
             .optional()?
         {
             let mut launch: Launch = serde_json::from_str(&raw)?;
+            changed = launch.live(time);
             launch.expires = time;
-            launch.seen = 0;
             tx.execute(
                 "UPDATE runtime_launches SET data=?2 WHERE id=?1",
                 params![id, serde_json::to_string(&launch)?],
             )?;
         }
         tx.commit()?;
-        Ok(())
+        Ok(changed)
     }
-    pub fn renew_launch(&self, id: &str, time: u64) -> Result<()> {
+    pub fn renew_launch(&self, id: &str, time: u64, ended_lease: Option<&str>) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let raw: Option<String> = tx
@@ -259,17 +296,14 @@ impl Database {
                 r.get(0)
             })
             .optional()?;
-        let mut launch: Launch = serde_json::from_str(
-            &raw.ok_or_else(|| crate::portal::fault(410, "game session expired"))?,
-        )?;
-        ensure!(
-            launch.expires > time,
-            crate::portal::fault(410, "game session expired")
-        );
-        ensure!(
-            self.cached_catalog(&tx)?.launch_allowed(&launch, time),
-            crate::portal::fault(403, "Game authorization ended.")
-        );
+        let mut launch: Launch =
+            serde_json::from_str(&raw.ok_or_else(|| denied(Some(id), 410, LaunchEnd::Unknown))?)?;
+        self.cached_catalog(&tx)?
+            .authorize_launch(id, &launch, time)?;
+        if ended_lease.is_some() && launch.lease_id.as_deref() == ended_lease {
+            launch.lease_id = None;
+            launch.lease_token = None;
+        }
         launch.seen = time;
         launch.expires = time + 300;
         tx.execute(

@@ -410,6 +410,9 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
     assert_eq!(caps["game_metadata"]["version"], 1);
     assert_eq!(caps["game_metadata"]["description_max_chars"], 2000);
     assert_eq!(caps["game_metadata"]["art_prompt_max_chars"], 4000);
+    assert_eq!(caps["game_metadata"]["author_model_max_chars"], 120);
+    assert_eq!(caps["game_metadata"]["effort_level_max_chars"], 40);
+    assert_eq!(caps["game_metadata"]["estimated_prompts_max"], 1_000_000);
     let metadata_path = "/api/publisher/apps/pond/metadata";
     let art_path = "/api/publisher/apps/pond/card-art";
     let before = p.db.read()?;
@@ -609,6 +612,80 @@ async fn card_art_preserves_builds_and_supports_independent_presentation_updates
         reopened.read()?.metadata["pond"].description.as_deref(),
         Some("Explore a moonlit pond and collect fireflies.")
     );
+    // Optional model authorship metadata validates, persists, accumulates, clears, and appears in Library.
+    for invalid in [
+        json!({"author_model": "   "}),
+        json!({"author_model": "m".repeat(121)}),
+        json!({"author_model": "Bad\nModel"}),
+        json!({"effort_level": " "}),
+        json!({"effort_level": "e".repeat(41)}),
+        json!({"effort_level": "hi\tgh"}),
+        json!({"input_methods":["gamepad","gamepad"]}),
+        json!({"input_methods":["invented"]}),
+        json!({"estimated_prompts": 0}),
+        json!({"estimated_prompts": 1_000_001}),
+    ] {
+        assert_eq!(
+            publisher(Method::PATCH, metadata_path)
+                .json(&invalid)
+                .send()
+                .await?
+                .status(),
+            422
+        );
+    }
+    let authored = json_ok(publisher(Method::PATCH, metadata_path).json(&json!({
+        "author_model": "  Claude Opus 4.6  ",
+        "effort_level": " high ",
+        "input_methods": ["gamepad","touch"],
+        "estimated_prompts": 14
+    })))
+    .await?;
+    assert_eq!(authored["author_model"], "Claude Opus 4.6");
+    assert_eq!(authored["effort_level"], "high");
+    assert_eq!(authored["estimated_prompts"], 14);
+    assert_eq!(
+        authored["description"],
+        "Explore a moonlit pond and collect fireflies."
+    );
+    // Cumulative update preserves untouched fields.
+    let updated_prompts =
+        json_ok(publisher(Method::PATCH, metadata_path).json(&json!({"estimated_prompts": 19})))
+            .await?;
+    assert_eq!(updated_prompts["author_model"], "Claude Opus 4.6");
+    assert_eq!(updated_prompts["effort_level"], "high");
+    assert_eq!(updated_prompts["estimated_prompts"], 19);
+    let lib_authored = json_ok(member("/api/library", "user")).await?;
+    assert_eq!(lib_authored["apps"][0]["author_model"], "Claude Opus 4.6");
+    assert_eq!(lib_authored["apps"][0]["effort_level"], "high");
+    assert_eq!(
+        lib_authored["apps"][0]["input_methods"],
+        json!(["gamepad", "touch"])
+    );
+    assert_eq!(lib_authored["apps"][0]["estimated_prompts"], 19);
+    let reopened_authored = platform::Database::open(temp.path())?.read()?;
+    assert_eq!(
+        reopened_authored.metadata["pond"].author_model.as_deref(),
+        Some("Claude Opus 4.6")
+    );
+    assert_eq!(
+        reopened_authored.metadata["pond"].effort_level.as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        reopened_authored.metadata["pond"].estimated_prompts,
+        Some(19)
+    );
+    let cleared_effort =
+        json_ok(publisher(Method::PATCH, metadata_path).json(&json!({"effort_level": null})))
+            .await?;
+    assert_eq!(cleared_effort["author_model"], "Claude Opus 4.6");
+    assert!(cleared_effort["effort_level"].is_null());
+    assert_eq!(cleared_effort["estimated_prompts"], 19);
+    let cleared =
+        json_ok(publisher(Method::PATCH, metadata_path).json(&json!({"input_methods":null})))
+            .await?;
+    assert_eq!(cleared["input_methods"], json!([]));
     let mut replacement = Vec::new();
     image_webp::WebPEncoder::new(&mut replacement).encode(
         &vec![17; 1024 * 1024 * 3],

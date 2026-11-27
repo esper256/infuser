@@ -30,7 +30,7 @@ fn authorize(p: &Platform, h: &HeaderMap, wire: &str, target: Option<&str>) -> R
     let (launch_id, launch) = p.game(h)?;
     let data = p.db.read()?;
     ensure!(
-        data.builds[&build_key(&launch.app, &launch.build)]
+        data.launch_build(&launch_id, &launch)?
             .manifest
             .multiplayer
             .as_ref()

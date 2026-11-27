@@ -34,12 +34,19 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - name: Install Chromium for the Groups journey
+        if: matrix.check == 'fast-tests'
+        run: |
+          npm ci --prefix services/peerjs
+          services/peerjs/node_modules/.bin/playwright install --with-deps chromium
       - name: Fast Rust journeys
         if: matrix.check == 'fast-tests'
+        env:
+          INFUSER_GROUP_BROWSER_NODE: node
         run: cargo test --locked
       - name: Fast SDK and theme journeys
         if: ${{ !cancelled() && matrix.check == 'fast-tests' }}
-        run: node --test tests/*_sdk.mjs tests/themes.mjs tests/voice_chimes.mjs tests/chat_reads.mjs
+        run: node --test tests/*_sdk.mjs tests/themes.mjs tests/voice_chimes.mjs tests/voice_audio.mjs tests/chat_reads.mjs tests/leak_soak.mjs
       - name: Rust formatting
         if: matrix.check == 'formatting'
         run: cargo fmt --all -- --check
@@ -49,6 +56,27 @@ jobs:
       - name: Vendored TURN suite
         if: matrix.check == 'turn-crate'
         run: cargo test --manifest-path vendor/turn/Cargo.toml --locked -- --skip test_client_with_stun_send_binding_request --skip test_client_with_stun_send_binding_request_to_parallel && cargo test --manifest-path vendor/turn/Cargo.toml --locked test_client_with_stun_send_binding_request_to_timeout
+
+  gamepad-journey:
+    name: Library controller journey
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci --prefix services/peerjs
+      - run: services/peerjs/node_modules/.bin/playwright install --with-deps chromium
+      - run: node tests/gamepad_layout_journey.mjs
+        env:
+          INFUSER_PLAYWRIGHT: ${{ github.workspace }}/services/peerjs/node_modules/playwright/index.mjs
+      - run: node tests/library_detail_journey.mjs
+        env:
+          INFUSER_PLAYWRIGHT: ${{ github.workspace }}/services/peerjs/node_modules/playwright/index.mjs
 
   action-compatibility:
     name: Action compatibility

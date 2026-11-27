@@ -463,6 +463,8 @@ fn copy_source(from: &Path, to: &Path) -> Result<()> {
     }
     Ok(())
 }
+const BUILD_TIMEOUT: Duration = Duration::from_secs(1200);
+
 #[async_trait::async_trait]
 impl Engine for DockerWorker {
     async fn build(
@@ -474,7 +476,7 @@ impl Engine for DockerWorker {
         progress: Progress,
     ) -> Result<Artifact> {
         let result = tokio::time::timeout(
-            Duration::from_secs(600),
+            BUILD_TIMEOUT,
             self.build_inner(owner, key, recipe, source, &progress),
         )
         .await;

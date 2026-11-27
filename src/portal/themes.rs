@@ -1,7 +1,156 @@
 //! Allowlisted Library theme files. Paths are exact; nothing is read from disk.
 use super::*;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
+
+const NIGHTGLASS_SCHEMES: &[&str] = &[
+    "default",
+    "deep-ocean",
+    "twilight-violet",
+    "amber-hearth",
+    "rose-quartz",
+    "cobalt-pulse",
+    "forest-moss",
+    "crimson-velvet",
+    "northern-aurora",
+    "copper-forge",
+    "glacier-frost",
+    "sunset-dusk",
+    "neon-berry",
+    "obsidian-gold",
+    "custom",
+];
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CustomColors {
+    pub primary: String,
+    pub accent: String,
+    pub secondary: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Appearance {
+    pub theme: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub schemes: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub custom: BTreeMap<String, CustomColors>,
+}
+
+fn valid_hex(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() == 7 && bytes[0] == b'#' && bytes[1..].iter().all(u8::is_ascii_hexdigit) {
+        Some(trimmed.to_ascii_lowercase())
+    } else {
+        None
+    }
+}
+
+pub(super) fn known_theme(id: &str) -> bool {
+    stylesheets().iter().any(|sheet| sheet.id == id)
+}
+
+fn schemes_for(theme: &str) -> &'static [&'static str] {
+    match theme {
+        "nightglass" => NIGHTGLASS_SCHEMES,
+        _ => &[],
+    }
+}
+
+impl Appearance {
+    pub fn validate(self) -> Result<Self> {
+        ensure!(
+            self.theme != "thanksgiving" && known_theme(&self.theme),
+            fault(400, "Choose a theme from the list.")
+        );
+        let mut schemes = BTreeMap::new();
+        for (theme, scheme) in self.schemes {
+            let allowed = schemes_for(&theme);
+            ensure!(
+                !allowed.is_empty(),
+                fault(400, "That theme does not have color schemes.")
+            );
+            ensure!(
+                allowed.contains(&scheme.as_str()),
+                fault(400, "Choose a color scheme from the list.")
+            );
+            if scheme != "default" {
+                schemes.insert(theme, scheme);
+            }
+        }
+        let mut custom = BTreeMap::new();
+        for (theme, colors) in self.custom {
+            ensure!(
+                schemes_for(&theme).contains(&"custom"),
+                fault(400, "That theme does not support custom colors.")
+            );
+            let primary =
+                valid_hex(&colors.primary).ok_or_else(|| fault(400, "Use a #RRGGBB hex color."))?;
+            let accent =
+                valid_hex(&colors.accent).ok_or_else(|| fault(400, "Use a #RRGGBB hex color."))?;
+            let secondary = valid_hex(&colors.secondary)
+                .ok_or_else(|| fault(400, "Use a #RRGGBB hex color."))?;
+            custom.insert(
+                theme,
+                CustomColors {
+                    primary,
+                    accent,
+                    secondary,
+                },
+            );
+        }
+        Ok(Self {
+            theme: self.theme,
+            schemes,
+            custom,
+        })
+    }
+}
+
+pub(super) async fn get_appearance(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    let email = p.member(&h, false).await?;
+    let appearance = p.db.appearance_load(&email)?;
+    Ok(reply(json!({"appearance": appearance})))
+}
+
+pub(super) async fn put_appearance(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<Appearance>,
+) -> Answer {
+    let email = p.member(&h, true).await?;
+    let appearance = body.validate()?;
+    ensure!(
+        p.db.catalog()?.profile_enabled(&email),
+        fault(403, "Your invitation is no longer active.")
+    );
+    if p.db.appearance_save(&email, &appearance)?
+        && let Ok(d) = p.db.catalog()
+    {
+        let custom = appearance
+            .schemes
+            .get(&appearance.theme)
+            .is_some_and(|s| s == "custom");
+        p.controller.timeline.record(crate::timeline::Event::server(
+            "settings.saved",
+            crate::timeline::ContextFields {
+                profile: d.player_id(&email),
+                group: d.groups.member(&email).into(),
+                ..Default::default()
+            },
+            json!({
+                "theme": appearance.theme,
+                "scheme_kind": if custom { "custom" } else { "builtin" }
+            }),
+            false,
+        ));
+    }
+    Ok(reply(json!({"appearance": appearance})))
+}
 
 // Top-level `{id}.css` entries are the theme stylesheets. `script()` exposes
 // that list to the client, which loads only the active sheet. `nightglass.css`
@@ -9,6 +158,8 @@ use std::sync::OnceLock;
 // and asset paths here, add `bytes` arms, and add a catalog entry in
 // `web/themes.js`. Do not add a stylesheet `<link>` in HTML.
 const FILES: &[&str] = &[
+    "thanksgiving.css",
+    "thanksgiving/turkey.png",
     "nightglass.css",
     "cartridge-club.css",
     "cartridge-club/lilita-one-latin.woff2",
@@ -141,6 +292,14 @@ fn requested_version(uri: &axum::http::Uri) -> Option<&str> {
 
 fn bytes(path: &str) -> Option<(&'static str, &'static [u8])> {
     Some(match path {
+        "thanksgiving.css" => (
+            "text/css",
+            include_bytes!("../../web/themes/thanksgiving.css").as_slice(),
+        ),
+        "thanksgiving/turkey.png" => (
+            "image/png",
+            include_bytes!("../../web/themes/thanksgiving/turkey.png").as_slice(),
+        ),
         "nightglass.css" => (
             "text/css",
             include_bytes!("../../web/themes/nightglass.css").as_slice(),
@@ -436,6 +595,89 @@ mod tests {
             font.headers()[header::CONTENT_SECURITY_POLICY],
             "default-src 'none'"
         );
+    }
+
+    #[test]
+    fn appearance_validation_accepts_known_themes_and_hex_colors() {
+        let valid = Appearance {
+            theme: "nightglass".into(),
+            schemes: [("nightglass".into(), "twilight-violet".into())].into(),
+            custom: [(
+                "nightglass".into(),
+                CustomColors {
+                    primary: " #1A2B3C ".into(),
+                    accent: "#Ff88Cc".into(),
+                    secondary: "#e8d5a4".into(),
+                },
+            )]
+            .into(),
+        }
+        .validate()
+        .unwrap();
+        assert_eq!(valid.theme, "nightglass");
+        assert_eq!(valid.schemes["nightglass"], "twilight-violet");
+        assert_eq!(valid.custom["nightglass"].primary, "#1a2b3c");
+        assert_eq!(valid.custom["nightglass"].accent, "#ff88cc");
+
+        let default_dropped = Appearance {
+            theme: "nightglass".into(),
+            schemes: [("nightglass".into(), "default".into())].into(),
+            custom: BTreeMap::new(),
+        }
+        .validate()
+        .unwrap();
+        assert!(default_dropped.schemes.is_empty());
+
+        for bad in [
+            Appearance {
+                theme: "thanksgiving".into(),
+                schemes: BTreeMap::new(),
+                custom: BTreeMap::new(),
+            },
+            Appearance {
+                theme: "unknown-theme".into(),
+                schemes: BTreeMap::new(),
+                custom: BTreeMap::new(),
+            },
+            Appearance {
+                theme: "nightglass".into(),
+                schemes: [("nightglass".into(), "not-a-scheme".into())].into(),
+                custom: BTreeMap::new(),
+            },
+            Appearance {
+                theme: "field-notes".into(),
+                schemes: [("field-notes".into(), "deep-ocean".into())].into(),
+                custom: BTreeMap::new(),
+            },
+            Appearance {
+                theme: "nightglass".into(),
+                schemes: BTreeMap::new(),
+                custom: [(
+                    "nightglass".into(),
+                    CustomColors {
+                        primary: "#fff".into(),
+                        accent: "#b5ead6".into(),
+                        secondary: "#e8d5a4".into(),
+                    },
+                )]
+                .into(),
+            },
+            Appearance {
+                theme: "nightglass".into(),
+                schemes: BTreeMap::new(),
+                custom: [(
+                    "field-notes".into(),
+                    CustomColors {
+                        primary: "#122128".into(),
+                        accent: "#b5ead6".into(),
+                        secondary: "#e8d5a4".into(),
+                    },
+                )]
+                .into(),
+            },
+        ] {
+            assert!(bad.validate().is_err());
+        }
     }
 
     async fn request(path: &str, query: &str) -> Response {

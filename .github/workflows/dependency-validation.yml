@@ -1,0 +1,56 @@
+name: Weekly dependency validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - desktop/Cargo.lock
+      - desktop/Cargo.toml
+      - deploy/services/**
+      - .github/workflows/dependency-validation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    if: startsWith(github.head_ref, 'maintenance/dependencies-') && github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - run: cargo test --locked
+      - run: cargo build --locked --release --bin infuser
+
+  desktop:
+    if: startsWith(github.head_ref, 'maintenance/dependencies-') && github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: desktop
+      - run: cargo test --manifest-path desktop/Cargo.toml --locked
+      - run: cargo build --manifest-path desktop/Cargo.toml --locked --release

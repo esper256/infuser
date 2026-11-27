@@ -1,3 +1,5 @@
+import {initLibraryGamepad} from '/assets/library-gamepad.js';
+import { automaticLayout, connectedPads, captureGamepadLayouts, gamepadLaunchUrl, preference, savePreference } from '/assets/gamepads.js';
 import { watchInput } from '/assets/activity-input.js';
 import { initFeedback } from '/assets/feedback.js';
 import { screenshotTile, fillScreenshotPicker, attachmentDraft } from '/assets/screenshots.js';
@@ -13,17 +15,21 @@ const $ = id => document.getElementById(id);
 const gameCount = $("game-count");
 let tagHold, heldCard, suppressContextUntil=0;
 let noticeTimer,adminLoaded=false,adminLoading=false,networkHealthBusy=false;
-let refreshServerUpdates=()=>{};
+let refreshServerUpdates=()=>{},voiceApi=null;
 let me, library, currentReaction, refreshing = false, refreshQueued = false, activeTag = "", editingTags, selectedTags = new Set();
 let seenEvents,filterSignature;
 let selectedAuthor=null, searchChoices=[], searchActive=-1,searchSignature;
 let entryGame, detailGameId, detailReturnFocus, detailSignature, removingReaction=null;
+const pendingStars=new Map();
+let starSettlements=0;
+const STARRED_FILTER='__starred__';
+const starSvg='<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2.75l2.86 5.8 6.4.93-4.63 4.51 1.09 6.37L12 17.35l-5.72 3.01 1.09-6.37-4.63-4.51 6.4-.93L12 2.75z"/></svg>';
 const entrySlug = /^\/games\/([a-z][a-z0-9-]{0,23})$/.exec(location.pathname)?.[1];
 const entryApp=new URLSearchParams(location.search).get('app');
 if (entrySlug) document.querySelector('.google').href='/oauth2/start?rd='+encodeURIComponent(location.pathname);
 const reactionMotion=matchMedia('(prefers-reduced-motion: reduce)');
 reactionMotion.addEventListener('change',event=>{if(event.matches)document.querySelector('.reaction-burst')?.remove();});
-const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea'],['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round'],['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises'],['🎨','Beautiful art','art'],['🎵','Great soundtrack','music'],['😄','Made me smile','smile'],['🤝','Fun together','together']];
+const emojis = [['⭐','Amazing'],['👍','Nice!'],['🚀','Exciting'],['❤️','Loved it'],['👏','Great job'],['💡','Cool idea'],['😅','Tough challenge'],['⚡','Intense action'],['🧠','Made me think'],['🎯','Feels great'],['🧭','Fun to explore'],['🧲','One more round'],['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises'],['🎨','Beautiful art','art'],['🎵','Great soundtrack','music'],['😄','Made me smile','smile'],['🤝','Fun together','together'],['🔥','On fire!','fire'],['👻','So scary!','spooky'],['🏆','Instant classic','trophy'],['🎉','Total blast','celebrate']];
 function setText(node,text){text=String(text);if(node.textContent!==text)node.textContent=text;}
 function reconcileChildren(container,children){
   const retained=new Set(children);
@@ -116,23 +122,40 @@ document.fonts.ready.then(()=>{for(const state of tagRows.values())state.layoutK
 
 function notice(message) {
   if($('admin').open){$('admin-status').textContent=message;return;}
+  if($('user-settings')?.open){$('settings-status').textContent=message;return;}
   clearTimeout(noticeTimer);
-  const toast=$('notice');toast.textContent=message;toast.classList.add('visible');
+  const toast=$('notice'), host=$('game-detail').open ? $('game-detail') : document.querySelector('main');
+  if (toast.parentElement !== host) host.append(toast);
+  toast.textContent=message;toast.classList.add('visible');
   noticeTimer=setTimeout(()=>{toast.classList.remove('visible');toast.textContent='';},5000);
 }
+let diagnostics;
 async function api(path, options = {}) {
   if(inspection && options.method && options.method!=='GET')throw new Error('Inspection is read-only. Return home first.');
   const r = await profileFetch(path, { ...options, headers: { 'Content-Type':'application/json', ...options.headers, ...(!inspection?visitHeaders():{}), ...inspectionHeaders() } });
-  const result = await r.json();
-  if(!r.ok) { if(selectedVisit && r.status===403 && String(result.error).includes('visit has ended'))returnHome(); const error = new Error(result.error || 'Please try again.'); error.status = r.status; error.code = result.code || ''; error.updating = result.code === 'updating'; throw error; }
-  return result;
+  if(r.ok)return r.json();
+  let parsed=true;
+  const result=await r.json().catch(()=>{parsed=false;return null;});
+  if(selectedVisit && r.status===403 && String(result?.error).includes('visit has ended'))returnHome();
+  const message=!parsed&&[502,503,504].includes(r.status)?'Infuser is restarting. Try again in a moment.':result?.error;
+  const error=new Error(message||'Please try again.');
+  error.status=r.status;error.code=result?.code||'';error.updating=error.code==='updating';
+  throw error;
 }
 function showError(error) { notice(error.message); }
 async function refresh(afterWrite = false) {
   if (refreshing) { if (afterWrite === true) refreshQueued = true; return; }
   refreshing = true;
+  const starsAtRequest=starSettlements;
   try {
-    library = await api('/api/library',{signal:AbortSignal.timeout(12000)});
+    const nextLibrary=await api('/api/library',{signal:AbortSignal.timeout(12000)});
+    if (!!nextLibrary.limited_communication !== !!me.limited_communication) {location.reload();return;}
+    // A pre-settlement response can be stale; the write already queued a fresh read.
+    if(starsAtRequest!==starSettlements)return;
+    for(const game of nextLibrary.apps){
+      if(pendingStars.has(game.id))game.starred=pendingStars.get(game.id);
+    }
+    library=nextLibrary;
     updateVisit(library.visit);
     const self=(library.friends||[]).find(person=>person.id===me.player_id);
     if(self&&self.name!==me.name){me.name=self.name;renderAccount();}
@@ -267,7 +290,7 @@ function renderGames() {
   }
   if(!library.apps.length)nextCards.push(emptyState('No games yet','Add a game to get started.'));
   const query=$('game-search').value.trim().toLowerCase();
-  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(g.tags||[]).includes(activeTag))&&(selectedAuthor?gameAuthors(g).some(author=>author.id===selectedAuthor):!query||(g.title+' '+authorNames(g)+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
+  const matching=library.apps.filter(g=>(!entrySlug||g.id===entryGame?.app_id)&&(!entryApp||g.id===entryApp)&&(!activeTag||(activeTag===STARRED_FILTER?g.starred:(g.tags||[]).includes(activeTag)))&&(selectedAuthor?gameAuthors(g).some(author=>author.id===selectedAuthor):!query||(g.title+' '+authorNames(g)+' '+(g.tags||[]).join(' ')).toLowerCase().includes(query)));
   // Stable sort keeps equal timestamps in catalog order across refreshes.
   matching.sort((a,b)=>(b.updated||0)-(a.updated||0));
   const visible=matching.filter(g=>!g.preview).length, total=library.apps.filter(g=>!g.preview).length;
@@ -357,23 +380,35 @@ function renderGames() {
   if($('hidden-games').hidden!==!hiddenCards.length)$('hidden-games').hidden=!hiddenCards.length;setText($('hidden-game-count'),hiddenCards.length);
   layoutTagRows();
 }
+const controllerLaunches = new WeakMap();
+function bindLaunch(button, launch) {
+  button.onclick = () => launch(false);
+  controllerLaunches.set(button, () => launch(true));
+}
 function gameActions(game,card){
+    const unavailable=!!me.inspecting||!!game.play_unavailable;
     const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
     const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
     const items=el('div',undefined,'play-menu-items');
     items.append(el('p',game.title,'menu-game-title'));
-    const guest=el('button','Play in guest mode');guest.onclick=()=>{menu.open=false;start(game,play,card,{guest:true});};items.append(guest);
-    if(!game.native_only && game.native_platforms?.length){const desktop=el('button','Open in Infuser Play');desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card);};items.append(desktop);}
+    actions.append(play,menu);
+    if(!game.native_only && game.native_platforms?.includes(desktopPlatform())){
+      const desktop=el('button','Launch in Infuser Play');
+      desktop.disabled=unavailable;
+      desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card,{menuButton:desktop});};
+      items.append(desktop);
+    }
+    const guest=el('button','Play in guest mode');bindLaunch(guest,viaPad=>{menu.open=false;start(game,play,card,{guest:true,viaPad});});items.append(guest);
     for(const target of game.join_targets||[]){
-      const join=el('button','Join '+target.name);join.onclick=()=>{menu.open=false;start(game,play,card,{intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});};items.append(join);
+      const join=el('button','Join '+target.name);bindLaunch(join,viaPad=>{menu.open=false;start(game,play,card,{viaPad,intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});});items.append(join);
     }
     if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
-    play.disabled=!!me.inspecting||!!game.play_unavailable;guest.disabled=play.disabled;
-    if(game.play_unavailable){play.title=game.play_unavailable;items.prepend(el('p',game.play_unavailable));for(const b of items.querySelectorAll('button'))if(b.textContent.startsWith('Join ')||b.textContent==='Open in Infuser Play')b.disabled=true;}
+    play.disabled=guest.disabled=unavailable;
+    if(game.play_unavailable){play.title=game.play_unavailable;items.prepend(el('p',game.play_unavailable));for(const b of items.querySelectorAll('button'))if(b.textContent.startsWith('Join '))b.disabled=true;}
     if(me.inspecting)for(const button of items.querySelectorAll('button')){if(button.textContent!=='Copy game link')button.disabled=true;}
-    play.onclick=()=>start(game,play,card);actions.append(play,menu);
-  if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags');edit.onclick=()=>{menu.open=false;openTags(game);};items.append(edit);}
+    bindLaunch(play,viaPad=>start(game,play,card,{viaPad}));
+  if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags');edit.onclick=()=>{menu.open=false;arrow.focus();openTags(game);};items.append(edit);}
   return actions;
 }
 function gameAdminActions(game){
@@ -429,7 +464,7 @@ function renderGameDetail(){
   detailSignature=signature;
   const oldScroll=dialog.querySelector('.detail-info')?.scrollTop||0,oldPageScroll=dialog.scrollTop;
   const focused=document.activeElement,oldReaction=focused?.dataset.reaction;
-  const oldControl=dialog.querySelector('.detail-info')?.contains(focused)&&focused.matches('button,summary')?{tag:focused.tagName,label:focused.getAttribute('aria-label'),text:focused.textContent}:null;
+  const oldControl=dialog.querySelector('.detail-info')?.contains(focused)&&focused.matches('button,summary')?{tag:focused.tagName,label:focused.getAttribute('aria-label'),text:focused.textContent,star:focused.classList.contains('detail-star-btn')}:null;
   const content=$('game-detail-content'),info=el('section',undefined,'detail-info');
   const artSource=gameArtSource(game);let art=content.querySelector('.detail-art');
   if(!art||art.querySelector('img')?.getAttribute('src')!==(artSource||undefined)){
@@ -450,11 +485,83 @@ function renderGameDetail(){
   for(const tag of game.tags||[]){const button=el('button',tagLabel(tag),'tag-chip');button.type='button';button.onclick=()=>{detailReturnFocus=$('game-search');dialog.close();activeTag=tag;renderFilters();renderGames();$('game-search').focus();};tags.append(button);}
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags','text-button');edit.type='button';edit.onclick=()=>openTags(game);tags.append(edit);}if(tags.childElementCount)info.append(tags);
   if(game.description)info.append(el('p',game.description,'game-description'));
+  const controlNames = {keyboard:'Keyboard', mouse:'Mouse', keyboard_mouse:'Keyboard + mouse', touch:'Touch', gamepad:'Gamepad'};
+  const controls = (game.input_methods || []).filter(method => Object.hasOwn(controlNames, method));
+  const keyboard = 'M2 6h20v12H2z M5 10h1m3 0h1m3 0h1m3 0h1 M7 14h10';
+  const mouse = 'M8 10a4 4 0 0 1 8 0v5a4 4 0 0 1-8 0z M12 6v5';
+  const controlIcons = { keyboard, mouse,
+    keyboard_mouse:'M1 8h13v9H1z M3 11h2m2 0h2m2 0h1 M5 14h5 M17 10a3 3 0 0 1 6 0v4a3 3 0 0 1-6 0z M20 7v4',
+    touch:'M9 13V5a2 2 0 0 1 4 0v6l4 1q4 1 3 5l-1 4H9l-5-7q-1-3 2-2l3 2',
+    gamepad:'M8 6h8q4 0 5 5l1 5q0 4-3 2l-4-3H9l-4 3q-3 2-3-2l1-5q1-5 5-5z M7 9v5m-2.5-2.5h5 M16 10h.5m2 2h.5'
+  };
+  if (controls.length) {
+    const row = el('p', 'Playable with ', 'detail-input-methods');
+    for (const [index, method] of controls.entries()) {
+      if (index) row.append(' · ');
+      const item = el('span', controlNames[method]);
+      const icon = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      icon.setAttribute('viewBox','0 0 24 24'); icon.setAttribute('aria-hidden','true');
+      const path = document.createElementNS(icon.namespaceURI,'path');
+      path.setAttribute('d', controlIcons[method]); icon.append(path);
+      item.prepend(icon); row.append(item);
+    }
+    info.append(row);
+  }
   info.append(gameActions(game,info));
+  if(!me.inspecting){
+    const starRow=el('div',undefined,'detail-star-row');
+    const starred=!!game.starred;
+    const starBtn=el('button',undefined,'detail-star-btn');
+    starBtn.type='button';
+    starBtn.dataset.starred=String(starred);
+    starBtn.setAttribute('aria-pressed',String(starred));
+    starBtn.title=starred?'Remove from your starred games':'Add to your starred games';
+    starBtn.setAttribute('aria-disabled',String(pendingStars.has(game.id)));
+    starBtn.innerHTML=starSvg;
+    starBtn.append(el('span',starred?'Starred':'Not starred'));
+    starBtn.onclick=async()=>{
+      const id=game.id,current=library.apps.find(g=>g.id===id);
+      if(!current||pendingStars.has(id))return;
+      const previous=Boolean(current.starred),next=!previous;
+      pendingStars.set(id,next);
+      current.starred=next;
+      detailSignature=null;
+      renderFilters();renderGames();renderGameDetail();
+      let settled=previous;
+      try{
+        const result=await api(`/api/apps/${encodeURIComponent(id)}/star`,{method:next?'PUT':'DELETE',signal:AbortSignal.timeout(12000)});
+        settled=result.starred;
+      }catch(error){
+        notice(error.message||'Could not update starred state.');
+      }finally{
+        pendingStars.delete(id);
+        starSettlements++;
+        const refreshed=library.apps.find(g=>g.id===id);
+        if(refreshed)refreshed.starred=settled;
+        detailSignature=null;
+        renderFilters();renderGames();renderGameDetail();
+        void refresh(true);
+      }
+    };
+    const note=el('span','Only visible to you','detail-star-note');
+    starRow.append(starBtn,note);
+    info.append(starRow);
+  }
   const players=gamePlayers(game);
   if(players.length){
     const playing=el('section',undefined,'detail-playing');playing.setAttribute('aria-label','Playing now');
     playing.append(el('h3','Playing now'),playerRows(game,players,info));info.append(playing);
+  }
+  const buildMeta=[];
+  if(game.author_model)buildMeta.push(['Model',game.author_model]);
+  if(game.effort_level)buildMeta.push(['Effort',game.effort_level]);
+  if(Number.isInteger(game.estimated_prompts)&&game.estimated_prompts>0)buildMeta.push(['Est. prompts',game.estimated_prompts.toLocaleString()]);
+  if(buildMeta.length){
+    const metaList=el('dl',undefined,'game-build-meta');metaList.setAttribute('aria-label','Model authorship');
+    for(const [label,value] of buildMeta){
+      const item=el('div');item.append(el('dt',label),el('dd',value));metaList.append(item);
+    }
+    info.append(metaList);
   }
   if(Number.isFinite(game.updated)&&game.updated>0){const time=el('time','Updated '+new Date(game.updated*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}),'game-updated');time.dateTime=new Date(game.updated*1000).toISOString();info.append(time);}
   const feedback=el('section',undefined,'game-feedback');feedback.id='game-feedback';feedback.tabIndex=-1;feedback.setAttribute('aria-labelledby','game-feedback-title');
@@ -500,7 +607,7 @@ function renderGameDetail(){
   if(content.firstElementChild!==art)content.replaceChildren(art,info);else content.lastElementChild.replaceWith(info);
   info.scrollTop=oldScroll;dialog.scrollTop=oldPageScroll;
   if(oldReaction)[...feedback.querySelectorAll('[data-reaction]')].find(row=>row.dataset.reaction===oldReaction)?.focus({preventScroll:true});
-  else if(oldControl)([...info.querySelectorAll('button,summary')].find(node=>node.tagName===oldControl.tag&&node.getAttribute('aria-label')===oldControl.label&&node.textContent===oldControl.text)||$('close-game-detail')).focus({preventScroll:true});
+  else if(oldControl)((oldControl.star&&info.querySelector('.detail-star-btn'))||[...info.querySelectorAll('button,summary')].find(node=>node.tagName===oldControl.tag&&node.getAttribute('aria-label')===oldControl.label&&node.textContent===oldControl.text)||$('close-game-detail')).focus({preventScroll:true});
 }
 $('close-game-detail').onclick=()=>$('game-detail').close();
 $('game-detail').addEventListener('click',event=>{if(event.target===$('game-detail')){const r=event.target.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)event.target.close();}});
@@ -607,9 +714,17 @@ function animatePresence(list,before){
 }
 reactionMotion.addEventListener('change',()=>{if(reactionMotion.matches){for(const animation of presenceMotions.values())animation.cancel();presenceMotions.clear();for(const ghost of presenceGhosts)ghost.remove();presenceGhosts.clear();}});
 
+function voiceControlsExtent(cluster,axis,gap){
+  let total=0;
+  for(const control of cluster.querySelectorAll('.voice-control')){
+    if(control.hidden||(!control.offsetWidth&&!control.offsetHeight))continue;
+    total+=(axis==='column'?control.offsetHeight:control.offsetWidth)+gap;
+  }
+  return total;
+}
 function columnPresenceCount(people,list,cluster){
-  const voice=$('voice-toggle'),gap=parseFloat(getComputedStyle(cluster).rowGap)||0;
-  const room=cluster.clientHeight-$('chat-toggle').offsetHeight-gap-(voice&&!voice.hidden?voice.offsetHeight+gap:0);
+  const gap=parseFloat(getComputedStyle(cluster).rowGap)||0;
+  const room=cluster.clientHeight-($('chat-toggle')?.offsetHeight || 0)-gap-voiceControlsExtent(cluster,'column',gap);
   const self=list.querySelector('.presence-self');
   const outer=node=>{const style=getComputedStyle(node);return node.offsetHeight+parseFloat(style.marginTop)+parseFloat(style.marginBottom);};
   const base=self?outer(self):0;
@@ -628,8 +743,8 @@ function visiblePresenceCount(people){
   const list=$('friends'),cluster=list.closest('.presence-chat');
   if(!cluster||!people.length)return people.length;
   if(chatDock()?.stack==='column')return columnPresenceCount(people,list,cluster);
-  const voice=$('voice-toggle'),gap=parseFloat(getComputedStyle(cluster).columnGap);
-  const room=cluster.clientWidth-$('chat-toggle').offsetWidth-gap-(voice&&!voice.hidden?voice.offsetWidth+gap:0);
+  const gap=parseFloat(getComputedStyle(cluster).columnGap)||0;
+  const room=cluster.clientWidth-($('chat-toggle')?.offsetWidth || 0)-gap-voiceControlsExtent(cluster,'row',gap);
   const self=list.querySelector('.presence-self');
   const outerWidth=node=>{const style=getComputedStyle(node);return node.offsetWidth+parseFloat(style.marginLeft)+parseFloat(style.marginRight);};
   const base=self?outerWidth(self):0;
@@ -648,6 +763,52 @@ function visiblePresenceCount(people){
 const presenceResize=new ResizeObserver(()=>{if(library)renderPresence();});
 
 function presenceLabel(status){return ({idle:'Idle',away:'Away'})[status]||'Online';}
+// Keep menu callbacks outside the render scope so they cannot retain prior layout trees.
+function createPresenceMenu(key,persons,overflow,opened,signature){
+  const item=el('li',undefined,'presence-person'+(overflow?' presence-more':''));
+  const menu=el('details',undefined,'header-menu friend-menu');menu.dataset.key=key;
+  const trigger=el('summary'),panel=el('div',undefined,'account-menu friend-actions');
+  trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · '+presenceLabel(persons[0].status));
+  if(overflow)trigger.textContent='+'+persons.length;
+  else {item.dataset.playerId=key;item.dataset.status=persons[0].status||'active';trigger.title=[persons[0].name+' · '+presenceLabel(persons[0].status),...persons[0].playing].join('\n');trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
+  for(const person of persons){
+    panel.append(nameCardPortrait(person.name,person.id,person.avatar));
+    panel.append(el('p',person.name,'friend-name'));
+    const targets=me.inspecting?[]:(person.join_targets||[]);
+    panel.append(el('p',presenceLabel(person.status),'quiet friend-status'));
+    for(const description of person.playing)panel.append(el('p',description,'friend-status'));
+    for(const target of targets){
+      const button=el('button','Join '+target.title);button.type='button';button.dataset.friendAction=target.session_id+':'+person.id;
+      button.onclick=()=>{
+        // Resolve against the latest poll. The launch API also rejects stale sessions.
+        const current=library.friends?.find(p=>p.id===person.id)?.join_targets?.find(t=>t.session_id===target.session_id&&t.app_id===target.app_id);
+        const game=library.apps.find(g=>g.id===target.app_id);
+        menu.open=false;
+        if(!current||!game){notice('That friend is no longer available to join.');return;}
+        start(game,button,item,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
+      };
+      panel.append(button);
+    }
+    voiceApi?.renderFriendControls(person,panel);
+  }
+  function refreshFriendVoice(){
+    if(!menu.open)return;
+    for(const existing of panel.querySelectorAll('.friend-voice'))existing.remove();
+    for(const person of persons)voiceApi?.renderFriendControls(person,panel);
+    position();
+  }
+  function position(){
+    // A transformed ancestor would change the fixed menu's containing block.
+    presenceMotions.get(item)?.finish();
+    const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
+    panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
+    panel.style.top=(bounds.bottom+10)+'px';panel.style.maxHeight=Math.max(44,innerHeight-bounds.bottom-26)+'px';
+  }
+  trigger.addEventListener('click',position);menu.addEventListener('toggle',refreshFriendVoice);
+  menu.append(trigger,panel);item.append(menu);presenceItems.set(item,signature);
+  if(opened===key)menu.open=true;
+  return item;
+}
 function renderPresence() {
   const list=$('friends'),playing=new Map();
   for(const game of library.apps||[])for(const player of gamePlayers(game)){
@@ -657,11 +818,14 @@ function renderPresence() {
   }
   const self=list.querySelector('.presence-self'),ownStatus=library.friends?.find(p=>p.id===me.player_id)?.status;
   if(self&&!me.inspecting){
-    self.dataset.status=ownStatus||'active';
+    if(self.dataset.status!==(ownStatus||'active'))self.dataset.status=ownStatus||'active';
     const label=me.name+' · '+presenceLabel(ownStatus)+' · Profile menu';
-    $('account-trigger').setAttribute('aria-label',label);$('account-trigger').title=label;
+    const trigger=$('account-trigger');
+    if(trigger.getAttribute('aria-label')!==label)trigger.setAttribute('aria-label',label);
+    if(trigger.title!==label)trigger.title=label;
     const ownGames=$('account-playing');
-    setText(ownGames,(playing.get(me.player_id)||[]).join('\n'));ownGames.hidden=!ownGames.textContent;
+    setText(ownGames,(playing.get(me.player_id)||[]).join('\n'));
+    if(ownGames.hidden!==!ownGames.textContent)ownGames.hidden=!ownGames.textContent;
   }
   let people=(library.friends||[]).filter(person=>person.id!==me.player_id).map(person=>({...person,playing:playing.get(person.id)||[]}));
   // Leave menus and keyboard focus intact when a poll has no presence changes.
@@ -679,42 +843,8 @@ function renderPresence() {
   list.hidden=false;
   function addMenu(key,persons,overflow=false){
     const signature=JSON.stringify([me.inspecting,persons]),previous=before.get(key)?.item;
-    if(previous&&presenceItems.get(previous)===signature){nextItems.push(previous);return;}
-    const item=el('li',undefined,'presence-person'+(overflow?' presence-more':''));
-    const menu=el('details',undefined,'header-menu friend-menu');menu.dataset.key=key;
-    const trigger=el('summary'),panel=el('div',undefined,'account-menu friend-actions');
-    trigger.setAttribute('aria-label',overflow?'More online friends':persons[0].name+' · '+presenceLabel(persons[0].status));
-    if(overflow)trigger.textContent='+'+persons.length;
-    else {item.dataset.playerId=key;item.dataset.status=persons[0].status||'active';trigger.title=[persons[0].name+' · '+presenceLabel(persons[0].status),...persons[0].playing].join('\n');trigger.append(profileAvatar(persons[0].name,key,persons[0].avatar));}
-    for(const person of persons){
-      panel.append(nameCardPortrait(person.name,person.id,person.avatar));
-      panel.append(el('p',person.name,'friend-name'));
-      const targets=me.inspecting?[]:(person.join_targets||[]);
-      panel.append(el('p',presenceLabel(person.status),'quiet friend-status'));
-      for(const description of person.playing)panel.append(el('p',description,'friend-status'));
-      for(const target of targets){
-        const button=el('button','Join '+target.title);button.type='button';button.dataset.friendAction=target.session_id+':'+person.id;
-        button.onclick=()=>{
-          // Resolve against the latest poll. The launch API also rejects stale sessions.
-          const current=library.friends?.find(p=>p.id===person.id)?.join_targets?.find(t=>t.session_id===target.session_id&&t.app_id===target.app_id);
-          const game=library.apps.find(g=>g.id===target.app_id);
-          menu.open=false;
-          if(!current||!game){notice('That friend is no longer available to join.');return;}
-          start(game,button,item,{intent:{kind:'join_friend',session_id:current.session_id,player_id:current.player_id}});
-        };
-        panel.append(button);
-      }
-    }
-    function position(){
-      // A transformed ancestor would change the fixed menu's containing block.
-      presenceMotions.get(item)?.finish();
-      const bounds=trigger.getBoundingClientRect(),width=Math.min(260,innerWidth-32);
-      panel.style.left=Math.max(16,Math.min(bounds.left,innerWidth-width-16))+'px';
-      panel.style.top=(bounds.bottom+10)+'px';panel.style.maxHeight=Math.max(44,innerHeight-bounds.bottom-26)+'px';
-    }
-    trigger.addEventListener('click',position);menu.addEventListener('toggle',position);
-    menu.append(trigger,panel);item.append(menu);nextItems.push(item);presenceItems.set(item,signature);
-    if(opened===key)menu.open=true;
+    nextItems.push(previous&&presenceItems.get(previous)===signature
+      ?previous:createPresenceMenu(key,persons,overflow,opened,signature));
   }
   for(const person of people.slice(0,visibleCount))addMenu(person.id,[person]);
   if(people.length>visibleCount)addMenu('overflow',people.slice(visibleCount),true);
@@ -752,40 +882,71 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelTagHo
 $('games').addEventListener('contextmenu',event=>{
   if(tagHold||Date.now()<suppressContextUntil&&heldCard?.contains(event.target))event.preventDefault();
 });
-async function start(game,button,card,{guest=false,intent}={}) {
-  if(me.inspecting)return;
+let sameTabLaunchPending = false;
+async function start(game,button,card,{guest=false,intent,viaPad=false}={}) {
+  if(me.inspecting || card.dataset.launching || sameTabLaunchPending)return;
   if(game.native_only)return startDesktop(game,button,card,{guest});
-  // Open synchronously in the click event so browser popup blockers allow Play.
+  const padLayouts = captureGamepadLayouts();
   const tab = window.open('about:blank','_blank');
-  if(!tab){notice('Allow this site to open a game tab, then press Play again.');return;}
-  tab.document.title='Opening '+game.title;tab.document.body.textContent='Getting '+game.title+' ready…';
+  const sameTab = !tab && viaPad;
+  const voiceBlocksNavigation = () => {
+    if (!sameTab || !voiceApi?.inUse()) return false;
+    notice('Press Play with the mouse or keyboard to keep voice chat running.');
+    return true;
+  };
+  if (voiceBlocksNavigation()) return;
+  if (!tab && !sameTab) {notice('Allow this site to open a game tab, then press Play again.');return;}
+  if (tab) {
+    tab.document.title='Opening '+game.title;
+    tab.document.body.textContent='Getting '+game.title+' ready…';
+  }
   const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
+  if (sameTab) sameTabLaunchPending = true;
+  let navigating = false, resetTimer;
+  function reset() {
+    clearTimeout(resetTimer);
+    window.removeEventListener('pageshow', restored);
+    if (sameTab) sameTabLaunchPending = false;
+    delete card.dataset.launching;
+    button.disabled=false;
+    button.textContent=originalLabel;
+  }
+  function restored(event) { if (event.persisted) reset(); }
   try {
     const launch=await api(`/api/apps/${game.id}/launch`,{method:'POST',body:JSON.stringify({guest,intent})});
     const deadline=Date.now()+120000;let state=launch.state;
     while(state!=='ready') {
-      if(tab.closed)throw Error('Game launch cancelled.');
+      if(tab?.closed)throw Error('Game launch cancelled.');
       if(Date.now()>deadline)throw Error('This game is taking a while. Try Play again shortly.');
       await new Promise(resolve=>setTimeout(resolve,1500));
       const status=await api('/api/launches/'+launch.launch_id);state=status.state;
-      if(state==='failed'||state==='stopping')throw Error(status.error||'The game could not start. Its creator can try an update.');
+      if(state==='failed'||state==='stopping'||state==='ended')throw Error(status.error||'The game could not start. Its creator can try an update.');
     }
-    tab.opener=null;tab.location.replace(launch.url);
-  } catch(error) {tab.close();showError(error);} finally {delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
+    const url = gamepadLaunchUrl(launch.url, padLayouts);
+    if (sameTab) {
+      if (voiceBlocksNavigation()) return;
+      location.assign(url);
+      navigating = true;
+      window.addEventListener('pageshow', restored);
+      resetTimer = setTimeout(reset, 15000);
+    }
+    else { tab.opener=null; tab.location.replace(url); }
+  } catch(error) {tab?.close();showError(error);} finally {if (!navigating) reset();}
 }
 function desktopPlatform(){
   const platform=navigator.userAgentData?.platform||navigator.platform;
   if(/Win/i.test(platform))return 'windows-x86_64';
-  if(/Linux/i.test(platform)&&!/Android/i.test(navigator.userAgent))return 'linux-x86_64';
+  if(/Linux/i.test(platform)&&!/Android/i.test(navigator.userAgent)&&!/aarch64|arm/i.test(navigator.platform))return 'linux-x86_64';
   return null;
 }
-async function startDesktop(game,button,card,{guest=false}={}){
-  if(me.inspecting)return;
+async function startDesktop(game,button,card,{guest=false,menuButton}={}){
+  if(me.inspecting || game.play_unavailable || card.dataset.launching || sameTabLaunchPending)return;
   const platform=desktopPlatform();
   if(!game.native_platforms?.includes(platform)){notice('This desktop game needs a supported Windows or Linux computer.');return;}
   const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
+  if(menuButton)menuButton.disabled=true;
   try{
     const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest})});
     document.querySelector('#desktop-launch')?.remove();
@@ -798,7 +959,7 @@ async function startDesktop(game,button,card,{guest=false}={}){
     const actions=el('div',undefined,'desktop-actions');actions.append(open,install,close);dialog.append(heading,text,actions);document.body.append(dialog);dialog.showModal();
     // Keep a real link available if the browser requires a fresh user gesture.
     open.click();
-  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
+  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;if(menuButton)menuButton.disabled=false;}
 }
 document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]'))if(!menu.contains(event.target))menu.open=false;});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
@@ -952,7 +1113,8 @@ function renderFeed() {
       body.append(list);
       appendUpdateCounts(body,entry.reactions.counts);
       const mark=el('span',undefined,'feed-person');mark.setAttribute('aria-hidden','true');
-      mark.append(el('span','Infuser','feed-platform-badge'),reactionFace('✦','feed-emoji'));
+      const logo=$('recent-toggle').querySelector('.brand-icon').cloneNode();logo.className='feed-platform-logo';logo.alt='';
+      mark.append(logo);
       row.append(mark,body);item.append(row);
       if(!inspection&&!me?.inspecting)item.append(feedReactions({platform:true,update_id:entry.id,title:'Infuser',update_reactions:entry.reactions}));
       rows.push(item);
@@ -1009,7 +1171,10 @@ function showReactionEditor(emoji) {
   chosenReaction.replaceChildren(reactionFace(emoji));
   const label = emojis.find(choice => choice[0] === emoji)?.[1] || emoji;
   chosenReaction.setAttribute('aria-label', 'Change emoji: ' + label);
-  $('reaction-text').focus();
+  const limited = !!me.limited_communication;
+  $('reaction-text').hidden=limited;
+  $('reaction-attach').hidden=limited;
+  (limited ? composer.querySelector('[type=submit]') : $('reaction-text')).focus();
 }
 
 function showEmojiChoices() {
@@ -1111,10 +1276,54 @@ async function loadAuthorTools(){
   gameLabel.append(gameSelect);addLabel.append(candidate);const addRow=el('div',undefined,'author-add');addRow.append(addLabel,add);form.append(gameLabel,list,addRow,save,status);section.append(form);selectGame();
 }
 
+async function loadHouseCallTools(){
+  if(!me.admin||me.inspecting||$('house-calls')?.dataset.dirty==='true')return;
+  const data=await api('/api/admin/house-calls');
+  if(!$('admin').open||$('house-calls')?.dataset.dirty==='true')return;
+  let section=$('house-calls');
+  if(!section){section=el('section');section.id='house-calls';$('admin-controls').append(adminRegion('House calls',section));}
+  section.replaceChildren();
+  const form=el('form',undefined,'house-call-editor'),topic=el('p','ntfy topic URL: '+(data.topic_set?'set':'not set')),actions=el('div',undefined,'member-actions'),replace=el('button','Replace','secondary'),clear=el('button','Clear','secondary'),secretLabel=el('label','New ntfy topic URL'),secret=el('input'),status=el('p'),save=el('button','Save house calls');
+  secret.type='password';secret.autocomplete='off';secret.maxLength=2048;secret.spellcheck=false;secretLabel.append(secret);secretLabel.hidden=true;
+  status.setAttribute('role','status');save.type='submit';replace.type=clear.type='button';clear.disabled=!data.topic_set;
+  let topicAction='keep',saving=false;
+  const dirty=()=>{section.dataset.dirty='true';status.textContent='Unsaved changes';};
+  replace.onclick=()=>{topicAction='replace';secretLabel.hidden=false;secret.focus();dirty();};
+  clear.onclick=()=>{topicAction='clear';secret.value='';secretLabel.hidden=true;topic.textContent='ntfy topic URL: will be cleared';dirty();};
+  actions.append(replace,clear);const connection=el('div',undefined,'house-call-connection');connection.append(topic,actions);form.append(connection,secretLabel);
+  const quietBox=el('fieldset',undefined,'house-call-quiet'),quietLegend=el('legend','Quiet hours'),quietLabel=el('label','Enabled'),quietEnabled=el('input'),startLabel=el('label','From'),endLabel=el('label','Until'),zoneLabel=el('label','Time zone'),quietStart=el('input'),quietEnd=el('input'),quietZone=el('input');
+  quietEnabled.type='checkbox';quietEnabled.checked=!!data.quiet_hours;quietLabel.prepend(quietEnabled);
+  quietStart.type=quietEnd.type='time';quietStart.value=data.quiet_hours?.start||'22:00';quietEnd.value=data.quiet_hours?.end||'08:00';quietZone.value=data.quiet_hours?.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+  startLabel.append(quietStart);endLabel.append(quietEnd);zoneLabel.append(quietZone);quietBox.append(quietLegend,quietLabel,startLabel,endLabel,zoneLabel,el('p','Cards still post; notifications and confetti stay quiet.','house-call-hint quiet'));form.append(quietBox);
+  const quietState=()=>{quietStart.disabled=quietEnd.disabled=quietZone.disabled=!quietEnabled.checked;};quietEnabled.onchange=quietState;quietState();
+  const fields=data.images.map(call=>{
+    const row=el('fieldset',undefined,'house-call-row'),legend=el('legend',call.label,'sr-only'),image=el('img');image.src='/assets/house-calls/'+encodeURIComponent(call.id)+'.png';image.alt='';row.append(legend,image);
+    function field(title,type,value,kind){const label=el('label',title,'house-call-'+kind),input=el('input');input.type=type;if(type==='checkbox')input.checked=value;else input.value=value;label.append(input);row.append(label);return input;}
+    const enabled=field('On','checkbox',call.enabled,'enabled'),label=field('Label','text',call.label,'label'),tag=field('ntfy tag','text',call.tag,'tag'),message=field('Message (optional)','text',call.message,'message'),cooldown=field('Min.','number',call.cooldown_minutes,'cooldown');
+    enabled.setAttribute('aria-label','Enabled');cooldown.setAttribute('aria-label','Cooldown (minutes)');message.placeholder='{{profile}} says it is Infuser time';
+    label.maxLength=80;tag.maxLength=80;message.maxLength=4096;cooldown.min=0;cooldown.max=10080;cooldown.step=1;cooldown.required=true;
+    const permissions=el('details',undefined,'house-call-permissions'),summary=el('summary'),allowed=el('fieldset',undefined,'house-call-profiles');allowed.append(el('legend','May send'));permissions.append(summary,allowed);
+    const profiles=data.profiles.map(profile=>{const label=el('label',profile.name),input=el('input');input.type='checkbox';input.checked=call.profiles.includes(profile.id);label.prepend(input);allowed.append(label);return {id:profile.id,input};});
+    const countProfiles=()=>{const count=profiles.filter(p=>p.input.checked).length;summary.textContent=count+' profile'+(count===1?'':'s');};allowed.onchange=countProfiles;countProfiles();permissions.setAttribute('aria-label','Who may send '+call.label);row.append(permissions);form.append(row);return {call,enabled,label,tag,message,cooldown,profiles};
+  });
+  form.oninput=dirty;form.append(el('p','Tag = notification type · Min. = cooldown · {{profile}} = sender’s name','house-call-hint quiet'),save,status);section.append(form);
+  form.onsubmit=async event=>{
+    event.preventDefault();if(saving)return;
+    const payload={images:fields.map(f=>({id:f.call.id,enabled:f.enabled.checked,label:f.label.value,tag:f.tag.value,message:f.message.value,cooldown_minutes:Number(f.cooldown.value),profiles:f.profiles.filter(p=>p.input.checked).map(p=>p.id)}))};
+    payload.quiet_hours=quietEnabled.checked?{start:quietStart.value,end:quietEnd.value,timezone:quietZone.value}:null;
+    if(topicAction==='replace'){if(!secret.value){status.textContent='Enter the replacement topic URL.';return;}payload.topic_url=secret.value;}
+    if(topicAction==='clear')payload.topic_url='';
+    saving=true;save.disabled=true;
+    try{await api('/api/admin/house-calls',{method:'PUT',body:JSON.stringify(payload)});secret.value='';section.dataset.dirty='false';await loadHouseCallTools();const savedStatus=$('house-calls')?.querySelector('[role="status"]');if(savedStatus)savedStatus.textContent='House calls saved.';}
+    catch(error){status.textContent=error.message;}
+    finally{saving=false;save.disabled=false;}
+  };
+}
+
 async function openAdmin(){
   refreshServerUpdates();
   if(!me?.admin&&!me?.operator)return;
-  $('admin').showModal();refreshNetworkHealth();loadAuthorTools().catch(showError);
+  $('admin').showModal();refreshNetworkHealth();loadAuthorTools().catch(showError);loadHouseCallTools().catch(showError);
   if(!me.admin||adminLoaded||adminLoading)return;
   adminLoading=true;$('admin-status').textContent='Loading admin tools…';
   try{
@@ -1123,7 +1332,7 @@ async function openAdmin(){
   finally{adminLoading=false;}
 }
 $('close-admin').onclick=()=>$('admin').close();
-$('admin').addEventListener('close',()=>$('account-trigger')?.focus({preventScroll:true}));
+$('admin').addEventListener('close',()=>{$('house-calls')?.closest('.admin-region').remove();$('account-trigger')?.focus({preventScroll:true});});
 async function adminRefresh(){
   const [members,credentials]=await Promise.all([api('/api/admin/members'),api('/api/admin/credentials')]);
   $('members').replaceChildren();
@@ -1147,6 +1356,19 @@ async function adminRefresh(){
       };
       actions.append(mint);
     }
+    const communication=el('label'), limit=document.createElement('input');
+    limit.type='checkbox';limit.checked=!!m.limited_communication;
+    limit.onchange=async()=>{
+      limit.disabled=true;
+      try{await api('/api/admin/members/communication',{method:'PUT',body:JSON.stringify({email,limited_communication:limit.checked})});m.limited_communication=limit.checked;}
+      catch(error){limit.checked=!!m.limited_communication;showError(error);}
+      finally{limit.disabled=false;}
+    };
+    communication.className='member-communication';
+    limit.setAttribute('aria-label','Limit communication for '+m.name);
+    communication.append(limit,' Emoji only (no chat or voice)');
+    communication.title='Allow game publishing and emoji reactions. Hide chat, voice, and reaction notes and screenshots.';
+    actions.append(communication);
     row.append(label,actions);
     if(me.operator&&m.sign_in){
       const nodes=memberLinkLines(email,m.sign_in,null);
@@ -1155,7 +1377,7 @@ async function adminRefresh(){
     $('members').append(row);
   }
   $('credentials').replaceChildren();for(const c of credentials.credentials){const row=el('div'),button=el('button','Revoke','secondary');row.append(el('span',c.label+' · '+c.app),button);button.onclick=async()=>{try{await api('/api/admin/credentials/'+c.id,{method:'DELETE'});await adminRefresh();}catch(error){showError(error);}};$('credentials').append(row);}
-  await loadGameTools();
+  await Promise.all([loadGameTools(),loadHouseCallTools()]);
 }
 function memberLinkLines(email,info,minted){
   const nodes=[];
@@ -1287,13 +1509,234 @@ function openMemberRename(row,actions,email,member,updateLabel,rename){
   };
   form.append(label,save,cancel,error);row.append(form);input.focus();input.select();
 }
-$('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with this email.');await adminRefresh();}catch(error){showError(error);}};
+$('invite-form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.target));data.limited_communication=event.target.elements.limited_communication.checked;try{await api('/api/admin/members',{method:'POST',body:JSON.stringify(data)});event.target.reset();notice('Invitation saved. They can sign in with this email.');await adminRefresh();}catch(error){showError(error);}};
 $('credential-form').onsubmit=async event=>{event.preventDefault();try{const data=Object.fromEntries(new FormData(event.target)),connection=await api('/api/admin/credentials',{method:'POST',body:JSON.stringify(data)});const blob=new Blob([JSON.stringify(connection,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=connection.app_id+'.credentials.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('Connection file downloaded. Attach it in your game’s existing agent chat.');await adminRefresh();}catch(error){showError(error);}};
 function renderAccount(){
   $('greeting').textContent='Signed in as '+me.name+'.';$('account-trigger').setAttribute('aria-label',me.name+(me.inspecting?'':' · online')+' · Profile menu');
   const name=el('span',me.name+' · you','presence-name');name.setAttribute('aria-hidden','true');
   $('account-trigger').title=me.name+' · Profile menu';
   $('account-trigger').replaceChildren(profileAvatar(me.name,me.player_id,me.avatar),name);
+  const activeGroupName=me.group?.name||'';
+  const homeGroupName=me.home_group_name||activeGroupName;
+  const visiting=Boolean(me.home_group&&me.group?.id&&me.group.id!==me.home_group&&!me.inspecting);
+  const menuGroup=$('account-group');
+  if(menuGroup){
+    menuGroup.hidden=!(me.profile_count>1&&homeGroupName);
+    if(!menuGroup.hidden){
+      const label=visiting&&activeGroupName?homeGroupName+' · visiting '+activeGroupName:homeGroupName;
+      menuGroup.replaceChildren(el('span','Group','account-group-label'),el('strong',label));
+    }
+  }
+  const appearanceScope=$('settings-appearance-scope');
+  if(appearanceScope&&!window.InfuserThemes.seasonalLocked){
+    const text=me.inspecting
+      ?'Read-only inspection. Return home to change appearance.'
+      :visiting&&homeGroupName
+        ?'Saved for '+homeGroupName+' across your devices'+(activeGroupName?' (visiting '+activeGroupName+')':'')+'.'
+        :homeGroupName
+          ?'Saved for '+homeGroupName+' across your devices.'
+          :'Saved for this group across your devices.';
+    setText(appearanceScope,text);
+  }
+  const summary=$('settings-profile-summary');
+  if(summary){
+    const text=el('div',undefined,'settings-profile-text');
+    const detail=me.inspecting
+      ?(activeGroupName?'Viewing '+activeGroupName+' · Read only':'Read-only inspection')
+      :visiting
+        ?(homeGroupName?'Group: '+homeGroupName+(activeGroupName?' · Visiting '+activeGroupName:''):'Visiting '+activeGroupName)
+        :(homeGroupName?'Group: '+homeGroupName+' · Saved for this group':'Saved for this group');
+    text.append(el('strong',me.name,'settings-profile-name'),el('span',detail,'quiet'));
+    summary.replaceChildren(profileAvatar(me.name,me.player_id,me.avatar,128),text);
+  }
+}
+function setupUserSettings(signOut){
+  const dialog=$('user-settings'),themes=window.InfuserThemes;
+  const appearance=$('settings-appearance'),profileBody=$('settings-profile'),pwaBody=$('settings-pwa'),voiceBody=$('settings-voice');
+  let saveTimer=null,saveSeq=0;
+  async function persistAppearance(){
+    if(me.inspecting)return;
+    const seq=++saveSeq;
+    const body=JSON.stringify(themes.snapshot());
+    try{
+      await api('/api/profile/appearance',{method:'PUT',body,signal:AbortSignal.timeout(12000)});
+    }catch(error){
+      if(seq===saveSeq)notice(error.message||'Could not save appearance for this group.');
+    }
+  }
+  function scheduleAppearanceSave(immediate=true){
+    if(me.inspecting||themes.seasonalLocked)return;
+    clearTimeout(saveTimer);saveTimer=null;
+    if(immediate)void persistAppearance();
+    else saveTimer=setTimeout(()=>{saveTimer=null;void persistAppearance();},250);
+  }
+  const appearanceScope=el('p','Saved for this group across your devices.','quiet settings-scope');appearanceScope.id='settings-appearance-scope';
+  const themeLabel=el('label','Theme','settings-field'),themeSelect=el('select');themeSelect.id='theme-picker';
+  for(const theme of themes.catalog.filter(theme=>theme.status!=='retired')){
+    const option=el('option',theme.name+(theme.status==='preview'?' · Preview':''));option.value=theme.id;themeSelect.append(option);
+  }
+  themeLabel.append(themeSelect);
+  const schemeGroup=el('div',undefined,'settings-subpanel');schemeGroup.id='theme-scheme-group';schemeGroup.hidden=true;
+  const schemeLabel=el('label','Color scheme','settings-field'),schemeSelect=el('select');schemeSelect.id='theme-scheme-picker';
+  schemeLabel.append(schemeSelect);
+  const schemeHint=el('p','Changes colors only — layout and spacing stay the same.','quiet settings-hint');
+  const swatchRow=el('div',undefined,'scheme-swatches');swatchRow.id='theme-scheme-swatches';swatchRow.setAttribute('aria-hidden','true');
+  const swatchNames=['Background','Panels','Primary accent','Secondary accent'];
+  const swatchChips=swatchNames.map(label=>{
+    const chip=el('span',undefined,'scheme-swatch');
+    const dot=el('span',undefined,'scheme-swatch-dot');
+    chip.append(dot,el('span',label,'scheme-swatch-label'));
+    swatchRow.append(chip);
+    return dot;
+  });
+  const customPanel=el('div',undefined,'custom-colors-panel');customPanel.id='theme-custom-colors';customPanel.hidden=true;
+  const customGrid=el('div',undefined,'custom-color-grid');
+  const customInputs={};
+  for(const [field,labelText] of [['primary','Base & panels'],['accent','Primary accent'],['secondary','Secondary accent']]){
+    const card=el('label',undefined,'custom-color-card');
+    const heading=el('span',labelText,'custom-color-title');
+    const control=el('span',undefined,'custom-color-control');
+    const input=el('input');input.type='color';input.id='custom-color-'+field;input.setAttribute('aria-label',labelText+' color');
+    const hex=el('code',undefined,'color-hex');
+    input.oninput=()=>{
+      hex.textContent=input.value.toUpperCase();
+      themes.setCustomColors({[field]:input.value});
+      scheduleAppearanceSave(false);
+    };
+    input.onchange=()=>{scheduleAppearanceSave(true);};
+    control.append(input,hex);card.append(heading,control);customGrid.append(card);
+    customInputs[field]={input,hex};
+  }
+  const resetCustom=el('button','Reset custom colors','secondary');resetCustom.id='reset-custom-colors';resetCustom.type='button';
+  resetCustom.onclick=()=>{themes.resetCustomColors();scheduleAppearanceSave(true);};
+  customPanel.append(customGrid,resetCustom);
+  schemeGroup.append(schemeLabel,schemeHint,swatchRow,customPanel);
+  appearance.replaceChildren(appearanceScope,themeLabel,schemeGroup);
+
+  let renderedSchemeTheme='',wasSeasonallyLocked=false;
+  function syncAppearance(){
+    const activeTheme=themes.current,locked=themes.seasonalLocked;
+    const seasonal=themeSelect.querySelector('option[value="thanksgiving"]');
+    if(locked&&!seasonal){const option=el('option','thankfuser');option.value='thanksgiving';themeSelect.append(option);}
+    if(!locked&&seasonal)seasonal.remove();
+    themeSelect.disabled=!!me.inspecting||locked;
+    if(locked)appearanceScope.textContent='Happy Thanksgiving! Your usual theme and colors return tomorrow.';
+    else if(wasSeasonallyLocked)renderAccount();
+    wasSeasonallyLocked=locked;
+    themeSelect.value=activeTheme;
+    const schemes=themes.schemesFor(activeTheme);
+    schemeGroup.hidden=!schemes.length;
+    if(!schemes.length){customPanel.hidden=true;return;}
+    if(renderedSchemeTheme!==activeTheme){
+      renderedSchemeTheme=activeTheme;
+      schemeSelect.replaceChildren();
+      for(const scheme of schemes){
+        const option=el('option',scheme.name);option.value=scheme.id;schemeSelect.append(option);
+      }
+    }
+    const activeScheme=themes.currentScheme||schemes[0].id;
+    schemeSelect.value=activeScheme;
+    const custom=themes.customColorsFor(activeTheme);
+    const activeEntry=schemes.find(item=>item.id===activeScheme)||schemes[0];
+    const preview=activeScheme==='custom'
+      ?[getComputedStyle(document.documentElement).getPropertyValue('--page').trim()||custom.primary,custom.primary,custom.accent,custom.secondary]
+      :activeEntry.swatches;
+    swatchChips.forEach((dot,index)=>{dot.style.background=preview[index]||'transparent';});
+    customPanel.hidden=activeScheme!=='custom';
+    for(const [field,pair] of Object.entries(customInputs)){
+      if(pair.input.value.toLowerCase()!==custom[field])pair.input.value=custom[field];
+      pair.hex.textContent=custom[field].toUpperCase();
+    }
+  }
+  themeSelect.onchange=()=>{
+    const chosen=themeSelect.value;
+    Promise.resolve(themes.select(chosen)).then(()=>{scheduleAppearanceSave(true);},()=>{themeSelect.value=themes.current;});
+  };
+  schemeSelect.onchange=()=>{themes.selectScheme(schemeSelect.value);scheduleAppearanceSave(true);};
+  if(me.inspecting){
+    themeSelect.disabled=true;
+    schemeSelect.disabled=true;
+    resetCustom.disabled=true;
+    for(const pair of Object.values(customInputs))pair.input.disabled=true;
+  }
+  window.addEventListener('infuser-theme-change',syncAppearance);
+  syncAppearance();
+
+  const profileRow=el('div',undefined,'settings-profile-row');
+  const profileSummary=el('div',undefined,'settings-profile-summary');profileSummary.id='settings-profile-summary';
+  const profile=el('button','Change profile picture','secondary');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');
+  profile.onclick=()=>{dialog.close();openProfile();};
+  profileRow.append(profileSummary,profile);
+  profileBody.replaceChildren(profileRow);
+
+  pwaBody.replaceChildren(el('p','Applies to this device only. Switching profiles turns notifications off.','quiet settings-scope'));
+  setupPwa({panel:pwaBody,signOut,me,api,notice});
+  for(const button of pwaBody.querySelectorAll('button'))button.classList.add('secondary');
+
+  const voiceSettings=el('button','Voice settings','secondary');voiceSettings.id='open-voice-settings';voiceSettings.type='button';voiceSettings.hidden=true;voiceSettings.setAttribute('aria-haspopup','dialog');
+  voiceSettings.onclick=()=>{dialog.close();voiceApi?.openSettings($('account-trigger'));};
+  const voiceRow=el('div',undefined,'settings-action-row');
+  voiceRow.append(el('p','Volumes are saved for this group. Microphone and speaker choices stay on this device.','quiet'),voiceSettings);
+  voiceBody.replaceChildren(voiceRow);
+
+  const padNames = {xbox:'Xbox', playstation:'PlayStation', nintendo:'Nintendo'};
+  let renderedPads;
+  function renderGamepads() {
+    const panel = $('settings-gamepads');
+    const pads = connectedPads();
+    const signature = JSON.stringify(pads.map(pad => [pad.index, pad.id, pad.mapping]));
+    if (signature === renderedPads && panel.contains(document.activeElement)) return;
+    renderedPads = signature;
+    panel.replaceChildren();
+    if (!pads.length) {
+      panel.append(el('p', 'Connect a controller and press a button to see it here.', 'quiet'));
+      return;
+    }
+    panel.append(el('p', 'Check the bottom face button: A for Xbox, × for PlayStation, B for Nintendo.', 'quiet settings-hint'));
+    for (const pad of pads) {
+      const label = el('label', 'Controller ' + (pad.index + 1) + ' · ' + pad.id, 'settings-field');
+      const select = el('select');
+      const automatic = el('option', 'Automatic (' + padNames[automaticLayout(pad.id)] + ')');
+      automatic.value = 'auto';
+      select.append(automatic);
+      for (const [value, name] of Object.entries(padNames)) {
+        const option = el('option', name); option.value = value; select.append(option);
+      }
+      select.value = preference(pad.id);
+      select.onchange = () => {
+        try {
+          savePreference(pad.id, select.value);
+          for (const other of panel.querySelectorAll('select')) {
+            if (other.dataset.model === pad.id) other.value = select.value;
+          }
+        } catch { select.value = preference(pad.id); notice('Could not save this controller layout on this device.'); }
+      };
+      select.dataset.model = pad.id;
+      label.append(select);
+      if (pad.mapping !== 'standard') label.append(el('small', 'Non-standard mapping. Button labels may differ.', 'quiet'),
+        el('small', "This controller can't be used to browse the Library.", 'quiet'));
+      panel.append(label);
+    }
+    panel.append(el('p', 'Saved in this browser for each controller model. Applies when you launch a game.', 'quiet settings-scope'));
+  }
+  const padRegion = $('settings-gamepads-region');
+  function refreshGamepads() { if (dialog.open && padRegion.open) renderGamepads(); }
+  padRegion.addEventListener('toggle', refreshGamepads);
+  window.addEventListener('gamepadconnected', refreshGamepads);
+  window.addEventListener('gamepaddisconnected', refreshGamepads);
+  $('close-settings').onclick=()=>dialog.close();
+  dialog.addEventListener('click',event=>{
+    if(event.target===dialog){
+      const r=dialog.getBoundingClientRect();
+      if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();
+    }
+  });
+  dialog.addEventListener('close',()=>{
+    if(saveTimer){clearTimeout(saveTimer);saveTimer=null;void persistAppearance();}
+    $('settings-status').textContent='';
+    if(!document.querySelector('dialog[open]')&&!$('voice-mixer')?.matches(':popover-open'))$('account-trigger')?.focus({preventScroll:true});
+  });
+  return ()=>{syncAppearance();$('settings-status').textContent='';dialog.showModal();refreshGamepads();};
 }
 function setupAccount(){
   const menu=el('details',undefined,'header-menu profile-menu'),trigger=el('summary',undefined,'profile-button'),panel=el('div',undefined,'account-menu');
@@ -1313,20 +1756,13 @@ function setupAccount(){
   menu.addEventListener('toggle',positionMenu);
   window.addEventListener('resize',positionMenu);
   window.addEventListener('scroll',positionMenu,{passive:true});
-  const profile=el('button','Change profile picture');profile.id='open-profile';profile.type='button';profile.setAttribute('aria-haspopup','dialog');
-  profile.onclick=()=>{menu.open=false;openProfile();};
-  const label=el('label','Theme'),select=el('select');select.id='theme-picker';
-  const themes=window.InfuserThemes;
-  for(const theme of themes.catalog.filter(theme=>theme.status!=='retired')){
-    const option=el('option',theme.name+(theme.status==='preview'?' · Preview':''));option.value=theme.id;select.append(option);
-  }
-  select.value=themes.current;select.onchange=()=>{const chosen=select.value;Promise.resolve(themes.select(chosen)).catch(()=>{select.value=themes.current;});};
-  window.addEventListener('infuser-theme-change',()=>{select.value=themes.current;});
-  label.append(select);
-  const out=el('a','Sign out');out.className='sign-out';out.href='/sign-out';
+  const out=el('a','Sign out');out.className='sign-out';out.href='/sign-out?profile='+encodeURIComponent(me.player_id);
+  const openSettings=setupUserSettings(out);
+  const settingsButton=el('button','User settings');settingsButton.id='open-settings';settingsButton.type='button';settingsButton.setAttribute('aria-haspopup','dialog');settingsButton.setAttribute('aria-controls','user-settings');
+  settingsButton.onclick=()=>{menu.open=false;openSettings();};
   const feedback=el('button','Send feedback');feedback.type='button';feedback.setAttribute('aria-haspopup','dialog');
   const reviewFeedback=initFeedback(feedback,()=>{menu.open=false;},api,me.admin&&!me.inspecting);
-  panel.append(profile,label,feedback,...(reviewFeedback?[reviewFeedback]:[]));
+  panel.append(settingsButton,feedback,...(reviewFeedback?[reviewFeedback]:[]));
   if(me.profile_count>1){
     const switcher=el('button','Switch Profile');switcher.id='switch-profile';switcher.type='button';
     switcher.onclick=async()=>{switcher.disabled=true;try{await clearNotifications();chooser('/library');}catch(error){notice(error.message||'Could not switch profiles. Try again.');switcher.disabled=false;}};
@@ -1337,8 +1773,10 @@ function setupAccount(){
     admin.onclick=()=>{menu.open=false;openAdmin();};panel.append(admin);
   }
   refreshServerUpdates=initServerUpdates({panel:$('admin').querySelector('.admin-panel'),api,me});
-  const ownGames=el('p',undefined,'friend-status');ownGames.id='account-playing';ownGames.hidden=true;panel.prepend(ownGames);
-  panel.append(out);setupPwa({panel,me,api,notice});menu.append(trigger,panel);renderAccount();
+  const ownGames=el('p',undefined,'friend-status');ownGames.id='account-playing';ownGames.hidden=true;
+  const menuGroup=el('p',undefined,'account-group');menuGroup.id='account-group';menuGroup.hidden=true;
+  panel.prepend(menuGroup,ownGames);
+  panel.append(out);menu.append(trigger,panel);renderAccount();
 }
 function closeHeaderMenus(except){
   for(const menu of document.querySelectorAll('header details[open]'))if(menu!==except)menu.open=false;
@@ -1430,17 +1868,39 @@ $('profile-form').onsubmit=async event=>{
 };
 
 try {
-  me=await api('/api/me');pinProfile(me.player_id);$('welcome').hidden=true;$('clubhouse').hidden=false;
-  setupAccount();initGroups({me,api});await initVisits({me,api});$('recent-menu').hidden=false;
-  initChat({me, api, profileAvatar,onSpeakerContext:arrangeChatParticipants});
+  me=await api('/api/me');pinProfile(me.player_id);
+  if(me.profile_count===1)window.InfuserThemes.pruneProfiles([me.player_id]);
+  const migratedAppearance=await window.InfuserThemes.bindProfile(me.player_id,me.appearance);
+  await import('/assets/telemetry.js').then(({recorder})=>{
+    diagnostics=recorder({source:'library',endpoint:'/api/telemetry',scope:me.player_id,appearance:window.InfuserThemes.diagnosticAppearance,headers:{'X-Infuser-Profile':me.player_id,...(!inspection?visitHeaders():{}),...inspectionHeaders()}});
+  }).catch(()=>{});
+  if(migratedAppearance&&!me.inspecting){
+    void api('/api/profile/appearance',{method:'PUT',body:JSON.stringify(migratedAppearance),signal:AbortSignal.timeout(12000)}).catch(()=>{});
+  }
+  $('welcome').hidden=true;$('clubhouse').hidden=false;
+  initLibraryGamepad(button => {
+    const launch = controllerLaunches.get(button);
+    if (launch) launch(); else button.click();
+  });
+  setupAccount();initGroups({me,api,onRename:group=>{
+    if(me.group?.id===group.id)me.group.name=group.name;
+    if(me.home_group===group.id)me.home_group_name=group.name;
+    renderAccount();
+  }});await initVisits({me,api});$('recent-menu').hidden=false;
+  initChat({me, api,diagnostics, profileAvatar,onSpeakerContext:arrangeChatParticipants,onHouseCall:updateConfetti});
   if(!me.inspecting){
     const active=watchInput(document,()=>api('/api/presence/input',{method:'POST'}));
     if(document.hasFocus()&&!document.hidden)active();
   }
-  initVoice({me,api,notice});
+  if(!me.limited_communication)voiceApi=initVoice({me,api,notice,diagnostics,onConfiguredChange:configured=>{
+    const btn=$('open-voice-settings'),region=$('settings-voice-region');
+    if(btn)btn.hidden=!configured;
+    if(region)region.hidden=!configured;
+  }});
+  window.addEventListener('infuser-voice-layout',()=>{if(library)renderPresence();});
   presenceResize.observe($('friends').closest('.presence-chat'));
   window.addEventListener('infuser-theme-change',()=>requestAnimationFrame(()=>{if(library)renderPresence();}));
-  initClientUpdates({api});
+  initClientUpdates({voiceInUse:voiceApi?.inUse,markUpdate:()=>diagnostics?.markUpdate(),api});
   await refresh();void offerProfilePicture();setInterval(()=>{if(!document.hidden)refresh();},25000);
 } catch(error) {
   if(error.profileRequired){/* The profile selector owns this navigation. */}
@@ -1469,7 +1929,7 @@ First look for this game's existing connection to this server. Reuse it and its 
 
 Declare the actual play modes. For co-op with independent runs, follow the guide’s Play and Join Friend instructions even if this game already uses Infuser matchmaking. Integrate cloud saves and isolated guest play; preserve standalone play if the game supports it. Keep save and presence API calls at deliberate checkpoints or menus, never inside per-frame render or physics loops, and cap 3D WebGL render resolution to a 1080p pixel budget so 4K/HiDPI screens stay at 60 fps. Explain unsupported features rather than silently removing them.
 
-Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Set orientation in infuser.game.json to landscape or portrait for the game’s intended mobile layout, and set resolution to "native" once the game caps its own 3D render buffer (or is a lightweight 2D game) or leave the default "hd" 1080p player cap. Save a short factual game description through the metadata API. For every game type and engine: if high-quality image generation is not your strength, prefer a detailed art_prompt in game metadata for an Infuser art agent to fulfill later. Describe the real game's subjects, composition, style, palette, and mood. Otherwise upload high-quality art meeting the art spec. Do not spend time staging screenshots: use one only if it makes exceptional cover art with no UI, HUD, or browser chrome. An art prompt is a complete handoff; keep publishing.
+Available tag IDs: ${(newGameConnection.tag_catalog||[]).map(t=>t.id).join(', ')}. Choose a few fitting defaults. Test the game's complete control schemes and declare input_methods through the metadata API as described in docs/game-metadata.md. Set orientation in infuser.game.json to landscape or portrait for the game’s intended mobile layout, and set resolution to "native" once the game caps its own 3D render buffer (or is a lightweight 2D game) or leave the default "hd" 1080p player cap. Save a short factual game description through the metadata API. For every game type and engine: if high-quality image generation is not your strength, prefer a detailed art_prompt in game metadata for an Infuser art agent to fulfill later. Describe the real game's subjects, composition, style, palette, and mood. Otherwise upload high-quality art meeting the art spec. Do not spend time staging screenshots: use one only if it makes exceptional cover art with no UI, HUD, or browser chrome. An art prompt is a complete handoff; keep publishing.
 
 Build with this project's tools, publish, and verify publication_state and metadata with the publisher API. Run available local checks; test live launch, saves, guest play, and multiplayer only if an authorized game test session is already available. A missing Google login is not a blocker: do not ask me to log in for your automation or share Google credentials, cookies, or account access. Finish publication and mark unavailable live checks as untested. Use the publishing recipe; report missing server capabilities instead of trying to administer the Infuser host. Tell me what is active, queued, or untested, whether artwork is requested, and any reported platform issue links. Invite me to open ${newGameConnection.api_url} and press Play myself.`;
   $('add-game-title').textContent='Bring your game';
@@ -1506,11 +1966,25 @@ $('another-game').onclick=()=>{if(setupPending)return;newGameConnection=null;pre
 function tagLabel(id){return library?.tags?.find(t=>t.id===id)?.label||id.split('-').map(w=>w[0]?.toUpperCase()+w.slice(1)).join(' ');}
 function renderFilters(){
   const nav=$('tag-filters');if(nav.querySelector('.tag-overflow-panel:popover-open'))return;
+  const starredCount=(library.apps||[]).filter(g=>g.starred).length;
+  if(activeTag===STARRED_FILTER&&!starredCount)activeTag='';
   const tags=(library.tags||[]).filter(tag=>tag.count||activeTag===tag.id);
-  const signature=JSON.stringify([activeTag,tags.map(({id,label})=>[id,label])]);
+  const signature=JSON.stringify([activeTag,starredCount,tags.map(({id,label})=>[id,label])]);
   if(signature===filterSignature)return;filterSignature=signature;
   const focused=document.activeElement,focusedId=focused.dataset.tag;
   nav.replaceChildren();
+  if(starredCount>0){
+    const selected=activeTag===STARRED_FILTER;
+    const button=el('button',undefined,'tag-filter tag-starred'+(selected?' selected':''));
+    button.type='button';
+    button.dataset.tag=STARRED_FILTER;
+    button.setAttribute('aria-pressed',String(selected));
+    button.setAttribute('aria-label',`Starred (${starredCount})`);
+    button.innerHTML=starSvg;
+    button.append(el('span','Starred'),el('span',String(starredCount),'tag-starred-count'));
+    button.onclick=()=>{activeTag=activeTag===STARRED_FILTER?'':STARRED_FILTER;renderFilters();renderGames();};
+    nav.append(button);
+  }
   for(const tag of [{id:'',label:'All games'},...tags]){
     const selected=activeTag===tag.id,button=el('button',tag.label,'tag-filter'+(selected?' selected':''));
     button.dataset.tag=tag.id;button.setAttribute('aria-pressed',String(selected));
@@ -1608,9 +2082,26 @@ function reactionBurst(target,emoji){
   hero.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{offset:.2,transform:'translate(-50%,-60%) scale(1.45) rotate(-12deg)',opacity:1},{offset:.5,transform:'translate(-50%,-65%) scale(1.1) rotate(6deg)',opacity:1},{transform:'translate(-50%,-110%) scale(.9)',opacity:0}],{duration:850,easing:'ease-out',fill:'forwards'});
   setTimeout(()=>burst.remove(),950);
 }
+function turkeyStampede(){
+  const flock=el('div',undefined,'reaction-burst turkey-stampede');flock.setAttribute('popover','manual');flock.setAttribute('aria-hidden','true');document.body.append(flock);flock.showPopover();
+  const count=innerWidth<600?12:20;
+  for(let i=0;i<count;i++){
+    const turkey=el('span','🦃','stampede-turkey'),reverse=i%5===0,size=34+(i%4)*12;
+    const from=reverse?innerWidth+size:-size*2,to=reverse?-size*2:innerWidth+size;
+    const lane=innerHeight*(.18+(i%5)*.14),drift=(i%3-1)*70;
+    turkey.style.fontSize=size+'px';flock.append(turkey);
+    const frames=Array.from({length:25},(_,step)=>{
+      const t=step/24,bounce=Math.abs(Math.sin(t*Math.PI*12))*18;
+      return {offset:t,transform:`translate(${from+(to-from)*t}px,${lane+drift*t-bounce}px) scaleX(${reverse?1:-1}) rotate(${Math.sin(t*Math.PI*16)*14}deg)`,opacity:t<.94?1:(1-t)/.06};
+    });
+    turkey.animate(frames,{duration:1700+(i%4)*180,delay:(i%7)*100,easing:'linear',fill:'both'});
+  }
+  setTimeout(()=>flock.remove(),3100);
+}
 function updateConfetti(target){
   document.querySelector('.reaction-burst')?.remove();
   if(!target.isConnected||reactionMotion.matches||document.hidden)return;
+  if(window.InfuserThemes?.seasonalLocked){turkeyStampede();return;}
   const bounds=target.getBoundingClientRect(),x=bounds.left+bounds.width/2,y=bounds.top+bounds.height/2;
   const burst=el('div',undefined,'reaction-burst update-confetti');burst.setAttribute('popover','manual');burst.setAttribute('aria-hidden','true');document.body.append(burst);burst.showPopover();
   const colors=['#ff668a','#ffc857','#62dfb0','#66b8ff','#b38aff','#ff914d'];

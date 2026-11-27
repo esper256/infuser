@@ -1,0 +1,51 @@
+/* One-day harvest-night celebration; saved profile appearance stays untouched. */
+@font-face{font-family:Thankfuser;src:url('/assets/themes/cartridge-club/fredoka-600-latin.woff2') format('woff2');font-weight:600;font-display:swap}
+[data-theme="thanksgiving"]{
+  color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --page:#19100d;--panel:#2b1c16;--field:#21150f;--detail-panel:#302019;--surface:#3b291e;
+  --feedback-bubble:#433027;--line:#73543b;--ink:#fff2dc;--quiet:#d2b99b;--accent:#ffc36d;--accent-hover:#ffda98;--accent-pressed:#e9a747;
+  --button-ink:#2b170a;--green:#b4d58b;--presence-online:#b4d58b;--warm:#ef956f;--focus:#f6daa0;
+  --glass:linear-gradient(135deg,#42291eef,#281b16f5);--card-dock:linear-gradient(125deg,#694028e8,#302019f5);
+  --browser-chrome:#19100d;--page-glow-1:#b952262c;--page-glow-2:#9f332325;
+  --secondary-bg:#443022;--secondary-hover:#5a3d29;--secondary-ink:#ffe9c6;
+  --add-bg:#503423;--add-border:#b9854a;--add-hover-bg:#69452a;--add-hover-border:#ffc36d;
+  --header-line:#b9854a55;--search-bg:#21150f;--search-border:#73543b;
+  --dock-border:#ce93544d;--dock-top-border:#ffce8180;--self-glow-1:#ffc36d28;--self-glow-2:#ffc36d40;
+  --dialog-border:#96704b;--dialog-top-border:#ffd69c;--notice-bg:#513622f5;--notice-border:#bd8955;
+  --own-bubble-tint:#ee9b6c;--own-meta-ink:#ffd5a5;--tag-pill-bg:#2b1b13dd;
+  --label-ink:#f1d9b8;--placeholder-ink:#c7a98d;--input-hover-border:#ac8054;--input-focus-border:#ffcf89;
+  --text-button-ink:#e3c298;--close-ink:#ead1ae;
+}
+[data-theme="thanksgiving"] body{
+  background:radial-gradient(ellipse at 5% 0,#b9522638,transparent 55%),radial-gradient(ellipse at 95% 30%,#8632262b,transparent 55%),repeating-linear-gradient(115deg,#ffda9803 0 1px,transparent 1px 12px),var(--page);
+}
+[data-theme="thanksgiving"] header{border-bottom:1px solid var(--header-line)}
+[data-theme="thanksgiving"] .brand-wordmark{text-decoration:none}
+[data-theme="thanksgiving"] .brand-wordmark>img{display:none}
+[data-theme="thanksgiving"] .thankfuser-wordmark{display:block;width:150px;font-family:Thankfuser,system-ui,sans-serif;font-size:28px;font-weight:600;letter-spacing:-1px;line-height:1.2;color:#ffdda1;text-shadow:0 2px 0 #743b1b,0 0 22px #f9ab4333}
+[data-theme="thanksgiving"] .brand-icon{content:url('/assets/themes/thanksgiving/turkey.png');width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 2px 5px #0007)}
+[data-theme="thanksgiving"] .chooser-brand>img{content:url('/assets/themes/thanksgiving/turkey.png');object-fit:contain}
+[data-theme="thanksgiving"] .chooser-brand>span{font-family:Thankfuser,system-ui,sans-serif;color:#ffdda1}
+[data-theme="thanksgiving"] #recent-toggle::before{background:conic-gradient(from 0deg,#ffc36d00,#e9793a,#ffdb91,#cc5944,#ffc36d00)}
+[data-theme="thanksgiving"] .game{background:#362319;border-color:#c58a4e66;box-shadow:0 16px 35px #08030266,inset 0 1px 0 #ffe2af12}
+[data-theme="thanksgiving"] .game .actions{border-color:var(--dock-border)}
+[data-theme="thanksgiving"] .game-title,[data-theme="thanksgiving"] #game-detail-title{color:#fff0d7}
+[data-theme="thanksgiving"] .tag-filter{background:#38271d;border-color:#816041;color:#f0d6b2}
+[data-theme="thanksgiving"] .tag-filter.selected{background:#ffc36d;color:#2b170a;border-color:#ffdc9c}
+[data-theme="thanksgiving"] .tag-chip{background:var(--tag-pill-bg);border-color:#ba855256;color:#f2d7b5}
+[data-theme="thanksgiving"] .chat-bubble{background:#433027;color:#fff2dc;border-color:#886247}
+[data-theme="thanksgiving"] .chat-message.mine .chat-bubble{background:#573821}
+[data-theme="thanksgiving"] .chat-meta{color:#dcc4a5}
+[data-theme="thanksgiving"] .admin-region{background:#2b1c16;border-color:#73543b}
+[data-theme="thanksgiving"] .admin-region>summary:hover{background:#432e20}
+[data-theme="thanksgiving"] .house-call-profiles{color:var(--ink)}
+[data-theme="thanksgiving"] .presence-person{--presence-online:#b4d58b}
+[data-theme="thanksgiving"] .turkey-stampede{contain:strict}
+@media(max-width:650px){[data-theme="thanksgiving"] .thankfuser-wordmark{width:110px;font-size:22px}}
+@media(forced-colors:active){[data-theme="thanksgiving"] .thankfuser-wordmark{color:CanvasText;text-shadow:none}}
+
+[data-theme="thanksgiving"] .feed-row{background:#36251c;border-color:#806040;color:var(--ink)}
+[data-theme="thanksgiving"] .feed-entry:nth-child(3n+2) > .feed-row,
+[data-theme="thanksgiving"] .feed-row:nth-child(3n+2){background:#422d20;border-color:#96704b}
+[data-theme="thanksgiving"] .feed-row small{color:#edd6b8}
+[data-theme="thanksgiving"] .feed-row p{color:#d2b99b}

@@ -1,10 +1,19 @@
+import {connectedPads} from '/_infuser/sdk/v1/gamepads.js';
+import { clientUpdateAction } from '/_infuser/client-updates.js';
 import { watchInput } from '/_infuser/activity-input.js';
 import { initScreenshotCapture } from '/_infuser/screenshot-capture.js';
+// Capture fetch and consume the per-page voice token before the game iframe loads.
+
+const voiceTokenMeta = document.querySelector('meta[name="infuser-voice-token"]');
+const playerVoiceToken = voiceTokenMeta?.content || '';
+voiceTokenMeta?.remove();
 const title=document.getElementById('title'),game=document.getElementById('game'),status=document.getElementById('status'),button=document.getElementById('fullscreen');
 const viewport=document.getElementById('viewport'),resolutionButton=document.getElementById('resolution');
 const MAX_RENDER_PIXELS=1920*1080;
-let hdCap=true,currentAppId=null;
+let hdCap=true,currentAppId=null,diagnostics;
 window.infuserHdCap=()=>hdCap;
+try{const {recorder}=await import('/_infuser/telemetry.js');diagnostics=recorder({source:'player',endpoint:'/_infuser/telemetry',scope:document.documentElement.dataset.diagnosticLaunch});}catch{}
+const playerFetch=window.fetch.bind(window);
 function resolutionChoiceMatters(){
   const rect=viewport.getBoundingClientRect(),area=rect.width*rect.height;
   if(!(area>0))return true;
@@ -75,16 +84,25 @@ resolutionButton?.addEventListener('click',()=>{
 function onViewportResize(){syncResolutionButton();fitViewport();}
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(onViewportResize).observe(viewport);
 addEventListener('resize',onViewportResize);
-function message(text){status.textContent=text;status.hidden=!text;}
+let sessionEnded=false;
+let updateMessage='',visitMessage='';
+function message(text){
+  if(sessionEnded)return;
+  const notice=visitMessage||text||updateMessage;
+  status.textContent=notice;status.hidden=!notice;
+}
 const header = document.getElementById('player-header');
 const edge = document.getElementById('controls-edge');
 const playerFullscreen = () => document.fullscreenElement === document.documentElement;
 let hideTimer;
 let swipe;
 let keyboardControls = false;
+let voiceMenuOpen = false;
 
 function hideControls() {
   clearTimeout(hideTimer);
+  if (sessionEnded) { showControls(); return; }
+  if (voiceMenuOpen) return;
   header.removeAttribute('data-open');
   header.inert = playerFullscreen();
   if (playerFullscreen() && header.contains(document.activeElement)) game.focus();
@@ -94,7 +112,7 @@ function showControls() {
   clearTimeout(hideTimer);
   header.inert = false;
   header.toggleAttribute('data-open', true);
-  if (!keyboardControls && !game.hidden) hideTimer = setTimeout(hideControls, 3500);
+  if (!sessionEnded && !keyboardControls && !voiceMenuOpen && !game.hidden) hideTimer = setTimeout(hideControls, 3500);
 }
 // Capture just the top edge. The game iframe owns gestures everywhere else.
 edge.addEventListener('pointerdown', event => {
@@ -199,7 +217,7 @@ addEventListener('pagehide', event => {
   if (!event.persisted && page) {
     // Keep the same-origin POST alive as the tab closes. The player response
     // suppresses referrers by default; the endpoint verifies the request Origin.
-    fetch('/_infuser/player-pages/'+page+'/close', {
+    playerFetch('/_infuser/player-pages/'+page+'/close', {
       method:'POST', keepalive:true, credentials:'same-origin', referrerPolicy:'same-origin'
     }).catch(()=>{}); // The heartbeat timeout covers missed departures.
   }
@@ -224,10 +242,12 @@ document.addEventListener('fullscreenchange',()=>{
   button.setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');
 });
 try{
-  const response=await fetch('/_infuser/context',{credentials:'same-origin'});
+  const response=await playerFetch('/_infuser/context',{credentials:'same-origin'});
   const session=await response.json();
-  if(!response.ok)throw Error(session.error||'Open this game again from your Library.');
+  if(!response.ok)throw Error(session.error?.message||session.error||'Open this game again from your Library.');
+  diagnostics?.link('launch').set('up');
   currentAppId=session.app_id||null;
+
   let savedHd=null;
   if(currentAppId){try{savedHd=localStorage.getItem('infuser.hd.'+currentAppId);}catch{}}
   hdCap=savedHd==='1'?true:savedHd==='0'?false:session.manifest.resolution!=='native';
@@ -252,7 +272,29 @@ try{
   // A separate viewport keeps fixed canvases and 100vh layouts below the bar.
   // Both documents stay on the existing isolated game origin; no portal cookies.
   if(!session.guest){
-    const report=()=>fetch('/_infuser/input',{method:'POST',credentials:'same-origin'});
+    if(playerVoiceToken){
+      void import('/_infuser/player-voice.js').then(({ initGameVoice }) => {
+        initGameVoice({
+          header,
+          anchorBefore: resolutionButton,
+          voiceToken: playerVoiceToken,
+          fetchFn: playerFetch,
+          onPopoverChange(isOpen) {
+            voiceMenuOpen = isOpen;
+            if (isOpen) {
+              clearTimeout(hideTimer);
+              if (playerFullscreen()) showControls();
+            } else if (playerFullscreen() && header.hasAttribute('data-open')) {
+              showControls();
+            }
+          },
+          onCloseFocus() {
+            if (!game.hidden) game.contentWindow?.focus();
+          },
+        });
+      }).catch(() => { /* Voice controls are optional and must never block game launch. */ });
+    }
+    const report=async()=>{if(!sessionEnded)await playerFetch('/_infuser/input',{method:'POST',credentials:'same-origin'});};
     const padActive=watchInput(document,report);
     game.addEventListener('load',()=>{
       const doc=game.contentDocument;
@@ -260,10 +302,6 @@ try{
     });
     // Gamepad input does not produce DOM key or pointer events.
     let padTimer;
-    function connectedPads(){
-      try{return Array.from(navigator.getGamepads?.()||[]).filter(Boolean);}
-      catch{return [];} // Some embedding policies disable gamepad access.
-    }
     function checkPads(){
       if(document.hidden||!document.hasFocus())return;
       const pads=connectedPads();
@@ -274,31 +312,117 @@ try{
     if(connectedPads().length)padTimer=setInterval(checkPads,1000);
   }
   const initialDoc=game.contentDocument;
-  const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc)tuneGraphics(game.contentWindow);},5);
-  game.addEventListener('load',()=>{clearInterval(hookTimer);tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
+  const hookTimer=setInterval(()=>{if(game.contentDocument&&game.contentDocument!==initialDoc){diagnostics?.hook(game.contentWindow,'game');tuneGraphics(game.contentWindow);}},5);
+  const tabNotice=document.getElementById('other-tabs');
+  let dismissedTabs=false;
+  tabNotice.querySelector('button').onclick=()=>{
+    dismissedTabs=true;
+    tabNotice.hidden=true;
+  };
+  function showTabNotice({others,unsaved}){
+    if(!Number.isSafeInteger(others)||others<0||typeof unsaved!=='boolean')return;
+    if(others===0)dismissedTabs=false;
+    tabNotice.hidden=sessionEnded||others===0||dismissedTabs;
+    if(!tabNotice.hidden){
+      const text='This game is also open in another tab.'+
+        (unsaved?' You have unsaved work here. Save it before switching tabs.':'');
+      const label=tabNotice.querySelector('span');
+      if(label.textContent!==text)label.textContent=text;
+    }
+  }
+  let checkTimer;
+  // A missing or unrecognized launch (401/404) can already have been cleaned up.
+  // Keep the observed status without guessing why it disappeared.
+  const heartbeatEndReasons=new Map([[401,undefined],[403,session.visit?'visit_end':'access_lost'],
+    [404,undefined],[409,'server_ended'],[410,'timeout']]);
+  const denialLinkReasons=new Map([
+    ['stale','timeout'],['visit_ended','visit_end'],['signed_out','access_lost'],
+    ['profile_disabled','access_lost'],['access_revoked','access_lost'],['device_unpaired','access_lost']
+  ]);
+  function endSession({status:httpStatus, reason, message}){
+    const linkReason=reason?denialLinkReasons.get(reason):heartbeatEndReasons.get(httpStatus);
+    if(sessionEnded)return;
+    sessionEnded=true;tabNotice.hidden=true;
+    diagnostics?.link('launch').set('ended',linkReason,{status:httpStatus});
+    clearInterval(hookTimer);clearInterval(checkTimer);
+    gameOrientation=null;releaseOrientation();game.inert=true;
+    if(session.visit){game.hidden=true;game.removeAttribute('src');}
+    button.disabled=true;document.getElementById('screenshot').disabled=true;
+    status.hidden=true;
+    const ended=document.getElementById('session-ended');
+    ended.querySelector('h1').textContent=message||(session.visit?'This visit has ended.':'This game session ended.');
+    const back=ended.querySelector('a');back.href=session.library_url;
+    ended.hidden=false;showControls();back.focus();
+  }
+  const stamp=document.querySelector('meta[name="infuser-client-version"]');
+  let reloading=false,gameUpdate=false,platformUpdate=false;
+  function updateNotice(){
+    const showingUpdate=status.hidden || status.textContent===updateMessage;
+    const title=session.manifest.title;
+    if(gameUpdate && platformUpdate)updateMessage=`Infuser and ${title} have been updated. Reopen the game at your next break.`;
+    else if(gameUpdate)updateMessage=`A new version of ${title} is ready. Reopen it at your next break.`;
+    else if(platformUpdate)updateMessage='Infuser has been updated. Reopen this game at your next break.';
+    else updateMessage='';
+    if(showingUpdate)message('');
+  }
+  function clientUpdate(state){
+    if(!state || reloading)return;
+    const action=clientUpdateAction(stamp,state);
+    if(action==='reload'){
+      reloading=true;diagnostics?.markUpdate();location.reload();
+    }else if(platformUpdate!==(action==='available')){
+      platformUpdate=action==='available';updateNotice();
+    }
+  }
+  function updateAvailable(){
+    if(gameUpdate)return;
+    gameUpdate=true;updateNotice();
+  }
+  clientUpdate(session.runtime?.client_update);
+  if(session.runtime?.update_available)updateAvailable();
+  window.addEventListener('message',event=>{
+    if(event.origin!==location.origin || event.source!==game.contentWindow)return;
+    if(event.data?.type==='infuser-tabs'){showTabNotice(event.data);return;}
+    if(event.data?.type==='infuser-client-update'){clientUpdate(event.data);return;}
+    if(event.data?.type==='infuser-update-available'){updateAvailable();return;}
+    if(event.data?.type!=='infuser-session-error')return;
+    endSession(event.data);
+  });
+  game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
   if(session.visit){
-    let checked=performance.now(),checkedWall=Date.now(),ended=false,checking=false;
-    const end=()=>{if(ended)return;ended=true;gameOrientation=null;releaseOrientation();game.removeAttribute('src');game.hidden=true;button.disabled=true;document.getElementById('screenshot').disabled=true;showControls();message('This visit has ended. Return to your Library.');};
-    const watch=()=>{if(Math.max(performance.now()-checked,Date.now()-checkedWall)>=30000)end();};
+    let checking=false;
     async function check(){
-      watch();if(ended||checking)return;checking=true;
+      if(sessionEnded||checking)return;checking=true;
       try{
-        const r=await fetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
-        if([401,403,404,410].includes(r.status)){end();return;}
-        if(r.ok){const state=await r.json();watch();if(!ended){checked=performance.now();checkedWall=Date.now();if(state.visit){const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);message(left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'');}}}
-      }catch{watch();}finally{checking=false;}
+        const r=await playerFetch('/_infuser/api/v1/heartbeat',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(5000)});
+        if(r.headers.get('Infuser-Session')==='ended'){
+          const body=await r.json().catch(()=>null);
+          endSession({status:r.status, reason:body?.error?.reason, message:body?.error?.message});
+          return;
+        }
+        if(r.ok){
+          const state=await r.json();if(sessionEnded)return;
+          if(state.visit){
+            const left=Math.ceil((state.visit.expires_at-Date.now()/1000)/60);
+            visitMessage=left<=5?`Visit ends in ${Math.max(0,left)} min. Save your progress.`:'';
+            message('');
+          }
+          clientUpdate(state.client_update);
+          if(state.update_available)updateAvailable();
+        }
+      }catch{/* Offline is not a server denial. */}finally{checking=false;}
     }
-    setInterval(watch,500);setInterval(check,5000);
-    document.addEventListener('visibilitychange',()=>{watch();if(!document.hidden)check();});
+    checkTimer=setInterval(check,5000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)void check();});
   }
-}catch(error){title.textContent='Game unavailable';message(error.message);}
+}catch(error){diagnostics?.loadFailed(error);title.textContent='Game unavailable';message(error.message);}
 const connection=document.createElement('span');connection.id='connection';connection.hidden=true;
 connection.setAttribute('role','img');button.before(connection);
 window.addEventListener('message',event=>{
   if(event.origin!==location.origin||event.source!==game.contentWindow||event.data?.type!=='infuser-network')return;
   const descriptions={connected:'Connected',connecting:'Connecting',ended:'Multiplayer disconnected'};
   const state=event.data.status;if(!descriptions[state])return;
-  connection.hidden=false;connection.textContent=state==='connected'?'●':state==='connecting'?'◌':'○';
+  diagnostics?.multiplayer(state);connection.hidden=false;connection.textContent=state==='connected'?'●':state==='connecting'?'◌':'○';
   connection.dataset.state=state;connection.title=descriptions[state];connection.setAttribute('aria-label',descriptions[state]);
 });

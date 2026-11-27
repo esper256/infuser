@@ -75,6 +75,7 @@ pub(super) fn visible(
 pub(super) fn routes() -> Router<Platform> {
     Router::new()
         .route("/api/operator/groups", get(list).post(create))
+        .route("/api/operator/groups/{id}", put(rename))
         .route("/api/operator/health", get(health))
         .route(
             "/api/operator/update",
@@ -182,6 +183,62 @@ async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         json!({"groups":d.groups.names.iter().map(|(id,name)| json!({"id":id,"name":name,"home":d.groups.member(&email)==id})).collect::<Vec<_>>()}),
     ))
 }
+fn group_name(raw: &str) -> Result<&str> {
+    let name = raw.trim();
+    ensure!(
+        !name.is_empty()
+            && name.chars().count() <= 60
+            && !name.chars().any(|c| c.is_control()
+                || matches!(c,
+                    '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' |
+                    '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' |
+                    '\u{feff}' | '\u{3164}' | '\u{2800}'
+                )),
+        fault(422, "Use a group name of 1–60 characters.")
+    );
+    Ok(name)
+}
+
+fn ensure_unique_name(
+    groups: &platform::groups::Groups,
+    name: &str,
+    own_id: Option<&str>,
+) -> Result<()> {
+    ensure!(
+        !groups
+            .names
+            .iter()
+            .any(|(id, other)| Some(id.as_str()) != own_id && unicase::eq(other.trim(), name)),
+        fault(409, "Another group already uses that name.")
+    );
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Rename {
+    name: String,
+}
+async fn rename(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<Rename>,
+) -> Answer {
+    let actor = p.operator(&h, true).await?;
+    let name = group_name(&body.name)?;
+    p.db.edit(|d| {
+        ensure!(
+            d.groups.names.contains_key(&id),
+            fault(404, "Group not found.")
+        );
+        ensure_unique_name(&d.groups, name, Some(&id))?;
+        d.groups.names.insert(id.clone(), name.into());
+        Ok(())
+    })?;
+    tracing::info!(actor=%actor, group=%id, "operator renamed group");
+    Ok(reply(json!({"id":id,"name":name})))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Create {
@@ -190,7 +247,7 @@ struct Create {
     admin_name: String,
 }
 async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create>) -> Answer {
-    p.operator(&h, true).await?;
+    let actor = p.operator(&h, true).await?;
     ensure!(
         p.config().controller.private_groups,
         fault(
@@ -198,15 +255,13 @@ async fn create(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Create
             "Enable private_groups in the host configuration first."
         )
     );
-    let name = body.name.trim();
-    ensure!(
-        !name.is_empty() && name.chars().count() <= 60 && !name.chars().any(char::is_control),
-        fault(422, "Use a group name of 1–60 characters.")
-    );
+    let name = group_name(&body.name)?;
     let id = format!("group-{}", &secret()[..12]);
     p.db.edit(|d| {
+        ensure_unique_name(&d.groups, name, None)?;
         d.groups.names.insert(id.clone(), name.into());
         d.invite_to_group(&id, &body.admin_email, &body.admin_name, true, true)
     })?;
+    tracing::info!(actor=%actor, group=%id, "operator created group");
     Ok(reply(json!({"id":id,"name":name})))
 }

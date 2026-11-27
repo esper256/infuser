@@ -39,6 +39,7 @@ fn fault(status: u16, message: &str) -> anyhow::Error {
 }
 
 pub struct Controller {
+    pub timeline: Arc<crate::timeline::Timeline>,
     pub deployment: crate::deployment::Tracker,
     pub maintenance: Arc<crate::maintenance::Gate>,
     pub probation: Arc<crate::probation::Gate>,
@@ -119,6 +120,7 @@ impl Controller {
         store.save(&state)?;
         let probation = crate::probation::Gate::load(&config.controller.state_dir);
         Ok(Self {
+            timeline: Arc::new(crate::timeline::Timeline::new(&config.controller)),
             deployment: crate::deployment::Tracker::open(&config.controller.state_dir)?,
             maintenance: Default::default(),
             probation,
@@ -134,6 +136,16 @@ impl Controller {
         })
     }
 
+    pub(crate) fn runtime_attempt(&self, id: &str) -> Option<String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .1
+            .games
+            .get(id)
+            .filter(|i| i.reserved())
+            .map(|i| i.attempt.clone())
+    }
     pub fn snapshot(&self) -> State {
         self.inner.lock().unwrap().1.clone()
     }
@@ -526,6 +538,13 @@ impl Controller {
                     }
                 }
                 if i.phase != before {
+                    let context = crate::timeline::ContextFields {
+                        app: id.clone(),
+                        attempt: i.attempt.clone(),
+                        ..Default::default()
+                    };
+                    let change = serde_json::json!({"state": i.phase, "previous": before});
+                    self.timeline.record(crate::timeline::Event::server("runtime.transition", context, change, true));
                     tracing::info!(app_id = %id, attempt = %i.attempt, image = %i.spec.image,
                         from = ?before, to = ?i.phase, error = ?i.error, "Game lifecycle transition");
                 }

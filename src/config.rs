@@ -20,6 +20,7 @@ pub struct Config {
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub state_dir: PathBuf,
+    pub diagnostics_dir: Option<PathBuf>,
     pub token_file: PathBuf,
     pub public_host: String,
     pub domain: String,
@@ -88,6 +89,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             state_dir: "/var/lib/infuser".into(),
+            diagnostics_dir: None,
             token_file: "/etc/infuser/control.secret".into(),
             public_host: "games.example.com".into(),
             domain: "games.example.com".into(),
@@ -225,6 +227,16 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         let s = &self.controller;
+        if let Some(path) = &s.diagnostics_dir {
+            ensure!(
+                path.is_absolute()
+                    && !path
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                    && !path.starts_with(&s.state_dir),
+                "diagnostics_dir must be an absolute path outside state_dir"
+            );
+        }
         if let Some(voice) = &s.voice {
             ensure!(
                 voice.key_file.is_absolute(),

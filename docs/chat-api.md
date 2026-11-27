@@ -33,6 +33,46 @@ before every response, including 304. Mutations use `no-store`.
   Missing messages return 404. Unknown JSON fields and invalid text return 422;
   request bodies over 4 KiB return 413.
 
+## House calls
+
+`GET /api/house-calls` returns only `{images:[{id,label}]}` for shipped images
+that are enabled and allowed for the current profile in its own group. An off,
+not-allowed, visiting or inspecting view returns an empty list. No topic,
+tags, message templates, cooldowns, profile allowlists or quiet hours are in
+this response.
+
+`POST /api/chat` also accepts `{client_id,house_call:IMAGE_ID}`. It shares the
+normal channel authorization, rate limit, retry ID, retention and deletion path.
+A house call cannot include text or a screenshot. Unknown, disabled or disallowed
+IDs return 422. Stored cards appear in chat as `house_call:{id,label}` with
+`house_call_triggered:true` only if the server queued a notification in the same
+transaction. Cooldown, quiet-hours and full-queue suppression still save the card
+with a false flag. Clients must celebrate only new live messages, never history.
+
+`GET /api/admin/house-calls` requires an admin of that group and returns
+`{topic_set,images,profiles,quiet_hours}`. Each image has
+`{id,enabled,label,tag,message,cooldown_minutes,profiles:[PROFILE_ID]}`; `profiles`
+at the top level contains eligible local `{id,name}` choices. `quiet_hours` is
+null or `{start:"HH:MM",end:"HH:MM",timezone:IANA_ZONE}`. The topic URL is never
+returned, including to admins and inspection sessions from other groups.
+
+`PUT /api/admin/house-calls` accepts `{images,quiet_hours,topic_url?}`. Supply every
+shipped image; omitted `topic_url` preserves the secret, a nonempty HTTP(S) URL
+replaces it, and `""` clears it. The same member/Origin/inspection rules apply to
+writes; no operator privilege substitutes for membership and admin rights in
+that group. Cooldowns are 0–10080 minutes, labels 1–80 characters, tags up to 80
+ASCII letters/digits/dashes/underscores, and message templates up to 4096 UTF-8
+bytes. `{{profile}}` expands literally to the authenticated sending profile's
+display name; the expanded body is capped at a UTF-8 boundary at 4096 bytes.
+
+The per-group settings, cooldown reservations and bounded outbox live in the
+server SQLite state. A background worker POSTs the tag in the ntfy `Tags` header
+and expanded text as the body, with redirects disabled and a three-second timeout.
+There is one attempt; failures log no URL, request or response body. Quiet hours
+are checked both when queueing and before dispatch. Claimed requests are not
+replayed after a crash. Only shared image assets are public under
+`/assets/house-calls/ID.png`.
+
 ## Notifications
 
 `GET /api/notifications` returns `{public_key}`. `PUT` with `{endpoint}` enables

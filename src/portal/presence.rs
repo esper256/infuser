@@ -149,7 +149,7 @@ pub(super) fn live_launches(data: &platform::Data, app: &str, time: u64) -> BTre
         .filter(|(_, l)| {
             l.runtime_id() == app
                 && l.exchanged
-                && l.expires > time
+                && l.live(time)
                 && data.profile_enabled(&l.email)
                 && data.launch_allowed(l, time)
         })
@@ -250,9 +250,9 @@ pub(super) async fn snapshot(State(p): State<Platform>, h: HeaderMap) -> Answer 
         Some("unsupported_topology")
     } else if !dedicated && p.relay.is_none() {
         Some("relay_unavailable")
-    } else if !data
+    } else if data
         .deployed(launch.runtime_id())
-        .is_some_and(|a| a.build == launch.build)
+        .is_none_or(|a| a.build != launch.build)
     {
         Some("newer_build")
     } else if dedicated && data.pending_promotions.contains_key(launch.runtime_id()) {

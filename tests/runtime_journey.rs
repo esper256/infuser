@@ -97,7 +97,13 @@ impl Player {
             .bearer_auth(&self.token)
     }
 }
-async fn launch(http: &reqwest::Client, url: &str, app: &str, guest: bool) -> Result<Player> {
+async fn launch(
+    http: &reqwest::Client,
+    url: &str,
+    app: &str,
+    guest: bool,
+    initial_state: &str,
+) -> Result<Player> {
     let value: Value = http
         .post(format!("{url}/api/apps/{app}/launch"))
         .header("host", HOST)
@@ -109,7 +115,10 @@ async fn launch(http: &reqwest::Client, url: &str, app: &str, guest: bool) -> Re
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(value["state"], "ready");
+    assert_eq!(value["state"], initial_state);
+    exchange(http, url, &value).await
+}
+async fn exchange(http: &reqwest::Client, url: &str, value: &Value) -> Result<Player> {
     let link = reqwest::Url::parse(value["url"].as_str().unwrap())?;
     let player = Player {
         host: link.host_str().unwrap().into(),
@@ -222,8 +231,8 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     )
     .await?;
     assert_eq!(caps["runtime_sessions"]["version"], 1);
-    let a = launch(&http, &url, "moon", false).await?;
-    let b = launch(&http, &url, "moon", true).await?;
+    let a = launch(&http, &url, "moon", false, "ready").await?;
+    let b = launch(&http, &url, "moon", true, "ready").await?;
     let context = value(a.request(&http, &url, Method::GET, "/_infuser/context")).await?;
     assert_eq!(context["runtime"]["state"], "ready");
     assert_eq!(context["runtime"]["server"]["state"], "idle");
@@ -255,6 +264,33 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     let first = value(a.request(&http, &url, Method::POST, "/_infuser/runtime/v1")).await?;
     assert_eq!(first["state"], "starting");
     assert!(first.get("lease_token").is_none());
+    // Age the browser past its liveness deadline while its server lease stays live.
+    let id = db.find_launch(&platform::hash(&a.token), &a.host, now())?.0;
+    db.edit(|d| {
+        let row = d.launches.get_mut(&id).unwrap();
+        row.seen = now() - 600;
+        row.expires = row.seen + 300;
+        Ok(())
+    })?;
+    p.cleanup_launches()?;
+    value(
+        a.request(&http, &url, Method::PUT, "/_infuser/api/v1/saves/wake")
+            .json(&json!({"version":0,"data":{"level":8}})),
+    )
+    .await?;
+    assert!(
+        db.read()?.launches[&id].expires < now(),
+        "saving alone is not presence"
+    );
+    let resumed = value(a.request(&http, &url, Method::POST, "/_infuser/api/v1/heartbeat")).await?;
+    assert_eq!(resumed["server"]["session_id"], first["session_id"]);
+    assert_eq!(controller.snapshot().games["moon"].leases.len(), 1);
+    let revived = db.read()?;
+    assert_eq!(
+        revived.presence["user@example.com"],
+        revived.launches[&id].seen
+    );
+    assert!(revived.launches[&id].expires > now());
     let duplicate = value(a.request(&http, &url, Method::POST, "/_infuser/runtime/v1")).await?;
     assert_eq!(
         first["session_id"], duplicate["session_id"],
@@ -283,7 +319,7 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         format!("127.0.0.1:{}", controller.snapshot().games["moon"].port)
     );
     // Reading context/heartbeating never hands out a backend endpoint for a title-only launch.
-    let title = launch(&http, &url, "moon", true).await?;
+    let title = launch(&http, &url, "moon", true, "ready").await?;
     assert_eq!(
         value(title.request(&http, &url, Method::GET, "/_infuser/runtime/v1")).await?["state"],
         "idle"
@@ -380,15 +416,14 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
             .status(),
         409
     );
-    assert_eq!(
-        value(a.request(&http, &url, Method::POST, "/_infuser/heartbeat")).await?["state"],
-        "ready"
-    );
+    let heartbeat = value(a.request(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
+    assert_eq!(heartbeat["state"], "ready");
+    assert_eq!(heartbeat["update_available"], true);
     assert_eq!(
         value(a.request(&http, &url, Method::GET, "/_infuser/saves/progress")).await?["data"]["stars"],
         7
     );
-    let fresh = launch(&http, &url, "moon", true).await?;
+    let fresh = launch(&http, &url, "moon", true, "ready").await?;
     value(fresh.request(&http, &url, Method::POST, "/_infuser/runtime/v1")).await?;
     controller.reconcile(now()).await?;
     // Expiring server leases must leave guest saves and the title screen alive.
@@ -417,7 +452,7 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
     )
     .await?;
     assert_eq!(legacy["state"], "starting");
-    let blocked = launch(&http, &url, "moon", true).await?;
+    let blocked = launch(&http, &url, "moon", true, "ready").await?;
     assert_eq!(
         blocked
             .request(&http, &url, Method::POST, "/_infuser/runtime/v1")
@@ -430,6 +465,77 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
         value(blocked.request(&http, &url, Method::GET, "/_infuser/context")).await?["runtime"]["state"],
         "ready"
     );
+    let open = exchange(&http, &url, &legacy).await?;
+    controller.reconcile(now()).await?;
+    let name = controller.snapshot().games["legacy"].name.clone();
+    assert!(engine.names.lock().unwrap().remove(&name));
+    controller.reconcile(now()).await?;
+    let state = value(open.request(&http, &url, Method::POST, "/_infuser/heartbeat")).await?;
+    assert_eq!(state["state"], "ended");
+    assert_eq!(state["update_available"], false);
+    let stamp = &state["client_update"];
+    let player = open
+        .request(&http, &url, Method::GET, "/_infuser/play")
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert!(player.contains(&format!(
+        r#"content="{}" data-force-reload="{}""#,
+        stamp["version"].as_str().unwrap(),
+        stamp["force_reload"].as_u64().unwrap()
+    )));
+
+    let id = legacy["launch_id"].as_str().unwrap();
+    assert!(p.db.read()?.launches[id].lease_id.is_none());
+    assert!(p.db.read()?.launches[id].lease_token.is_none());
+    let progress = json!({"level":8,"inventory":["last lantern"]});
+    let receipt = value(
+        open.request(&http, &url, Method::PUT, "/_infuser/saves/progress")
+            .json(&json!({"version":0,"data":progress})),
+    )
+    .await?;
+    assert_eq!(receipt["version"], 1);
+    controller.stop("legacy")?;
+    controller.reconcile(now()).await?;
+    // The original Cookie header is already on the request. Hold the JSON body
+    // until the second exchange finishes so authorization happens after it.
+    let (arrived, reading) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let body = futures_util::stream::once(async move {
+        arrived.send(()).unwrap();
+        released.await.unwrap();
+        Ok::<_, std::convert::Infallible>(axum::body::Bytes::from_static(
+            br#"{"version":0,"data":{"lanterns":9}}"#,
+        ))
+    });
+    let request = axum::http::Request::put("/_infuser/saves/departure")
+        .header("host", &open.host)
+        .header("origin", format!("https://{}", open.host))
+        .header("cookie", format!("__Host-infuser_game={}", open.token))
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from_stream(body))?;
+    let saving = tokio::spawn(tower::ServiceExt::oneshot(
+        portal::router(p.clone()),
+        request,
+    ));
+    reading.await?;
+    let reopened = launch(&http, &url, "legacy", false, "starting").await?;
+    assert_eq!(open.host, reopened.host);
+    assert!(
+        open.token != reopened.token,
+        "expected a fresh game credential"
+    );
+    release.send(()).unwrap();
+    assert_eq!(saving.await??.status(), StatusCode::OK);
+    let saved =
+        value(reopened.request(&http, &url, Method::GET, "/_infuser/saves/departure")).await?;
+    assert_eq!(saved["data"], json!({"lanterns":9}));
+    let loaded =
+        value(reopened.request(&http, &url, Method::GET, "/_infuser/saves/progress")).await?;
+    assert_eq!(loaded["version"], receipt["version"]);
+    assert_eq!(loaded["data"], progress);
     // The old catalog remains parseable; old-style writes cannot erase opt-in metadata.
     {
         let c = p.db.connection.lock().unwrap();
@@ -447,6 +553,49 @@ async fn title_screen_shared_server_release_expiry_and_update() -> Result<()> {
             .manifest
             .server_start
             .is_some()
+    );
+    let remove_old = || {
+        http.delete(format!("{url}/api/publisher/apps/moon/builds/one"))
+            .header("host", HOST)
+            .bearer_auth(&token)
+    };
+    assert_eq!(remove_old().send().await?.status(), 409);
+    p.db.edit(|d| {
+        for l in d
+            .launches
+            .values_mut()
+            .filter(|l| l.app == "moon" && l.build == "one")
+        {
+            l.seen = now() - 600;
+            l.expires = l.seen + 300;
+        }
+        Ok(())
+    })?;
+    remove_old().send().await?.error_for_status()?;
+    let removed = a
+        .request(&http, &url, Method::POST, "/_infuser/heartbeat")
+        .send()
+        .await?;
+    assert_eq!(removed.headers()["infuser-session"], "ended");
+    assert_eq!(
+        removed.json::<Value>().await?["error"]["reason"],
+        "build_removed"
+    );
+    let gone = http
+        .delete(format!("{url}/api/publisher/apps/legacy"))
+        .header("host", HOST)
+        .bearer_auth(&legacy_token)
+        .send()
+        .await?;
+    gone.error_for_status()?;
+    let unpublished = reopened
+        .request(&http, &url, Method::GET, "/_infuser/saves/progress")
+        .send()
+        .await?;
+    assert_eq!(unpublished.headers()["infuser-session"], "ended");
+    assert_eq!(
+        unpublished.json::<Value>().await?["error"]["reason"],
+        "unpublished"
     );
     platform::member(&cfg, "user@example.com", "User", false, false)?;
     assert_eq!(

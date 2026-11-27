@@ -2,9 +2,9 @@
 
 Audience: Infuser developers.
 
-Eighty-six original AI-generated pictures for Infuser profile pictures, generated
+Ninety-six original AI-generated pictures for Infuser profile pictures, generated
 for this project rather than sourced from a stock library or an existing game
-franchise. Eighty-five appear in the shared picker. Origami Unicorn is
+franchise. Ninety-five appear in the shared picker. Origami Unicorn is
 operator-assigned and is left out of that picker. The collection mixes characters
 with object-only gaming artwork.
 
@@ -97,3 +97,9 @@ is framed tighter than the first export, with stronger contrast, so the horn
 and body stay readable in the small circular badges. The horn tip stays inside
 that crop. All five use opaque 512px PNG sources and the standard lossy 128px and
 256px WebP exports.
+
+Ten more pictures were added on 2026-11-20: Volt Ninja, Skate Bones, Rust
+Sentinel, Magma Golem, Shadow Ranger, Oni Ronin, Titan Mech, Night Strike,
+Glitch Mask, and Venom Scorpion. They are edgier character, creature and
+vehicle portraits. All ten are ordinary picker choices. Opaque 512px PNG
+sources have the standard lossy 128px and 256px WebP exports.

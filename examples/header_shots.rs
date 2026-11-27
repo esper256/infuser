@@ -80,6 +80,9 @@ async fn main() -> Result<()> {
                     token_hash: platform::hash(id),
                     exchanged: true,
                     expires: now() + 600,
+                    ended: false,
+                    end_reason: None,
+                    library_session: String::new(),
                     grant_expires: now() + 600,
                     seen: now(),
                     lease_id: None,
@@ -229,6 +232,11 @@ fn join(
 ) -> Result<String> {
     let joined = rooms.join(
         infuser::peers::Identity {
+            diagnostics: infuser::timeline::ContextFields {
+                app: "header".into(),
+                guest: true,
+                ..Default::default()
+            },
             launch: launch.into(),
             player: format!("player-{launch}"),
             name: "Guest".into(),

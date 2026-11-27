@@ -49,9 +49,7 @@ Logs cannot explain game logic that the game never recorded.
 Write useful server events to stdout/stderr: startup, room admission failures,
 connect/disconnect, caught errors and shutdown. Include a stack for unexpected
 errors. Avoid logging every simulation tick, packet or snapshot. Never log tokens,
-cookies, room passwords, save contents or the process environment. There is no
-automatic collection of browser console output; capture its error and failed
-request status separately when investigating a client problem.
+cookies, room passwords, save contents or the process environment. Use the browser timeline below for client errors and matching request IDs.
 
 Keep reports private. When [filing a platform issue](agents.md#reporting-platform-problems),
 include the build ID, runtime attempt, approximate time, failing stage and a short
@@ -61,3 +59,9 @@ a public issue.
 A healthy server with a failed browser connection can still indicate a client,
 authentication or proxy problem. Include the failing URL path and HTTP status;
 do not include its query, launch fragment or authorization headers.
+
+## Browser and game timeline
+
+For web games, check `diagnostic_events.version === 1` in publisher capabilities. Use the game's existing publisher credential to GET `/api/publisher/apps/APP/diagnostic-events`. Events cover up to 48 hours and arrive oldest first. Narrow a request with `since_ms` and `until_ms` (Unix milliseconds). The default page size is 200, with a maximum `limit` of 500. Pass the returned `next` as the next request's `cursor` until it is null. Keep the time window fixed when paging.
+
+Look at the app build, launch reference, error location, multiplayer events, API status and runtime attempt. Use the matching attempt in server diagnostics for container output. Browser errors include a fingerprint, exception class and available code basenames, lines and columns. Household activity stays private. A missing event is inconclusive when a browser was offline or closed. Use this evidence before asking a player to reproduce a problem.

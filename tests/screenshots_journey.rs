@@ -261,6 +261,26 @@ async fn captures_rotate_and_attachments_follow_chat_reaction_and_visit_access()
         .status(),
         404
     );
+    p.db.edit(|d| {
+        d.members
+            .get_mut("two@example.com")
+            .unwrap()
+            .limited_communication = true;
+        Ok(())
+    })?;
+    let library = ok(req(Method::GET, "/api/library", "two")).await?;
+    assert_eq!(library["apps"][0]["reactions"][0]["emoji"], "⭐");
+    assert!(library["apps"][0]["reactions"][0]["screenshot"].is_null());
+    for path in [&shared, &format!("/api/screenshots/{id}?app=pond")] {
+        assert_eq!(req(Method::GET, path, "two").send().await?.status(), 404);
+    }
+    p.db.edit(|d| {
+        d.members
+            .get_mut("two@example.com")
+            .unwrap()
+            .limited_communication = false;
+        Ok(())
+    })?;
     for n in 2..=11 {
         p.db.connection
             .lock()

@@ -1,5 +1,6 @@
 //! Bounded publisher work, with artifact IO outside the gameplay coordination lock.
 use super::*;
+use crate::publish_limits as limits;
 use axum::{
     extract::{FromRequestParts, MatchedPath},
     middleware::Next,
@@ -106,7 +107,7 @@ pub(super) async fn admit(State(p): State<Platform>, request: Request, next: Nex
         let limit = if route.contains("/server/files/") {
             crate::server_package::SOURCE_FILE_BYTES as u64
         } else {
-            64 * 1024 * 1024
+            limits::FILE_BYTES
         };
         match stage(&p, body, limit).await {
             Ok(staged) => {
@@ -123,10 +124,11 @@ async fn stage(p: &Platform, body: Body, limit: u64) -> Result<Staged> {
     let root = p.config().controller.state_dir.join("upload-staging");
     tokio::fs::create_dir_all(&root).await?;
     let disk = rustix::fs::statvfs(&root)?;
-    // Two admitted uploads may each consume 64 MiB. Reserve both before writing.
+    // Allow one maximum-size staged file per admission slot above the disk reserve.
     anyhow::ensure!(
         disk.f_bavail.saturating_mul(disk.f_frsize)
-            >= p.config().controller.disk_reserve_mb * 1024 * 1024 + 128 * 1024 * 1024,
+            >= p.config().controller.disk_reserve_mb * 1024 * 1024
+                + limits::ADMISSION_SLOTS as u64 * limits::FILE_BYTES,
         fault(507, "host disk reserve would be exhausted")
     );
     let file = Arc::new(tempfile::NamedTempFile::new_in(root)?);
@@ -134,7 +136,8 @@ async fn stage(p: &Platform, body: Body, limit: u64) -> Result<Staged> {
     let mut input = body.into_data_stream();
     let mut bytes = 0u64;
     let mut digest = Sha256::new();
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_secs(limits::UPLOAD_SECONDS);
     while let Some(chunk) = tokio::time::timeout_at(deadline, input.next())
         .await
         .map_err(|_| fault(408, "Upload timed out; retry the file."))?
@@ -161,7 +164,7 @@ async fn stage(p: &Platform, body: Body, limit: u64) -> Result<Staged> {
 pub(super) async fn capabilities(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let app = p.publisher(&h, None, "publish")?;
     Ok(reply(
-        json!({"sessions":crate::dedicated::capabilities(),"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"title_locked":true,"duplicate_titles":{"version":1,"confirm":"allow_duplicate_title","normalization":"trim-lowercase"},"orientations":["landscape","portrait"],"resolutions":["hd","native"],"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":67108864,"max_build_bytes":268435456,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
+        json!({"sessions":crate::dedicated::capabilities(),"diagnostic_events":{"version":1,"retention_hours":48},"server_diagnostics":crate::docker::diagnostics_capabilities(),"server_packaging":server_builds::capabilities(&p),"game_metadata":{"input_methods":metadata::INPUT_METHODS,"title_locked":true,"duplicate_titles":{"version":1,"confirm":"allow_duplicate_title","normalization":"trim-lowercase"},"orientations":["landscape","portrait"],"resolutions":["hd","native"],"version":1,"title_max_chars":80,"description_max_chars":2000,"art_prompt_max_chars":4000,"author_model_max_chars":120,"effort_level_max_chars":40,"estimated_prompts_max":1_000_000,"card_art_override":true},"native_delivery":{"version":1,"status":"preview","engine":"godot","platforms":infuser_native_protocol::PLATFORMS},"card_art":crate::card_art::capabilities(),"supported_engines":crate::publisher::supported_engines(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"schema_version":1,"app_id":app,"architecture":std::env::consts::ARCH,"client_types":["web"],"play_modes":["solo","multiplayer"],"multiplayer":{"peer_hosted":p.relay.is_some(),"relayed":false,"dedicated":true,"persistent_world":true},"session_policy":"one_per_app","runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"max_file_bytes":limits::FILE_BYTES,"max_build_bytes":limits::BUILD_BYTES,"cloud_saves":true,"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb),"guest_mode":true,"sdk_path":"/_infuser/sdk.js"}),
     ))
 }
 #[derive(Deserialize)]
@@ -383,12 +386,15 @@ pub(super) async fn upload(
         let prior = b.files.get(&path).copied().unwrap_or(0);
         let size = staged.bytes;
         ensure!(
-            b.files.len() < 4096 || b.files.contains_key(&path),
+            b.files.len() < limits::FILE_COUNT || b.files.contains_key(&path),
             fault(413, "too many files")
         );
         ensure!(
-            b.files.values().sum::<u64>() - prior + size <= 256 * 1024 * 1024,
-            fault(413, "build exceeds 256 MiB")
+            b.files.values().sum::<u64>() - prior + size <= limits::BUILD_BYTES,
+            fault(
+                413,
+                &format!("build exceeds {} MiB", limits::BUILD_BYTES / limits::MIB)
+            )
         );
         ensure!(
             server_builds::content_bytes(&data) - prior + size
@@ -591,11 +597,41 @@ impl Platform {
             tracing::warn!(%error, "precompression backfill did not start");
         }
     }
+    fn publication_event(&self, app: &str, build: &str, state: &str, reason: &str) {
+        let mut previous = self.publication_events.lock().unwrap();
+        if state == "published" {
+            previous.remove(app);
+        } else {
+            let value = (build.to_owned(), state.to_owned(), reason.to_owned());
+            if previous.get(app) == Some(&value) {
+                return;
+            }
+            previous.insert(app.into(), value);
+        }
+        let mut data = json!({"state":state});
+        if state == "queued" {
+            data["queued_reason"] = reason.into();
+        } else if state == "failed" {
+            data["reason"] = reason.into();
+        }
+        self.controller
+            .timeline
+            .record(crate::timeline::Event::server(
+                "game.publication",
+                crate::timeline::ContextFields {
+                    app: app.into(),
+                    build: build.into(),
+                    ..Default::default()
+                },
+                data,
+                true,
+            ));
+    }
     // Callers hold the publication lock, also used by player launches. Never switch
     // the client pointer while its shared server is still on the previous build.
     fn promote(&self, app: &str, build: &str, listed: bool) -> Result<&'static str> {
         let key = build_key(app, build);
-        self.db.edit(|d| {
+        let (state, reason) = self.db.edit(|d| {
             let b = d
                 .builds
                 .get(&key)
@@ -628,7 +664,7 @@ impl Platform {
                 .get(app)
                 .is_some_and(|i| i.reserved());
             if ((changes_server && running) || self.peers.active(app, now()))
-                && !d.apps.get(app).is_some_and(|a| a.build == build)
+                && d.apps.get(app).is_none_or(|a| a.build != build)
             {
                 d.builds.get_mut(&key).unwrap().ready = true;
                 d.pending_promotions.insert(
@@ -639,7 +675,14 @@ impl Platform {
                         queued_at: now(),
                     },
                 );
-                return Ok("queued");
+                return Ok((
+                    "queued",
+                    if changes_server && running {
+                        "server_running"
+                    } else {
+                        "peers_active"
+                    },
+                ));
             }
             if let Some(server) = b.server {
                 let keys = self.config().controller.state_dir.join("server-keys");
@@ -684,8 +727,10 @@ impl Platform {
                 },
             );
             d.pending_promotions.remove(app);
-            Ok("published")
-        })
+            Ok(("published", ""))
+        })?;
+        self.publication_event(app, build, state, reason);
+        Ok(state)
     }
     /// The catalog is publication intent; controller state is recoverable runtime
     /// accounting. Repair either side of an interrupted promotion or retirement.
@@ -759,6 +804,7 @@ impl Platform {
             }
             // Persisted requests survive restarts; failed activation remains queued.
             if let Err(error) = self.validate_promotion(&app, &promotion.build) {
+                self.publication_event(&app, &promotion.build, "failed", "validation");
                 tracing::warn!(app, %error, "Queued game update failed validation");
                 continue;
             }
@@ -779,6 +825,7 @@ impl Platform {
                 }
                 Ok(_) => {}
                 Err(error) => {
+                    self.publication_event(&app, &promotion.build, "failed", "activation");
                     tracing::warn!(app,error=%error,"Queued game update could not activate")
                 }
             }
@@ -801,7 +848,7 @@ pub(super) async fn unpublish(
         d.apps.remove(&app);
         d.pending_promotions.remove(&app);
         for l in d.launches.values_mut().filter(|l| l.app == app) {
-            l.expires = 0;
+            l.end(now(), platform::LaunchEnd::Unpublished);
         }
         Ok(())
     })?;
@@ -821,19 +868,18 @@ pub(super) async fn remove_build(
             let _guard = p.publishing.lock().unwrap();
             p.db.edit(|d| {
                 ensure!(
-                    !d.apps.get(&app).is_some_and(|a| a.build == build)
+                    d.apps.get(&app).is_none_or(|a| a.build != build)
                         && !d
                             .deployments
                             .values()
                             .any(|dep| dep.app == app && dep.active.build == build)
-                        && !d
-                            .pending_promotions
+                        && d.pending_promotions
                             .get(&app)
-                            .is_some_and(|p| p.build == build)
+                            .is_none_or(|p| p.build != build)
                         && !d
                             .launches
                             .values()
-                            .any(|l| l.app == app && l.build == build && l.expires > now()),
+                            .any(|l| l.app == app && l.build == build && l.live(now())),
                     fault(409, "build is published, queued or in use")
                 );
                 ensure!(
@@ -842,6 +888,13 @@ pub(super) async fn remove_build(
                         .is_none_or(|j| !j.active()),
                     fault(409, "server packaging is still queued or running")
                 );
+                for l in d
+                    .launches
+                    .values_mut()
+                    .filter(|l| l.app == app && l.build == build)
+                {
+                    l.end(now(), platform::LaunchEnd::BuildRemoved);
+                }
                 d.builds.remove(&build_key(&app, &build));
                 Ok(())
             })?;

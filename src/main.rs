@@ -17,6 +17,9 @@ async fn main() -> Result<()> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "logs") {
+        return infuser::timeline_cli::run(&args[1..]);
+    }
     if args.first().is_some_and(|s| s == "turn-fingerprint") {
         println!("{}", infuser::turn::FINGERPRINT);
         return Ok(());
@@ -214,8 +217,7 @@ async fn main() -> Result<()> {
         let revoke = args.iter().any(|arg| arg == "--revoke");
         let list = args.iter().any(|arg| arg == "--list");
         ensure!(
-            !member.starts_with('-')
-                && !(revoke && list)
+            !(member.starts_with('-') || (revoke && list))
                 && args.len() == if revoke || list { 4 } else { 3 },
             "usage: infuser member-link CONFIG MEMBER [--revoke|--list]"
         );
@@ -319,9 +321,12 @@ async fn main() -> Result<()> {
     ]
     .contains(&command)
     {
-        bail!(
-            "usage: infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser member-link CONFIG MEMBER [--revoke|--list] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser turn-fingerprint | infuser turn CONFIG | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]"
-        );
+        let usage = "usage: infuser logs [--help] | infuser capture-export CONFIG NEW_OUTPUT_DIRECTORY | infuser operator CONFIG EMAIL [--revoke] | infuser member-link CONFIG MEMBER [--revoke|--list] | infuser metadata-pass CONFIG OUTPUT [--group ID|--all-groups] | infuser publisher-pass CONFIG APP OUTPUT [--group ID] | infuser version | infuser token | infuser turn-fingerprint | infuser turn CONFIG | infuser validate-game MANIFEST | infuser update UPDATE_CONFIG [--force] | infuser snapshot UPDATE_CONFIG | infuser rollback UPDATE_CONFIG | infuser rollback-verify SNAPSHOT_DIR | infuser <serve|init|check|state-check|state-rehearse|render-caddy> CONFIG [--wildcard]";
+        if matches!(command, "help" | "--help" | "-h") {
+            println!("{usage}");
+            return Ok(());
+        }
+        bail!("unknown command '{command}'\n{usage}");
     }
     let path = args.get(1).context("configuration path required")?;
     let config = Config::load(Path::new(path))?;
@@ -382,6 +387,12 @@ async fn main() -> Result<()> {
     );
     let platform = infuser::portal::Platform::open(controller.clone())?;
     platform.listen_turn_bridge()?;
+    controller.timeline.record(infuser::timeline::Event::server(
+        "controller.start",
+        Default::default(),
+        serde_json::json!({"version":infuser::BUILD_SHA,"client_version":infuser::portal::client_version()}),
+        false,
+    ));
     platform.recover_packaging().await?;
     // The listener is already bound. Compression of existing builds stays off
     // this thread so /healthz can answer before those copies exist.
@@ -424,6 +435,15 @@ async fn main() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+    let house_calls = platform.clone();
+    let house_call_worker = tokio::spawn(async move {
+        loop {
+            if house_calls.dispatch_house_calls().await.is_err() {
+                tracing::warn!("House call delivery failed");
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
     let maintenance = platform.clone();
     let maintenance_worker = tokio::spawn(async move {
         loop {
@@ -432,7 +452,7 @@ async fn main() -> Result<()> {
                 let Ok(_work) = p.controller.maintenance.enter() else {
                     return Ok(());
                 };
-                p.db.cleanup()?;
+                p.cleanup_launches()?;
                 if p.cleanup_feedback().is_err() {
                     tracing::warn!("feedback retention cleanup failed");
                 }
@@ -469,14 +489,26 @@ async fn main() -> Result<()> {
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     });
+    let stopping = controller.clone();
+    let shutdown = platform.shutdown.clone();
     let app = api::router_with_peers(controller, token, Some(platform.peer_rooms()))
         .merge(infuser::operations::routes(platform.clone(), token))
         .merge(infuser::portal::router(platform));
-    let server = axum::serve(listener, app).with_graceful_shutdown(async {
+    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 .expect("signal handler");
         tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+        shutdown.send_replace(true);
+        stopping
+            .timeline
+            .submit(vec![infuser::timeline::Event::server(
+                "controller.stop",
+                Default::default(),
+                serde_json::json!({"version":infuser::BUILD_SHA}),
+                false,
+            )])
+            .await;
     });
     tokio::select! {
         result = voice_worker => { result?; bail!("voice worker stopped"); },
@@ -484,6 +516,7 @@ async fn main() -> Result<()> {
         result = publication_worker => { result??; bail!("publication worker stopped"); },
         result = package_worker => { result?; anyhow::bail!("server packaging worker stopped"); },
         result = push_worker => { result?; anyhow::bail!("notification worker stopped"); },
+        result = house_call_worker => { result?; anyhow::bail!("house call worker stopped"); },
         result = server => { result?; },
         result = background => { result??; bail!("controller loop stopped"); }
     }

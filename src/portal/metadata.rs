@@ -1,5 +1,8 @@
 use super::*;
 
+pub(super) const INPUT_METHODS: &[&str] =
+    &["keyboard", "mouse", "keyboard_mouse", "touch", "gamepad"];
+
 pub(super) fn title<'a>(data: &'a platform::Data, app: &str, fallback: &'a str) -> &'a str {
     data.metadata
         .get(app)
@@ -25,7 +28,8 @@ fn view(d: &platform::Data, app: &str, root: &std::path::Path) -> Result<Value> 
     Ok(
         json!({"app_id":app,"private_group":d.groups.app(app),"build":active.build,"listed":active.listed,
         "title":title(d,app,&build.manifest.title),"title_override":metadata.title,"title_locked":metadata.title_locked,"orientation":build.manifest.orientation,
-        "description":metadata.description,
+        "description":metadata.description,"input_methods":metadata.input_methods,
+        "author_model":metadata.author_model,"effort_level":metadata.effort_level,"estimated_prompts":metadata.estimated_prompts,
         "art_prompt":metadata.art_prompt,"art_prompt_revision":prompt_revision,"art_prompt_pending":prompt_pending,
         "card_art_url":card_art::url(app,&active.build,build,d.metadata.get(app),root),
         "card_art_override":metadata.card_art_revision,"updated":metadata.updated,
@@ -65,7 +69,7 @@ pub(super) async fn list_metadata(State(p): State<Platform>, h: HeaderMap) -> An
         .collect::<Result<Vec<_>>>()?;
     Ok(reply(
         json!({"version":1,"apps":apps,"description_max_chars":2000,
-        "art_prompt_max_chars":4000,"card_art":crate::card_art::capabilities()}),
+        "art_prompt_max_chars":4000,"author_model_max_chars":120,"effort_level_max_chars":40,"estimated_prompts_max":1_000_000,"card_art":crate::card_art::capabilities()}),
     ))
 }
 
@@ -87,11 +91,31 @@ pub(super) struct Patch {
     description: Option<Option<String>>,
     #[serde(default, deserialize_with = "present_text")]
     art_prompt: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_text")]
+    author_model: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_text")]
+    effort_level: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_u32")]
+    estimated_prompts: Option<Option<u32>>,
+    #[serde(default, deserialize_with = "present_methods")]
+    input_methods: Option<Vec<String>>,
+}
+fn present_methods<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<Vec<String>>, D::Error> {
+    Ok(Some(
+        Option::<Vec<String>>::deserialize(d)?.unwrap_or_default(),
+    ))
 }
 fn present_text<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<Option<String>>, D::Error> {
     Ok(Some(Option::<String>::deserialize(d)?))
+}
+fn present_u32<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<Option<u32>>, D::Error> {
+    Ok(Some(Option::<u32>::deserialize(d)?))
 }
 pub(super) async fn patch_metadata(
     State(p): State<Platform>,
@@ -101,12 +125,32 @@ pub(super) async fn patch_metadata(
 ) -> Answer {
     authorize(&p, &h, &app)?;
     ensure!(
-        body.title.is_some() || body.description.is_some() || body.art_prompt.is_some(),
+        body.title.is_some()
+            || body.description.is_some()
+            || body.art_prompt.is_some()
+            || body.author_model.is_some()
+            || body.effort_level.is_some()
+            || body.estimated_prompts.is_some()
+            || body.input_methods.is_some(),
         fault(
             400,
-            "provide title, description, or art_prompt; null clears that field"
+            "provide title, description, art_prompt, author_model, effort_level, estimated_prompts, or input_methods; null clears that field"
         )
     );
+    if let Some(methods) = &body.input_methods {
+        ensure!(
+            methods.len() <= INPUT_METHODS.len()
+                && methods
+                    .iter()
+                    .enumerate()
+                    .all(|(index, method)| INPUT_METHODS.contains(&method.as_str())
+                        && !methods[..index].contains(method)),
+            fault(
+                422,
+                "input_methods must contain distinct supported input methods"
+            )
+        );
+    }
     let title = body.title.as_ref().map(|v| v.as_deref().map(str::trim));
     let description = body
         .description
@@ -116,6 +160,15 @@ pub(super) async fn patch_metadata(
         .art_prompt
         .as_ref()
         .map(|v| v.as_deref().map(str::trim));
+    let author_model = body
+        .author_model
+        .as_ref()
+        .map(|v| v.as_deref().map(str::trim));
+    let effort_level = body
+        .effort_level
+        .as_ref()
+        .map(|v| v.as_deref().map(str::trim));
+    let estimated_prompts = body.estimated_prompts;
     if let Some(Some(title)) = title {
         ensure!(
             !title.is_empty()
@@ -149,12 +202,47 @@ pub(super) async fn patch_metadata(
             )
         );
     }
+    if let Some(Some(model)) = author_model {
+        ensure!(
+            !model.is_empty()
+                && model.chars().count() <= 120
+                && !model.chars().any(char::is_control),
+            fault(
+                422,
+                "author_model must be 1–120 characters without control characters"
+            )
+        );
+    }
+    if let Some(Some(effort)) = effort_level {
+        ensure!(
+            !effort.is_empty()
+                && effort.chars().count() <= 40
+                && !effort.chars().any(char::is_control),
+            fault(
+                422,
+                "effort_level must be 1–40 characters without control characters"
+            )
+        );
+    }
+    if let Some(Some(prompts)) = estimated_prompts {
+        ensure!(
+            (1..=1_000_000).contains(&prompts),
+            fault(
+                422,
+                "estimated_prompts must be an integer from 1 to 1000000"
+            )
+        );
+    }
     p.db.metadata_update(
         &app,
         platform::MetadataUpdate {
             title,
             description,
             art_prompt,
+            author_model,
+            effort_level,
+            estimated_prompts,
+            input_methods: body.input_methods.as_deref(),
             ..Default::default()
         },
     )?;

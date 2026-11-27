@@ -34,19 +34,53 @@ export class InfuserError extends Error {
 }
 async function request(path, options = {}) {
   const response = await fetch('/_infuser/' + path, { credentials: 'same-origin', ...options });
-  const result = await response.json();
-  if (!response.ok) throw new InfuserError(result.error || 'Infuser request failed', response.status);
-  return result;
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    const error = new InfuserError(result?.error?.message || result?.error || 'Infuser request failed', response.status);
+    if (response.headers.get('Infuser-Session') === 'ended') {
+      error.reason = result?.error?.reason;
+      sessionError(error);
+    }
+    throw error;
+  }
+  return response.json();
 }
 export const ready = request('context');
 // An embedding game can listen for infuser-session-error and show a return-to-Library action.
 let stopped = false;
+let updateAnnounced = false;
+let clientVersion, forceReload;
+function stopHeartbeat() {
+  stopped = true;
+  clearInterval(timer);
+}
+function sessionError(error) {
+  if (stopped) return;
+  stopHeartbeat();
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({type: 'infuser-session-error', status: error.status, message: error.message, reason: error.reason}, location.origin);
+  }
+  window.dispatchEvent(new CustomEvent('infuser-session-error', {detail: error}));
+}
 async function heartbeat() {
   if (stopped) return;
-  try { await request('heartbeat', { method: 'POST' }); }
-  catch (error) { window.dispatchEvent(new CustomEvent('infuser-session-error', { detail: error })); }
+  try {
+    const state = await request('heartbeat', { method: 'POST' });
+    if (stopped || !window.parent || window.parent === window) return;
+    const update = state.client_update;
+    if (update && (update.version !== clientVersion || update.force_reload !== forceReload)) {
+      clientVersion = update.version;
+      forceReload = update.force_reload;
+      window.parent.postMessage({type: 'infuser-client-update', version: clientVersion, force_reload: forceReload}, location.origin);
+    }
+    if (!updateAnnounced && state.update_available) {
+      updateAnnounced = true;
+      window.parent.postMessage({type: 'infuser-update-available'}, location.origin);
+    }
+  }
+  catch { /* A failed heartbeat can run again on the normal schedule. */ }
 }
-ready.then(heartbeat).catch(error => window.dispatchEvent(new CustomEvent('infuser-session-error', { detail: error })));
+ready.then(heartbeat, () => {});
 const timer = setInterval(heartbeat, 25000);
 export const saves = {
   load: (slot = 'progress') => request('saves/' + encodeURIComponent(slot)),
@@ -55,7 +89,7 @@ export const saves = {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data, version })
   })
 };
-export async function leave() { stopped = true; clearInterval(timer); await request('heartbeat', { method: 'DELETE' }); }
+export async function leave() { stopHeartbeat(); await request('heartbeat', { method: 'DELETE' }); }
 // Loaded only by games that explicitly enter their peer-hosted multiplayer mode.
 export const peers = { join: async options => (await import('/_infuser/peers.js')).join(options) };
 const checkpoint = method => async (...args) => (await import('/_infuser/cloud-v1.js')).cloud[method](...args);
@@ -82,7 +116,9 @@ export const launchIntent = {
   // At most once: refresh and lost-response retries cannot silently replay a join.
   consume: () => request('launch-intent/v1/consume', {method:'POST',signal:AbortSignal.timeout(5000)})
 };
-export const Infuser = { ready, saves, leave, peers, cloud, runtime, presence, launchIntent };
+import {gamepads} from '/_infuser/sdk/v1/gamepads.js';
+export {gamepads};
+export const Infuser = { gamepads, ready, saves, leave, peers, cloud, runtime, presence, launchIntent };
 window.Infuser = Infuser;
 // Do not release on visibilitychange/pagehide: refreshing or navigating levels is normal.
 // When a tab closes, the short session lease expires without any unload dependency.

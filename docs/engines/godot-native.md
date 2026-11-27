@@ -42,22 +42,61 @@ does not match. Do not redirect saves to an absolute home path, read another
 game's directory, or ignore failed save loads. This is save separation, not an OS
 sandbox against a malicious native game.
 
-Export standard release presets into separate directories, each containing one
-root executable plus its PCK/resources. Use the Compatibility renderer as the
-starting point for laptop compatibility. Keep secrets and development files out.
-Then the developing agent publishes:
+## Publish Web and Infuser Play together
 
-```sh
-infuser publish .local/GAME.credentials.json . --native-only \
-  --native-linux exports/linux --native-windows exports/windows
+Use the existing game's credentials and project root for both formats.
+Both exports read the same cloud saves; use the same checkpoint and load calls in each export.
+
+Build release presets from the same revision into **separate directories**.
+If you export inside the project as shown below, put an empty `exports/.gdignore`
+in the parent directory so Godot skips previous exports when importing resources.
+Use the [Web export recipe](godot-web.md) for `exports/web/index.html` and its
+sibling files. Each desktop directory needs one root executable plus its PCK
+and resources. For Windows, disable the console wrapper in the release preset
+so the directory contains just one `.exe`. Save the export paths in the project's
+`infuser.game.json`. For example, a game that ships all three formats can include
+these settings alongside its SDK and save declarations:
+
+```json
+{
+  "play_modes": ["solo"],
+  "solo_runtime": "client_only",
+  "web_dir": "exports/web",
+  "native_linux": "exports/linux",
+  "native_windows": "exports/windows"
+}
 ```
 
-Omit `--native-only` to upload Web and native formats in the same immutable build.
-Web remains the main Play action; **Open in Infuser Play** appears in its dropdown.
-Native-only builds use the main Play action directly. Each native ZIP is limited
-to 64 MiB compressed / 512 MiB expanded; up to 512 portable file paths. The CLI
-creates the archives, inventory and SHA-256 hashes. Agents do not author Docker
-files or native-delivery manifests by hand.
+After exporting, run the same command for the first publish and every update:
+
+```sh
+infuser publish .local/GAME.credentials.json .
+```
+
+Paths are relative to the project root. To override a path for one publish,
+pass `--web-dir`, `--native-linux`, or `--native-windows`. Omit `web_dir` and
+its flag to have the publisher build the project's Web preset. The CLI packages the
+desktop exports, generates their file inventories and hashes, and publishes all
+formats as one build under one Library card. Each native ZIP supports up to
+128 MiB compressed, 1 GiB expanded, and 1,024 files. The shared native manifest
+can occupy up to 256 KiB. Desktop downloads allow four minutes, and a freshly
+claimed launch has ten minutes for initial startup.
+
+Older Infuser Play clients keep their compiled-in limits. Existing builds within
+those limits still work. Update the client for larger archives or inventories
+that exceed its previous size or file-count limits.
+
+On both the compact and expanded game cards, **Play** opens the Web version.
+To play on desktop, open the dropdown beside **Play** and choose **Launch in
+Infuser Play**. That option appears when the build includes an export for the
+player's platform. For a desktop-only game, **Play** opens Infuser Play directly.
+
+Re-export each configured platform before publishing. The saved paths keep the
+desktop formats on every update. Removing a native setting removes that format
+from the next publish unless you supply its flag. A missing or empty configured
+directory stops publication and keeps the active build available. For desktop-only
+delivery, set `"native_only": true` or pass `--native-only` with at least one
+configured or explicitly supplied desktop export.
 
 ## Handoff and update contract
 

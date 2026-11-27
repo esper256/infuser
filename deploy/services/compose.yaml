@@ -11,4 +11,4 @@ services:
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
   turn:
-    image: coturn/coturn:4.19.0-alpine@sha256:136cbd65085981300ce8dda9f917f377d84f4512497041aecd5d0a42ac5fd04e
+    image: coturn/coturn:4.19.2-alpine@sha256:974824bdefa8759b7aa4508daf5066fdd9f5411e925055b6132fb2904aecca01

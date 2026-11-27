@@ -254,6 +254,7 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
             .status(),
         401
     );
+    let claim_started = infuser::controller::now();
     let launch = ok(req(Method::POST, "/api/native/v1/claim")
         .bearer_auth(key)
         .json(&claim))
@@ -279,6 +280,17 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
             .header("host", game_host)
             .bearer_auth(launch["token"].as_str().unwrap())
     };
+    p.db.edit(|data| {
+        let row = data
+            .launches
+            .get_mut(launch["launch_id"].as_str().unwrap())
+            .unwrap();
+        assert!((claim_started + 600..=infuser::controller::now() + 600).contains(&row.expires));
+        row.seen = infuser::controller::now() - 600;
+        row.expires = row.seen + 300;
+        assert!(row.library_session.is_empty());
+        Ok(())
+    })?;
     let context = ok(game("/_infuser/api/v1/context")).await?;
     assert_eq!(context["guest"], true);
     assert_eq!(context["player_id"], launch["player_id"]);
@@ -375,6 +387,10 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
     );
     ok(member(Method::DELETE, &path, "admin")).await?;
     assert_eq!(
+        game("/_infuser/api/v1/context").send().await?.headers()["infuser-session"],
+        "ended"
+    );
+    assert_eq!(
         req(Method::POST, "/api/native/v1/claim")
             .bearer_auth(key)
             .json(&claim)
@@ -384,4 +400,46 @@ async fn native_pairing_delivery_and_guest_identity() -> Result<()> {
         401
     );
     Ok(())
+}
+
+#[test]
+fn native_archive_boundaries_use_inventory_sizes() {
+    use infuser_native_protocol::{Artifact, File, Manifest};
+    let manifest = |archive_bytes, unpacked_bytes, count| {
+        let sha256 = "a".repeat(64);
+        let platform = "linux-x86_64";
+        let files = (0..count)
+            .map(|i| {
+                (
+                    format!("file-{i}"),
+                    File {
+                        sha256: sha256.clone(),
+                        bytes: if i == 0 { unpacked_bytes } else { 0 },
+                    },
+                )
+            })
+            .collect();
+        Manifest {
+            version: 1,
+            engine: "godot".into(),
+            native_only: false,
+            platforms: [(
+                platform.into(),
+                Artifact {
+                    archive: format!("infuser-native/{platform}.zip"),
+                    entrypoint: "file-0".into(),
+                    bytes: archive_bytes,
+                    sha256,
+                    files,
+                },
+            )]
+            .into(),
+        }
+    };
+    let archive = 128 << 20;
+    let unpacked = 1 << 30;
+    assert!(manifest(archive, unpacked, 1024).validate().is_ok());
+    assert!(manifest(archive + 1, unpacked, 1024).validate().is_err());
+    assert!(manifest(archive, unpacked + 1, 1024).validate().is_err());
+    assert!(manifest(archive, unpacked, 1025).validate().is_err());
 }

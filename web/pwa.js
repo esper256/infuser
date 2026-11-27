@@ -23,7 +23,7 @@ export async function clearNotifications(){
   try{localStorage.removeItem('infuser-push-owner');}catch{/* No stored owner. */}
 }
 
-export function setupPwa({panel,me,api,notice}) {
+export function setupPwa({panel,signOut,me,api,notice}) {
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const install=document.createElement('button');install.type='button';install.textContent='Install Infuser';
   function installState(){install.hidden=standalone();}
@@ -32,10 +32,12 @@ export function setupPwa({panel,me,api,notice}) {
     if(installPrompt){const prompt=installPrompt;installPrompt=null;await prompt.prompt();await prompt.userChoice;installState();}
     else notice(iphone()?'Tap Share → Add to Home Screen → Add. Then open Infuser from your Home Screen.':'Use your browser menu → Install app or Add to Home Screen.');
   };
-  panel.append(install);
+  const before=panel.querySelector('a.sign-out');
+  const add=node=>before?panel.insertBefore(node,before):panel.append(node);
+  add(install);
   const button=document.createElement('button');button.type='button';button.textContent='Group Chat notifications';
   const hint=document.createElement('small');hint.className='notification-hint';hint.setAttribute('role','status');
-  button.hidden=!!me.inspecting;panel.append(button,hint);
+  button.hidden=!!me.inspecting||!!me.limited_communication;add(button);add(hint);
   const sound=document.createElement('button');sound.type='button';sound.hidden=true;
   const test=document.createElement('button');test.type='button';test.hidden=true;test.textContent='Send test notification';
   panel.insertBefore(sound,hint);panel.insertBefore(test,hint);
@@ -82,12 +84,12 @@ export function setupPwa({panel,me,api,notice}) {
   navigator.serviceWorker?.addEventListener('message',event=>{
     if(event.data?.type!=='infuser-reading-chat'||!event.ports[0])return;
     const panel=document.getElementById('chat-panel');
-    event.ports[0].postMessage(event.data.owner===me.player_id&&!me.inspecting&&
+    event.ports[0].postMessage(event.data.owner===me.player_id&&!me.inspecting&&!me.limited_communication&&
       !document.hidden&&document.hasFocus()&&!!panel&&!panel.hidden&&!document.querySelector('dialog[open]'));
   });
   const ownerKey='infuser-push-owner';
   async function refresh(){
-    if(!supported()||me.inspecting)return;
+    if(!supported()||me.inspecting||me.limited_communication)return;
     const reg=await registration;subscription=await reg.pushManager.getSubscription();
     if(subscription && localStorage.getItem(ownerKey)!==me.player_id){await clearNotifications();subscription=null;}
     if(subscription){
@@ -125,7 +127,7 @@ export function setupPwa({panel,me,api,notice}) {
   refresh().catch(()=>{hint.textContent='Could not check notifications. Try again.';}).finally(()=>{button.disabled=false;});
   // Unsubscribe before signing out on a shared device. If it fails, keep the
   // session available for a retry instead of leaving a hidden subscription.
-  const out=panel.querySelector('a.sign-out');
+  const out=signOut||panel.querySelector('a.sign-out');
   out?.addEventListener('click',async event=>{
     if(!supported()){forgetProfile();return;}
     event.preventDefault();
@@ -143,6 +145,10 @@ export function setupPwa({panel,me,api,notice}) {
       const notifications=await reg?.getNotifications()||[];for(const n of notifications)n.close();
       forgetProfile();
       location.assign(out.href);
-    }catch{hint.textContent='Could not turn off notifications before signing out. Reconnect and try again.';}
+    }catch{
+      const message='Could not turn off notifications before signing out. Reconnect and try again.';
+      hint.textContent=message;
+      if(signOut)notice(message);
+    }
   });
 }

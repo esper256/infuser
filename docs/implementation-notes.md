@@ -65,14 +65,14 @@ which is what a start killed during the pass leaves behind, is kept when it
 decodes to the source instead of being compressed again. The record lives
 under `precompress/` in the state directory, outside the files players can
 request. Siblings are not catalog entries, so they do not count toward the
-content budget or the 256 MiB upload limit, and a direct request for the
+content budget or the 512 MiB build limit, and a direct request for the
 sibling name is a 404.
 
-A sibling is stored only when the original is at least 8 KiB and the copy saves
+A sibling is stored only when the original is between 8 KiB and 64 MiB inclusive and the copy saves
 at least 4 KiB and 10 percent. Images, audio, archives, `.unityweb`, and an
 uploaded `.br` or `.gz` are left alone. Brotli quality is 5 with a 4 MiB window,
 and gzip is level 6, so one engine module finishes well inside the publisher
-client's two-minute timeout and the service memory limit. Writing a copy that
+client's four-minute timeout and the service memory limit. Writing a copy that
 would cross the free-disk reserve is skipped; the original is still served.
 That skip is not remembered, so a later start tries again.
 
@@ -223,19 +223,32 @@ contracts live in the [chat API](chat-api.md).
 
 ## Automatic client updates
 
-The Library HTML embeds a revision derived from the release build SHA and its
-shared client assets. `GET /api/client-state` returns `{version, game_open}` for
-an enabled member. Every thirty seconds, a visible Library compares revisions.
-It reloads only when the server confirms no recent game launch for that member
-(including guests, other tabs/devices and native launches), no dialog/menu or
-launch/send is active, no chat draft exists, no editor has focus, and there has
-been no interaction for five seconds. A game is recent while its launch is
-unexpired and has activity within ninety seconds. After a game closes, its last
-heartbeat may therefore defer a refresh for up to ninety seconds plus polling.
+The Library and web player HTML carry the Infuser client version and the current
+emergency reload generation. The version incorporates the release build SHA and
+shared assets. The Library gets `{version, force_reload, game_open}` from
+`GET /api/client-state` on its existing 30-second timer, on becoming visible,
+and on reconnect. The browser may suspend background tabs.
 
-Offline/errors and malformed responses never trigger a reload. The initial
-revision comes from the loaded HTML, not a potentially newer first poll. A page
-opened before update detection shipped needs one manual refresh to acquire it.
+For ordinary updates the Library waits until visible and idle for five seconds.
+A local voice connection (including connecting and reconnecting), an open
+dialog or menu, a draft or focused editor, a launch or send in progress, and
+a recent game launch each defer the reload. A launch is recent while unexpired
+and seen within 90 seconds, including guest and native launches for the profile.
+Voice in another tab can continue while this Library refreshes.
+
+The game heartbeat carries the same version and generation in `client_update`.
+The SDK forwards changes to its enclosing player. Visits also receive them on
+their existing heartbeat. An ordinary mismatch shows a message in the player
+header. Visit warnings and ended-session messages take priority. A separate
+`update_available` flag describes the published game build.
+
+`force_reload` is a monotonic integer. Zero is the shipped default. A future
+emergency release can raise the generation to reload older open pages at their
+next successful check, even during voice, gameplay, editing, or fullscreen.
+Keep the generation in later releases. Both pages compare it to the generation
+in their loaded HTML, so a fresh page acknowledges the command even if the
+server keeps sending it. Older clients first need to load a release that
+understands the directive.
 
 ## Push notification delivery
 

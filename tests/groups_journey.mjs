@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Opt-in browser journey against the real Rust fixture in groups_journey.rs.
 // INFUSER_GROUP_BROWSER_NODE=/path/to/node cargo test --test groups_journey -- --nocapture
 import assert from 'node:assert/strict';
@@ -19,6 +20,7 @@ try {
         const chunks=[];r.on('data',b=>chunks.push(b));r.on('end',()=>resolve({status:r.statusCode,headers:r.headers,body:Buffer.concat(chunks)}));
       });proxy.on('error',reject);proxy.end(request.postDataBuffer()||undefined);
     });
+    if(url.pathname==='/assets/themes.js'){response.body=ordinaryThemeCalendar(response.body.toString());delete response.headers['content-length'];}
     await route.fulfill(response);
   });
   page=await context.newPage();page.setDefaultTimeout(10000);page.on('console',m=>{if(m.type()==='error')console.error('Browser console:',m.text());});page.on('pageerror',error=>errors.push(error.message));
@@ -30,6 +32,21 @@ try {
   assert.equal(await page.locator('#operator-groups').isVisible(),false);
   await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   await page.locator('#admin .admin-panel').getByRole('button',{name:'Groups',exact:true}).click();
+  const homeRow=page.locator('.group-row').filter({has:page.getByRole('button',{name:'Home',exact:true})});
+  await homeRow.getByRole('button',{name:'Rename'}).click();
+  const homeName=page.getByRole('textbox',{name:'New name for Family Arcade'});
+  await homeName.fill('Arcade Club');await homeName.press('Enter');
+  await homeRow.getByText('Arcade Club',{exact:true}).waitFor();
+  await homeRow.getByRole('button',{name:'Rename'}).click();
+  const editing=page.getByRole('textbox',{name:'New name for Arcade Club'});
+  await editing.fill('OTHER FAMILY');await editing.press('Enter');
+  const dialog=page.locator('#groups-dialog');
+  await dialog.getByText('Another group already uses that name.',{exact:true}).waitFor();
+  assert(await editing.isEditable());
+  assert(await dialog.getByRole('button',{name:'Save',exact:true}).isEnabled());
+  assert(await dialog.getByRole('button',{name:'Cancel',exact:true}).isEnabled());
+  await editing.press('Escape');
+  await homeRow.getByText('Arcade Club',{exact:true}).waitFor();
   await page.getByText('Host health',{exact:true}).click();
   await page.getByText('Monitoring data is stale. Check the host health timer.',{exact:true}).waitFor();
   const family=page.locator('.group-row').filter({hasText:'Other family'});
@@ -40,7 +57,12 @@ try {
   assert.equal(await page.getByRole('button',{name:'Play',exact:true}).isDisabled(),true);
   assert.equal(await page.locator('#add-game').isVisible(),false);
   assert.equal(await page.locator('#friends').innerText().then(v=>v.includes('Frizz')),false);
-  await page.waitForFunction(()=>document.querySelector('#games img')?.naturalWidth===1024);
+  const cover=page.locator('#games .game-art img');
+  await page.waitForFunction(()=>document.querySelector('#games .game-art img')?.naturalWidth>0);
+  // The card selects a responsive variant; the authenticated master is 1024px.
+  assert.equal(await cover.evaluate(async img=>{
+    const master=new Image();master.src=img.src;await master.decode();return master.naturalWidth;
+  }),1024);
   await page.locator('#chat-toggle').click();
   await page.getByText('Other family only',{exact:true}).waitFor();
   assert.equal(await page.locator('#chat-form').isVisible(),false);
@@ -50,6 +72,8 @@ try {
   assert.equal(await page.locator('#invite-form').isVisible(),false);
   assert.equal(await page.locator('#credential-form').isVisible(),false);
   await page.locator('#operator-groups').click();
+  await page.locator('.group-row').first().waitFor();
+  assert.equal(await page.locator('#groups-dialog').getByRole('button',{name:'Rename'}).count(),0);
   await page.getByRole('button',{name:'Close groups',exact:true}).click();
   await page.waitForFunction(()=>document.activeElement===document.querySelector('#operator-groups'));
   assert(await page.locator('#admin').isVisible());
@@ -65,6 +89,7 @@ try {
   assert.equal(await page.locator('#operator-groups').isVisible(),false);
   await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   await page.locator('#admin .admin-panel').getByRole('button',{name:'Groups',exact:true}).click();
+  await homeRow.getByText('Arcade Club',{exact:true}).waitFor();
   await page.getByText('Add a group',{exact:true}).click();
   await page.getByLabel('Group name',{exact:true}).fill('Browser family');
   await page.getByLabel('Admin’s Google email',{exact:true}).fill('browser-admin@example.com');
@@ -90,9 +115,9 @@ try {
     assert(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=width&&bounds.y+bounds.height<=850);
     assert(await dialog.evaluate(d=>d.scrollWidth<=d.clientWidth),'dialog has no horizontal overflow');
     const before=await page.locator('#close-admin').boundingBox();
-    await page.locator('.admin-panel').evaluate(e=>e.scrollTop=e.scrollHeight);
+    await dialog.locator('.admin-panel').evaluate(e=>e.scrollTop=e.scrollHeight);
     assert.deepEqual(await page.locator('#close-admin').boundingBox(),before,'close control stays fixed while tools scroll');
-    await page.locator('.admin-panel').evaluate(e=>e.scrollTop=0);
+    await dialog.locator('.admin-panel').evaluate(e=>e.scrollTop=0);
     await mkdir(new URL('../.local/admin-dialog/',import.meta.url),{recursive:true});
     await page.screenshot({path:new URL(`../.local/admin-dialog/${theme}-${width}.png`,import.meta.url).pathname});
   }
@@ -103,14 +128,19 @@ try {
   assert.equal(await page.locator('#invite-form input[name="name"]').inputValue(),'Unfinished invitation','closing preserves unfinished work');
   await page.locator('#close-admin').click();
   assert.equal(await page.locator('header #admin').count(),0,'admin tools occupy no header space');
-  const headerBounds=await page.locator('body > header').boundingBox();
+  async function headerInSameTheme(){
+    await page.locator('#games .game').first().waitFor();
+    await page.evaluate(async()=>{await InfuserThemes.select('nightglass');await document.fonts.ready;window.scrollTo(0,0);});
+    return page.locator('body > header').boundingBox();
+  }
+  const headerBounds=await headerInSameTheme();
   // Ordinary players have neither admin navigation nor the operator entry.
   await context.clearCookies();await context.addCookies([{name:'member',value:'user',url:'https://games.example.com'}]);
   await page.reload();await page.locator('#clubhouse').waitFor();
   assert.equal(await page.locator('#admin').isVisible(),false);
   assert.equal(await page.locator('#open-admin').count(),0);
-  assert.deepEqual(await page.locator('body > header').boundingBox(),headerBounds,'admin and player headers have the same layout');
+  assert.deepEqual(await headerInSameTheme(),headerBounds,'admin and player headers have the same layout');
   assert.equal(await page.locator('#operator-groups').count(),0);
   assert.deepEqual(errors,[]);
-  console.log('Browser: inspect, cover, read-only chat, return home, mobile, create group, expiry, operator-only admin menu and focus return passed.');
+  console.log('Browser: inspect, cover, read-only chat, return home, mobile, rename and create groups, expiry, operator-only admin menu and focus return passed.');
 } catch(error){console.error('Page errors:',errors,'Login:',await page?.locator('body').innerText(),'URL:',page?.url());throw error;} finally {await browser.close();}

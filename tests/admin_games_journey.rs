@@ -330,6 +330,7 @@ async fn hidden_delete_locked_rename_and_duplicate_title_warning() -> Result<()>
     );
     p.peer_rooms().join(
         peers::Identity {
+            diagnostics: Default::default(),
             launch: "launch".into(),
             player: "player".into(),
             name: "Ada".into(),

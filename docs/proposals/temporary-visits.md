@@ -166,7 +166,7 @@ Enforcement is layered:
 | Managed WebSocket connections | Authorization checked every two seconds between frames, including while idle. Each socket write has a three-second timeout; slow writes can delay cutoff, bounded to about 11 seconds of transport waits while the controller is scheduled. |
 | Borrowed process | Reconciler releases demand and requests stop on its next cycle (normally two seconds); existing bounded Docker stop grace permits checkpointing, not new player traffic. |
 | Supplied JS WebRTC/PeerJS adapters | A 25-second coordinator lease fences sends and received data; stale responses cannot renew an expired lease. Both wall and monotonic clocks cover browser sleep. |
-| Web player wrapper | Five-second heartbeat, 30-second authorization watchdog; expiry removes the game frame without exiting fullscreen. Suspended tabs enforce on resumption. |
+| Web player wrapper | Checks every five seconds and on return to a visible tab. A server denial ends play and removes the frame. Time spent asleep alone does not end play. |
 | Updated Infuser Play | Five-second heartbeat; stop on denial or after 30 seconds without authorization, with a 500 ms process-check interval. Recheck after downloading, before launch. |
 
 The Godot web adapter uses its existing wall/monotonic bridge and lease checks.

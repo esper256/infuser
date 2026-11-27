@@ -4,26 +4,30 @@ import {readFile,mkdir} from 'node:fs/promises';
 const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const browser=await chromium.launch({headless:true,...(process.env.INFUSER_CHROMIUM?{executablePath:process.env.INFUSER_CHROMIUM}:{})});
 const fixture=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/clubhouse.css"><link rel="stylesheet" href="/assets/themes/nightglass.css"><link rel="stylesheet" href="/assets/themes/cartridge-club.css"></head><body><header><div id="friends"><span data-player-id="friend">OrbitFox</span></div></header><script type="module" src="/fixture.js"></script></body></html>`;
-const setup=`import {initChat} from '/assets/chat.js';initChat({me:{player_id:'me'},api:async(path,options)=>{const r=await fetch(path,options);if(!r.ok)throw Error('Try again.');return r.json();},profileAvatar:()=>document.createElement('span')});`;
+const setup=`window.houseCallBursts=0;import {initChat} from '/assets/chat.js';initChat({me:{player_id:'me'},onHouseCall:()=>window.houseCallBursts++,api:async(path,options)=>{const r=await fetch(path,options);if(!r.ok)throw Error('Try again.');return r.json();},profileAvatar:()=>document.createElement('span')});`;
 const textSamples=['Claude usage at 96%😨','Together 👨‍👩‍👧‍👦 👍🏽 🇺🇸 1️⃣ ❤️','Text 96% © ™ ♥︎ ✈︎','<img src=x onerror=alert(1)>😨','Hey🙂!'];
 const history=textSamples.map((text,i)=>({id:i+1,author:{id:'friend',name:'Frizz'},text,created:Date.now()/1000,can_delete:false}));
 try{
  for(const theme of ['nightglass','cartridge-club']){
   for(const width of [1280,390,320]){
    const context=await browser.newContext({viewport:{width,height:width===1280?900:700}});
-   let posts=[],failData=false;
+   let posts=[],failData=false,houseCalls=[],messages=structuredClone(history),triggerCall=true;
    const requests=[],errors=[];
    await context.route('**/*',async route=>{
     const url=new URL(route.request().url()),path=url.pathname;
     requests.push(url.href);assert.equal(url.origin,'https://chat.test','no CDN requests');
     if(path==='/api/chat'){
-     if(route.request().method()==='POST'){posts.push(route.request().postDataJSON());return route.fulfill({status:503,json:{error:'Try again.'}});}
-     return route.fulfill({json:{messages:history}});
+     if(route.request().method()==='POST'){const sent=route.request().postDataJSON();posts.push(sent);if(sent.house_call){const call=houseCalls.find(call=>call.id===sent.house_call);messages.push({id:messages.at(-1).id+1,author:{id:'me',name:'Me'},text:'',created:Date.now()/1000,house_call:call,house_call_triggered:triggerCall});return route.fulfill({json:{id:messages.at(-1).id}});}return route.fulfill({status:503,json:{error:'Try again.'}});}
+     return route.fulfill({json:{messages}});
     }
+    if(path==='/api/house-calls')return route.fulfill({json:{images:houseCalls}});
+    if(path==='/api/screenshots')return route.fulfill({json:{screenshots:[]}});
+    if(path.startsWith('/assets/house-calls/'))return route.fulfill({body:await readFile(new URL('../web'+path,import.meta.url)),contentType:'image/png'});
     if(path==='/fixture.js')return route.fulfill({body:setup,contentType:'text/javascript'});
     if(path.startsWith('/assets/')){
      if(failData&&path.endsWith('/data.json'))return route.fulfill({status:503,body:''});
-     return route.fulfill({body:await readFile(new URL('../web/'+path.slice(8),import.meta.url)),contentType:path.endsWith('.js')?'text/javascript':path.endsWith('.json')?'application/json':'text/css'});
+     let body=await readFile(new URL('../web/'+path.slice(8),import.meta.url));if(path==='/assets/chat.js')body=body.toString().replace('  poll();\n}', '  window.testChatPoll=poll;poll();\n}');
+     return route.fulfill({body,contentType:path.endsWith('.js')?'text/javascript':path.endsWith('.json')?'application/json':'text/css'});
     }
     return route.fulfill({body:fixture,contentType:'text/html',headers:{'Content-Security-Policy':"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"}});
    });
@@ -97,6 +101,51 @@ try{
    await search.press('ArrowDown');await search.press('Enter');
    await page.waitForFunction(()=>document.querySelector('#chat-emoji-panel').hidden);
    assert((await input.inputValue()).includes('🚀'),'keyboard chooses search result');
+   // Off/unauthorized is indistinguishable: no empty House calls tab or settings metadata.
+   await button.click();await search.waitFor();
+   assert(await panel.getByRole('tab',{name:'House calls',includeHidden:true}).isHidden());
+   await panel.getByRole('button',{name:'Close emoji picker'}).click();
+   houseCalls=[{id:'confetti-cannon',label:'Family time'},{id:'tea-break',label:'Break time'}];
+   await button.click();const callTab=panel.getByRole('tab',{name:'House calls',exact:true});await callTab.waitFor();
+   await callTab.click();assert.equal(await panel.locator('.house-call-card').count(),2);
+   await panel.locator('.house-call-card img').first().evaluate(el=>el.decode());
+   assert(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth),'third tab fits without horizontal overflow');
+   const callBounds=await callTab.boundingBox(),panelBounds=await panel.boundingBox();
+   assert(callBounds.x>=panelBounds.x&&callBounds.x+callBounds.width<=panelBounds.x+panelBounds.width);
+   await page.screenshot({path:new URL(`../.local/chat-emoji/${theme}-${width}-house-calls.png`,import.meta.url).pathname});
+   const draft=await input.inputValue(),before=posts.length;
+   await panel.getByRole('button',{name:'Send Family time',exact:true}).click();
+   await page.locator('.chat-message .house-call-card').waitFor();
+   await page.waitForFunction(()=>!document.querySelector('#library-chat').dataset.sending);
+   assert.equal(posts.length,before+1,'picking a house call sends immediately');
+   assert.deepEqual(Object.keys(posts.at(-1)).sort(),['client_id','house_call'],'client sends only the image ID and retry ID');
+   assert.equal(await input.inputValue(),draft,'house calls preserve the text draft');
+   assert(await panel.isHidden());assert.equal(await page.evaluate(()=>houseCallBursts),1,'sender celebrates a queued call once');
+   const card=page.locator('.chat-message .house-call-card');
+   assert.equal(await card.getAttribute('class'),'screenshot-tile house-call-card');
+   assert.equal(await card.locator('span').textContent(),'Family time');
+   await card.locator('img').evaluate(el=>el.decode());
+   assert(await page.locator('#chat-log').evaluate(el=>el.scrollWidth<=el.clientWidth),'house call card fits existing chat layout');
+   await page.evaluate(()=>testChatPoll());assert.equal(await page.evaluate(()=>houseCallBursts),1,'unchanged poll does not replay');
+   triggerCall=false;await button.click();await callTab.click();await panel.getByRole('button',{name:'Send Break time'}).click();
+   await page.waitForFunction(()=>document.querySelectorAll('.chat-message .house-call-card').length===2);
+   await page.waitForFunction(()=>!document.querySelector('#library-chat').dataset.sending);
+   assert.equal(await page.evaluate(()=>houseCallBursts),1,'cooldown/quiet-hours card has no confetti');
+   messages.push({id:messages.at(-1).id+1,author:{id:'friend',name:'Friend'},text:'',created:Date.now()/1000,house_call:houseCalls[0],house_call_triggered:true});
+   await page.evaluate(()=>testChatPoll());assert.equal(await page.evaluate(()=>houseCallBursts),2,'other live viewers celebrate');
+   assert.equal(await page.locator('#chat-announcement').textContent(),'Friend: '+houseCalls[0].label,'announce the house-call label instead of empty text');
+   await page.locator('#chat-log').evaluate(el=>el.scrollTo(0,0));await page.evaluate(()=>testChatPoll());
+   assert.equal(await page.evaluate(()=>houseCallBursts),2,'scrollback cannot replay confetti');
+   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
+   messages.push({...messages.at(-1),id:messages.at(-1).id+1});
+   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});
+   await page.waitForFunction(()=>document.querySelectorAll('.chat-message').length===9);
+   assert.equal(await page.evaluate(()=>houseCallBursts),2,'returning to a hidden tab does not replay missed calls');
+   await page.reload();await page.locator('#chat-toggle').click();await page.locator('.chat-message .house-call-card').first().waitFor();
+   assert.equal(await page.evaluate(()=>houseCallBursts),0,'reload is history, not a live event');
+   await button.click();await callTab.waitFor();await panel.getByRole('button',{name:'Close emoji picker'}).click();
+   houseCalls=[];await button.click();await search.waitFor();assert(await panel.getByRole('tab',{name:'House calls',includeHidden:true}).isHidden());
+   await panel.getByRole('button',{name:'Close emoji picker'}).click();
    if(width<1000){
     // Synthetic visual viewport models the keyboard; desktop emulation cannot open a real OS keyboard.
     await button.click();
@@ -117,5 +166,5 @@ try{
    await context.close();
   }
  }
- console.log('PASS: larger spaced emoji, intact graphemes, unchanged line height and copied text, safe message rendering; substring search, selection/cursor insertion, limits, no accidental sends, retry draft, Escape/outside dismissal, local assets and strict CSP; both themes at 1280/390/320px.');
+ console.log('PASS: larger spaced emoji, intact graphemes, unchanged line height and copied text, safe message rendering; substring search, selection/cursor insertion, limits, no accidental sends, retry draft, Escape/outside dismissal, local assets and strict CSP; house-call availability, immediate ID-only sending, screenshot cards, draft preservation and live-only confetti; both themes at 1280/390/320px.');
 }finally{await browser.close();}

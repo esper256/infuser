@@ -96,11 +96,11 @@ try{
   const race=await Promise.all([stranger,rival].map(g=>connectRaw(g,{action:'join',target:{session_id:first.session}})));
   assert.equal(race.filter(r=>r.session).length,1);assert.equal(race.find(r=>r.error)?.error,'session_full');
   console.log('Dedicated: simultaneous last-seat admission has one winner and a readable session_full result.');
-  // Logging out of the website is deliberately independent of a running game.
+  // Losing the Library cookie alone does not explicitly sign the account out.
   await river.clearCookies({name:'member'});
   await a.frame.evaluate(()=>fixture.socket.send(JSON.stringify({type:'input',direction:0})));
   await new Promise(r=>setTimeout(r,2300));assert.equal(await a.frame.evaluate(()=>fixture.socket.readyState),1);
-  console.log('Dedicated: website sign-out leaves existing play connected.');
+  console.log('Dedicated: losing the Library cookie leaves existing play connected.');
   await separate.frame.evaluate(()=>fixture.socket.send(JSON.stringify({type:'finish'})));
   await separate.frame.waitForFunction(()=>!fixture.socket);
   const ended=await stranger.frame.evaluate(async target=>{try{await fixture.platform.sessions.connect({action:'join',target});return 'accepted';}catch(e){return e.code;}},{session_id:second.session});

@@ -1,5 +1,5 @@
 import { initChatEmoji } from '/assets/chat-emoji.js';
-import { seenLimit, advancedRead } from '/assets/chat-reads.js';
+import { seenLimit, advancedRead, placeReads } from '/assets/chat-reads.js';
 import { attachmentIcon, attachmentDraft, screenshotTile } from '/assets/screenshots.js';
 import { openHomeChat } from '/assets/groups.js';
 // A theme opts in from CSS. Unset means the horizontal row and the upward tails.
@@ -33,7 +33,10 @@ function messageText(value){
   return text;
 }
 // Shared Library room. All message text stays text, never markup or links.
-export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
+export function initChat({me, api, diagnostics, profileAvatar,onSpeakerContext=()=>{},onHouseCall=()=>{}}) {
+  const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
+  presence.before(cluster);cluster.append(presence);
+  if(me.limited_communication)return;
   const request=(path,options={})=>api(path,{...options,signal:AbortSignal.timeout(12000)});
   const emptyMessage=me.inspecting?'No messages yet.':'No messages yet. Start the conversation.';
   const root=document.createElement('aside');root.id='library-chat';root.setAttribute('aria-label','Library chat');
@@ -54,14 +57,14 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   document.body.append(root);
   const $=id=>document.getElementById('chat-'+id), log=$('log'), input=$('text');
   let screenshot=null;
-  $('emoji-toggle').innerHTML=attachmentIcon;$('emoji-toggle').setAttribute('aria-label','Choose emoji or screenshot');$('emoji-toggle').title='Emoji or screenshot';$('emoji-panel').setAttribute('aria-label','Choose emoji or screenshot');
+  $('emoji-toggle').innerHTML=attachmentIcon;$('emoji-toggle').setAttribute('aria-label','Choose an attachment');$('emoji-toggle').title='Choose an attachment';$('emoji-panel').setAttribute('aria-label','Choose an attachment');
   const draft=document.createElement('div');draft.className='screenshot-draft';draft.hidden=true;$('form').before(draft);
   function attach(id){if(sending)return;screenshot=id;attachmentDraft(draft,id,request,()=>attach(null));input.oninput();}
-  const emojiPicker=initChatEmoji({root,input,button:$('emoji-toggle'),panel:$('emoji-panel'),api:request,onScreenshot:attach});
+  const emojiPicker=initChatEmoji({root,input,button:$('emoji-toggle'),panel:$('emoji-panel'),api:request,onScreenshot:attach,onHouseCall:id=>send(id)});
   if(me.inspecting)$('form').hidden=true;
-  const presence=document.getElementById('friends'), cluster=document.createElement('div');cluster.className='presence-chat';
-  presence.before(cluster);cluster.append(presence,$('toggle'));root.hidden=true;
+  cluster.append($('toggle'));root.hidden=true;
   let messages=[], reads=[], initialized=false, busy=false, sending=false, timer, retry, lastRead=0,readAck=0,readFlight=0,readHold=false,positionFrame,positionSignature,speakerSignature,scrollDirection=0,scrollSpeed=0,lastScrollTop=0,lastScrollAt=0;
+  let seenMessage=0,suppressConfetti=true;
   const motion=matchMedia('(prefers-reduced-motion: reduce)');
   const setText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
   const setHidden=(node,hidden)=>{if(node.hidden!==hidden)node.hidden=hidden;};
@@ -262,6 +265,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
   }
   function scrollLatest(){log.scrollTop=log.scrollHeight;lastScrollTop=log.scrollTop;scrollDirection=0;scrollSpeed=0;markRead();schedulePosition();}
   function setOpen(open,restoreFocus=true) {
+    suppressConfetti=true;
     root.hidden=!open;$('panel').hidden=!open;$('toggle').setAttribute('aria-expanded',String(open));$('toggle').title=open?'Hide chat':'Show chat';
     updateToggle();
     if(open){scrollDirection=0;scrollSpeed=0;position(true);scrollLatest();schedulePosition();(me.inspecting||compact()?log:input).focus({preventScroll:true});poll();}
@@ -350,7 +354,7 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
       bubble.addEventListener('contextmenu',event=>{event.preventDefault();cancelPress();suppressReleaseClick=true;showActions(message,bubble);});
       meta.append(remove);
     }
-    bubble.append(meta,messageText(message.text));if(message.screenshot)bubble.append(screenshotTile({id:message.screenshot,api:request,context:{chat:message.id},onLoad:schedulePosition}));article.append(portrait,bubble);return article;
+    bubble.append(meta,messageText(message.text));if(message.screenshot)bubble.append(screenshotTile({id:message.screenshot,api:request,context:{chat:message.id},onLoad:schedulePosition}));if(message.house_call)bubble.append(screenshotTile({id:message.house_call.id,houseCall:message.house_call,onLoad:schedulePosition}));article.append(portrait,bubble);return article;
   }
   function render(next) {
     const stick=bottom(), previousIds=new Set(messages.map(m=>m.id));
@@ -368,6 +372,8 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     for(const node of nodes.values())node.remove();
     if(next.length)log.querySelector('.chat-empty')?.remove();
     if(!next.length&&!log.querySelector('.chat-empty')){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent=emptyMessage;log.append(empty);}
+    const celebrate=initialized&&!suppressConfetti&&!document.hidden&&isOpen()?next.filter(message=>message.id>seenMessage&&message.house_call_triggered):[];
+    seenMessage=Math.max(seenMessage,...next.map(message=>message.id));suppressConfetti=false;
     messages=next;
     if(hoverAction&&!hoverAction.bubble.isConnected)clearHover();
     if(press&&!press.bubble.isConnected)cancelPress();
@@ -375,27 +381,23 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     if(!initialized){lastRead=Math.max(0,...next.map(m=>m.id));initialized=true;}
     if(isOpen()&&stick&&changed&&!document.hidden)scrollLatest();
     else if(added.length&&isOpen())$('new').hidden=false;
-    if(added.length&&isOpen())$('announcement').textContent=added.length===1?`${added[0].author.name}: ${added[0].text}`:`${added.length} new messages`;
+    if(added.length&&isOpen())$('announcement').textContent=added.length===1?`${added[0].author.name}: ${added[0].house_call?.label??added[0].text}`:`${added.length} new messages`;
     updateToggle();
     position();
     paintReads();
     considerRead();
+    for(const message of celebrate)onHouseCall($('panel'),message);
   }
   function paintReads() {
+    const stick=bottom();
     const rows=[...log.querySelectorAll('.chat-message')].map(node=>({id:Number(node.dataset.id),node}));
-    const buckets=new Map();
-    for(const read of reads){
-      if(!read||read.id===me.player_id)continue;
-      let target=null;
-      for(const row of rows)if(row.id<=read.message&&(!target||row.id>target.id))target=row;
-      if(!target)continue;
-      const list=buckets.get(target.id)||[];list.push(read);buckets.set(target.id,list);
-    }
+    const buckets=placeReads(rows.map(row=>row.id),reads);
+    let changed=false;
     for(const row of rows){
-      const people=(buckets.get(row.id)||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+      const people=buckets.get(row.id)||[];
       const existing=row.node.querySelector('.chat-reads');
       const signature=people.map(person=>person.id+':'+person.message).join(',');
-      if(!people.length){existing?.remove();continue;}
+      if(!people.length){if(existing){existing.remove();changed=true;}continue;}
       if(existing?.dataset.reads===signature)continue;
       const box=document.createElement('div');box.className='chat-reads';box.dataset.reads=signature;
       for(const person of people){
@@ -405,7 +407,9 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
         mark.append(face);box.append(mark);
       }
       existing?existing.replaceWith(box):row.node.append(box);
+      changed=true;
     }
+    if(changed&&isOpen()&&stick&&!document.hidden)scrollLatest();
   }
   function considerRead() {
     if(readHold||readFlight||me.inspecting)return;
@@ -420,7 +424,16 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     if(next===readAck)return;
     const sent=next;readFlight=sent;
     request('/api/chat/read',{method:'POST',body:JSON.stringify({message:sent})})
-      .then(body=>{readAck=Math.max(readAck,Number(body.message)||sent);})
+      .then(body=>{
+        const stored=Number(body?.message)||sent;
+        readAck=Math.max(readAck,stored);
+        if(me.player_id){
+          const mine=reads.find(read=>read&&read.id===me.player_id);
+          if(mine)mine.message=Math.max(mine.message,readAck);
+          else reads=[...reads,{id:me.player_id,name:me.name||'',avatar:me.avatar??null,message:readAck}];
+          paintReads();
+        }
+      })
       .catch(()=>{readHold=true;})
       .finally(()=>{if(readFlight===sent)readFlight=0;});
   }
@@ -428,26 +441,35 @@ export function initChat({me, api, profileAvatar,onSpeakerContext=()=>{}}) {
     clearTimeout(timer);
     if(busy||document.hidden)return;
     busy=true;
-    try{const data=await request('/api/chat');reads=data.reads||[];readHold=false;render(data.messages);setText($('connection'),'');}
-    catch(error){$('connection').textContent=error.status===401||error.status===403?'Sign in again to chat.':'Reconnecting…';}
+    try{
+      const data=await request('/api/chat');diagnostics?.link('chat').set('up');
+      reads=data.reads||[];
+      const ownRead=reads.find(read=>read&&read.id===me.player_id);
+      if(ownRead)readAck=Math.max(readAck,Number(ownRead.message)||0);
+      readHold=false;
+      render(data.messages);
+      setText($('connection'),'');
+    }
+    catch(error){diagnostics?.link('chat').set('down',[401,403].includes(error.status)?'access_lost':'network');$('connection').textContent=error.status===401||error.status===403?'Sign in again to chat.':'Reconnecting…';}
     finally{busy=false;timer=setTimeout(poll,isOpen()?3000:10000);}
   }
-  $('form').onsubmit=async event=>{
-    event.preventDefault();if(sending||(!input.value.trim()&&!screenshot))return;
-    const text=input.value.trim();
-    if(!retry||retry.text!==text||retry.screenshot!==screenshot)retry={text,screenshot,client_id:crypto.randomUUID()};
+  $('form').onsubmit=event=>{event.preventDefault();void send();};
+  async function send(houseCall=null){
+    if(sending||(!houseCall&&!input.value.trim()&&!screenshot))return;
+    const payload=houseCall?{house_call:houseCall}:{text:input.value.trim(),screenshot};
+    if(!retry||retry.text!==payload.text||retry.screenshot!==payload.screenshot||retry.house_call!==payload.house_call)retry={...payload,client_id:crypto.randomUUID()};
     emojiPicker.close();
     sending=true;root.dataset.sending='true';input.readOnly=true;input.oninput();$('error').textContent='';$('send').setAttribute('aria-label','Sending message');$('send').setAttribute('aria-busy','true');
     try{
       await request('/api/chat',{method:'POST',body:JSON.stringify(retry)});
-      input.value='';retry=null;screenshot=null;attachmentDraft(draft,null,request,()=>{});
+      retry=null;if(!houseCall){input.value='';screenshot=null;attachmentDraft(draft,null,request,()=>{});}
       // Wait for an existing read to finish before the immediate post-send read.
       while(busy)await new Promise(resolve=>setTimeout(resolve,30));
       await poll();if(isOpen())scrollLatest();
     }catch(error){$('error').textContent=error.message;}
     finally{sending=false;delete root.dataset.sending;input.readOnly=false;$('send').setAttribute('aria-label','Send message');$('send').removeAttribute('aria-busy');input.oninput();if(isOpen())input.focus();}
   };
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(timer);else poll();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){suppressConfetti=true;clearTimeout(timer);}else poll();});
   window.addEventListener('online',poll);
   function consumeChatLink(open){
     if(location.hash!=='#chat')return;

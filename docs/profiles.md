@@ -8,15 +8,29 @@ shows your name, picture and group.
 
 Use **Switch Profile** in your profile menu to choose another. Infuser reloads
 the site into that group. Other open tabs and games keep their original profile.
-Your names, pictures, uploaded games, permissions and saves are separate in each
-group. Switching does not copy or merge them.
+Your names, pictures, appearance (theme, Nightglass color scheme, and custom
+colors), starred games, voice volumes, uploaded games, permissions, and saves
+are separate in each group. Switching does not copy or merge them.
+
+When you have two or more profiles, your profile menu and **User settings →
+Profile** show the active group name.
+
+## Per-group vs per-device settings
+
+- **Saved per group (follows your profile across devices):** theme, Nightglass
+  color scheme and custom colors, profile picture, starred games, saves, chat,
+  and voice mixer volumes. On a profile's first visit with no saved look yet,
+  Infuser adopts that browser's existing pre-upgrade theme once so your look
+  does not reset. The `/profiles` chooser uses the browser's last theme.
+- **Kept on this device only:** microphone and speaker device selection, app
+  installation, and browser chat notifications.
 
 ## Profile picture reminder
 
 The first Library visit without a profile picture opens the picture picker once.
 Close it to keep your initials, or choose a picture. Infuser remembers this on your
 profile across browsers and devices; keeping initials does not cause repeat prompts.
-You can always open **Change profile picture** from your own portrait in the top bar.
+You can always open **User settings → Profile → Change profile picture** from your own portrait in the top bar.
 Profiles with pictures and read-only admin inspection do not show the reminder.
 
 ## Add another profile

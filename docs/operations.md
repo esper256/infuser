@@ -151,3 +151,5 @@ References: [Docker limits](https://docs.docker.com/engine/containers/resource_c
 [Porkbun wildcards](https://kb.porkbun.com/article/94-what-is-a-wildcard-dns-record),
 [Caddy wildcard TLS](https://caddyserver.com/docs/caddyfile/patterns#wildcard-certificates),
 [Google OAuth provider](https://oauth2-proxy.github.io/oauth2-proxy/configuration/providers/google/).
+
+For browser errors and their matching server events, see [Read the private diagnostic timeline](client-diagnostics.md).

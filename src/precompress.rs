@@ -16,14 +16,15 @@ use std::{
 
 /// Originals smaller than this stay as uploaded.
 const MIN_SOURCE_BYTES: u64 = 8 * 1024;
+/// Both publish and backfill hold the original in RAM while encoding.
+const MAX_SOURCE_BYTES: u64 = 64 * crate::publish_limits::MIB;
 /// A sibling is kept only when it is at most this percent of the original.
 const MAX_RATIO_PERCENT: u64 = 90;
 /// And only when it saves at least this many bytes.
 const MIN_SAVED_BYTES: u64 = 4 * 1024;
 /// Quality 5 with a 4 MiB window. On the 39.5 MB Godot 4.7.2 web template this
 /// is close to quality 11, without the minutes or the memory that would press
-/// the service's 512 MiB limit. Publish also has to finish inside the
-/// publisher client's two-minute timeout.
+/// the service's 512 MiB limit.
 const BROTLI_QUALITY: i32 = 5;
 const BROTLI_LGWIN: i32 = 22;
 const GZIP_LEVEL: u32 = 6;
@@ -203,6 +204,10 @@ pub(crate) fn ensure_during(
             Err(error) => return Err(error.into()),
         };
         let len = meta.len();
+        if len > MAX_SOURCE_BYTES {
+            clear_owned(dir, relative, &catalog)?;
+            continue;
+        }
         let Some((secs, nanos)) = modified(&meta) else {
             tracing::warn!(path = %relative, "skipping a file with no modification time");
             continue;
@@ -641,6 +646,29 @@ mod tests {
             decode_gzip(&fs::read(dir.join("Build/game.wasm.gz")).unwrap()),
             wasm
         );
+    }
+
+    #[test]
+    fn oversized_source_skips_encoding_in_publish_and_backfill() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let path = "large.wasm";
+        let size = MAX_SOURCE_BYTES + 1;
+        fs::File::create(dir.join(path))
+            .unwrap()
+            .set_len(size)
+            .unwrap();
+        let files = BTreeMap::from([(path.to_owned(), size)]);
+        for strict in [true, false] {
+            let report =
+                ensure_during(dir, &files, 0, &dir.join("stamp.json"), strict, &mut |_| {
+                    panic!("oversized source reached the encoder")
+                })
+                .unwrap();
+            assert!(report.wrote.is_empty());
+            assert!(!dir.join("large.wasm.br").exists());
+            assert!(!dir.join("large.wasm.gz").exists());
+        }
     }
 
     #[test]

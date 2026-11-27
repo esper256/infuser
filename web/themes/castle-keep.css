@@ -625,13 +625,35 @@
 
 /* Recently and the profile menu are dark iron, edged in gold. */
 [data-theme="castle-keep"] #activity.recent-panel,
-[data-theme="castle-keep"] .account-menu {
+[data-theme="castle-keep"] .account-menu,
+[data-theme="castle-keep"] #voice-mixer {
   border: 3px solid var(--gold);
   border-radius: 10px;
   background-color: #1a2430;
   background-image: linear-gradient(180deg, #243140, #121820);
   color: var(--ink);
   box-shadow: inset 0 0 0 2px #8e1730, 0 12px 0 #07090c, 0 0 20px #ff9a3c22;
+}
+[data-theme="castle-keep"] #voice-mixer .vm-action,
+[data-theme="castle-keep"] #voice-mixer .vm-pct,
+[data-theme="castle-keep"] #voice-mixer .vm-peer-mute {
+  background: #121820;
+  color: var(--ink);
+  border: 2px solid #4e5d6c;
+}
+[data-theme="castle-keep"] #voice-mixer .vm-action[data-active="true"],
+[data-theme="castle-keep"] #voice-mixer .vm-action[data-active="true"]:hover,
+[data-theme="castle-keep"] #voice-mixer .vm-peer-mute[data-muted="true"],
+[data-theme="castle-keep"] #voice-mixer .vm-peer-mute[data-muted="true"]:hover,
+[data-theme="castle-keep"] #voice-mixer .vm-leave:hover {
+  background: #8e1730;
+  border-color: var(--gold);
+  color: #fff6ee;
+}
+[data-theme="castle-keep"] #voice-mixer .vm-field select {
+  background-color: var(--manuscript);
+  color: var(--manuscript-ink);
+  border-color: var(--gold);
 }
 [data-theme="castle-keep"] #activity h2 { font-size: 28px; color: var(--gold); }
 [data-theme="castle-keep"] .feed-row,
@@ -650,7 +672,6 @@
 [data-theme="castle-keep"] .feed-row small,
 [data-theme="castle-keep"] .feed-row p { color: var(--quiet); }
 [data-theme="castle-keep"] .feed-platform { box-shadow: inset 4px 0 0 var(--heart); }
-[data-theme="castle-keep"] .feed-platform-badge { color: var(--heart); }
 [data-theme="castle-keep"] .feed-react-toggle:not(:has(.feed-react-outline)) {
   border-color: var(--heart);
   box-shadow: 0 0 0 2px #f4c3cb;
@@ -665,6 +686,16 @@
 }
 [data-theme="castle-keep"] .account-menu > button:hover,
 [data-theme="castle-keep"] .account-menu > a:hover { background: #8e1730; color: #fff6ee; }
+[data-theme="castle-keep"] .account-menu > a.sign-out {
+  background: #9e2028;
+  border: 1px solid #d95b62;
+  color: #fff5f5;
+}
+[data-theme="castle-keep"] .account-menu > a.sign-out:hover {
+  background: #b8242e;
+  border-color: #f0767d;
+  color: #fff;
+}
 [data-theme="castle-keep"] .account-menu label { color: var(--gold); font-weight: 700; }
 [data-theme="castle-keep"] .account-menu select {
   background-color: var(--manuscript);
@@ -698,17 +729,60 @@
 [data-theme="castle-keep"] #chat-actions #chat-delete { color: var(--heart); }
 
 /* Chat is a window in the wall: parchment letters, a steel note of your own. */
-[data-theme="castle-keep"] #chat-toggle,
-[data-theme="castle-keep"] #voice-toggle {
+[data-theme="castle-keep"] #chat-toggle {
   background-image: var(--steel-face);
   background-color: #d5dce1;
   color: var(--steel-ink);
   border: 2px solid var(--iron);
   box-shadow: inset 0 1px 0 #fff, 0 3px 0 var(--mortar);
 }
+[data-theme="castle-keep"] .voice-split {
+  background: transparent;
+  border-radius: 10px;
+  box-shadow: 0 3px 0 var(--mortar);
+}
+[data-theme="castle-keep"] .voice-split[data-on="true"]::before { border-radius: 14px; }
+[data-theme="castle-keep"] .voice-split[data-on="true"]::after { border-radius: 16px; }
+[data-theme="castle-keep"] .voice-split > button {
+  background-image: var(--steel-face);
+  background-color: #d5dce1;
+  color: var(--steel-ink);
+  border: 2px solid var(--iron);
+  box-shadow: inset 0 1px 0 #fff;
+}
+[data-theme="castle-keep"] .voice-split-toggle { border-radius: 10px 0 0 10px; border-right: 0; }
+[data-theme="castle-keep"] .voice-split-caret { border-radius: 0 10px 10px 0; border-left: 0; }
+[data-theme="castle-keep"] .voice-split-divider { background: var(--iron); }
 [data-theme="castle-keep"] #chat-toggle[aria-expanded="true"],
 [data-theme="castle-keep"] #chat-toggle:hover,
-[data-theme="castle-keep"] #voice-toggle:hover { background-image: var(--steel-hot); color: var(--steel-ink); }
+[data-theme="castle-keep"] .voice-split > button:hover { background-image: var(--steel-hot); color: var(--steel-ink); }
+[data-theme="castle-keep"] .voice-split-toggle[aria-pressed="true"],
+[data-theme="castle-keep"] .voice-split-toggle[aria-pressed="true"]:hover {
+  background-image: none;
+  background-color: #193b2a;
+  color: var(--presence-online);
+  border-color: var(--presence-online);
+}
+[data-theme="castle-keep"] .voice-split[data-deafened="true"] > button,
+[data-theme="castle-keep"] .voice-split[data-deafened="true"] > button:hover {
+  background-image: none;
+  background-color: #8e1730;
+  color: #fff6ee;
+  border-color: var(--gold);
+}
+[data-theme="castle-keep"] .voice-split[data-deafened="true"] .voice-split-divider { background: var(--gold); }
+[data-theme="castle-keep"] .voice-split-caret[aria-expanded="true"],
+[data-theme="castle-keep"] .voice-split-caret[aria-expanded="true"]:hover {
+  background-image: none;
+  background-color: #243140;
+  color: var(--gold);
+  border-color: var(--gold);
+}
+[data-theme="castle-keep"] .voice-split-badge {
+  background-color: #8e1730;
+  color: #fff6ee;
+  border-color: var(--gold);
+}
 [data-theme="castle-keep"] #chat-unread { color: #fff6ee; border-color: var(--mortar); }
 [data-theme="castle-keep"] #chat-panel {
   border: 4px solid #2a333c;
@@ -791,21 +865,25 @@
 [data-theme="castle-keep"] #chat-empty,
 [data-theme="castle-keep"] .chat-empty { color: var(--quiet); }
 
-/* Admin tools are a chamber in the same keep. */
-[data-theme="castle-keep"] #admin {
+/* Admin tools and user settings are chambers in the same keep. */
+[data-theme="castle-keep"] #admin,
+[data-theme="castle-keep"] #user-settings {
   background-color: #141c26;
   background-image: url("/assets/themes/castle-keep/stone.svg");
   background-size: 160px 92px;
   color: var(--ink);
   border-color: var(--gold);
 }
-[data-theme="castle-keep"] #admin > .panel-heading {
+[data-theme="castle-keep"] #admin > .panel-heading,
+[data-theme="castle-keep"] #user-settings > .panel-heading {
   background: #0e141a;
   color: var(--gold);
   border-bottom: 5px solid var(--heart);
 }
-[data-theme="castle-keep"] #admin-title { color: var(--gold); }
-[data-theme="castle-keep"] #admin-status { background: var(--manuscript); color: var(--manuscript-ink); }
+[data-theme="castle-keep"] #admin-title,
+[data-theme="castle-keep"] #settings-title { color: var(--gold); }
+[data-theme="castle-keep"] #admin-status,
+[data-theme="castle-keep"] #settings-status { background: var(--manuscript); color: var(--manuscript-ink); }
 [data-theme="castle-keep"] .admin-region {
   background: var(--manuscript) url("/assets/themes/castle-keep/parchment.svg");
   color: var(--manuscript-ink);
@@ -815,7 +893,14 @@
 [data-theme="castle-keep"] .admin-region > summary { color: var(--manuscript-ink); font-size: 18px; }
 [data-theme="castle-keep"] .admin-region > summary:hover { background: #f8e0a8; }
 [data-theme="castle-keep"] .admin-region label,
-[data-theme="castle-keep"] .admin-region .quiet { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .admin-region .quiet,
+[data-theme="castle-keep"] .settings-dialog .settings-profile-name,
+[data-theme="castle-keep"] .settings-dialog .color-hex { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .house-call-editor .house-call-profiles { background: var(--manuscript); border-color: #c9b48a; }
+[data-theme="castle-keep"] .house-call-profiles legend { color: var(--manuscript-ink); }
+[data-theme="castle-keep"] .settings-subpanel { border-color: #c9b48a; background: #f8e8c399; }
+[data-theme="castle-keep"] .custom-color-card { border-color: #c9b48a; background: #fbf0d6; }
+[data-theme="castle-keep"] .settings-dialog .notification-hint { color: var(--manuscript-ink); }
 [data-theme="castle-keep"] .admin h3,
 [data-theme="castle-keep"] #members > div,
 [data-theme="castle-keep"] #credentials > div,

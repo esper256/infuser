@@ -13,6 +13,10 @@ pub(super) async fn image(Path(file): Path<String>, h: HeaderMap) -> Answer {
         "music.webp" => include_bytes!("../../assets/reactions/music.webp"),
         "smile.webp" => include_bytes!("../../assets/reactions/smile.webp"),
         "together.webp" => include_bytes!("../../assets/reactions/together.webp"),
+        "fire.webp" => include_bytes!("../../assets/reactions/fire.webp"),
+        "spooky.webp" => include_bytes!("../../assets/reactions/spooky.webp"),
+        "trophy.webp" => include_bytes!("../../assets/reactions/trophy.webp"),
+        "celebrate.webp" => include_bytes!("../../assets/reactions/celebrate.webp"),
         _ => return Err(fault(404, "Unknown reaction artwork.").into()),
     };
     Ok(conditional::static_asset(&h, "image/webp", bytes))

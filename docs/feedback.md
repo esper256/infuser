@@ -12,6 +12,8 @@ Text you type is not automatically cleaned of private information.
 You can send up to three new reports per day. Unsent drafts disappear if you
 close or reload the form.
 
+Infuser automatically keeps recent browser and game errors for troubleshooting for up to 48 hours. You can ask an admin for help by naming the game and about when it happened.
+
 ## Review as an admin
 
 Open **Profile → Review feedback**. The queue and review screen show the

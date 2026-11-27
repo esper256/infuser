@@ -1,5 +1,5 @@
 //! Agent-facing workflow: an existing web project plus a private connection file.
-use crate::store::secret;
+use crate::{publish_limits as limits, store::secret};
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -7,6 +7,9 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
 };
+
+const PACKAGING_WAIT_SECONDS: u64 = 1800;
+
 #[derive(Deserialize)]
 struct Connection {
     api_url: String,
@@ -147,7 +150,7 @@ fn plain_web_export_keeps_art_sources_local() -> Result<()> {
 }
 
 pub async fn run(args: &[String]) -> Result<()> {
-    let connection_path=args.get(1).context("usage: infuser publish CONNECTION.credentials.json PROJECT [--solo] [--preview] [--allow-duplicate-title] [--title TITLE] [--web-dir EXPORT]")?;
+    let connection_path=args.get(1).context("usage: infuser publish CONNECTION.credentials.json PROJECT [--solo] [--preview] [--allow-duplicate-title] [--title TITLE] [--web-dir EXPORT] [--native-linux EXPORT] [--native-windows EXPORT] [--native-only]")?;
     let connection: Connection = serde_json::from_slice(&std::fs::read(connection_path)?)?;
     let url = reqwest::Url::parse(&connection.api_url)?;
     ensure!(
@@ -163,7 +166,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         "invalid app ID in connection file"
     );
     let api = connection.api_url.trim_end_matches('/');
-    let http = http_client(args, 120)?;
+    let http = http_client(args, limits::UPLOAD_SECONDS)?;
     if args[0] == "unpublish" {
         response(
             http.delete(format!("{api}/api/publisher/apps/{}", connection.app_id))
@@ -360,19 +363,45 @@ pub async fn run(args: &[String]) -> Result<()> {
     println!("Detected {engine}. Preparing {title}…");
     let override_dir =
         option(args, "--web-dir").or_else(|| settings["web_dir"].as_str().map(str::to_owned));
-    let native_only = has(args, "--native-only");
-    let native_dirs: Vec<_> = [
-        ("linux-x86_64", "--native-linux"),
-        ("windows-x86_64", "--native-windows"),
-    ]
-    .into_iter()
-    .filter_map(|(platform, flag)| {
-        option(args, flag).map(|path| (platform.to_owned(), project.join(path)))
-    })
-    .collect();
+    let native_only = has(args, "--native-only")
+        || settings
+            .get("native_only")
+            .map(|v| v.as_bool().context("native_only must be a boolean"))
+            .transpose()?
+            .unwrap_or(false);
+    let mut native_dirs = Vec::new();
+    for (platform, flag, setting) in [
+        ("linux-x86_64", "--native-linux", "native_linux"),
+        ("windows-x86_64", "--native-windows", "native_windows"),
+    ] {
+        let path = if has(args, flag) {
+            option(args, flag).with_context(|| format!("{flag} requires an export directory"))?
+        } else if let Some(value) = settings.get(setting) {
+            value
+                .as_str()
+                .with_context(|| format!("{setting} must be an export directory path"))?
+                .to_owned()
+        } else {
+            continue;
+        };
+        ensure!(
+            !path.trim().is_empty(),
+            "{setting} requires an export directory path"
+        );
+        let dir = project.join(path);
+        let mut entries = std::fs::read_dir(&dir).with_context(|| {
+            format!("Cannot open {setting} export directory '{}'", dir.display())
+        })?;
+        ensure!(
+            entries.next().transpose()?.is_some(),
+            "{setting} export directory '{}' is empty",
+            dir.display()
+        );
+        native_dirs.push((platform.to_owned(), dir));
+    }
     ensure!(
         !native_only || !native_dirs.is_empty(),
-        "--native-only requires a native export directory"
+        "native_only / --native-only requires a native export directory"
     );
     if !native_dirs.is_empty() {
         ensure!(
@@ -500,7 +529,10 @@ pub async fn run(args: &[String]) -> Result<()> {
         files.retain(|(_, path)| !path.starts_with(source));
         walk(source, source, &mut server_files)?;
         server_files.retain(|(_, path)| !path.starts_with(&web));
-        ensure!(server_files.len() <= 4096, "too many server source files");
+        ensure!(
+            server_files.len() <= limits::FILE_COUNT,
+            "too many server source files"
+        );
         let mut server_bytes = 0;
         for (name, path) in &server_files {
             ensure!(
@@ -510,13 +542,15 @@ pub async fn run(args: &[String]) -> Result<()> {
             let size = path.metadata()?.len();
             ensure!(
                 size <= crate::server_package::SOURCE_FILE_BYTES as u64,
-                "server source file exceeds 8 MiB: {name}"
+                "server source file exceeds {} MiB: {name}",
+                crate::server_package::SOURCE_FILE_BYTES as u64 / limits::MIB
             );
             server_bytes += size;
         }
         ensure!(
             server_bytes <= crate::server_package::SOURCE_BYTES,
-            "server source exceeds 64 MiB"
+            "server source exceeds {} MiB",
+            crate::server_package::SOURCE_BYTES / limits::MIB
         );
         let recipe = recipe.as_ref().unwrap();
         ensure!(
@@ -560,18 +594,23 @@ pub async fn run(args: &[String]) -> Result<()> {
         );
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
-    ensure!(files.len() <= 4096, "too many exported files");
+    ensure!(files.len() <= limits::FILE_COUNT, "too many exported files");
     let mut total = 0;
     for (_, path) in &files {
         let size = path.metadata()?.len();
         ensure!(
-            size <= 64 * 1024 * 1024,
-            "{} exceeds the 64 MiB per-file limit",
-            path.display()
+            size <= limits::FILE_BYTES,
+            "{} exceeds the {} MiB per-file limit",
+            path.display(),
+            limits::FILE_BYTES / limits::MIB
         );
         total += size;
     }
-    ensure!(total <= 256 * 1024 * 1024, "export exceeds 256 MiB");
+    ensure!(
+        total <= limits::BUILD_BYTES,
+        "export exceeds {} MiB",
+        limits::BUILD_BYTES / limits::MIB
+    );
     let build = format!("b-{}-{}", crate::controller::now(), &secret()[..8]);
     let build_url = format!(
         "{api}/api/publisher/apps/{}/builds/{build}",
@@ -662,7 +701,8 @@ pub async fn run(args: &[String]) -> Result<()> {
         )
         .await?;
         println!("Server packaging queued. Build: {build}");
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(900);
+        let deadline =
+            tokio::time::Instant::now() + std::time::Duration::from_secs(PACKAGING_WAIT_SECONDS);
         let mut last_state = String::new();
         loop {
             let state = job["state"]

@@ -271,7 +271,7 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         .await?;
     assert_eq!(again, json!({"show":false}));
     let catalog = before["avatars"].as_array().unwrap();
-    assert_eq!(catalog.len(), 85);
+    assert_eq!(catalog.len(), 95);
     let portraits = before["portraits"].as_array().unwrap();
     assert_eq!(
         portraits,
@@ -287,6 +287,16 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
         ("clockwork-owl", "Clockwork Owl"),
         ("circuit-crane", "Circuit Crane"),
         ("signal-kettle", "Signal Kettle"),
+        ("volt-ninja", "Volt Ninja"),
+        ("skate-bones", "Skate Bones"),
+        ("rust-sentinel", "Rust Sentinel"),
+        ("magma-golem", "Magma Golem"),
+        ("shadow-ranger", "Shadow Ranger"),
+        ("oni-ronin", "Oni Ronin"),
+        ("titan-mech", "Titan Mech"),
+        ("night-strike", "Night Strike"),
+        ("glitch-mask", "Glitch Mask"),
+        ("venom-scorpion", "Venom Scorpion"),
     ] {
         assert!(
             catalog
@@ -695,6 +705,215 @@ async fn profile_selection_is_private_persistent_and_shared_with_the_library() -
             .avatar
             .as_deref(),
         Some("origami-unicorn")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn per_profile_appearance_isolation_and_cleanup() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let auth = Router::new().route(
+        "/oauth2/auth",
+        get(|h: HeaderMap| async move {
+            match h.get("cookie").and_then(|v| v.to_str().ok()) {
+                Some("member=one") => (
+                    StatusCode::ACCEPTED,
+                    [
+                        ("X-Auth-Request-Email", "one@example.com"),
+                        ("X-Auth-Request-User", "one@example.com"),
+                    ],
+                ),
+                _ => (
+                    StatusCode::UNAUTHORIZED,
+                    [("X-Auth-Request-Email", ""), ("X-Auth-Request-User", "")],
+                ),
+            }
+        }),
+    );
+    let (auth_url, _auth) = serve(auth).await?;
+    let cfg: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}\nprivate_groups=true\nauth_url={:?}",
+        dir.path().display().to_string(),
+        format!("{auth_url}/oauth2/auth")
+    ))?;
+    platform::member(&cfg, "one@example.com", "Home Alex", true, true)?;
+    let (home_id, away_id, away_key) = platform::Database::open(dir.path())?.edit(|data| {
+        data.groups.names.insert("away".into(), "Away".into());
+        data.groups.operators.insert("one@example.com".into());
+        data.invite_to_group("away", "one@example.com", "Away Alex", false, true)?;
+        let home_id = data.player_id("one@example.com");
+        let away_key = data
+            .group_member_key("one@example.com", "away")?
+            .expect("away profile key");
+        let away_id = data.player_id(&away_key);
+        Ok((home_id, away_id, away_key))
+    })?;
+    assert_ne!(home_id, away_id);
+
+    let controller = Arc::new(Controller::open(
+        cfg.clone(),
+        Arc::new(Docker {
+            settings: cfg.controller.clone(),
+        }),
+    )?);
+    let (url, _server) = serve(portal::router(portal::Platform::open(controller)?)).await?;
+    let http = reqwest::Client::new();
+    let req = |method: Method, path: &str, profile: Option<&str>| {
+        let mut builder = http
+            .request(method, format!("{url}{path}"))
+            .header("host", "games.example.com")
+            .header("cookie", "member=one")
+            .header("origin", "https://games.example.com");
+        if let Some(pid) = profile {
+            builder = builder.header("x-infuser-profile", pid);
+        }
+        builder
+    };
+
+    // Unauthenticated requests are rejected.
+    assert_eq!(
+        http.get(format!("{url}/api/profile/appearance"))
+            .header("host", "games.example.com")
+            .send()
+            .await?
+            .status(),
+        401
+    );
+
+    // Both profiles start with no saved appearance.
+    let home_me: Value = req(Method::GET, "/api/me", Some(&home_id))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(home_me["appearance"], Value::Null);
+    assert_eq!(home_me["home_group_name"], "Home");
+    let away_me: Value = req(Method::GET, "/api/me", Some(&away_id))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(away_me["appearance"], Value::Null);
+    assert_eq!(away_me["home_group_name"], "Away");
+
+    // Save Field Notes on Home profile; Away profile stays unset.
+    let saved_home: Value = req(Method::PUT, "/api/profile/appearance", Some(&home_id))
+        .json(&json!({"theme": "field-notes"}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(saved_home["appearance"], json!({"theme": "field-notes"}));
+
+    let away_get: Value = req(Method::GET, "/api/profile/appearance", Some(&away_id))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(away_get["appearance"], Value::Null);
+
+    // Save Nightglass + Amber Hearth + custom colors on Away profile; Home stays Field Notes.
+    let saved_away: Value = req(Method::PUT, "/api/profile/appearance", Some(&away_id))
+        .json(&json!({
+            "theme": "nightglass",
+            "schemes": {"nightglass": "amber-hearth"},
+            "custom": {"nightglass": {"primary": "#102030", "accent": "#FF77AA", "secondary": "#FFD166"}}
+        }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        saved_away["appearance"],
+        json!({
+            "theme": "nightglass",
+            "schemes": {"nightglass": "amber-hearth"},
+            "custom": {"nightglass": {"primary": "#102030", "accent": "#ff77aa", "secondary": "#ffd166"}}
+        })
+    );
+
+    let home_check: Value = req(Method::GET, "/api/me", Some(&home_id))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(home_check["appearance"], json!({"theme": "field-notes"}));
+
+    // /api/profiles exposes each profile's own appearance for pre-caching.
+    let profiles: Value = req(Method::GET, "/api/profiles", None)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let list = profiles["profiles"].as_array().unwrap();
+    let home_entry = list.iter().find(|p| p["player_id"] == home_id).unwrap();
+    let away_entry = list.iter().find(|p| p["player_id"] == away_id).unwrap();
+    assert_eq!(home_entry["appearance"]["theme"], "field-notes");
+    assert_eq!(
+        away_entry["appearance"]["schemes"]["nightglass"],
+        "amber-hearth"
+    );
+
+    // Validation & security checks: invalid theme, invalid scheme, invalid hex, extra field, missing origin, inspection.
+    for invalid in [
+        json!({"theme": "evil-theme"}),
+        json!({"theme": "nightglass", "schemes": {"nightglass": "bogus"}}),
+        json!({"theme": "field-notes", "schemes": {"field-notes": "deep-ocean"}}),
+        json!({"theme": "nightglass", "custom": {"nightglass": {"primary": "#fff", "accent": "#112233", "secondary": "#445566"}}}),
+        json!({"theme": "nightglass", "extra": true}),
+    ] {
+        let status = req(Method::PUT, "/api/profile/appearance", Some(&home_id))
+            .json(&invalid)
+            .send()
+            .await?
+            .status()
+            .as_u16();
+        assert!(
+            status == 400 || status == 422,
+            "expected 400/422 for {invalid}, got {status}"
+        );
+    }
+    assert_eq!(
+        http.put(format!("{url}/api/profile/appearance"))
+            .header("host", "games.example.com")
+            .header("cookie", "member=one")
+            .header("x-infuser-profile", &home_id)
+            .json(&json!({"theme": "nightglass"}))
+            .send()
+            .await?
+            .status(),
+        403
+    );
+    assert_eq!(
+        req(Method::PUT, "/api/profile/appearance", Some(&home_id))
+            .header("x-infuser-inspect-group", "away")
+            .json(&json!({"theme": "nightglass"}))
+            .send()
+            .await?
+            .status(),
+        403
+    );
+
+    // Deleting the Away profile cleans up its appearance_settings row while keeping Home intact.
+    let db = platform::Database::open(dir.path())?;
+    assert!(db.appearance_load(&away_key)?.is_some());
+    db.edit(|data| {
+        data.members.remove(&away_key);
+        data.groups.members.remove(&away_key);
+        data.identities.profiles.remove(&away_key);
+        Ok(())
+    })?;
+    assert!(db.appearance_load(&away_key)?.is_none());
+    assert_eq!(
+        db.appearance_load("one@example.com")?.unwrap().theme,
+        "field-notes"
     );
     Ok(())
 }

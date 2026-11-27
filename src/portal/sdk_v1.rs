@@ -59,6 +59,9 @@ fn javascript(source: &'static str) -> impl IntoResponse {
 pub(super) async fn core() -> impl IntoResponse {
     javascript(include_str!("../../sdk/v1/infuser.js"))
 }
+pub(super) async fn session_fetch() -> impl IntoResponse {
+    javascript(include_str!("../../sdk/v1/session-fetch.js"))
+}
 pub(super) async fn peers() -> impl IntoResponse {
     javascript(include_str!("../../sdk/v1/peers.js"))
 }
@@ -72,6 +75,9 @@ pub(super) async fn sessions() -> impl IntoResponse {
     javascript(include_str!("../../sdk/v1/sessions.js"))
 }
 
+pub(super) async fn gamepads() -> impl IntoResponse {
+    javascript(include_str!("../../web/gamepad-layout.js"))
+}
 pub(super) async fn activity_input() -> impl IntoResponse {
     javascript(include_str!("../../web/activity-input.js"))
 }

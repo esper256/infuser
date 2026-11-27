@@ -9,6 +9,8 @@ default-run = "infuser"
 
 [dependencies]
 anyhow = "1"
+glob = "0.3"
+jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-zoneinfo"] }
 async-trait = "0.1"
 base64 = "0.23"
 hmac = "0.13"
@@ -17,17 +19,19 @@ axum = { version = "0.8", features = ["ws"] }
 futures-util = { version = "0.3", features = ["sink"] }
 tokio-tungstenite = "0.30"
 rand = "0.10"
+regex-automata = { version = "0.4", default-features = false, features = ["meta", "syntax"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rustix = { version = "1", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 sha2 = "0.11"
 subtle = "2"
-rusqlite = { version = "0.42", default-features = false, features = ["bundled", "cache", "fallible_uint", "blob", "backup"] }
+rusqlite = { version = "0.43", default-features = false, features = ["bundled", "cache", "fallible_uint", "blob", "backup"] }
 tower = { version = "0.5", features = ["util", "limit"] }
 tower-http = { version = "0.7", features = ["fs"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "net", "signal", "sync", "io-util", "fs"] }
 toml = "1.2"
+unicase = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image-webp = { version = "0.2", default-features = false }

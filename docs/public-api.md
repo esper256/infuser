@@ -40,7 +40,7 @@ inspect build status before deciding whether to repeat an operation.
 | GET | `/api/publisher/tags` | Current tag catalog |
 | PUT | `/api/publisher/apps/APP/slug` | Rename the durable URL; preserve old aliases |
 | PUT | `/api/publisher/apps/APP/tags` | Set this game's tags |
-| GET / PATCH | `/api/publisher/apps/APP/metadata` | Read/edit title, description, and art prompt |
+| GET / PATCH | `/api/publisher/apps/APP/metadata` | Read/edit title, description, art prompt, and supported [input methods](game-metadata.md#input-methods) |
 | PUT / DELETE | `/api/publisher/apps/APP/card-art` | Upload/clear a cover override without a build |
 | PUT | `/api/publisher/apps/APP/builds/BUILD` | Create immutable build draft |
 | GET | same | Inspect metadata and uploaded file inventory |
@@ -48,6 +48,7 @@ inspect build status before deciding whether to repeat an operation.
 | PUT | `/api/publisher/apps/APP/builds/BUILD/server/files/PATH` | Upload private managed-server source |
 | POST / GET | `/api/publisher/apps/APP/builds/BUILD/server-build` | Seal/queue server packaging, or inspect its state/logs |
 | GET | `/api/publisher/apps/APP/server-diagnostics` | Private live/recent runtime logs, health, exit status and build correlation |
+| GET | `/api/publisher/apps/APP/diagnostic-events` | Read this game’s recent [browser and server events](server-diagnostics.md#browser-and-game-timeline) |
 | POST | `/api/publisher/apps/APP/builds/BUILD/publish` | Validate and promote; optional `{"listed":false}` for admin-only preview. The first publish of a new game can return 409 `duplicate_title` |
 | DELETE | `/api/publisher/apps/APP/builds/BUILD` | Remove an unused build |
 | DELETE | `/api/publisher/apps/APP` | Unpublish and expire sessions; retain builds/saves |
@@ -78,7 +79,7 @@ The manifest follows `examples/game-manifest.json`. IDs are lowercase slug strin
 up to 48 characters, beginning with a letter. Upload a UTF-8 `index.html` including
 `<script type="module" src="/_infuser/sdk/v1.js"></script>` for a major-1
 declaration, or `/_infuser/sdk.js` for legacy builds; the CLI adds it for you.
-Files are limited to 64 MiB, builds to 256 MiB/4096 files, and each app to 12 builds.
+Files are limited to 128 MiB with a 240-second upload deadline, builds to 512 MiB/8,192 files, and each app to 12 builds.
 The installation also has an aggregate content budget and a free-disk reserve.
 Drafts can be resumed by checking the file inventory. Published files are immutable.
 No arbitrary remote URLs are fetched and no build scripts execute on the host.
@@ -103,7 +104,12 @@ manifest title over it. Description accepts
 `game_metadata.description_max_chars`. Read existing metadata before editing.
 `art_prompt` (up to 4000 characters, or null to cancel) stores a private pending
 art request when `game_metadata.art_prompt_max_chars` is advertised. Prompts are
-not included in player responses. Descriptions, prompts, and overrides survive
+not included in player responses. Optional model authorship fields —
+`author_model` (1–120 characters), `effort_level` (1–40 characters), and
+cumulative `estimated_prompts` (integer `1`–`1000000`), each nullable to clear —
+are accepted when advertised in `game_metadata` and shown on the Library game
+detail popup; agents should omit any field they do not reliably know rather than
+guessing. Descriptions, model authorship, prompts, and overrides survive
 later publications; none requires a manifest field.
 
 Publishing keys inherit their creator’s [private group](private-groups.md).
@@ -161,6 +167,8 @@ data also require the exact website HTTPS Origin. A publisher credential cannot
 be used as a player login.
 
 - `GET /api/me`, `GET /api/library` — identity, games, friends, reactions.
+- Admins can select **Emoji reactions only (no chat or voice)** on an invitation or in Admin tools → Members. This applies to the member’s profile in that Library and follows the profile on visits. Sign-in and game publishing still work. The Library returns reaction emojis with empty notes and no shared screenshots. Chat, chat notifications and voice are unavailable. Clearing the setting restores access.
+- `PUT /api/admin/members/communication` accepts `{"email":"<member handle or email>","limited_communication":true}`. Both the member list and the member’s own Library and identity responses include `limited_communication`.
   Library games include `author: {id, name, avatar}` from the existing owner/member records,
   or `null` for an unrecorded owner. `id` is the same opaque player ID used for
   presence; no email is exposed. `avatar` is a curated picture ID or `null` for
@@ -170,7 +178,11 @@ be used as a player login.
   sessions, combining duplicate signed-in sessions and labeling guests separately.
   `player_id` matches `join_targets[].player_id`, including each guest’s distinct
   session identity; `id` remains the profile ID used for the portrait.
-  `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog.
+  `/api/me` also returns `avatars: [{id, name}]`, the available picture catalog,
+  and `appearance`, the profile's saved look (`null` until saved, or
+  `{"theme":"nightglass","schemes":{"nightglass":"amber-hearth"},"custom":{"nightglass":{"primary":"#122128","accent":"#b5ead6","secondary":"#e8d5a4"}}}`).
+  `GET /api/profiles` includes each profile's `appearance` as well so the
+  profile chooser can pre-cache the selected profile's theme before navigation.
   Its mixed display order is stable across sessions; new pictures slot in without
   changing existing pictures' relative order. Clients should preserve this order.
   Library games include `description` (nullable plain text) and `card_art_url`
@@ -196,6 +208,17 @@ be used as a player login.
   There is no target-user field, file upload, or remote image URL.
   `GET /assets/avatars/ID/128.webp` and `256.webp` serve embedded public artwork.
   Member updates preserve the selection; accounts without one show initials.
+- `GET /api/profile/appearance` — returns `{"appearance": ...}` (`null` if unset)
+  for the active profile (selected via `X-Infuser-Profile` when the account holds
+  multiple profiles).
+- `PUT /api/profile/appearance` with `{"theme":"nightglass","schemes":{},"custom":{}}` —
+  saves the active profile's theme, optional Nightglass color scheme, and optional
+  custom `#RRGGBB` colors (`primary`, `accent`, `secondary`). Unknown theme IDs,
+  unknown scheme IDs, themes that do not support schemes or custom colors, invalid
+  hex colors, and unknown JSON fields return 400. Authentication, active
+  membership, and the exact HTTPS Origin are required; read-only operator
+  inspection returns 403. Saved rows are isolated per profile and removed if the
+  profile is deleted.
 - `POST /api/my-games` with `{}` — reserves a publishing connection for an existing
   project without asking the user for a name. Returns `app_id`, `api_url`,
   `setup_code`, `expires_at` (Unix seconds), `supported_engines`, and `tag_catalog`;
@@ -300,8 +323,31 @@ fallback. Targeted peer joins can supply both `expected_epoch` and `expected_pla
 
 - `GET /_infuser/api/v1/context` — player identity, guest flag, app/build, scoped game
   ticket and ready endpoint. Never treat a display name as an identity.
-- `POST /_infuser/api/v1/heartbeat` — renew every 25 seconds, including startup.
-- `DELETE /_infuser/api/v1/heartbeat` — explicit leave. Closing a tab is handled by expiry.
+- `POST /_infuser/api/v1/heartbeat` renews the launch at startup and every 25 seconds.
+  SDK v1 also sends one when the game becomes visible again. The five-minute
+  liveness deadline controls whether the launch counts as open. Member, guest, native and visit launches can resume
+  until seven days after their last heartbeat or initial exchange. Membership and
+  visit access are checked on each request. Pressing Play creates a launch.
+  Earlier launches keep their own heartbeat and expiry deadlines on every device.
+  A save already sent with the previous cookie can finish normally.
+  Signing out ends personal web launches started from that browser’s Library
+  session for the selected profile. Launches on other devices, sibling profiles,
+  guests, visits, native games and launches created before session tracking keep
+  their own authorization. Disabling membership still revokes access everywhere.
+- If the backend stops, the heartbeat reports HTTP 200 with state `"ended"`.
+  After the dead lease is cleared, runtime status reads `"idle"`. Offer to
+  reconnect or choose a mode. The launch can still save. The player handles
+  `update_available` (a game build update) and `client_update` (Infuser web
+  client version and emergency reload generation).
+- When launch authorization ends, the controller sends the `Infuser-Session: ended`
+  header and the `session_ended` error code. SDK v1 stops the heartbeat and signals
+  `infuser-session-error` once. The error includes a machine-readable `reason`
+  and a player-facing `message`. The player shows the explanation and a Library
+  link. If the launch record has already been cleaned up, Infuser can only say
+  that it no longer recognizes the session. Visit heartbeats use the same marker.
+  An expired room, disconnected server or save conflict leaves the game session usable.
+- `DELETE /_infuser/api/v1/heartbeat` stops announcing play. All launch kinds
+  retain authorization under the same seven-day rule.
 - `GET /_infuser/api/v1/saves/SLOT` — `{version:0,data:null}` for an empty slot.
 - `PUT /_infuser/api/v1/saves/SLOT` — `{version:EXPECTED,data:JSON}`; returns new version.
   A stale version is 409. Limit 1 MiB/slot, 16 slots/player/game. Add your game's
@@ -313,6 +359,45 @@ as runtime environment variables. Verify the client's scoped ticket by POSTing
 `{"ticket":"..."}` to `/api/server/verify` with that **server** bearer credential.
 The response is game-bound identity and expiry. Authenticate joins, periodically
 revalidate, and never accept a publisher token or client-claimed identity.
+
+### Other tabs and saving before leaving
+
+In browser SDK v1, `Infuser.tabs.others` is the number of other open SDK v1 game
+pages on this game origin. Listen on `window` for `infuser-tabs`. Its
+`event.detail` contains `{others, unsaved}`, where `unsaved` describes **this
+tab**. The player shows the notice automatically. Games can start immediately.
+
+Call `Infuser.saves.setDirty(true)` when progress changes. Clear it with
+`setDirty(false)` after the save is acknowledged, provided the player hasn’t
+made further edits. The default is false. Dismissing the notice has no effect
+on saves.
+
+Register your existing autosave routine once:
+
+```js
+const unsubscribe = Infuser.onBeforeLeave(reason => {
+  if (hasUnsavedChanges()) savePendingProgress();
+});
+```
+
+The callback runs when the document becomes hidden (`"hidden"`) and when the
+page exits (`"pagehide"`). Both can happen for one departure. Have the routine
+reuse any in-flight save, keep a local draft of pending edits, and handle a
+failed write. Call `unsubscribe()` if you remove the game’s save handlers.
+Browsers can terminate a tab before a callback runs or a network save finishes.
+Save at checkpoints during play as well.
+
+Each new tab discovers live peers directly. An abrupt close can leave an old
+count in a surviving tab until another tab opens. Other browsers, devices,
+and separate game origins (including different builds and fresh guest
+launches) are outside the count.
+
+Keep the version returned by `saves.load()` or the last acknowledged
+`saves.save()`. If two copies save against the same version, one succeeds and
+the other receives HTTP 409. Keep the local edits, load the current save and
+let the player choose what to keep. The same check protects writes across
+browsers and devices. For games that need Infuser to retain both candidates,
+see [cloud checkpoint conflicts](cloud-save-design.md#revisions-conflicts-and-retries).
 
 ## Current boundaries
 

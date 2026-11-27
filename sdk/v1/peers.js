@@ -1,13 +1,16 @@
+import {sessionFetch} from './session-fetch.js';
 // Experimental WebRTC star topology. Keep game rules in the game, not this transport.
 // One host per room; host departure ends the session. This is not the SDK 1.0 contract.
 async function request(path, body, method = 'POST') {
-  const response = await fetch('/_infuser/api/v1/peers' + path, {
+  const response = await sessionFetch('/_infuser/api/v1/peers' + path, {
     method, credentials: 'same-origin', signal: AbortSignal.timeout(5000),
     ...(body === undefined ? {} : {headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)})
   });
-  const result = await response.json();
-  if (!response.ok) throw Object.assign(new Error(result.error || 'Peer session unavailable'), {status:response.status});
-  return result;
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw Object.assign(new Error(result?.error || 'Peer session unavailable'), {status:response.status});
+  }
+  return response.json();
 }
 export function create(options) { return enter(true, options); }
 export function join(options) { return enter(false, options); }

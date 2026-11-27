@@ -40,7 +40,8 @@ Keep `index.html`, `.pck`, `.wasm`, JS, and other exported files together.
 Root-relative paths work. `.pck` exports automatically enable COOP/COEP for
 threaded exports; set `cross_origin_isolation` explicitly in `infuser.game.json`
 if the export needs different behavior. Missing WASM/assets return 404. Large
-assets support HTTP range requests. Current limits: 64 MiB/file, 256 MiB/build.
+assets support HTTP range requests. Current limits: 128 MiB per file, 512 MiB and 8,192 files per build.
+Files above 64 MiB are served without server-generated compression.
 
 Publishing stores gzip and Brotli copies of the large engine files beside the
 originals: the WebAssembly module, the engine JavaScript, and the `.pck` when
@@ -102,4 +103,4 @@ and `Infuser.decode_binary` for bytes; see [binary saves](../cloud-save-design.m
 It does not scan or automatically sync `user://`.
 
 If the game requires unsupported web features, report the limitation explicitly.
-Native delivery has a separate [desktop preview recipe](godot-native.md).
+For a client-only single-player game, you can ship this Web export alongside Windows and Linux exports on one Library card. [Publish Web and Infuser Play together](godot-native.md#publish-web-and-infuser-play-together).

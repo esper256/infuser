@@ -12,20 +12,22 @@ use tokio_tungstenite::{
 type Backend = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 fn prune(p: &Platform) -> Result<()> {
-    let live =
+    let time = now();
+    let authorized =
         p.db.read()?
             .launches
             .into_iter()
-            .filter(|(_, l)| l.expires > now())
+            .filter(|(_, l)| l.authorized(time))
             .map(|(id, _)| id)
             .collect();
-    p.connections.lock().unwrap().prune(now(), &live);
+    p.connections.lock().unwrap().prune(time, &authorized);
     Ok(())
 }
 
 pub(super) async fn options(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let (_, launch) = allowed(&p, &h)?;
-    let build = &p.db.read()?.builds[&build_key(&launch.app, &launch.build)];
+    let (launch_id, launch) = allowed(&p, &h)?;
+    let data = p.db.catalog()?;
+    let build = data.launch_build(&launch_id, &launch)?;
     Ok(reply(
         json!({"epoch":p.connection_epoch,"connection":build.manifest.server_connection.clone().unwrap_or_default(),"limits":crate::dedicated::capabilities()}),
     ))
@@ -34,7 +36,7 @@ pub(super) async fn options(State(p): State<Platform>, h: HeaderMap) -> Answer {
 fn allowed(p: &Platform, h: &HeaderMap) -> Result<(String, Launch)> {
     let (id, launch) = p.game(h)?;
     let data = p.db.read()?;
-    let build = &data.builds[&build_key(&launch.app, &launch.build)];
+    let build = data.launch_build(&id, &launch)?;
     ensure!(
         build.server.as_ref().is_some_and(|server| server.web)
             && build.manifest.dedicated_sessions(),
@@ -237,6 +239,13 @@ impl Drop for ConnectionGuard {
         let mut attempts = self.p.connections.lock().unwrap();
         attempts.finish(&self.id, ConnectionState::Closed, None, now());
         if let Some(attempt) = attempts.0.get(&self.id) {
+            self.p
+                .controller
+                .timeline
+                .record(super::telemetry::connection_event(
+                    attempt,
+                    "connection.end",
+                ));
             tracing::info!(app_id = %attempt.identity.app_id, build_id = %attempt.identity.build_id,
                 instance_id = %attempt.identity.instance_id, connection_id = %self.id,
                 state = ?attempt.state, reason = ?attempt.error, "managed connection ended");
@@ -261,12 +270,14 @@ pub(super) async fn socket(
     ws: WebSocketUpgrade,
 ) -> Answer {
     p.origin(&h, host(&h))?;
-    let (_, launch) = allowed(&p, &h)?;
-    let connection = p.db.read()?.builds[&build_key(&launch.app, &launch.build)]
-        .manifest
-        .server_connection
-        .clone()
-        .unwrap_or_default();
+    let (launch_id, launch) = allowed(&p, &h)?;
+    let connection =
+        p.db.catalog()?
+            .launch_build(&launch_id, &launch)?
+            .manifest
+            .server_connection
+            .clone()
+            .unwrap_or_default();
     let requested_protocols: Vec<_> = h
         .get("sec-websocket-protocol")
         .map(|v| {
@@ -388,6 +399,12 @@ pub(super) async fn socket(
                 .lock()
                 .unwrap()
                 .finish(&id, ConnectionState::Connected, None, now());
+            p.controller
+                .timeline
+                .record(super::telemetry::connection_event(
+                    &attempt,
+                    "connection.open",
+                ));
             tracing::info!(app_id = %attempt.identity.app_id, build_id = %attempt.identity.build_id,
                 instance_id = %attempt.identity.instance_id, connection_id = %id,
                 "managed connection established");

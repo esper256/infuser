@@ -246,6 +246,17 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
             .all(|app| app["can_manage_visibility"] == false)
     );
     let visit_game = w.launch("visitor", &brought, Some(&visit)).await?;
+    p.db.edit(|d| {
+        let l = d
+            .launches
+            .values_mut()
+            .find(|l| l.host == visit_game.host)
+            .unwrap();
+        l.seen = now() - 600;
+        l.expires = l.seen + 300;
+        assert!(l.library_session.is_empty());
+        Ok(())
+    })?;
     let context = ok(visit_game.call(Method::GET, "/_infuser/context")).await?;
     assert_eq!(context["app_id"], brought);
     assert_ne!(context["deployment_id"], brought);
@@ -280,6 +291,16 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
             .listed = false;
         Ok(())
     })?;
+    let hidden = visit_game
+        .call(Method::GET, "/_infuser/context")
+        .send()
+        .await?;
+    assert_eq!(hidden.status(), 403);
+    assert_eq!(hidden.headers()["infuser-session"], "ended");
+    assert_eq!(
+        hidden.json::<Value>().await?["error"]["reason"],
+        "access_revoked"
+    );
     denied(w.member("resident", Method::GET, &art_url)).await?;
     assert!(
         !ok(w.member("operator", Method::GET, "/api/library")).await?["apps"]
@@ -309,6 +330,7 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
             .iter()
             .any(|a| a["id"] == brought && a["title"] == "Renamed visit game")
     );
+    // A catalog edit alone does not retire the credential. Access is evaluated on each request.
     assert_eq!(
         ok(visit_game.call(Method::GET, "/_infuser/context")).await?["deployment_id"],
         context["deployment_id"]
@@ -558,7 +580,16 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         d.visits.get_mut(&third).unwrap().expires = now();
         Ok(())
     })?;
-    denied(expiring.call(Method::POST, "/_infuser/api/v1/heartbeat")).await?;
+    let ended = expiring
+        .call(Method::POST, "/_infuser/api/v1/heartbeat")
+        .send()
+        .await?;
+    assert_eq!(ended.status(), 403);
+    assert_eq!(ended.headers()["infuser-session"], "ended");
+    assert_eq!(
+        ended.json::<Value>().await?["error"]["reason"],
+        "visit_ended"
+    );
     denied(expiring.call(Method::GET, checkpoint)).await?;
     denied(
         w.member(

@@ -86,7 +86,7 @@ it is complete rather than repeating the work.
 | Browser game with a Node HTTP/WebSocket server | [Managed Node hosting](engines/node-server.md) for packaging, then [dedicated sessions](dedicated-sessions.md) for identity, rooms, reconnects and Join Friend |
 | Godot web | [Web export and saves](engines/godot-web.md), then [multiplayer](engines/godot-multiplayer.md) if needed |
 | Unity Web | [Export, saves, and multiplayer bridge](engines/unity-web.md) (experimental; Unity compilation still needs verification) |
-| Godot native, single-player Windows/Linux | [Infuser Play preview](engines/godot-native.md); also follow the [web recipe](engines/godot-web.md) if publishing a web export |
+| Godot Web and Infuser Play, or desktop only (client-only single-player) | [Publish Web and Infuser Play together](engines/godot-native.md#publish-web-and-infuser-play-together) using one game ID and one publish command |
 
 Godot and PeerJS adapters are previews with the limitations in their recipes.
 Unity hosting and its JavaScript bridge have tests; the C# adapter is experimental
@@ -169,6 +169,13 @@ conflicts without discarding either version. For related JSON or binary files, u
 never import or overwrite the owner's progress. Infuser supplies the isolated
 identity and storage; the game must use them.
 
+Infuser saves span builds. If an older build reads a save format it cannot
+understand, it must refuse to overwrite it. Each web build has its own origin,
+so a newly published build starts with fresh `localStorage` and IndexedDB.
+Use Infuser saves for progress that should survive an update.
+
+Design controls around actions, test each complete input method, and declare the tested methods through the [metadata API](game-metadata.md#input-methods). For gamepad navigation, reconnection and Xbox, PlayStation and Nintendo prompts, follow the [controls guide](game-controls.md).
+
 For every web game, set `orientation` in `infuser.game.json` to `landscape` or
 `portrait` according to its intended phone layout. The publisher sends it with each build.
 Older and default builds (`"resolution": "hd"`) are automatically protected by
@@ -204,6 +211,14 @@ any distinctive visuals. Read existing metadata before editing; preserve an
 author's description unless the game has changed. This gives future agents context
 for artwork and updates. Cover, description, and Library-title edits do not require
 a new build.
+
+Optionally, if `capabilities.game_metadata` advertises `author_model_max_chars`,
+you may also record `author_model`, `effort_level`, and cumulative
+`estimated_prompts` through the [metadata API](game-metadata.md#model-authorship-optional).
+**Only set fields you actually know** from your runtime context or the user;
+omit any field you are unsure about rather than guessing or writing placeholders
+like `"unknown"`. On updates, read existing `estimated_prompts` first and add
+your new prompts to keep the total cumulative.
 
 **Next:** publish using the command from your recipe, then verify and hand off below.
 
@@ -279,6 +294,7 @@ not require keeping the user waiting; explain its status.
 ## Later updates
 
 “Update it on Infuser” means build and publish with the same connection and app ID.
+For games that ship to Infuser Play, re-export every desktop platform listed in `infuser.game.json` before publishing an update.
 “Publish every update” is an instruction to the developing agent, not an Infuser
 watcher. Games do not need a GitHub repository. Failed uploads leave the active
 build intact. `infuser unpublish CREDENTIALS` hides a game and expires sessions,
@@ -302,6 +318,8 @@ things the player enjoyed or constructive ideas, not insults or trolling. Leave
 the choice to react to the player; do not manufacture praise or post on their behalf.
 
 ## Reporting platform problems
+
+When a player reports a problem, read your [game’s recent browser and server events](server-diagnostics.md#browser-and-game-timeline) with the existing publishing credential.
 
 For problems with Infuser, Infuser Play, publishing, or the SDK:
 

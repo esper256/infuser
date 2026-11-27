@@ -1,3 +1,4 @@
+import {ordinaryThemeCalendar} from './support/theme_calendar.mjs';
 // Shared Library presentation/interaction regression with an isolated mock API.
 // Set INFUSER_PLAYWRIGHT and INFUSER_CHROMIUM when using an existing browser install.
 import {readFile,mkdir} from 'node:fs/promises';
@@ -6,7 +7,7 @@ const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'playwright');
 const root=new URL('../',import.meta.url),out=new URL('.local/library-detail-review/',root);
 await mkdir(out,{recursive:true});
 const avatars=[...String(await readFile(new URL('src/portal/avatars.rs',root))).matchAll(/avatar!\("([a-z-]+)", "([^"]+)"\)/g)].map(([,id,name])=>({id,name}));
-const illustrated=[['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises'],['🎨','Beautiful art','art'],['🎵','Great soundtrack','music'],['😄','Made me smile','smile'],['🤝','Fun together','together']];
+const illustrated=[['🐦‍⬛','Amazing atmosphere','atmosphere'],['🍵','Cozy world','cozy'],['💎','A little gem','gem'],['🧩','Clever design','clever'],['🎢','Wild ride','wild'],['🪄','Full of surprises','surprises'],['🎨','Beautiful art','art'],['🎵','Great soundtrack','music'],['😄','Made me smile','smile'],['🤝','Fun together','together'],['🔥','On fire!','fire'],['👻','So scary!','spooky'],['🏆','Instant classic','trophy'],['🎉','Total blast','celebrate']];
 const me={name:'KwamiKwami',player_id:'one',admin:true,avatar:'loot-raccoon',avatars};
 const author={id:'one',name:me.name,avatar:me.avatar},friend={id:'two',name:'OrbitFox',avatar:'ember-raven'};
 const now=Math.floor(Date.now()/1000),tags=['3d','action','adventure','arcade','chill','co-op','exploration','sandbox','shooter','simulation','survival'];
@@ -16,6 +17,7 @@ for(const app of apps){app.update_id=app.id+'-release-a';app.update_reactions={m
 const recentReactions=n=>Array.from({length:n},(_,i)=>({id:'buzz-'+i,name:'Player '+i,emoji:['⭐','👍','🚀','❤️','👏','💡'][i%6],updated:now-i-2,text:'',mine:false}));
 apps[1].card_art_pending=true;apps[1].reactions=recentReactions(8);apps[2].reactions=recentReactions(12);apps[4].reactions=recentReactions(18);
 let launches=[],writes=[],reads=0,unauthorized=false,failModeration=false,failVisibility=false,releaseVisibility,failAuthors=false,failReaction=false,releaseReaction;
+let houseSettings={topic_set:false,quiet_hours:null,profiles:[author,friend],images:JSON.parse(await readFile(new URL('web/assets/house-calls/manifest.json',root))).map(image=>({...image,enabled:false,tag:'',message:'',cooldown_minutes:5,profiles:[]}))};
 const browser=await chromium.launch({headless:true,executablePath:process.env.INFUSER_CHROMIUM});
 try {
  const context=await browser.newContext({hasTouch:process.env.INFUSER_TOUCH==='1',viewport:{width:1500,height:1000},serviceWorkers:'block',permissions:['clipboard-read','clipboard-write']});
@@ -29,18 +31,23 @@ try {
   else if(path==='/api/screenshots')data={screenshots:[{id:'shot'}]};
   else if(path==='/api/screenshots/shot')data={image:'data:image/webp;base64,'+(await readFile(new URL('assets/avatars/loot-raccoon-128.webp',root))).toString('base64')};
   else if(path==='/api/client-state')data={version:'review',game_open:false};
+  else if(path==='/api/admin/house-calls'){
+   if(method==='PUT'){const body=request.postDataJSON();houseSettings={...houseSettings,images:body.images,quiet_hours:body.quiet_hours,topic_set:body.topic_url===undefined?houseSettings.topic_set:!!body.topic_url};data={ok:true};}else data=houseSettings;
+  }
   else if(path==='/api/admin/game-authors')data={games:apps.map(g=>({id:g.id,title:g.title,authors:g.authors??(g.author?[g.author]:[])})),members:[author,friend]};
-  else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:503,json:{error:'Please retry author credits.'}});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
-  else if(path==='/api/admin/members')data={members:{}};
+  else if(path.endsWith('/authors')){if(failAuthors)return route.fulfill({status:502,body:''});const app=apps.find(g=>g.id===path.split('/')[4]);app.authors=request.postDataJSON().authors.map(id=>[author,friend].find(a=>a.id===id));app.author=app.authors[0];data={authors:app.authors};}
+  else if(path==='/api/admin/members')data={members:{'orbit@example.com':{name:'OrbitFox',enabled:true,admin:false}}};
+  else if(path==='/api/admin/members/communication')data={ok:true};
   else if(path==='/api/admin/games')data={games:[]};
   else if(path==='/api/admin/credentials')data={credentials:[]};
   else if(path==='/api/admin/peer-health')data={sessions:[]};
   else if(path==='/api/profile'&&method==='GET')data={users:[]};
   else if(path==='/api/profile'){me.avatar=request.postDataJSON().avatar;author.avatar=me.avatar;data={avatar:me.avatar};}
+  else if(path==='/api/native/v1/play/firefly-drift')data={url:'infuser://play?request=fixture'};
   else if(path.endsWith('/launch')){launches.push(request.postDataJSON());data={state:'ready',url:'https://library.test/game-fixture'};}
-  else if(path.endsWith('/visibility')){if(failVisibility){await new Promise(resolve=>{releaseVisibility=resolve;});return route.fulfill({status:503,json:{error:'Please retry visibility.'}});}const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
+  else if(path.endsWith('/visibility')){if(failVisibility){await new Promise(resolve=>{releaseVisibility=resolve;});return route.fulfill({status:504,body:'Gateway Timeout'});}const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
   else if(/^\/api\/admin\/apps\/[^/]+\/reactions\//.test(path)){
-   if(failModeration)return route.fulfill({status:503,json:{error:'Please retry deletion.'}});
+   if(failModeration)return route.fulfill({status:400,json:{error:'Please retry deletion.'}});
    const app=apps.find(g=>g.id===path.split('/')[4]);app.reactions=app.reactions.filter(r=>r.id!==path.split('/')[6]);data={ok:true};
   }
   else if(path.includes('/updates/') && path.endsWith('/reaction')){
@@ -57,39 +64,167 @@ try {
   else if(path==='/game-fixture')return route.fulfill({contentType:'text/html',body:'<title>Test game</title>'});
   else {
    let file,type;
-   if(path==='/test-art/firefly'){file='docs/design-explorations/card-art-guide/firefly-drift.webp';type='image/webp';}
+   if(path.startsWith('/assets/house-calls/')){file='web'+path;type='image/png';}
+   else if(path==='/test-art/firefly'){file='docs/design-explorations/card-art-guide/firefly-drift.webp';type='image/webp';}
    else if(path==='/test-art/event'){file='assets/avatars/event-horizon.png';type='image/png';}
    else if(path.startsWith('/assets/reactions/')){file=path.slice(1);type='image/webp';}
    else if(path.startsWith('/assets/avatars/')){const [,id,size]=path.match(/\/avatars\/([^/]+)\/(\d+)\.webp$/);file=`assets/avatars/${id}-${size}.webp`;type='image/webp';}
    else if(path==='/assets/card-generating.webp'){file='assets/card-fallback/generating.webp';type='image/webp';}
    else if(path==='/assets/google-signin.png'){file='assets/google/sign-in-with-google-pill.png';type='image/png';}
-   else if(path.startsWith('/assets/')){file='web/'+path.slice(8);type=path.endsWith('.js')?'text/javascript':'text/css';}
+   else if(path.startsWith('/assets/')){file='web/'+path.slice(8);type=path.endsWith('.js')?'text/javascript':path.endsWith('.svg')?'image/svg+xml':path.endsWith('.woff2')?'font/woff2':'text/css';}
    else if(path==='/sw.js')return route.fulfill({status:404,body:''});
    else {file='web/index.html';type='text/html';}
    let body=await readFile(new URL(file,root));
-   if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.refreshTestLibrary=refresh;window.testRecentAge=recentAge;';
+   if(file==='web/themes.js')body=ordinaryThemeCalendar(body.toString());
+   if(file==='web/clubhouse.js')body=body.toString()+'\nwindow.refreshTestLibrary=refresh;window.testRecentAge=recentAge;window.refreshTestAdmin=adminRefresh;';
    return route.fulfill({body,contentType:type});
   }
   return route.fulfill({json:data});
  });
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('https://library.test/library');await page.locator('#visible-games .game').first().waitFor();
+ for(const gatewayStatus of [502,503,504]){
+   await page.route('**/api/library',r=>r.fulfill({status:gatewayStatus,body:''}));
+   await page.evaluate(()=>refreshTestLibrary());
+   assert.equal(await page.locator('#notice').textContent(),'Infuser is restarting. Try again in a moment.');
+   await page.unroute('**/api/library');
+ }
  const card=()=>page.locator('#visible-games [data-app="firefly-drift"]'),dialog=page.locator('#game-detail');
  async function close(){await page.locator('#close-game-detail').click();await page.waitForFunction(()=>!document.querySelector('#game-detail').open);}
  async function open(){await card().locator('.game-open').click();await dialog.waitFor();}
  async function popup(action){const opening=page.waitForEvent('popup');await action();const tab=await opening;await tab.waitForURL('**/game-fixture');await tab.close();}
+ await open();assert.equal(await dialog.locator('.detail-input-methods').count(),0);
+ game.input_methods=['keyboard_mouse','gamepad'];await page.evaluate(()=>refreshTestLibrary());
+ assert.equal(await dialog.locator('.detail-input-methods').textContent(),'Playable with Keyboard + mouse · Gamepad');
+ assert.equal(await dialog.locator('.detail-input-methods svg[aria-hidden=true]').count(),2);
+ assert.equal(await card().locator('.detail-input-methods').count(),0);
+ const previousViewport=page.viewportSize();
+ await page.setViewportSize({width:320,height:640});
+ assert(await dialog.locator('.detail-input-methods').evaluate(row=>row.scrollWidth<=row.clientWidth));
+ await page.setViewportSize(previousViewport);
+ delete game.input_methods;await page.evaluate(()=>refreshTestLibrary());await close();
+ // The two launch destinations share one card and resolve to different endpoints.
+ await page.evaluate(()=>Object.defineProperties(navigator,{
+   userAgentData:{configurable:true,value:{platform:'Linux'}},platform:{configurable:true,value:'Linux x86_64'}
+ }));
+ game.native_platforms=['linux-x86_64'];await page.evaluate(()=>refreshTestLibrary());
+ await popup(()=>card().getByRole('button',{name:'Play',exact:true}).click());
+ await card().locator('.play-menu summary').click();
+ assert(await card().getByRole('button',{name:'Launch in Infuser Play',exact:true}).isVisible());
+ await card().locator('.play-menu summary').click();
+ await open();
+ const online=dialog.getByRole('button',{name:'Play',exact:true});
+ const options=dialog.locator('.play-menu summary');
+ const desktop=dialog.locator('.play-menu').getByRole('button',{name:'Launch in Infuser Play',exact:true});
+ assert.equal(await dialog.locator('.actions > button').count(),1);
+ await popup(()=>online.click());assert.deepEqual(launches.at(-1),{guest:false});
+ const webLaunchCount=launches.length;
+ // Exercise the real handoff link without invoking an OS protocol handler in CI.
+ await page.evaluate(()=>document.addEventListener('click',function handoff(event){
+   const link=event.target.closest('#desktop-launch a[href^="infuser://"]');
+   if(link){event.preventDefault();window.testDesktopHandoff=link.href;document.removeEventListener('click',handoff);}
+ }));
+ const pendingDesktop=Promise.withResolvers(),nativePlay='**/api/native/v1/play/firefly-drift';
+ await page.route(nativePlay,async route=>{await pendingDesktop.promise;await route.fallback();});
+ await options.click();await desktop.click();await options.click();
+ assert(await desktop.isDisabled(),'the desktop action is disabled while its request is pending');
+ pendingDesktop.resolve();
+ const handoff=page.locator('#desktop-launch');
+ await handoff.waitFor();
+ assert.equal(await handoff.getByRole('link',{name:'Open Infuser Play'}).getAttribute('href'),'infuser://play?request=fixture');
+ assert.deepEqual(writes.filter(w=>w.path==='/api/native/v1/play/firefly-drift').at(-1).body,{platform:'linux-x86_64',guest:false});
+ assert.equal(await page.evaluate(()=>window.testDesktopHandoff),'infuser://play?request=fixture');
+ assert.equal(launches.length,webLaunchCount);
+ await handoff.getByRole('button',{name:'Done'}).click();
+ await page.unroute(nativePlay);
+ await options.click();assert(await desktop.isEnabled());await options.click();
+ // Defensive check: the server only sets play_unavailable for server games; native builds are client-only.
+ game.play_unavailable='Unavailable while visiting';await page.evaluate(()=>refreshTestLibrary());
+ assert(await online.isDisabled());await options.click();assert(await desktop.isDisabled());await options.click();
+ delete game.play_unavailable;
+ game.native_platforms=['windows-x86_64'];await page.evaluate(()=>refreshTestLibrary());
+ assert(await online.isEnabled());await options.click();assert.equal(await desktop.count(),0);await options.click();
+ game.native_platforms=['linux-x86_64'];
+ await page.evaluate(()=>{Object.defineProperty(navigator,'platform',{configurable:true,value:'Linux aarch64'});return refreshTestLibrary();});
+ await options.click();assert.equal(await desktop.count(),0,'ARM Linux offers only the Web launch');await options.click();
+ delete game.native_platforms;
+ await page.evaluate(()=>{delete navigator.userAgentData;delete navigator.platform;return refreshTestLibrary();});await close();
  // Admin credits reorder without granting ownership; compact portraits keep the dock size.
  const originalCreator=await card().locator('.creator').boundingBox();
+ // A JSON service error from launch keeps its actionable server message.
+ const capacityError='game capacity is full; retry after another game becomes idle';
+ await page.route('**/api/apps/firefly-drift/launch',r=>r.fulfill({status:503,json:{error:capacityError}}));
+ await card().getByRole('button',{name:'Play',exact:true}).click();
+ await page.getByText(capacityError,{exact:true}).waitFor();
+ assert.equal(await page.locator('#notice').textContent(),capacityError);
+ await page.unroute('**/api/apps/firefly-drift/launch');
+
  await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Admin tools',exact:true}).click();
+ const membersSummary=page.locator('#admin summary').filter({hasText:/^Members$/});
+ await membersSummary.click();
+ const limit=page.getByRole('checkbox',{name:'Limit communication for OrbitFox'});
+ const saveLimit=page.waitForRequest(r=>r.url().endsWith('/api/admin/members/communication') && r.method()==='PUT');
+ await limit.check();
+ assert.deepEqual((await saveLimit).postDataJSON(),{email:'orbit@example.com',limited_communication:true});
+ await membersSummary.click();
  const editor=page.locator('#game-authors');await page.locator('#admin summary').filter({hasText:'Game authors'}).click();await editor.getByLabel('Game to credit').selectOption(game.id);
  await editor.getByLabel('Author to add').selectOption(friend.id);await editor.getByRole('button',{name:'Add',exact:true}).click();
  await editor.getByLabel('Move earlier '+friend.name,{exact:true}).click();
  assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);
  await page.evaluate(()=>refreshTestLibrary());assert.equal(await editor.locator('.author-person').count(),2,'polling preserves draft');
- failAuthors=true;await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Please retry author credits.',{exact:true}).waitFor();
+ failAuthors=true;await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Infuser is restarting. Try again in a moment.',{exact:true}).waitFor();
  assert.deepEqual(await editor.locator('.author-person > span:last-child').allTextContents(),[friend.name,author.name]);failAuthors=false;
  await editor.getByRole('button',{name:'Save authors',exact:true}).click();await editor.getByText('Authors saved.',{exact:true}).waitFor();
  assert.deepEqual(writes.at(-1).body.authors,[friend.id,author.id]);
+ const house=page.locator('#house-calls');await house.waitFor({state:'attached'});
+ assert.equal(await house.evaluate(el=>el.closest('details').open),false,'House calls starts folded like other admin regions');
+ await page.locator('#admin summary').filter({hasText:'House calls'}).click();
+ await house.getByRole('button',{name:'Replace',exact:true}).click();await house.getByLabel('New ntfy topic URL').fill('https://ntfy.example/private-test-topic');
+ const call=house.locator('form>fieldset').nth(1),quiet=house.locator('form>fieldset').first();
+ await call.getByLabel('Enabled',{exact:true}).check();await call.getByLabel('ntfy tag',{exact:true}).fill('family_time');await call.locator('.house-call-permissions > summary').click();await call.getByLabel(friend.name,{exact:true}).check();await call.locator('.house-call-permissions > summary').click();
+ await quiet.getByLabel('Enabled',{exact:true}).check();await quiet.getByLabel('From',{exact:true}).fill('22:00');await quiet.getByLabel('Until',{exact:true}).fill('08:00');await quiet.getByLabel('Time zone',{exact:true}).fill('America/Los_Angeles');
+ const cooldown=call.getByLabel('Cooldown (minutes)');await cooldown.fill('');
+ const houseWrites=writes.filter(w=>w.path==='/api/admin/house-calls').length;
+ await house.getByRole('button',{name:'Save house calls'}).click();
+ assert(await cooldown.evaluate(el=>el.validity.valueMissing),'blank cooldown is required, not coerced to zero');
+ assert.equal(writes.filter(w=>w.path==='/api/admin/house-calls').length,houseWrites);
+ await cooldown.fill('5');
+ await house.getByRole('button',{name:'Save house calls'}).click();await house.getByText('House calls saved.',{exact:true}).waitFor();
+ assert.equal(await house.getByLabel('New ntfy topic URL').inputValue(),'');assert(await house.getByText('ntfy topic URL: set',{exact:true}).isVisible());
+ assert.deepEqual(houseSettings.quiet_hours,{start:'22:00',end:'08:00',timezone:'America/Los_Angeles'});assert.deepEqual(houseSettings.images[0].profiles,[friend.id]);
+ assert(!JSON.stringify(houseSettings).includes('private-test-topic'),'server view never returns topic URL');
+ assert((await house.locator('.house-call-row').first().boundingBox()).height<=76,'desktop settings fit one compact row per image');
+ await house.scrollIntoViewIfNeeded();await page.screenshot({path:new URL('house-call-admin.png',out).pathname});
+ for(const width of [900,390,320]){
+   await page.setViewportSize({width,height:900});await house.scrollIntoViewIfNeeded();
+   assert(await house.evaluate(el=>el.scrollWidth<=el.clientWidth),'house-call settings fit at '+width+'px');
+   await page.screenshot({path:new URL('house-call-admin-'+width+'.png',out).pathname});
+ }
+ await page.setViewportSize({width:1500,height:1000});
+ // The actual profile dropdown must remain legible in every shipped theme.
+ await call.locator('.house-call-permissions > summary').click();
+ for(const theme of ['nightglass','cartridge-club','field-notes','funny-pages','castle-keep']){
+   await page.evaluate(theme=>InfuserThemes.select(theme),theme);
+   const contrast=await call.locator('.house-call-profiles').evaluate(list=>{
+     const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d');
+     const luminance=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);const rgb=[...ctx.getImageData(0,0,1,1).data].slice(0,3).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+     const bg=luminance(getComputedStyle(list).backgroundColor);
+     return [...list.querySelectorAll('label,legend')].map(el=>{const fg=luminance(getComputedStyle(el).color);return {text:el.textContent,ratio:(Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05)};});
+   });
+   for(const item of contrast)assert(item.ratio>=4.5,theme+' profile list contrast: '+JSON.stringify(item));
+   await call.scrollIntoViewIfNeeded();await page.screenshot({path:new URL('house-call-profiles-'+theme+'.png',out).pathname});
+ }
+ await page.evaluate(()=>InfuserThemes.select('nightglass'));
+ await call.locator('.house-call-permissions > summary').click();
+ houseSettings.profiles.push({id:'three',name:'New profile'});
+ await page.evaluate(()=>refreshTestAdmin());
+ await call.locator('.house-call-permissions > summary').click();
+ assert.equal(await call.getByLabel('New profile',{exact:true}).count(),1,'admin refresh includes newly added profiles without reopening');
+ await call.locator('.house-call-permissions > summary').click();
+ await call.getByLabel('ntfy tag',{exact:true}).fill('unsaved_tag');
+ await page.evaluate(()=>refreshTestAdmin());
+ assert.equal(await call.getByLabel('ntfy tag',{exact:true}).inputValue(),'unsaved_tag','admin refresh preserves unsaved house-call settings');
+ await house.getByRole('button',{name:'Clear',exact:true}).click();await house.getByRole('button',{name:'Save house calls'}).click();await house.getByText('ntfy topic URL: not set',{exact:true}).waitFor();
  await page.locator('#close-admin').click();
  assert.equal((await card().locator('.creator').boundingBox()).width,originalCreator.width);
  assert.equal(await card().locator('.author-stack .avatar').count(),2);
@@ -299,7 +434,7 @@ try {
    await page.screenshot({path:new URL(`${theme}-${width}.png`,out).pathname,fullPage:true});
    await open();await page.waitForFunction(()=>document.querySelector('.detail-art img').complete);
    assert.equal(await dialog.locator('.game-feedback-row').count(),2);
-   assert.equal(await dialog.locator('.reaction-choice').count(),22);
+   assert.equal(await dialog.locator('.reaction-choice').count(),26);
    assert(await dialog.locator('.reaction-face').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)>=44));
    assert.equal(await dialog.locator('.feedback-author img').first().getAttribute('src'),'/assets/avatars/ember-raven/128.webp');
    assert(await dialog.locator('.game-updated').textContent());
@@ -357,7 +492,7 @@ try {
    }
    await dialog.locator('.creator').click();
    await page.locator('#chosen-reaction').click();
-   assert.equal(await page.getByRole('radio').count(),22);
+   assert.equal(await page.getByRole('radio').count(),26);
    if(width===320)assert(await page.locator('#emoji').evaluate(e=>e.scrollHeight>e.clientHeight),'picker scrolls instead of shrinking emojis');
    await page.screenshot({path:new URL('expanded-reactions-'+theme+'-'+width+'.png',out).pathname});
    await page.locator('#close-reaction').click();await close();
@@ -365,12 +500,13 @@ try {
  }
  // Saved artwork is shared by the review, card stack and Recently. A failed
  // decorative image falls back to its persisted emoji without losing the label.
+ const lastIllustrated='/assets/reactions/'+illustrated.at(-1)[2]+'.webp';
  await open();
- assert.equal(await dialog.locator('.feedback-emoji img').last().getAttribute('src'),'/assets/reactions/together.webp');
+ assert.equal(await dialog.locator('.feedback-emoji img').last().getAttribute('src'),lastIllustrated);
  await close();
- assert.equal(await card().locator('.game-buzz img').first().getAttribute('src'),'/assets/reactions/together.webp');
+ assert.equal(await card().locator('.game-buzz img').first().getAttribute('src'),lastIllustrated);
  await page.locator('#recent-toggle').click();
- assert(await page.locator('#feed .feed-emoji img[src="/assets/reactions/together.webp"]').count()>0);
+ assert(await page.locator('#feed .feed-emoji img[src="'+lastIllustrated+'"]').count()>0);
  await page.locator('#close-recent').click();
  await open();await dialog.getByRole('button',{name:'React: A little gem',exact:true}).click();
  const gemFace=page.locator('#chosen-reaction span');
@@ -415,9 +551,9 @@ try {
  assert(await update().locator('svg.feed-react-outline').isVisible());
  assert.equal(await update().locator('.feed-reaction-face').count(),0);
  await update().click();
- assert.equal(await picker.getByRole('button').count(),22);
+ assert.equal(await picker.getByRole('button').count(),26);
  assert.equal(await picker.locator('input,textarea,small').count(),0);
- assert.equal(await picker.locator('img.reaction-image').count(),10,'all illustrated reactions are available');
+ assert.equal(await picker.locator('img.reaction-image').count(),14,'all illustrated reactions are available');
  assert.equal(await picker.getByRole('button',{name:'React: Fun together',exact:true}).count(),1);
  await page.keyboard.press('Escape');assert(await picker.isHidden());assert(await page.locator('#recent-menu').evaluate(e=>e.open));assert(await update().evaluate(e=>e===document.activeElement));
  const panel=page.locator('#activity');
@@ -434,7 +570,7 @@ try {
  await update().click();
  const reactionsBefore=writes.length;failReaction=true;
  await picker.getByRole('button',{name:'React: Loved it',exact:true}).click();
- await page.waitForFunction(()=>document.querySelectorAll('#feed-reaction-picker button[aria-disabled="true"]').length===22);
+ await page.waitForFunction(()=>document.querySelectorAll('#feed-reaction-picker button[aria-disabled="true"]').length===26);
  await page.evaluate(()=>refreshTestLibrary());
  assert(await picker.isVisible(),'polling keeps the picker open');
  await picker.getByRole('button',{name:'React: Great job',exact:true}).dispatchEvent('click');
@@ -501,6 +637,7 @@ try {
   await recent.click();assert.equal(await page.locator('#feed time').count(),1);assert.equal(await page.locator('#feed .feed-row').first().locator('time').count(),1);await page.screenshot({path:new URL('recent-open-'+theme+'-phone.png',out).pathname});await page.waitForFunction(()=>!document.querySelector('#recent-toggle').classList.contains('has-updates'));await page.locator('#close-recent').click();await page.emulateMedia({reducedMotion:'no-preference'});
  }
  if(process.env.INFUSER_TOUCH!=='1'){
+  await page.evaluate(()=>InfuserThemes.select('nightglass'));
   await page.setViewportSize({width:1500,height:1000});await page.mouse.move(1,1);await page.waitForTimeout(300);const before=await card().boundingBox();
   await card().hover();await page.waitForTimeout(300);const after=await card().boundingBox();
   assert(after.width>before.width&&after.height>before.height);assert(Math.abs((before.x+before.width/2)-(after.x+after.width/2))<1);assert(Math.abs((before.y+before.height/2)-(after.y+after.height/2))<1);
@@ -554,7 +691,7 @@ try {
    await action.evaluate(e=>e.click());await page.evaluate(()=>refreshTestLibrary());
    assert(await action.isDisabled());assert.equal(writes.filter(w=>w.path.endsWith('/visibility')).length,count);
    assert(releaseVisibility);releaseVisibility();
-   await menu.getByRole('alert').waitFor();assert.equal(await menu.getByRole('alert').textContent(),'Please retry visibility.');
+   await menu.getByRole('alert').waitFor();assert.equal(await menu.getByRole('alert').textContent(),'Infuser is restarting. Try again in a moment.');
    assert(await action.isEnabled());assert(await menu.evaluate(e=>e.open));
    await page.evaluate(()=>refreshTestLibrary());assert(await menu.getByRole('alert').isVisible());
    await page.screenshot({path:new URL(`${theme}-${width}-admin-error.png`,out).pathname});
@@ -571,13 +708,13 @@ try {
  // Admin visibility moves a game between the shared shelves.
  await page.setViewportSize({width:1280,height:900});await page.locator('#hidden-games').evaluate(e=>e.open=false);await open();await dialog.getByLabel('Admin actions',{exact:true}).click();await dialog.getByRole('button',{name:'Hide game',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===2);await close();await page.waitForFunction(()=>document.querySelector('#hidden-games > summary')===document.activeElement);
  await page.locator('#hidden-games').evaluate(e=>e.open=true);await page.locator('#hidden-game-list [data-app="firefly-drift"] .game-open').click();await dialog.getByLabel('Admin actions',{exact:true}).click();await dialog.getByRole('button',{name:'Unhide game',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#visible-games .game').length===3);await close();
- // Presence portrait owns the existing profile options, including theme/install/notifications.
- await page.locator('#account-trigger').click();await page.locator('#open-profile').click();await page.locator('input[name="avatar"][value="byte-gecko"]').check();await page.locator('#save-profile').click();await page.waitForFunction(()=>!document.querySelector('#profile-dialog').open);assert.equal(me.avatar,'byte-gecko');
+ // Presence portrait owns the profile menu, which opens User settings (theme/profile/install/notifications).
+ await page.locator('#account-trigger').click();await page.locator('#open-settings').click();await page.locator('#open-profile').click();await page.locator('input[name="avatar"][value="byte-gecko"]').check();await page.locator('#save-profile').click();await page.waitForFunction(()=>!document.querySelector('#profile-dialog').open);assert.equal(me.avatar,'byte-gecko');
  await page.locator('#add-game').click();await page.waitForFunction(()=>document.querySelector('#agent-prompt').value.includes('TEST-ONLY'));await page.locator('#close-add-game').click();
  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await card().evaluate(e=>getComputedStyle(e).transitionDuration),'0s');
  await page.emulateMedia({forcedColors:'active'});await open();assert(await dialog.isVisible());await close();await page.emulateMedia({forcedColors:'none'});
  // The same detail UI works read-only in operator inspection.
- me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),22);await close();
+ me.inspecting=true;me.admin=false;await page.reload();await page.locator('.game-open').first().waitFor();await open();assert(await dialog.locator('.actions > button').isDisabled());assert(await dialog.locator('.creator').isDisabled());assert.equal(await dialog.locator('.reaction-choice:disabled').count(),26);await close();
  await page.locator('#recent-toggle').click();assert.equal(await page.locator('#feed .feed-react-toggle').count(),0,'read-only inspection cannot react to updates');await page.locator('#close-recent').click();
  unauthorized=true;await page.reload();await page.locator('#welcome').waitFor();assert(await page.locator('.google img').isVisible());
  assert.deepEqual(errors,[]);

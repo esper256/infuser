@@ -24,6 +24,7 @@ Play. Your game owns its title screen, controls, rules, and gameplay.
 | Infuser provides | Design your game to use it |
 | --- | --- |
 | Player identity and online presence | Use supplied player IDs and names; show who is available without another account system. |
+| Supported controls on the expanded game card | Choose complete ways to play early. For controllers, design menu navigation and button prompts alongside gameplay. [Game controls guide](game-controls.md). |
 | Join Friend | Accept an explicit request to join a particular person and session. Ordinary Play still opens your title screen. |
 | Peer-hosted multiplayer with a relay | Let a player host a small shared game without requiring port forwarding. |
 | On-demand dedicated servers | Put authoritative simulation or persistent worlds on a backend that can sleep when idle. |

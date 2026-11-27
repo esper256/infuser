@@ -15,10 +15,12 @@ use std::{
     sync::Mutex,
 };
 mod activity;
+pub(crate) use activity::{SessionEnded, denied};
 pub(crate) mod channels;
 mod chat;
 pub mod deployments;
 pub mod groups;
+pub mod house_calls;
 pub mod identity;
 pub mod member_link;
 mod metadata;
@@ -42,6 +44,8 @@ pub struct Member {
     pub avatar: Option<String>,
     #[serde(default)]
     pub avatar_prompt_seen: bool,
+    #[serde(default)]
+    pub limited_communication: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Credential {
@@ -111,10 +115,71 @@ pub struct Launch {
     pub token_hash: String,
     pub exchanged: bool,
     pub expires: u64,
+    #[serde(default)]
+    pub ended: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_reason: Option<LaunchEnd>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub library_session: String,
     pub grant_expires: u64,
     pub seen: u64,
     pub lease_id: Option<String>,
     pub lease_token: Option<String>,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LaunchEnd {
+    SignedOut,
+    Unpublished,
+    BuildRemoved,
+    DeviceUnpaired,
+    VisitEnded,
+    AccessRevoked,
+    ProfileDisabled,
+    Stale,
+    MissingToken,
+    Unknown,
+    WrongHost,
+    Unexchanged,
+    Ended,
+}
+impl LaunchEnd {
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Self::SignedOut => "You signed out of the Library in this browser.",
+            Self::Unpublished => "This game was removed from the Library.",
+            Self::BuildRemoved => "This version of the game was removed.",
+            Self::DeviceUnpaired => "This device was disconnected from Infuser Play.",
+            Self::VisitEnded => "This visit has ended.",
+            Self::AccessRevoked => "You no longer have access to this game.",
+            Self::ProfileDisabled => "Your profile is turned off.",
+            Self::Stale => "This game session expired after seven days of inactivity.",
+            Self::MissingToken => "This browser no longer has a play session for this game.",
+            Self::WrongHost | Self::Unexchanged => "This play link is no longer valid.",
+            Self::Unknown | Self::Ended => "Infuser no longer recognizes this play session.",
+        }
+    }
+}
+pub const STALE: u64 = 7 * 24 * 60 * 60;
+
+impl Launch {
+    pub fn authorized(&self, time: u64) -> bool {
+        self.exchanged && !self.ended && self.seen.saturating_add(STALE) > time
+    }
+
+    pub fn live(&self, time: u64) -> bool {
+        !self.ended && self.expires > time
+    }
+
+    pub fn end(&mut self, time: u64, reason: LaunchEnd) {
+        if self.ended {
+            return;
+        }
+        self.end_reason = Some(reason);
+        self.ended = true;
+        self.expires = time;
+        self.grant_expires = 0;
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Reaction {
@@ -408,6 +473,19 @@ fn encode_catalog(tx: &Transaction<'_>, data: &mut Data) -> Result<String> {
             tx.execute("DELETE FROM dedicated_manifests WHERE build_key=?1", [key])?;
         }
     }
+    let appearance_profiles = {
+        let mut stmt = tx.prepare("SELECT profile FROM appearance_settings")?;
+        stmt.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for profile in appearance_profiles {
+        if !data.members.contains_key(&profile) {
+            tx.execute(
+                "DELETE FROM appearance_settings WHERE profile=?1",
+                [profile],
+            )?;
+        }
+    }
     Ok(serde_json::to_string(&value)?)
 }
 pub struct Database {
@@ -436,6 +514,7 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); INSERT OR IGNORE INTO visits VALUES(1,'{}');")?;
         channels::initialize(&mut c)?;
         screenshots::initialize(&c)?;
+        house_calls::initialize(&c)?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS update_reactions(
             deployment TEXT NOT NULL, profile TEXT NOT NULL, publication TEXT NOT NULL, emoji TEXT NOT NULL,
             PRIMARY KEY(deployment,profile)) WITHOUT ROWID;")?;
@@ -449,6 +528,9 @@ impl Database {
         c.execute_batch("CREATE TABLE IF NOT EXISTS intent_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS runtime_manifests(build_key TEXT PRIMARY KEY, server_start TEXT NOT NULL);")?;
         c.execute_batch("CREATE TABLE IF NOT EXISTS dedicated_manifests(build_key TEXT PRIMARY KEY, declaration TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS voice_settings(profile TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS appearance_settings(profile TEXT PRIMARY KEY, data TEXT NOT NULL);")?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS starred_games(profile TEXT NOT NULL, app TEXT NOT NULL, starred_at INTEGER NOT NULL, PRIMARY KEY(profile, app)) WITHOUT ROWID;")?;
         c.execute(
             "INSERT OR IGNORE INTO platform(id,data) VALUES(1,?1)",
             [serde_json::to_string(&Data::default())?],
@@ -541,6 +623,102 @@ impl Database {
         *cached = Some((revision, std::sync::Arc::new(data)));
         Ok(result)
     }
+    pub fn voice_settings_load(&self, profile: &str) -> Result<(u64, crate::voice::AudioSettings)> {
+        let c = self.connection.lock().unwrap();
+        let row = c.query_row(
+            "SELECT revision, data FROM voice_settings WHERE profile=?1",
+            [profile],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+        );
+        match row {
+            Ok((rev, raw)) => {
+                let mut settings: crate::voice::AudioSettings =
+                    serde_json::from_str(&raw).context("decode saved voice settings")?;
+                settings.normalize();
+                Ok((rev.max(1) as u64, settings))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                Ok((1, crate::voice::AudioSettings::default()))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+    pub fn voice_settings_patch(
+        &self,
+        profile: &str,
+        patch: &crate::voice::AudioSettingsPatch,
+        allow_processing: bool,
+    ) -> Result<(u64, crate::voice::AudioSettings, bool)> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (existing_rev, mut settings) = match tx.query_row(
+            "SELECT revision, data FROM voice_settings WHERE profile=?1",
+            [profile],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+        ) {
+            Ok((rev, raw)) => {
+                let mut parsed: crate::voice::AudioSettings =
+                    serde_json::from_str(&raw).context("decode saved voice settings")?;
+                parsed.normalize();
+                (rev.max(1) as u64, parsed)
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                (1, crate::voice::AudioSettings::default())
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let changed = settings.apply_patch(patch, allow_processing)?;
+        let rev = if changed {
+            settings.normalize();
+            let encoded = serde_json::to_string(&settings)?;
+            let next: i64 = tx.query_row(
+                "INSERT INTO voice_settings(profile, revision, data) VALUES(?1, 2, ?2)
+                 ON CONFLICT(profile) DO UPDATE SET revision = revision + 1, data = excluded.data
+                 RETURNING revision",
+                rusqlite::params![profile, encoded],
+                |r| r.get(0),
+            )?;
+            next.max(1) as u64
+        } else {
+            existing_rev
+        };
+        tx.commit()?;
+        Ok((rev, settings, changed))
+    }
+    pub fn appearance_load(
+        &self,
+        profile: &str,
+    ) -> Result<Option<crate::portal::themes::Appearance>> {
+        let c = self.connection.lock().unwrap();
+        let row = c.query_row(
+            "SELECT data FROM appearance_settings WHERE profile=?1",
+            [profile],
+            |r| r.get::<_, String>(0),
+        );
+        match row {
+            Ok(raw) => {
+                let parsed: crate::portal::themes::Appearance =
+                    serde_json::from_str(&raw).context("decode saved appearance settings")?;
+                Ok(Some(parsed))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+    pub fn appearance_save(
+        &self,
+        profile: &str,
+        appearance: &crate::portal::themes::Appearance,
+    ) -> Result<bool> {
+        let c = self.connection.lock().unwrap();
+        let encoded = serde_json::to_string(appearance)?;
+        let changed = c.execute(
+            "INSERT INTO appearance_settings(profile, data) VALUES(?1, ?2)
+             ON CONFLICT(profile) DO UPDATE SET data = excluded.data WHERE appearance_settings.data != excluded.data",
+            params![profile, encoded],
+        )?;
+        Ok(changed != 0)
+    }
     pub fn record_build_file(&self, key: &str, path: String, size: u64) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -617,6 +795,16 @@ impl Database {
         native.pairs.retain(|_, p| p.expires > now());
         native.requests.retain(|_, p| p.expires > now());
         let result = f(&mut data, &mut native)?;
+        native.launch_devices.retain(|id, device| {
+            let Some(launch) = data.launches.get_mut(id) else {
+                return false;
+            };
+            if !native.devices.contains_key(device) {
+                launch.end(now(), LaunchEnd::DeviceUnpaired);
+                return false;
+            }
+            !launch.ended
+        });
         for (id, launch) in &data.launches {
             if before_launches.get(id).is_none_or(|old| {
                 serde_json::to_value(old).ok() != serde_json::to_value(launch).ok()
@@ -696,14 +884,55 @@ impl Database {
         tx.commit()?;
         Ok(version + 1)
     }
-    pub fn cleanup(&self) -> Result<()> {
+    pub fn starred_apps(&self, profile: &str) -> Result<std::collections::BTreeSet<String>> {
+        let c = self.connection.lock().unwrap();
+        let mut statement = c.prepare("SELECT app FROM starred_games WHERE profile=?1")?;
+        let rows = statement
+            .query_map([profile], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<std::collections::BTreeSet<_>>>()?;
+        Ok(rows)
+    }
+    pub fn set_starred(&self, profile: &str, app: &str, starred: bool) -> Result<()> {
         let mut c = self.connection.lock().unwrap();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let time = now();
-        tx.execute(
-            "DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1",
-            [time],
-        )?;
+        if starred {
+            tx.execute(
+                "INSERT INTO starred_games(profile, app, starred_at) VALUES(?1, ?2, ?3)
+                 ON CONFLICT(profile, app) DO NOTHING",
+                params![profile, app, now()],
+            )?;
+        } else {
+            tx.execute(
+                "DELETE FROM starred_games WHERE profile=?1 AND app=?2",
+                params![profile, app],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn cleanup(&self) -> Result<Vec<(String, Launch)>> {
+        self.cleanup_at(now())
+    }
+
+    pub fn cleanup_at(&self, time: u64) -> Result<Vec<(String, Launch)>> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let expired = {
+            let mut stmt=tx.prepare("DELETE FROM runtime_launches WHERE json_extract(data,'$.expires')<=?1 AND
+                (NOT json_extract(data,'$.exchanged') OR COALESCE(json_extract(data,'$.ended'),0) OR json_extract(data,'$.seen')+?2<=?1) RETURNING id,data")?;
+            let rows = stmt.query_map([time, STALE], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let mut expired = Vec::new();
+            for row in rows {
+                let (id, raw) = row?;
+                let l: Launch = serde_json::from_str(&raw)?;
+                if l.seen != 0 {
+                    expired.push((id, l));
+                }
+            }
+            expired
+        };
         tx.execute("DELETE FROM runtime_presence WHERE seen+300<=?1", [time])?;
         let mut data = Data::default();
         activity::load(&tx, &mut data)?;
@@ -726,7 +955,7 @@ impl Database {
         }
         member_link::expire(&tx, time)?;
         tx.commit()?;
-        Ok(())
+        Ok(expired)
     }
 }
 pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bool) -> Result<()> {
@@ -741,18 +970,7 @@ pub fn member(config: &Config, email: &str, name: &str, admin: bool, enabled: bo
     );
     Database::open(&config.controller.state_dir)?.edit(|d| {
         let email = d.invitation_key(&email)?;
-        let avatar = d.members.get(&email).and_then(|m| m.avatar.clone());
-        let avatar_prompt_seen = d.members.get(&email).is_some_and(|m| m.avatar_prompt_seen);
-        d.members.insert(
-            email,
-            Member {
-                name: name.into(),
-                admin,
-                enabled,
-                avatar,
-                avatar_prompt_seen,
-            },
-        );
+        d.set_member(&email, name, admin, enabled);
         Ok(())
     })
 }
@@ -801,7 +1019,7 @@ pub fn preview(
         if let Some(intent) = &intent { intent.validate(&build.manifest)?; }
         let id=secret()[..32].to_string();let token=secret();
         let host=crate::game_urls::host(d, app, &id, &config.controller.domain);
-        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
+        d.launches.insert(id.clone(),Launch { deployment: None, visit: None,intent,app:app.into(),build:selected.build.clone(),email,guest:true,host:host.clone(),token_hash:hash(&token),exchanged:false,expires:now()+300,ended:false, end_reason: None, library_session: String::new(),grant_expires:now()+120,seen:now(),lease_id:None,lease_token:None});
         Ok(serde_json::json!({"launch_id":id,"url":format!("https://{host}/_infuser/launch#infuser={token}")}))
     })
 }

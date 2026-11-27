@@ -10,6 +10,7 @@ struct View<'a> {
     moderates_reactions: bool,
     time: u64,
     activity: presence::LibraryActivity,
+    starred: std::collections::BTreeSet<String>,
 }
 impl View<'_> {
     fn includes(&self, id: &str) -> bool {
@@ -29,6 +30,7 @@ impl View<'_> {
         let runtime = data.deployment_for(id, self.group).unwrap_or(id);
         let app = data.deployed(runtime).unwrap_or(app);
         let build = &data.builds[&build_key(id, &app.build)];
+        let limited = data.members[self.email].limited_communication;
         let reactions: Vec<_> = data
             .reactions
             .get(runtime)
@@ -46,9 +48,9 @@ impl View<'_> {
                     "avatar":data.members[email].avatar,
                     "mine":email == self.email,
                     "emoji":reaction.emoji,
-                    "text":reaction.text,
+                    "text":if limited { "" } else { &reaction.text },
                     "updated":reaction.updated,
-                    "screenshot":reaction.screenshot,
+                    "screenshot":reaction.screenshot.as_ref().filter(|_| !limited),
                 })
             })
             .collect();
@@ -105,7 +107,7 @@ impl View<'_> {
                 !self.activity.closed_hosts.contains(&launch.host)
                     && launch.runtime_id() == runtime
                     && launch.exchanged
-                    && launch.expires > self.time
+                    && launch.live(self.time)
                     && launch.seen + 90 > self.time
                     && data.launch_allowed(launch, self.time)
                     && data.profile_enabled(&launch.email)
@@ -210,7 +212,11 @@ impl View<'_> {
             "play_unavailable":if runtime!=id || data.groups.member(self.email)!=self.group {build.visit_unavailable()}else{None},
             "title":metadata::title(data,id,&build.manifest.title),
             "orientation":build.manifest.orientation,
+            "input_methods":data.metadata.get(id).map(|m|m.input_methods.as_slice()).unwrap_or_default(),
             "description":data.metadata.get(id).and_then(|m|m.description.as_deref()),
+            "author_model":data.metadata.get(id).and_then(|m|m.author_model.as_deref()),
+            "effort_level":data.metadata.get(id).and_then(|m|m.effort_level.as_deref()),
+            "estimated_prompts":data.metadata.get(id).and_then(|m|m.estimated_prompts),
             "author":authors.first(),
             "authors":authors,
             "slug":data.game_urls.get(id).map(|u|&u.slug),
@@ -231,6 +237,7 @@ impl View<'_> {
             "join_targets":join_targets,
             "tags":data.tags.get(id).cloned().unwrap_or_default(),
             "can_edit_tags":!self.inspecting && data.groups.allows(self.email,id) && (data.members[self.email].admin || data.owners.get(id).is_some_and(|owner|owner==self.email)),
+            "starred":self.starred.contains(id),
         })
     }
 
@@ -274,6 +281,11 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
         p.db.see_member(&email, time)?;
     }
     let data = p.db.read()?;
+    let starred = if inspecting {
+        std::collections::BTreeSet::new()
+    } else {
+        p.db.starred_apps(&email)?
+    };
     let view = View {
         data: &data,
         email: &email,
@@ -284,6 +296,7 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
             && data.members[&email].admin,
         time,
         activity: presence::LibraryActivity::read(&p.db)?,
+        starred,
     };
     let mut apps: Vec<_> = data
         .apps
@@ -301,6 +314,7 @@ pub(super) async fn list(State(p): State<Platform>, h: HeaderMap) -> Answer {
     Ok(conditional::json(
         json!({
             "apps":apps,
+            "limited_communication":data.members[&email].limited_communication,
             "friends":friends,
             "platform_updates":platform_updates,
             "visit":data.active_visit(&group,time).map(|(id,v)|json!({"id":id,"name":v.name,"expires_at":v.expires,"visitors":v.participants.iter().filter(|(e,p)|!p.ended&&data.profile_enabled(e)).map(|(e,_)|json!({"id":data.player_id(e),"name":data.members[e].name})).collect::<Vec<_>>()})),

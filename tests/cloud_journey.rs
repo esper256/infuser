@@ -250,7 +250,7 @@ async fn two_devices_conflict_restart_resolve_and_guest_cleanup() -> Result<()> 
             d.builds.insert(format!("{app}/one"),Build{manifest,server:None,spa:false,cross_origin_isolation:false,ready:true,created:now(),files:Default::default()});
             d.apps.insert(app.into(),App {publication: None,build:"one".into(),listed:false,updated:now()});
         }
-        for id in ["a","b","guest","fresh","other"] {d.launches.insert(id.into(),Launch{deployment:None,visit:None,intent:None,app:if id=="other"{"other"}else{"pond"}.into(),build:"one".into(),email:"admin@example.com".into(),guest:matches!(id,"guest"|"fresh"),host:format!("{id}.games.example.com"),token_hash:platform::hash(id),exchanged:true,expires:now()+300,grant_expires:now()+300,seen:now(),lease_id:None,lease_token:None});}
+        for id in ["a","b","guest","fresh","other"] {d.launches.insert(id.into(),Launch{deployment:None,visit:None,intent:None,app:if id=="other"{"other"}else{"pond"}.into(),build:"one".into(),email:"admin@example.com".into(),guest:matches!(id,"guest"|"fresh"),host:format!("{id}.games.example.com"),token_hash:platform::hash(id),exchanged:true,expires:now()+300,ended:false,end_reason:None, library_session: String::new(),grant_expires:now()+300,seen:now(),lease_id:None,lease_token:None});}
         Ok(())
     })?;
     let http = reqwest::Client::new();
@@ -485,7 +485,9 @@ async fn two_devices_conflict_restart_resolve_and_guest_cleanup() -> Result<()> 
         7
     );
     server.db.edit(|d| {
-        d.launches.get_mut("guest").unwrap().expires = now();
+        let guest = d.launches.get_mut("guest").unwrap();
+        guest.expires = now();
+        guest.seen = now() - platform::STALE;
         Ok(())
     })?;
     server.db.cleanup()?;

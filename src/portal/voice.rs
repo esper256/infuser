@@ -1,18 +1,32 @@
 //! Only this gateway is public. LiveKit's HTTP API must listen on loopback.
 use super::*;
-use crate::voice::{LEASE_SECONDS, Lease, ROOM_PREFIX, Service};
+use crate::voice::{AudioSettingsPatch, LEASE_SECONDS, Lease, ROOM_PREFIX, Service};
 use axum::extract::{
     OriginalUri,
     ws::{Message, WebSocketUpgrade},
 };
+use axum::routing::patch;
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message as Wire;
 
+const PLAYER_VOICE_HEADER: &str = "x-infuser-player-voice";
+
 pub(super) fn routes() -> Router<Platform> {
+    let settings_routes = Router::new()
+        .route("/api/voice/settings", patch(update_settings))
+        .route(
+            "/_infuser/voice",
+            get(game_status).patch(game_update).delete(game_leave),
+        )
+        .layer(DefaultBodyLimit::max(4096));
+
     Router::new()
         .route("/api/voice", get(status).post(join).delete(leave))
         .route("/api/voice/heartbeat", post(heartbeat))
+        .route("/api/voice/ack", post(ack))
+        .route("/api/voice/control", get(control))
+        .route("/_infuser/voice/control", get(game_control))
         .route("/voice/rtc", get(signal))
         .route("/voice/rtc/validate", get(validate))
         .route(
@@ -22,6 +36,62 @@ pub(super) fn routes() -> Router<Platform> {
                     &h,
                     "text/javascript",
                     include_bytes!("../../web/voice.js"),
+                )
+            }),
+        )
+        .route(
+            "/assets/voice-audio.js",
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(
+                    &h,
+                    "text/javascript",
+                    include_bytes!("../../web/voice-audio.js"),
+                )
+            }),
+        )
+        .route(
+            "/assets/voice-split.js",
+            get(|h: HeaderMap| async move {
+                conditional::static_asset(
+                    &h,
+                    "text/javascript",
+                    include_bytes!("../../web/voice-split.js"),
+                )
+            }),
+        )
+        .route(
+            "/_infuser/voice-audio.js",
+            get(|| async {
+                (
+                    [
+                        ("content-type", "text/javascript"),
+                        ("cache-control", "no-cache"),
+                    ],
+                    include_str!("../../web/voice-audio.js"),
+                )
+            }),
+        )
+        .route(
+            "/_infuser/voice-split.js",
+            get(|| async {
+                (
+                    [
+                        ("content-type", "text/javascript"),
+                        ("cache-control", "no-cache"),
+                    ],
+                    include_str!("../../web/voice-split.js"),
+                )
+            }),
+        )
+        .route(
+            "/_infuser/player-voice.js",
+            get(|| async {
+                (
+                    [
+                        ("content-type", "text/javascript"),
+                        ("cache-control", "no-cache"),
+                    ],
+                    include_str!("../../web/game-voice.js"),
                 )
             }),
         )
@@ -38,6 +108,7 @@ pub(super) fn routes() -> Router<Platform> {
             }),
         )
         .layer(DefaultBodyLimit::max(1024))
+        .merge(settings_routes)
 }
 fn service(p: &Platform) -> Result<&Arc<Service>> {
     p.voice
@@ -120,6 +191,23 @@ impl Platform {
         names.dedup();
         names
     }
+    #[cfg(test)]
+    pub(crate) async fn wait_for_voice_control_waiter(&self, owner: &str) {
+        let Some(v) = &self.voice else { return };
+        loop {
+            let (count, notify) = v.control_waiters(owner);
+            if count > 0 {
+                return;
+            }
+            let notified = notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if v.control_waiters(owner).0 > 0 {
+                return;
+            }
+            notified.await;
+        }
+    }
     /// Also cleans rooms left by a previous controller. No token/room survives a
     /// controller restart until reconciliation has removed orphan participants.
     pub async fn reconcile_voice(&self) -> Result<()> {
@@ -133,11 +221,22 @@ impl Platform {
     }
     async fn reconcile_voice_locked(&self, v: &Service) -> Result<()> {
         let time = now();
-        v.state
-            .lock()
-            .unwrap()
-            .leases
-            .retain(|_, l| allowed(self, l, time));
+        v.state.lock().unwrap().leases.retain(|_, l| {
+            let keep = allowed(self, l, time);
+            if !keep {
+                super::telemetry::voice_event(
+                    self,
+                    l,
+                    if time >= l.expires {
+                        "voice.expired"
+                    } else {
+                        "voice.access_ended"
+                    },
+                    time,
+                );
+            }
+            keep
+        });
         let rooms = v.call(&self.http, "ListRooms", None, json!({})).await?;
         let rooms = rooms["rooms"].as_array().cloned().unwrap_or_default();
         let mut connected = std::collections::BTreeSet::new();
@@ -188,11 +287,31 @@ impl Platform {
                 }
             }
         }
-        let mut state = v.state.lock().unwrap();
-        for l in state.leases.values_mut() {
-            l.connected = connected.contains(&l.id);
+        let mut changed_channels = std::collections::BTreeSet::new();
+        let notify_owners: Vec<String> = {
+            let mut state = v.state.lock().unwrap();
+            for l in state.leases.values_mut() {
+                let next_connected = connected.contains(&l.id);
+                if l.connected != next_connected {
+                    l.connected = next_connected;
+                    changed_channels.insert(l.channel.clone());
+                }
+            }
+            state.checked_at = now();
+            if changed_channels.is_empty() {
+                Vec::new()
+            } else {
+                state
+                    .leases
+                    .values()
+                    .filter(|l| changed_channels.contains(&l.channel))
+                    .map(|l| l.owner.clone())
+                    .collect()
+            }
+        };
+        for owner in notify_owners {
+            v.notify_game(&owner);
         }
-        state.checked_at = now();
         Ok(())
     }
 }
@@ -218,24 +337,120 @@ async fn context(
     );
     Ok((owner, channel, visit))
 }
+#[cfg(test)]
+struct WaiterGuard {
+    service: Arc<Service>,
+    owner: String,
+}
+#[cfg(test)]
+impl WaiterGuard {
+    fn enter(service: Arc<Service>, owner: String) -> Self {
+        service.enter_control_wait(&owner);
+        Self { service, owner }
+    }
+}
+#[cfg(test)]
+impl Drop for WaiterGuard {
+    fn drop(&mut self) {
+        self.service.leave_control_wait(&self.owner);
+    }
+}
+
+fn map_settings_error(error: anyhow::Error) -> anyhow::Error {
+    if let Some(validation) = error.downcast_ref::<crate::voice::SettingsValidationError>() {
+        fault(422, validation.0)
+    } else {
+        error
+    }
+}
+
+fn require_player_voice_token(v: &Service, h: &HeaderMap, launch_id: &str) -> Result<()> {
+    let token = h
+        .get(PLAYER_VOICE_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    ensure!(
+        v.verify_player_token(launch_id, token),
+        fault(403, "Voice controls require the player header.")
+    );
+    Ok(())
+}
+
+fn self_summary(lease: Option<&Lease>, healthy: bool) -> Value {
+    match lease {
+        Some(l) => json!({
+            "id": l.id,
+            "channel": l.channel,
+            "connected": l.connected && healthy,
+            "mic_muted": l.mic_muted,
+            "deafened": l.deafened,
+            "applied_revision": l.applied_revision,
+            "applied_mic_muted": l.applied_mic_muted,
+            "applied_deafened": l.applied_deafened
+        }),
+        None => Value::Null,
+    }
+}
+
+fn apply_lease_audio(lease: &mut Lease, patch: &AudioSettingsPatch) -> bool {
+    let mut changed = false;
+    if let Some(deafened) = patch.deafened
+        && lease.deafened != deafened
+    {
+        lease.deafened = deafened;
+        changed = true;
+    }
+    if let Some(muted) = patch.mic_muted {
+        if lease.mic_muted != muted {
+            lease.mic_muted = muted;
+            changed = true;
+        }
+        // Unmuting the microphone while deafened also undeafens, matching Discord UX.
+        if !muted && lease.deafened {
+            lease.deafened = false;
+            changed = true;
+        }
+    }
+    changed
+}
+
 async fn status(State(p): State<Platform>, h: HeaderMap) -> Answer {
     let (owner, channel, _) = context(&p, &h, false).await?;
     let Some(v) = &p.voice else {
         return Ok(reply(json!({"configured":false,"participants":[]})));
     };
     let data = p.db.catalog()?;
+    let (persisted_rev, settings) = p.db.voice_settings_load(&owner)?;
+    let (rev, _) = v.revision_for(&owner, persisted_rev);
     let healthy = v.healthy(now());
     let state = v.state.lock().unwrap();
-    let people:Vec<_>=state.leases.values().filter(|l|l.channel==channel && l.connected && healthy && allowed(&p,l,now()))
-        .map(|l|json!({"id":data.player_id(&l.owner),"name":data.members[&l.owner].name,"avatar":data.members[&l.owner].avatar})).collect();
+    let people: Vec<_> = state
+        .leases
+        .values()
+        .filter(|l| l.channel == channel && l.connected && healthy && allowed(&p, l, now()))
+        .map(|l| {
+            json!({
+                "id": data.player_id(&l.owner),
+                "participant_id": l.id,
+                "name": data.members[&l.owner].name,
+                "avatar": data.members[&l.owner].avatar
+            })
+        })
+        .collect();
     let own = state
         .leases
         .values()
         .find(|l| l.owner == owner && allowed(&p, l, now()));
-    Ok(reply(
-        json!({"configured":true,"available":healthy,"channel":channel,"participants":people,
-        "self":own.map(|l|json!({"id":l.id,"channel":l.channel,"connected":l.connected&&healthy}))}),
-    ))
+    Ok(reply(json!({
+        "configured": true,
+        "available": healthy,
+        "channel": channel,
+        "epoch": v.epoch,
+        "participants": people,
+        "self": self_summary(own, healthy),
+        "settings": settings,
+        "revision": rev
+    })))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -278,29 +493,54 @@ async fn join(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestI
             )
         );
         return Ok(reply(
-            json!({"id":existing.id,"url":format!("wss://{}/voice",p.domain()),"token":v.participant_token(&existing,now())}),
+            json!({"id":existing.id,"diagnostic_session":super::telemetry::launch_ref(&existing.id),"epoch":v.epoch,"url":format!("wss://{}/voice",p.domain()),"token":v.participant_token(&existing,now())}),
         ));
     }
     ensure!(
         !v.state.lock().unwrap().leases.contains_key(&body.id),
         fault(409, "Voice request already in use.")
     );
+    let (persisted_rev, _) = p.db.voice_settings_load(&owner)?;
+    let initial_rev = v.bump_owner(&owner, persisted_rev);
     let lease = Lease {
         id: secret()[..32].into(),
         request_id: body.id,
-        owner,
+        owner: owner.clone(),
         room: format!("{ROOM_PREFIX}{}-{channel}", v.epoch),
         channel,
         visit,
         expires: now() + LEASE_SECONDS,
         connected: false,
+        mic_muted: false,
+        deafened: false,
+        applied_revision: initial_rev,
+        applied_mic_muted: false,
+        applied_deafened: false,
     };
+    ensure!(
+        allowed(&p, &lease, now()),
+        fault(403, "Voice access ended.")
+    );
     let token = v.participant_token(&lease, now());
+    super::telemetry::voice_event(&p, &lease, "voice.grant", now());
     let id = lease.id.clone();
-    v.state.lock().unwrap().leases.insert(id.clone(), lease);
+    let channel_peers: Vec<String> = {
+        let mut state = v.state.lock().unwrap();
+        let peers: Vec<String> = state
+            .leases
+            .values()
+            .filter(|l| l.channel == lease.channel && l.owner != owner)
+            .map(|l| l.owner.clone())
+            .collect();
+        state.leases.insert(id.clone(), lease);
+        peers
+    };
+    for peer_owner in channel_peers {
+        v.notify_game(&peer_owner);
+    }
     p.admit(&h).await;
     Ok(reply(
-        json!({"id":id,"url":format!("wss://{}/voice",p.domain()),"token":token}),
+        json!({"id":id,"diagnostic_session":super::telemetry::launch_ref(&id),"epoch":v.epoch,"revision":initial_rev,"url":format!("wss://{}/voice",p.domain()),"token":token}),
     ))
 }
 async fn heartbeat(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestId>) -> Answer {
@@ -324,23 +564,81 @@ async fn heartbeat(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Req
     p.db.see_member(&owner, now())?;
     Ok(reply(json!({"ok":true})))
 }
-async fn leave(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestId>) -> Answer {
-    // Leaving must work after a visit ends. Check identity+origin, not stale visit context.
-    let mut home = h.clone();
-    home.remove(groups::VISIT);
-    let owner = p.member(&home, true).await?;
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AckBody {
+    id: String,
+    revision: u64,
+    mic_muted: bool,
+    deafened: bool,
+}
+async fn ack(State(p): State<Platform>, h: HeaderMap, Json(body): Json<AckBody>) -> Answer {
+    let (owner, _, _) = context(&p, &h, true).await?;
     let v = service(&p)?;
+    let changed = {
+        let mut state = v.state.lock().unwrap();
+        let l = state
+            .leases
+            .get_mut(&body.id)
+            .ok_or_else(|| fault(403, "Voice chat is off."))?;
+        ensure!(
+            l.owner == owner && allowed(&p, l, now()),
+            fault(403, "Voice access ended.")
+        );
+        if body.revision >= l.applied_revision {
+            let updated = l.applied_revision != body.revision
+                || l.applied_mic_muted != body.mic_muted
+                || l.applied_deafened != body.deafened;
+            l.applied_revision = body.revision;
+            l.applied_mic_muted = body.mic_muted;
+            l.applied_deafened = body.deafened;
+            updated
+        } else {
+            false
+        }
+    };
+    if changed {
+        v.notify_game(&owner);
+    }
+    Ok(reply(json!({"ok":true})))
+}
+pub(super) async fn disconnect_profile(p: &Platform, owner: &str) {
+    if let Some(service) = &p.voice {
+        remove_owner_lease(p, service, owner, None).await;
+    }
+}
+
+async fn remove_owner_lease(p: &Platform, v: &Service, owner: &str, filter_id: Option<&str>) {
     let _gate = v.gate.lock().await;
-    let removed = {
+    let (removed, channel_peers) = {
         let mut state = v.state.lock().unwrap();
         let key = state
             .leases
             .values()
-            .find(|l| l.owner == owner && (l.id == body.id || l.request_id == body.id))
+            .find(|l| {
+                l.owner == owner && filter_id.is_none_or(|id| l.id == id || l.request_id == id)
+            })
             .map(|l| l.id.clone());
-        key.and_then(|id| state.leases.remove(&id))
+        let removed = key.and_then(|id| state.leases.remove(&id));
+        let peers = removed
+            .as_ref()
+            .map(|l| {
+                state
+                    .leases
+                    .values()
+                    .filter(|other| other.channel == l.channel)
+                    .map(|other| other.owner.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        (removed, peers)
     };
     if let Some(l) = removed {
+        super::telemetry::voice_event(p, &l, "voice.release", now());
+        v.bump_owner(owner, 0);
+        for peer_owner in channel_peers {
+            v.notify_game(&peer_owner);
+        }
         // Reconnect is already denied. A failed control call is retried by reconciliation.
         if v.call(
             &p.http,
@@ -355,6 +653,389 @@ async fn leave(State(p): State<Platform>, h: HeaderMap, Json(body): Json<Request
             tracing::warn!("voice removal pending; admission paused until reconciliation");
         }
     }
+}
+async fn leave(State(p): State<Platform>, h: HeaderMap, Json(body): Json<RequestId>) -> Answer {
+    // Leaving must work after a visit ends. Check identity+origin, not stale visit context.
+    let mut home = h.clone();
+    home.remove(groups::VISIT);
+    let owner = p.member(&home, true).await?;
+    let v = service(&p)?;
+    remove_owner_lease(&p, v, &owner, Some(&body.id)).await;
+    Ok(reply(json!({"ok":true})))
+}
+async fn update_settings(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<AudioSettingsPatch>,
+) -> Answer {
+    let (owner, _, _) = context(&p, &h, true).await?;
+    let v = service(&p)?;
+    let (persisted_rev, settings, durable_changed) =
+        p.db.voice_settings_patch(&owner, &body, true)
+            .map_err(map_settings_error)?;
+    let healthy = v.healthy(now());
+    let (lease_changed, own_summary) = {
+        let mut state = v.state.lock().unwrap();
+        let own = state
+            .leases
+            .values_mut()
+            .find(|l| l.owner == owner && allowed(&p, l, now()));
+        if let Some(l) = own {
+            let changed = apply_lease_audio(l, &body);
+            (changed, self_summary(Some(l), healthy))
+        } else {
+            (false, Value::Null)
+        }
+    };
+    let rev = if durable_changed || lease_changed {
+        v.bump_owner(&owner, persisted_rev)
+    } else {
+        v.revision_for(&owner, persisted_rev).0
+    };
+    Ok(reply(json!({
+        "epoch": v.epoch,
+        "revision": rev,
+        "settings": settings,
+        "self": own_summary
+    })))
+}
+#[derive(Deserialize)]
+struct ControlQuery {
+    #[serde(default)]
+    since: u64,
+    #[serde(default)]
+    epoch: Option<String>,
+}
+fn no_change() -> Response {
+    (StatusCode::NO_CONTENT, [("Cache-Control", "no-store")]).into_response()
+}
+
+async fn wait_for_change(
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
+    notified: impl std::future::Future<Output = ()>,
+) {
+    if *shutdown.borrow() {
+        return;
+    }
+    tokio::select! {
+        _ = shutdown.changed() => {}
+        _ = tokio::time::timeout(Duration::from_secs(25), notified) => {}
+    }
+}
+
+async fn control(State(p): State<Platform>, h: HeaderMap, Query(q): Query<ControlQuery>) -> Answer {
+    let (owner, _, _) = context(&p, &h, false).await?;
+    let v = service(&p)?;
+    let mut shutdown = p.shutdown.subscribe();
+    if *shutdown.borrow() {
+        return Ok(no_change());
+    }
+    let epoch_matches = q.epoch.as_deref() == Some(v.epoch.as_str());
+    let (persisted_rev, _) = p.db.voice_settings_load(&owner)?;
+    let (rev, notify) = v.revision_for(&owner, persisted_rev);
+    if epoch_matches && rev <= q.since {
+        let notified = notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        #[cfg(test)]
+        let _guard = WaiterGuard::enter(v.clone(), owner.clone());
+        let (recheck_rev, _) = v.revision_for(&owner, persisted_rev);
+        if recheck_rev <= q.since {
+            wait_for_change(&mut shutdown, notified).await;
+        }
+    }
+    let (persisted_rev, settings) = p.db.voice_settings_load(&owner)?;
+    let (rev, _) = v.revision_for(&owner, persisted_rev);
+    if epoch_matches && rev <= q.since {
+        return Ok(no_change());
+    }
+    let healthy = v.healthy(now());
+    let own_summary = {
+        let state = v.state.lock().unwrap();
+        let own = state
+            .leases
+            .values()
+            .find(|l| l.owner == owner && allowed(&p, l, now()));
+        self_summary(own, healthy)
+    };
+    Ok(reply(json!({
+        "epoch": v.epoch,
+        "revision": rev,
+        "settings": settings,
+        "self": own_summary
+    })))
+}
+fn roster_fingerprint(
+    p: &Platform,
+    v: &Service,
+    data: &crate::platform::Data,
+    email: &str,
+    healthy: bool,
+) -> String {
+    let state = v.state.lock().unwrap();
+    let Some(own) = state
+        .leases
+        .values()
+        .find(|l| l.owner == email && allowed(p, l, now()))
+    else {
+        return String::new();
+    };
+    let mut ids: Vec<String> = state
+        .leases
+        .values()
+        .filter(|l| l.channel == own.channel && l.connected && healthy && allowed(p, l, now()))
+        .map(|l| data.player_id(&l.owner))
+        .collect();
+    ids.sort();
+    format!("{}:{}", u8::from(own.connected && healthy), ids.join(","))
+}
+
+async fn build_game_status(p: &Platform, v: &Service, email: &str) -> Result<Value> {
+    let healthy = v.healthy(now());
+    let data = p.db.catalog()?;
+    let (persisted_rev, settings) = p.db.voice_settings_load(email)?;
+    let (rev, _) = v.revision_for(email, persisted_rev);
+    let roster = roster_fingerprint(p, v, &data, email, healthy);
+    let (own, people) = {
+        let state = v.state.lock().unwrap();
+        let own = state
+            .leases
+            .values()
+            .find(|l| l.owner == email && allowed(p, l, now()))
+            .cloned();
+        let people = match &own {
+            Some(own) => state
+                .leases
+                .values()
+                .filter(|l| {
+                    l.channel == own.channel && l.connected && healthy && allowed(p, l, now())
+                })
+                .map(|l| {
+                    json!({
+                        "id": data.player_id(&l.owner),
+                        "name": data.members[&l.owner].name,
+                        "avatar": data.members[&l.owner].avatar
+                    })
+                })
+                .collect::<Vec<_>>(),
+            None => Vec::new(),
+        };
+        (own, people)
+    };
+    let Some(own) = own else {
+        return Ok(json!({
+            "configured": true,
+            "available": healthy,
+            "active": false,
+            "epoch": v.epoch,
+            "revision": rev,
+            "applied_revision": 0,
+            "roster": ""
+        }));
+    };
+    Ok(json!({
+        "configured": true,
+        "available": healthy,
+        "active": true,
+        "epoch": v.epoch,
+        "connected": own.connected && healthy,
+        "self_id": data.player_id(email),
+        "mic_muted": own.mic_muted,
+        "deafened": own.deafened,
+        "applied_revision": own.applied_revision,
+        "applied_mic_muted": own.applied_mic_muted,
+        "applied_deafened": own.applied_deafened,
+        "revision": rev,
+        "roster": roster,
+        "input_gain": settings.input_gain,
+        "output_volume": settings.output_volume,
+        "peer_volumes": settings.peer_volumes,
+        "participants": people
+    }))
+}
+async fn game_status(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    if h.contains_key("origin") {
+        p.origin(&h, host(&h))?;
+    }
+    ensure!(
+        h.get("sec-fetch-site").is_none_or(|v| v == "same-origin"),
+        fault(403, "read voice state from the game origin")
+    );
+    let (launch_id, launch) = p.game(&h)?;
+    if launch.guest || p.db.catalog()?.members[&launch.email].limited_communication {
+        return Ok(reply(json!({"configured":false,"active":false})));
+    }
+    let Some(v) = &p.voice else {
+        return Ok(reply(json!({"configured":false,"active":false})));
+    };
+    require_player_voice_token(v, &h, &launch_id)?;
+    Ok(reply(build_game_status(&p, v, &launch.email).await?))
+}
+#[derive(Deserialize)]
+struct GameControlQuery {
+    #[serde(default)]
+    since: u64,
+    #[serde(default)]
+    applied: u64,
+    #[serde(default)]
+    active: Option<u8>,
+    #[serde(default)]
+    epoch: Option<String>,
+    #[serde(default)]
+    roster: Option<String>,
+}
+fn game_state_changed(
+    p: &Platform,
+    v: &Service,
+    email: &str,
+    persisted_rev: u64,
+    q: &GameControlQuery,
+) -> Result<bool> {
+    if q.epoch.as_deref() != Some(v.epoch.as_str()) {
+        return Ok(true);
+    }
+    let (rev, _) = v.revision_for(email, persisted_rev);
+    if rev > q.since {
+        return Ok(true);
+    }
+    let (is_active, applied) = {
+        let state = v.state.lock().unwrap();
+        let own = state
+            .leases
+            .values()
+            .find(|l| l.owner == email && allowed(p, l, now()));
+        (
+            u8::from(own.is_some()),
+            own.map_or(0, |l| l.applied_revision),
+        )
+    };
+    if q.active.is_some_and(|a| a != is_active) {
+        return Ok(true);
+    }
+    if applied != q.applied {
+        return Ok(true);
+    }
+    if let Some(expected_roster) = &q.roster {
+        let data = p.db.catalog()?;
+        let current = roster_fingerprint(p, v, &data, email, v.healthy(now()));
+        if &current != expected_roster {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+async fn game_control(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Query(q): Query<GameControlQuery>,
+) -> Answer {
+    if h.contains_key("origin") {
+        p.origin(&h, host(&h))?;
+    }
+    ensure!(
+        h.get("sec-fetch-site").is_none_or(|v| v == "same-origin"),
+        fault(403, "read voice state from the game origin")
+    );
+    let (launch_id, launch) = p.game(&h)?;
+    if launch.guest || p.db.catalog()?.members[&launch.email].limited_communication {
+        return Ok(reply(json!({"configured":false,"active":false})));
+    }
+    let Some(v) = &p.voice else {
+        return Ok(reply(json!({"configured":false,"active":false})));
+    };
+    require_player_voice_token(v, &h, &launch_id)?;
+    let mut shutdown = p.shutdown.subscribe();
+    if *shutdown.borrow() {
+        return Ok(no_change());
+    }
+    let (persisted_rev, _) = p.db.voice_settings_load(&launch.email)?;
+    if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
+        let notify = v.game_notifier_for(&launch.email);
+        let notified = notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
+            wait_for_change(&mut shutdown, notified).await;
+        }
+    }
+    let (persisted_rev, _) = p.db.voice_settings_load(&launch.email)?;
+    if !game_state_changed(&p, v, &launch.email, persisted_rev, &q)? {
+        return Ok(no_change());
+    }
+    Ok(reply(build_game_status(&p, v, &launch.email).await?))
+}
+async fn game_update(
+    State(p): State<Platform>,
+    h: HeaderMap,
+    Json(body): Json<AudioSettingsPatch>,
+) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (launch_id, launch) = p.game(&h)?;
+    ensure!(
+        !launch.guest,
+        fault(403, "Voice controls are unavailable in guest mode.")
+    );
+    let v = service(&p)?;
+    require_player_voice_token(v, &h, &launch_id)?;
+    // Game-origin routes can adjust mix/mute/deafen only while an active voice session exists.
+    {
+        let state = v.state.lock().unwrap();
+        ensure!(
+            state
+                .leases
+                .values()
+                .any(|l| l.owner == launch.email && allowed(&p, l, now())),
+            fault(409, "Voice chat is off.")
+        );
+    }
+    let (persisted_rev, settings, durable_changed) =
+        p.db.voice_settings_patch(&launch.email, &body, false)
+            .map_err(map_settings_error)?;
+    let (lease_changed, mic_muted, deafened, applied_revision, applied_mic_muted, applied_deafened) = {
+        let mut state = v.state.lock().unwrap();
+        let l = state
+            .leases
+            .values_mut()
+            .find(|l| l.owner == launch.email && allowed(&p, l, now()))
+            .ok_or_else(|| fault(409, "Voice chat is off."))?;
+        let changed = apply_lease_audio(l, &body);
+        (
+            changed,
+            l.mic_muted,
+            l.deafened,
+            l.applied_revision,
+            l.applied_mic_muted,
+            l.applied_deafened,
+        )
+    };
+    let rev = if durable_changed || lease_changed {
+        v.bump_owner(&launch.email, persisted_rev)
+    } else {
+        v.revision_for(&launch.email, persisted_rev).0
+    };
+    Ok(reply(json!({
+        "epoch": v.epoch,
+        "revision": rev,
+        "applied_revision": applied_revision,
+        "applied_mic_muted": applied_mic_muted,
+        "applied_deafened": applied_deafened,
+        "input_gain": settings.input_gain,
+        "output_volume": settings.output_volume,
+        "peer_volumes": settings.peer_volumes,
+        "mic_muted": mic_muted,
+        "deafened": deafened
+    })))
+}
+async fn game_leave(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.origin(&h, host(&h))?;
+    let (launch_id, launch) = p.game(&h)?;
+    ensure!(
+        !launch.guest,
+        fault(403, "Voice controls are unavailable in guest mode.")
+    );
+    let v = service(&p)?;
+    require_player_voice_token(v, &h, &launch_id)?;
+    remove_owner_lease(&p, v, &launch.email, None).await;
     Ok(reply(json!({"ok":true})))
 }
 #[derive(Deserialize)]
@@ -469,4 +1150,104 @@ async fn signal(
         let _=tokio::time::timeout(Duration::from_secs(1),client.close()).await;
         let _=tokio::time::timeout(Duration::from_secs(1),upstream.close(None)).await;
     }).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::Config, controller::Controller, docker::Docker, platform};
+
+    #[tokio::test]
+    async fn parked_and_late_polls_observe_shutdown() {
+        let shutdown = tokio::sync::watch::Sender::new(false);
+        let mut receiver = shutdown.subscribe();
+        let mut parked = std::pin::pin!(wait_for_change(&mut receiver, std::future::pending()));
+        assert!(futures_util::poll!(&mut parked).is_pending());
+        shutdown.send_replace(true);
+        assert!(futures_util::poll!(&mut parked).is_ready());
+        let mut late = shutdown.subscribe();
+        let mut poll = std::pin::pin!(wait_for_change(&mut late, std::future::pending()));
+        assert!(futures_util::poll!(&mut poll).is_ready());
+    }
+
+    #[tokio::test]
+    async fn control_long_poll_parks_until_owner_bump() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let keys = temp.path().join("voice.json");
+        crate::private_file::replace(
+            &keys,
+            br#"{"api_key":"test-key","api_secret":"a-very-long-disposable-voice-test-secret"}"#,
+        )?;
+        let cfg: Config = toml::from_str(&format!(
+            "[controller]\nstate_dir={:?}\n[controller.voice]\nport=7880\nkey_file={:?}",
+            temp.path().display().to_string(),
+            keys.display().to_string()
+        ))?;
+        platform::member(&cfg, "host@example.com", "host", true, true)?;
+        let controller = Arc::new(Controller::open(
+            cfg.clone(),
+            Arc::new(Docker {
+                settings: cfg.controller.clone(),
+            }),
+        )?);
+        let p = Platform::open(controller)?;
+        let v = p.voice.as_ref().unwrap().clone();
+        let (persisted_rev, _) = p.db.voice_settings_load("host@example.com")?;
+        let (rev_before, _) = v.revision_for("host@example.com", persisted_rev);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "games.example.com".parse()?);
+        headers.insert("origin", "https://games.example.com".parse()?);
+        headers.insert("x-infuser-verified-profile", "host@example.com".parse()?);
+
+        let mut task = tokio::spawn({
+            let p = p.clone();
+            let epoch = v.epoch.clone();
+            async move {
+                control(
+                    State(p),
+                    headers,
+                    Query(ControlQuery {
+                        since: rev_before,
+                        epoch: Some(epoch),
+                    }),
+                )
+                .await
+            }
+        });
+
+        tokio::select! {
+            _ = p.wait_for_voice_control_waiter("host@example.com") => {}
+            early = &mut task => {
+                let res = early?;
+                anyhow::bail!(
+                    "control returned before parking: {:?}",
+                    res.map(|r| r.status()).map_err(|e| e.0)
+                );
+            }
+        }
+        assert!(
+            !task.is_finished(),
+            "control long-poll must stay parked until a change arrives"
+        );
+
+        let patch = AudioSettingsPatch {
+            output_volume: Some(140),
+            ..Default::default()
+        };
+        let (new_persisted, _, _) =
+            p.db.voice_settings_patch("host@example.com", &patch, true)?;
+        let bumped = v.bump_owner("host@example.com", new_persisted);
+
+        let response = task
+            .await?
+            .map_err(|e| anyhow::anyhow!("control handler failed: {}", e.0))?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096).await?;
+        let woke: Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(woke["epoch"], v.epoch);
+        assert_eq!(woke["revision"], bumped);
+        assert_eq!(woke["settings"]["output_volume"], 140);
+        Ok(())
+    }
 }

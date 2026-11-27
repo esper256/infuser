@@ -25,6 +25,8 @@ scoped deployments, saves, presence, and expiring access. Preserve those boundar
 in compatibility acceptance before freezing the affected contracts; existing
 home-group saves and games stay compatible.
 
+Hosted games can use the optional `gamepad_layouts.v1` capability for player-selected controller prompts. See [Game controls](game-controls.md#use-the-layout-supplied-by-infuser) for the SDK calls, automatic fallback and standard-mapping requirement.
+
 ## Review before calling the SDK 1.0
 
 Approved product decisions:
@@ -42,6 +44,10 @@ Approved product decisions:
   can load and commit coherent cloud snapshots. See the concrete
   [cloud-save contract](cloud-save-design.md). A reusable chooser is desirable;
   descriptions and any merge remain game-owned.
+- The browser player can report other open copies on its game origin. Games can
+  report pending edits and register an autosave callback for hide and page exit.
+  Save versions remain authoritative across all devices. See [other tabs and
+  saving before leaving](public-api.md#other-tabs-and-saving-before-leaving).
 - Guest progress lasts for the current launch, including refreshes. A new guest
   launch starts empty, has a distinct identity, and may join the shared multiplayer
   session. Guest progress never merges into the signed-in owner's saves.

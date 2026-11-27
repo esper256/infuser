@@ -1,3 +1,4 @@
+import {pipeWithOrdinaryTheme} from './support/theme_calendar.mjs';
 // Real HTTPS, real service worker and notifications. Only the browser push-provider
 // subscription is substituted: CI does not need a Google/Apple push registration.
 import assert from 'node:assert/strict';
@@ -8,8 +9,9 @@ const {chromium}=await import(process.env.INFUSER_PLAYWRIGHT||'../services/peerj
 const [base,certPath,keyPath]=process.argv.slice(2);
 const server=https.createServer({key:fs.readFileSync(keyPath),cert:fs.readFileSync(certPath)},(req,res)=>{
   const headers={...req.headers,host:'games.example.com'};
+  if(req.url.split('?')[0]==='/assets/themes.js')headers['accept-encoding']='identity';
   if(headers.origin)headers.origin='https://games.example.com';
-  const proxy=http.request(base+req.url,{method:req.method,headers},r=>{res.writeHead(r.statusCode,r.headers);r.pipe(res);});
+  const proxy=http.request(base+req.url,{method:req.method,headers},r=>{pipeWithOrdinaryTheme(req.url,r,res);});
   proxy.on('error',()=>{res.writeHead(502);res.end();});req.pipe(proxy);
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -42,9 +44,11 @@ try {
   const cdp=await context.newCDPSession(page);
   assert.deepEqual((await cdp.send('Page.getAppManifest')).errors,[]);
   const manifest=await page.evaluate(()=>fetch('/manifest.webmanifest').then(r=>r.json()));assert.equal(manifest.name,'Infuser');
-  await page.locator('#account-trigger').click();
+  const openSettings=async()=>{await page.locator('#account-trigger').click();await page.locator('#open-settings').click();await page.locator('#user-settings').waitFor({state:'visible'});};
+  const closeSettings=async()=>{await page.locator('#close-settings').click();await page.locator('#user-settings').waitFor({state:'hidden'});};
+  await openSettings();
   await page.getByRole('button',{name:'Install Infuser',exact:true}).click();
-  assert.match(await page.locator('#notice').innerText(),/Install app|Home Screen/);
+  assert.match(await page.locator('#settings-status').innerText(),/Install app|Home Screen/);
   const button=page.getByRole('button',{name:'Group Chat notifications: off',exact:true});await button.click();
   await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).waitFor();
   await page.getByRole('button',{name:'Sound: device default'}).waitFor();
@@ -52,7 +56,7 @@ try {
   // Recreate an existing subscription from before the per-device preference existed.
   await page.evaluate(()=>caches.delete('infuser-chat-alerts-v1'));
   if(process.env.INFUSER_PWA_SCREENSHOT)await page.screenshot({path:process.env.INFUSER_PWA_SCREENSHOT});
-  await page.reload();await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).waitFor();
+  await page.reload();await openSettings();await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>window.permissionRequests),0,'enabled devices do not ask again');
   await page.getByRole('button',{name:'Sound: quiet'}).waitFor();
   const worker=context.serviceWorkers()[0];assert(worker);
@@ -66,7 +70,7 @@ try {
   await push();assert.equal((await lastNotice()).silent,true,'legacy subscribers keep their quiet alerts');
   await page.getByRole('button',{name:'Sound: quiet'}).click();
   await page.getByRole('button',{name:'Sound: device default'}).waitFor();
-  await page.reload();await page.locator('#account-trigger').click();
+  await page.reload();await openSettings();
   await page.getByRole('button',{name:'Sound: device default'}).waitFor();
   let tested=0;
   await page.route('**/api/notifications/test',async route=>{
@@ -80,7 +84,7 @@ try {
   await page.route('**/api/notifications/test',route=>route.fulfill({status:429,json:{error:'Wait 30 seconds before sending another test.'}}));
   await page.getByRole('button',{name:'Send test notification'}).click();
   await page.getByText('Wait 30 seconds before sending another test.').waitFor();
-  await page.locator('#account-trigger').click();
+  await closeSettings();
   await page.evaluate(()=>{const b=document.createElement('button');b.id='test-fullscreen';b.textContent='Test fullscreen';b.onclick=()=>document.documentElement.requestFullscreen();document.body.append(b);});
   await page.locator('#test-fullscreen').click();await page.waitForFunction(()=>!!document.fullscreenElement);
   await context.grantPermissions(['notifications'],{origin});
@@ -124,14 +128,17 @@ try {
   assert.equal(await page.locator('#group-inspection').count(),0,'home alert leaves operator inspection');
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('infuser.group-inspection')),null);
   await page.locator('#chat-log').press('Escape');
-  await page.locator('#account-trigger').click();await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).click();
+  await openSettings();await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).click();
   await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).waitFor();
   await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).click();
   await page.getByRole('button',{name:'Group Chat notifications: on',exact:true}).waitFor();
-  await page.getByRole('link',{name:'Sign out',exact:true}).click();await page.waitForURL('**/oauth2/sign_out?rd=%2F');
+  await closeSettings();
+  await page.locator('#account-trigger').click();
+  assert.equal(await page.locator('.profile-menu .account-menu').evaluate(el=>el.lastElementChild?.classList.contains('sign-out')),true,'Sign out stays at the bottom of the profile menu');
+  await page.getByRole('link',{name:'Sign out',exact:true}).click();await page.waitForURL(origin+'/');
   assert.equal(await page.evaluate(()=>localStorage.getItem('test-push')),null);
   assert.equal(await worker.evaluate(async()=>(await self.registration.getNotifications()).length),0);
-  await page.goto(origin+'/library');await page.locator('#account-trigger').click();
+  await page.goto(origin+'/library');await openSettings();
   await page.evaluate(()=>{Notification.requestPermission=async()=>'denied';});
   await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).click();
   assert.match(await page.locator('.notification-hint').innerText(),/blocked/);
@@ -139,7 +146,7 @@ try {
   await page.evaluate(()=>Object.defineProperty(navigator,'userAgent',{value:'iPhone',configurable:true}));
   await page.getByRole('button',{name:'Group Chat notifications: off',exact:true}).click();
   assert.match(await page.locator('.notification-hint').innerText(),/Home Screen first/);
-  await page.locator('#account-trigger').click();
+  await closeSettings();
   await context.setOffline(true);await page.goto(origin+'/library');
   assert.match(await page.locator('body').innerText(),/You're offline/);
   await context.setOffline(false);

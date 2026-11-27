@@ -407,7 +407,7 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         assert!(
             r.headers()["set-cookie"]
                 .to_str()?
-                .contains("Secure; HttpOnly; SameSite=Strict")
+                .contains("Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000")
         );
         assert_eq!(
             exchange().send().await?.status(),
@@ -418,6 +418,43 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     }
     user(reqwest::Method::PUT, "/api/profile")
         .json(&json!({"avatar":"moss-knight"}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let member_host = &sessions[0].0;
+    db.edit(|d| {
+        let member = d
+            .launches
+            .values_mut()
+            .find(|l| &l.host == member_host)
+            .unwrap();
+        member.seen = infuser::controller::now() - 600;
+        member.expires = member.seen + 300;
+        Ok(())
+    })?;
+    let sleeping: Value = user(reqwest::Method::GET, "/api/library")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let moon = sleeping["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|app| app["id"] == "moon")
+        .unwrap();
+    assert!(
+        moon["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|player| player["guest"] == true)
+    );
+    http.post(format!("{url}/_infuser/api/v1/heartbeat"))
+        .header("host", member_host)
+        .header("origin", format!("https://{member_host}"))
+        .bearer_auth(&sessions[0].1)
         .send()
         .await?
         .error_for_status()?;
@@ -473,6 +510,156 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
             .bearer_auth(&sessions[n].1)
             .header("origin", format!("https://{}", sessions[n].0))
     };
+    let browser = std::env::var("INFUSER_DIAGNOSTICS_BROWSER_NODE").ok();
+    if let Some(node) = &browser {
+        let outcome = tokio::process::Command::new(node)
+            .arg("tests/diagnostics_browser.mjs")
+            .args([&url, &sessions[0].0, &sessions[0].1])
+            .status()
+            .await?;
+        anyhow::ensure!(outcome.success(), "diagnostics browser journey failed");
+    }
+    // Follow a real launch across a browser retry, scoped publisher read and operator CLI.
+    let ctx: Value = game(0, reqwest::Method::GET, "/_infuser/context")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let at = infuser::timeline::ms();
+    let mut diagnostic = json!({"scope":ctx["diagnostic_launch"],"events":[
+        {"page":"deadbeef0001","seq":1,"at":at,"src":"game","kind":"js.error","data":{"class":"TypeError","message":"fixture failed at https://example.com/?token=private-fixture","file":"fixture.js","frames":["fixture.js:17:3","/game/private.js?key=value:2:9"],"fingerprint":"deadbea7","line":17}},
+        {"page":"deadbeef0001","seq":2,"at":at,"src":"player","kind":"op","data":{"name":"game.load","outcome":"fail","reason":"error:CompileError","stage":"engine","room":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+        {"page":"deadbeef0001","seq":3,"at":at,"src":"game","kind":"mp.connected","data":{}}
+    ]});
+    // A replayed older batch must never reduce the folded occurrence count.
+    for count in [1, 5, 3] {
+        diagnostic["events"][0]["data"]["count"] = count.into();
+        game(0, reqwest::Method::POST, "/_infuser/telemetry")
+            .json(&diagnostic)
+            .send()
+            .await?
+            .error_for_status()?;
+    }
+    assert_eq!(
+        game(1, reqwest::Method::POST, "/_infuser/telemetry")
+            .json(&diagnostic)
+            .send()
+            .await?
+            .status(),
+        409
+    );
+    assert_eq!(
+        publisher(
+            reqwest::Method::GET,
+            "/api/publisher/apps/other/diagnostic-events"
+        )
+        .send()
+        .await?
+        .status(),
+        401
+    );
+    let batch: Value = publisher(
+        reqwest::Method::GET,
+        "/api/publisher/apps/moon/diagnostic-events",
+    )
+    .send()
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
+    let events = batch["events"].as_array().unwrap();
+    let matching: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e["kind"] == "js.error"
+                && e["data"]["line"] == 17
+                && e["data"]["fingerprint"] == "deadbea7"
+        })
+        .collect();
+    assert_eq!(matching.len(), 1);
+    let e = matching[0];
+    assert_eq!(e["data"]["count"], 5);
+    assert_eq!(e["data"]["file"], "fixture.js");
+    assert_eq!(e["data"]["frames"], json!(["fixture.js:17:3"]));
+    assert!(
+        events
+            .iter()
+            .any(|e| e["kind"] == "op" && e["data"]["stage"] == "engine")
+    );
+    assert!(!events.iter().any(|e| e["kind"] == "mp.connected"));
+    assert!(e.get("profile").is_none() && e["data"].get("message").is_none());
+    assert!(
+        events
+            .iter()
+            .any(|l| l["kind"] == "launch.create" && l["launch"] == e["launch"])
+    );
+    let config_path = dir.path().join("local.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            "[controller]\nstate_dir={:?}",
+            dir.path().display().to_string()
+        ),
+    )?;
+    let logs = std::process::Command::new(env!("CARGO_BIN_EXE_infuser"))
+        .arg("logs")
+        .arg(&config_path)
+        .args(["--profile", "User", "--game", "moon", "--jsonl"])
+        .output()?;
+    anyhow::ensure!(
+        logs.status.success(),
+        "{}",
+        String::from_utf8_lossy(&logs.stderr)
+    );
+    let lines = String::from_utf8(logs.stdout)?;
+    if browser.is_some() {
+        assert!(!lines.contains("Browser fixture crash") && lines.contains("page.freeze"));
+    }
+    assert!(!lines.contains("fixture failed") && !lines.contains("private-fixture"));
+    let query = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_infuser"))
+            .arg("logs")
+            .arg(&config_path)
+            .args(args)
+            .output()
+    };
+    for (flag, expected) in [("--game", "unknown game"), ("--profile", "unknown profile")] {
+        let bad = query(&[flag, "does-not-exist"])?;
+        assert!(!bad.status.success() && String::from_utf8_lossy(&bad.stderr).contains(expected));
+    }
+    let incident = query(&[
+        "incident",
+        "--profile",
+        "User",
+        "--at",
+        &at.to_string(),
+        "--window",
+        "1m",
+        "--json",
+    ])?;
+    let rows: Vec<Value> = serde_json::from_slice(&incident.stdout)?;
+    assert!(
+        rows.iter()
+            .any(|e| e["kind"] == "operation.failure" && e["data"]["stage"] == "engine")
+    );
+    assert!(
+        !String::from_utf8_lossy(&incident.stdout).contains("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    );
+    let empty = query(&["--profile", "User", "--kind", "no.such.event"])?;
+    assert!(
+        empty.status.success()
+            && String::from_utf8_lossy(&empty.stdout).contains("no events for User")
+    );
+    let filtered = query(&[
+        "--game", "moon", "--kind", "js.*", "--source", "client", "--level", "error", "--json",
+    ])?;
+    let events: Vec<Value> = serde_json::from_slice(&filtered.stdout)?;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["data"]["fingerprint"] == "deadbea7")
+    );
     db.edit(|d| {
         d.presence.remove("user@example.com");
         Ok(())
@@ -734,6 +921,47 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .status(),
         409
     );
+    // Sleeping member launches do not consume any of the 32 live-launch slots.
+    let asleep = db
+        .find_launch(
+            &platform::hash(&sessions[0].1),
+            &sessions[0].0,
+            infuser::controller::now(),
+        )?
+        .1;
+    db.edit(|d| {
+        for i in 0..32 {
+            let mut row = asleep.clone();
+            row.host = format!("idle-{i}.example.test");
+            row.seen = infuser::controller::now() - 600;
+            row.expires = row.seen + 300;
+            d.launches.insert(format!("idle-{i}"), row);
+        }
+        Ok(())
+    })?;
+    user(reqwest::Method::POST, "/api/apps/moon/launch")
+        .json(&json!({}))
+        .send()
+        .await?
+        .error_for_status()?;
+    db.edit(|d| {
+        for row in d
+            .launches
+            .values_mut()
+            .filter(|r| r.host.ends_with(".example.test"))
+        {
+            row.expires = infuser::controller::now() + 300;
+        }
+        Ok(())
+    })?;
+    assert_eq!(
+        user(reqwest::Method::POST, "/api/apps/moon/launch")
+            .json(&json!({}))
+            .send()
+            .await?
+            .status(),
+        429
+    );
     // Revocation also applies to already-open game hosts and cloud saves.
     platform::member(&cfg, "user@example.com", "User", false, false)?;
     assert_eq!(
@@ -858,5 +1086,82 @@ async fn only_authenticated_members_reach_the_ip_admission_helper() -> Result<()
         .json()
         .await?;
     assert_eq!(me["game_ports_admitted"], true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn web_upload_accepts_exact_limits_and_rejects_one_over() -> Result<()> {
+    use axum::body::{Body, Bytes, to_bytes};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let temp = tempfile::tempdir()?;
+    let cfg: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}\ndisk_reserve_mb=64\ncontent_budget_mb=1024",
+        temp.path().display().to_string()
+    ))?;
+    let p = portal::Platform::open(Arc::new(Controller::open(
+        cfg.clone(),
+        Arc::new(Docker {
+            settings: cfg.controller.clone(),
+        }),
+    )?))?;
+    let (_, token) =
+        p.db.edit(|d| platform::credential(d, "boundary", "publish", "test"))?;
+    let router = portal::router(p.clone());
+    let request = |method, path: &str, body| {
+        router.clone().oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("host", HOST)
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(body)
+                .unwrap(),
+        )
+    };
+    let caps = request("GET", "/api/publisher/capabilities", Body::empty()).await?;
+    let caps: Value = serde_json::from_slice(&to_bytes(caps.into_body(), 65536).await?)?;
+    let mib = 1024 * 1024;
+    assert_eq!(caps["max_file_bytes"], 128 * mib);
+    assert_eq!(caps["max_build_bytes"], 512 * mib);
+    let build = "/api/publisher/apps/boundary/builds/one";
+    let body = json!({"manifest":{"schema_version":1,"app_id":"boundary","title":"Boundary","play_modes":["solo"],"solo_runtime":"client_only"}});
+    assert_eq!(
+        request("PUT", build, Body::from(body.to_string()))
+            .await?
+            .status(),
+        200
+    );
+
+    let chunk = Bytes::from(vec![0; mib as usize]);
+    let payload = |extra| {
+        let chunks = std::iter::repeat_n(chunk.clone(), 128).chain(extra);
+        Body::from_stream(futures_util::stream::iter(
+            chunks.map(Ok::<_, std::io::Error>),
+        ))
+    };
+    let put = |name, body| request("PUT", &format!("{build}/files/{name}"), body);
+    assert_eq!(
+        put("last.bin", payload(Some(Bytes::from_static(b"x"))))
+            .await?
+            .status(),
+        413
+    );
+    // Seed only the inventory. The last real upload reaches all three limits together.
+    p.db.edit(|d| {
+        let files = Arc::make_mut(&mut d.builds.get_mut("boundary/one").unwrap().files);
+        for i in 0..8191 {
+            files.insert(format!("{i}.bin"), if i < 3 { 128 * mib } else { 0 });
+        }
+        Ok(())
+    })?;
+    assert_eq!(put("last.bin", payload(None)).await?.status(), 200);
+    assert_eq!(put("new.bin", Body::empty()).await?.status(), 413);
+    assert_eq!(put("3.bin", Body::from("x")).await?.status(), 413);
+    // Replacing an existing file at the count limit must still work.
+    assert_eq!(put("last.bin", Body::from("x")).await?.status(), 200);
+    assert_eq!(p.db.catalog()?.builds["boundary/one"].files.len(), 8192);
     Ok(())
 }

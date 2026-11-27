@@ -221,6 +221,10 @@ Token and cookie lifetimes are shortened to keep the test under a minute. It
 uses no Google credentials or production state. The provider is a fixture; this
 does not substitute for checking Google sign-in on an actual Apple device.
 
+The web upload boundary test (`cargo test --locked --test platform_journey web_upload_accepts_exact_limits_and_rejects_one_over`)
+streams a 128 MiB file against a seeded inventory. It checks 512 MiB and 8,192 files
+at the boundary, rejects one byte or file over, and checks replacement at capacity.
+
 The optional local load case exchanges frames between two clients while uploading
 and publishing a 64 MiB file, with Library/chat polling. The larger synthetic
 catalog has 25 apps, five builds each and 500 files per build:

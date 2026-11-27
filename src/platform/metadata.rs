@@ -14,6 +14,14 @@ pub struct GameMetadata {
     /// An admin rename. Later publishes and publisher title edits keep this name.
     #[serde(default)]
     pub title_locked: bool,
+    #[serde(default)]
+    pub author_model: Option<String>,
+    #[serde(default)]
+    pub effort_level: Option<String>,
+    #[serde(default)]
+    pub estimated_prompts: Option<u32>,
+    #[serde(default)]
+    pub input_methods: Vec<String>,
 }
 
 pub(super) fn initialize(c: &Connection) -> Result<()> {
@@ -27,7 +35,14 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
         .prepare("PRAGMA table_info(game_metadata)")?
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for name in ["description", "art_prompt", "art_prompt_completed_revision"] {
+    for name in [
+        "input_methods",
+        "description",
+        "art_prompt",
+        "art_prompt_completed_revision",
+        "author_model",
+        "effort_level",
+    ] {
         if !columns.iter().any(|column| column == name) {
             c.execute(
                 &format!("ALTER TABLE game_metadata ADD COLUMN {name} TEXT"),
@@ -41,16 +56,26 @@ pub(super) fn initialize(c: &Connection) -> Result<()> {
             [],
         )?;
     }
+    if !columns.iter().any(|column| column == "estimated_prompts") {
+        c.execute(
+            "ALTER TABLE game_metadata ADD COLUMN estimated_prompts INTEGER",
+            [],
+        )?;
+    }
     Ok(())
 }
 
 pub(super) fn read(c: &Connection) -> Result<BTreeMap<String, GameMetadata>> {
-    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated,description,art_prompt,art_prompt_completed_revision,title_locked FROM game_metadata")?;
+    let mut statement = c.prepare("SELECT app,title,card_art_revision,COALESCE(length(card_art),0),updated,description,art_prompt,art_prompt_completed_revision,title_locked,author_model,effort_level,estimated_prompts,input_methods FROM game_metadata")?;
     let rows = statement.query_map([], |r| {
         Ok((
             r.get(0)?,
             GameMetadata {
                 title: r.get(1)?,
+                input_methods: r
+                    .get::<_, Option<String>>(12)?
+                    .map(|methods| methods.split(',').map(String::from).collect())
+                    .unwrap_or_default(),
                 description: r.get(5)?,
                 art_prompt: r.get(6)?,
                 art_prompt_completed_revision: r.get(7)?,
@@ -58,6 +83,11 @@ pub(super) fn read(c: &Connection) -> Result<BTreeMap<String, GameMetadata>> {
                 card_art_bytes: r.get(3)?,
                 updated: r.get(4)?,
                 title_locked: r.get::<_, i64>(8)? != 0,
+                author_model: r.get(9)?,
+                effort_level: r.get(10)?,
+                estimated_prompts: r
+                    .get::<_, Option<i64>>(11)?
+                    .and_then(|v| u32::try_from(v).ok()),
             },
         ))
     })?;
@@ -69,6 +99,10 @@ pub struct MetadataUpdate<'a> {
     pub title: Option<Option<&'a str>>,
     pub description: Option<Option<&'a str>>,
     pub art_prompt: Option<Option<&'a str>>,
+    pub author_model: Option<Option<&'a str>>,
+    pub effort_level: Option<Option<&'a str>>,
+    pub estimated_prompts: Option<Option<u32>>,
+    pub input_methods: Option<&'a [String]>,
     pub art: Option<Option<&'a [u8]>>,
     /// Completing artwork must not overwrite a newer brief or a completed request.
     pub complete_prompt: Option<&'a str>,
@@ -142,6 +176,12 @@ impl Database {
                 params![app, art, revision, now()],
             )?;
         }
+        if let Some(methods) = update.input_methods {
+            tx.execute(
+                "UPDATE game_metadata SET input_methods=?2,updated=?3 WHERE app=?1",
+                params![app, (!methods.is_empty()).then(|| methods.join(",")), now()],
+            )?;
+        }
         if let Some(description) = update.description {
             tx.execute(
                 "UPDATE game_metadata SET description=?2,updated=?3 WHERE app=?1",
@@ -152,6 +192,24 @@ impl Database {
             tx.execute(
                 "UPDATE game_metadata SET art_prompt=?2,art_prompt_completed_revision=NULL,updated=?3 WHERE app=?1",
                 params![app, prompt, now()],
+            )?;
+        }
+        if let Some(author_model) = update.author_model {
+            tx.execute(
+                "UPDATE game_metadata SET author_model=?2,updated=?3 WHERE app=?1",
+                params![app, author_model, now()],
+            )?;
+        }
+        if let Some(effort_level) = update.effort_level {
+            tx.execute(
+                "UPDATE game_metadata SET effort_level=?2,updated=?3 WHERE app=?1",
+                params![app, effort_level, now()],
+            )?;
+        }
+        if let Some(estimated_prompts) = update.estimated_prompts {
+            tx.execute(
+                "UPDATE game_metadata SET estimated_prompts=?2,updated=?3 WHERE app=?1",
+                params![app, estimated_prompts.map(i64::from), now()],
             )?;
         }
         tx.commit()?;

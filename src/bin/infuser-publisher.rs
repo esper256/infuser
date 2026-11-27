@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
             println!(
                 "Infuser publishing CLI\n\n\
                  connect --server HTTPS_ORIGIN --app APP [--output FILE] < SETUP_CODE_FILE\n\
-                 publish CONNECTION.credentials.json PROJECT [--solo] [--web-dir EXPORT] [--preview] [--allow-duplicate-title]\n\
+                 publish CONNECTION.credentials.json PROJECT [--solo] [--web-dir EXPORT] [--native-linux EXPORT] [--native-windows EXPORT] [--native-only] [--preview] [--allow-duplicate-title]\n\
                  unpublish CONNECTION.credentials.json\n\n\
                  Same publishing options as the Linux infuser CLI.\n\
                  Private certificate authorities: --ca-cert PEM_FILE (HTTPS verification stays enabled).\n\

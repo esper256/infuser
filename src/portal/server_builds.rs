@@ -1,4 +1,5 @@
 use super::*;
+use crate::publish_limits as limits;
 use crate::server_package::{
     self as package, Phase,
     worker::{Engine, Progress},
@@ -8,7 +9,7 @@ pub(super) fn capabilities(p: &Platform) -> Value {
     match &p.config().controller.node_packaging {
         None => json!({"version":1,"enabled":false}),
         Some(settings) => {
-            json!({"version":1,"enabled":true,"recipes":[{"runtime":"node","node_majors":settings.images.keys().filter_map(|v| v.parse::<u16>().ok()).collect::<Vec<_>>(),"lockfile_versions":[2,3],"install_scripts":false,"entry_extensions":["js","mjs","cjs"],"port":8080}],"max_source_bytes":package::SOURCE_BYTES,"max_file_bytes":package::SOURCE_FILE_BYTES,"max_files":4096})
+            json!({"version":1,"enabled":true,"recipes":[{"runtime":"node","node_majors":settings.images.keys().filter_map(|v| v.parse::<u16>().ok()).collect::<Vec<_>>(),"lockfile_versions":[2,3],"install_scripts":false,"entry_extensions":["js","mjs","cjs"],"port":8080}],"max_source_bytes":package::SOURCE_BYTES,"max_file_bytes":package::SOURCE_FILE_BYTES,"max_files":limits::FILE_COUNT})
         }
     }
 }
@@ -237,7 +238,13 @@ pub(super) async fn upload(
     );
     ensure!(
         staged.bytes <= package::SOURCE_FILE_BYTES as u64,
-        fault(413, "server source file exceeds 8 MiB")
+        fault(
+            413,
+            &format!(
+                "server source file exceeds {} MiB",
+                package::SOURCE_FILE_BYTES as u64 / limits::MIB
+            )
+        )
     );
     tokio::task::spawn_blocking(move || -> Answer {
         let _mutation = mutation;
@@ -261,12 +268,18 @@ pub(super) async fn upload(
         let prior = job.files.get(&path).copied().unwrap_or(0);
         let size = staged.bytes;
         ensure!(
-            job.files.len() < 4096 || job.files.contains_key(&path),
+            job.files.len() < limits::FILE_COUNT || job.files.contains_key(&path),
             fault(413, "too many server source files")
         );
         ensure!(
             job.files.values().sum::<u64>() - prior + size <= package::SOURCE_BYTES,
-            fault(413, "server source exceeds 64 MiB")
+            fault(
+                413,
+                &format!(
+                    "server source exceeds {} MiB",
+                    package::SOURCE_BYTES / limits::MIB
+                )
+            )
         );
         ensure!(
             content_bytes(&data) - prior + size

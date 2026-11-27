@@ -11,7 +11,7 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'infuser-voice-')),ready=path.jo
 const log=fs.openSync(path.join(root,'fixture.log'),'w',0o600);
 const fixture=spawn(process.env.INFUSER_VOICE_FIXTURE||'target/debug/examples/voice_fixture',[process.env.INFUSER_TEST_LIVEKIT,ready],{stdio:['ignore',log,log],detached:true});
 let browser,proxy,passed=false;
-try{
+async function run(){
   for(let i=0;!fs.existsSync(ready)&&i<100;i++){assert.equal(fixture.exitCode,null,'Fixture failed: '+root);await sleep(100);}
   const config=JSON.parse(fs.readFileSync(ready));proxy=await startProxy(config);
   const origin=`https://games.example.com:${proxy.address().port}`;
@@ -35,12 +35,64 @@ try{
     return {page,context};
   }
   const river=await player('river'),sky=await player('sky');
+  if(process.argv.includes('--diagnostics')){
+    await sky.page.evaluate(async()=>{
+      const {Room,RoomEvent,DisconnectReason}=await import('/assets/vendor/livekit-2.24.1.js');
+      const once=Room.prototype.once;
+      Room.prototype.once=function(event,...args){
+        if(event===RoomEvent.Disconnected)window.endFixtureRoom=()=>this.emit(event,DisconnectReason.ROOM_DELETED);
+        return once.call(this,event,...args);
+      };
+    });
+  }
   await river.page.locator('#voice-toggle').click();await sky.page.locator('#voice-toggle').click();
   for(const {page} of [river,sky]){
     await page.waitForFunction(()=>document.querySelector('#voice-toggle').dataset.state==='on',{},{timeout:20000});
     await page.waitForFunction(async()=>{for(const pc of window.connections){for(const s of (await pc.getStats()).values())if(s.type==='inbound-rtp'&&s.kind==='audio'&&s.bytesReceived>100&&s.totalAudioEnergy>0)return true;}return false;},{},{timeout:15000});
   }
   console.log('Two real browser microphones delivered decoded audio in both directions.');
+  if(process.argv.includes('--diagnostics')){
+    const voiceEvent=(kind,predicate)=>river.page.waitForRequest(req=>req.url().endsWith('/api/telemetry')&&req.method()==='POST'&&req.postDataJSON().events.some(e=>e.kind===kind&&predicate(e.data)));
+    const [stop]=await Promise.all([
+      voiceEvent('link',d=>d.name==='voice'&&d.state==='ended'&&d.reason==='user'),
+      river.page.locator('#voice-toggle').click().then(()=>river.page.evaluate(()=>window.dispatchEvent(new Event('pagehide')))),
+    ]);
+    const ended=stop.postDataJSON().events.find(e=>e.kind==='link'&&e.data.name==='voice'&&e.data.state==='ended');
+    assert.ok(ended.data.session);
+    assert.equal((await stop.response()).status(),200);
+    const [endedRequest]=await Promise.all([sky.page.waitForRequest(req=>req.url().endsWith('/api/telemetry')&&req.method()==='POST'&&req.postDataJSON().events.some(e=>
+      e.kind==='link' && e.data.name==='voice' && e.data.state==='ended' && e.data.reason==='server_ended')),
+      sky.page.evaluate(()=>{window.endFixtureRoom();window.dispatchEvent(new Event('pagehide'));}),
+    ]);
+    const endedLink=endedRequest.postDataJSON().events.find(e=>e.kind==='link'&&e.data.name==='voice'&&e.data.state==='ended');
+    assert.equal(endedLink.data.prev,'down');
+    assert.equal(endedLink.data.down_ms,endedLink.data.held_ms);
+    assert.equal((await endedRequest.response()).status(),200);
+    for(const [who,reason,expected] of [['river','SIGNAL_CLOSE','network'],['sky','ROOM_DELETED','server_ended']]){
+      const fresh=await player(who);
+      await fresh.page.evaluate(async reason=>{
+        const {Room,RoomEvent,DisconnectReason}=await import('/assets/vendor/livekit-2.24.1.js');
+        const once=Room.prototype.once;
+        Room.prototype.once=function(event,...args){
+          if(event===RoomEvent.Disconnected)this.connect=async()=>{
+            this.emit(event,DisconnectReason[reason]);
+            document.dispatchEvent(new Event('freeze'));
+          };
+          return once.call(this,event,...args);
+        };
+      },reason);
+      const [failedJoin]=await Promise.all([
+        fresh.page.waitForRequest(req=>req.url().endsWith('/api/telemetry')&&req.method()==='POST'&&
+          req.postDataJSON().events.some(e=>e.kind==='op'&&e.data.name==='voice.join')),
+        fresh.page.locator('#voice-toggle').click(),
+      ]);
+      const joins=failedJoin.postDataJSON().events.filter(e=>e.kind==='op'&&e.data.name==='voice.join');
+      assert.deepEqual(joins.map(({data})=>[data.outcome,data.reason,data.stage]),[['fail',expected,'connect']]);
+      assert.equal((await failedJoin.response()).status(),200);
+      await fresh.context.close();
+    }
+    passed=true;return;
+  }
   for(const {page} of [river,sky]){
     const notes=await page.evaluate(()=>window.voiceNotes);
     assert.equal(notes.length,3,'one entry melody, without announcing the existing roster');
@@ -49,7 +101,147 @@ try{
   await river.context.setOffline(true);await sleep(2500);await river.context.setOffline(false);
   await river.page.waitForFunction(()=>document.querySelector('#voice-toggle').dataset.state==='on',{},{timeout:20000});
   await river.page.waitForFunction(()=>document.querySelectorAll('.voice-badge').length===2);
+  // Voice badges stay inside their avatar's paint order so overlapping profiles stack cleanly above them.
+  const badgeZ=await river.page.evaluate(()=>[...document.querySelectorAll('#friends .voice-badge')].map(el=>getComputedStyle(el).zIndex));
+  assert.deepEqual(badgeZ,['auto','auto'],'voice badges must not set a positive z-index above sibling profiles');
+  // Exercise Library split pill, caret open+close click toggle, mute badge, deafen, and focus handling.
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  assert.equal(await river.page.locator('#voice-mixer-toggle').getAttribute('aria-expanded'),'true');
+  // Clicking the caret a second time must close the popover (not light-dismiss + re-open).
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
+  assert.equal(await river.page.locator('#voice-mixer-toggle').getAttribute('aria-expanded'),'false');
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  // Expanding Audio options must not re-render in a loop and must collapse on a normal desktop click.
+  const audioDetails=river.page.locator('#voice-mixer .vm-advanced');
+  const audioSummary=audioDetails.locator('> summary');
+  await audioSummary.click();
+  await river.page.waitForFunction(()=>document.querySelector('#voice-mixer .vm-advanced')?.open===true);
+  const summaryBox=await audioSummary.boundingBox();
+  await river.page.mouse.move(summaryBox.x+summaryBox.width/2,summaryBox.y+summaryBox.height/2);
+  await river.page.mouse.down();
+  await sleep(120);
+  await river.page.mouse.up();
+  await river.page.waitForFunction(()=>document.querySelector('#voice-mixer .vm-advanced')?.open===false);
+  await river.page.screenshot({path:path.join(root,'voice-mixer.png')});
+  await river.page.locator('#voice-mixer').getByRole('button',{name:'Mute',exact:true}).click();
+  await river.page.waitForFunction(()=>document.querySelector('.voice-split')?.dataset.muted==='true'&&!document.querySelector('.voice-split-badge')?.hidden);
+  await river.page.locator('#voice-mixer').getByRole('button',{name:'Deafen',exact:true}).click();
+  await river.page.waitForFunction(()=>document.querySelector('.voice-split')?.dataset.deafened==='true'&&document.querySelector('.voice-split-badge')?.hidden);
+  await river.page.locator('#voice-mixer').getByRole('button',{name:'Unmute',exact:true}).click();
+  await river.page.waitForFunction(()=>document.querySelector('.voice-split')?.dataset.muted==='false'&&document.querySelector('.voice-split')?.dataset.deafened==='false');
+  await river.page.keyboard.press('Escape');
+  await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
+  assert.equal(await river.page.evaluate(()=>document.activeElement?.id),'voice-mixer-toggle','closing mixer returns focus to caret');
   await river.page.screenshot({path:path.join(root,'voice-header.png')});
+
+  // Real 360x800 narrow-screen check for Library header + popover.
+  await river.page.setViewportSize({width:360,height:800});
+  await river.page.locator('#voice-mixer-toggle').click();
+  await river.page.locator('#voice-mixer').waitFor({state:'visible'});
+  const lib360=await river.page.evaluate(()=>{
+    const header=document.querySelector('header');
+    const brand=document.querySelector('.brand').getBoundingClientRect();
+    const presence=document.querySelector('.presence-chat').getBoundingClientRect();
+    const wordmark=document.querySelector('.brand-wordmark');
+    const pill=document.querySelector('.voice-split').getBoundingClientRect();
+    const chat=document.querySelector('#chat-toggle').getBoundingClientRect();
+    const pop=document.querySelector('#voice-mixer').getBoundingClientRect();
+    return {
+      headerOverflow:header.scrollWidth>header.clientWidth,
+      wordmarkHidden:getComputedStyle(wordmark).display==='none',
+      sameRow:Math.abs((brand.top+brand.bottom)/2-(presence.top+presence.bottom)/2)<2,
+      pillLeft:pill.left,pillRight:pill.right,
+      chatLeft:chat.left,chatRight:chat.right,
+      popLeft:pop.left,popRight:pop.right,popTop:pop.top,popBottom:pop.bottom,
+      vw:window.innerWidth,vh:window.innerHeight,
+    };
+  });
+  assert.equal(lib360.headerOverflow,false,'Library header must not overflow at 360px');
+  assert.equal(lib360.wordmarkHidden,true,'Infuser text wordmark hides on mobile to preserve header space');
+  assert.equal(lib360.sameRow,true,'Logo icon, avatars, voice pill, and chat stay on one header row at 360px');
+  assert(lib360.pillLeft>=0&&lib360.pillRight<=lib360.vw,'Voice split pill fits inside 360px viewport');
+  assert(lib360.chatLeft>=0&&lib360.chatRight<=lib360.vw,'Chat toggle fits inside 360px viewport');
+  assert(lib360.pillRight<=lib360.chatLeft,'Voice pill and chat toggle do not overlap');
+  assert(lib360.popLeft>=12&&lib360.popRight<=lib360.vw-12,'Library voice popover stays within 12px horizontal margins at 360px');
+  assert(lib360.popTop>=12&&lib360.popBottom<=lib360.vh-12,'Library voice popover stays within 12px vertical margins at 360px');
+  await river.page.screenshot({path:path.join(root,'voice-library-360.png')});
+  await river.page.keyboard.press('Escape');
+  await river.page.locator('#voice-mixer').waitFor({state:'hidden'});
+
+  // Mobile landscape keeps both the icon and text wordmark on one row.
+  await river.page.setViewportSize({width:640,height:360});
+  const libLand=await river.page.evaluate(()=>{
+    const header=document.querySelector('header');
+    const brand=document.querySelector('.brand').getBoundingClientRect();
+    const presence=document.querySelector('.presence-chat').getBoundingClientRect();
+    const wordmark=document.querySelector('.brand-wordmark');
+    return {
+      overflow:header.scrollWidth>header.clientWidth,
+      wordmarkVisible:getComputedStyle(wordmark).display!=='none'&&wordmark.getBoundingClientRect().width>0,
+      sameRow:Math.abs((brand.top+brand.bottom)/2-(presence.top+presence.bottom)/2)<2,
+    };
+  });
+  assert.equal(libLand.overflow,false,'Library header must not overflow in mobile landscape');
+  assert.equal(libLand.wordmarkVisible,true,'Infuser text wordmark stays visible in mobile landscape');
+  assert.equal(libLand.sameRow,true,'Logo and voice controls stay on one header row in mobile landscape');
+
+  // Real 360x800 game-player header check while muted: red mic-slash badge visible, no overflow.
+  const launch=await river.page.evaluate(async()=>{
+    const r=await fetch('/api/apps/pond/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'solo'})});
+    return {ok:r.ok,body:await r.json()};
+  });
+  assert.equal(launch.ok,true,'launch solo fixture game');
+  const gamePage=await river.context.newPage();
+  gamePage.on('pageerror',e=>console.error('game',e.message));
+  await gamePage.setViewportSize({width:360,height:800});
+  await gamePage.goto(launch.body.url);
+  await gamePage.locator('#voice-levels').waitFor({state:'visible'});
+  // Clicking the game bar pill opens, and clicking it a second time closes cleanly.
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'visible'});
+  assert.equal(await gamePage.locator('#voice-levels').getAttribute('aria-expanded'),'true');
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'hidden'});
+  assert.equal(await gamePage.locator('#voice-levels').getAttribute('aria-expanded'),'false');
+  // Mute from the game bar popover and verify the Library confirms it back to the game bar badge.
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'visible'});
+  const gamePop360=await gamePage.evaluate(()=>{
+    const pop=document.querySelector('#game-voice-mixer').getBoundingClientRect();
+    return {left:pop.left,right:pop.right,top:pop.top,bottom:pop.bottom,vw:window.innerWidth,vh:window.innerHeight};
+  });
+  assert(gamePop360.left>=10&&gamePop360.right<=gamePop360.vw-10,'Game voice popover stays inside 10px margins at 360px');
+  await gamePage.locator('#game-voice-mixer').getByRole('button',{name:'Mute',exact:true}).click();
+  await gamePage.waitForFunction(()=>document.querySelector('#voice-levels')?.dataset.muted==='true'&&!document.querySelector('.voice-split-badge')?.hidden);
+  await gamePage.screenshot({path:path.join(root,'voice-game-popover-360.png')});
+  await gamePage.keyboard.press('Escape');
+  await gamePage.locator('#game-voice-mixer').waitFor({state:'hidden'});
+  const gameBar360=await gamePage.evaluate(()=>{
+    const bar=document.querySelector('#player-header .bar');
+    const pill=document.querySelector('#voice-levels').getBoundingClientRect();
+    const badge=document.querySelector('.voice-split-badge').getBoundingClientRect();
+    return {
+      overflow:bar.scrollWidth>bar.clientWidth,
+      pillLeft:pill.left,pillRight:pill.right,pillWidth:pill.width,pillHeight:pill.height,
+      badgeWidth:badge.width,badgeHeight:badge.height,
+      vw:window.innerWidth,
+    };
+  });
+  assert.equal(gameBar360.overflow,false,'Game bar must not overflow at 360px');
+  assert(gameBar360.pillLeft>=0&&gameBar360.pillRight<=gameBar360.vw,'Game voice pill fits inside 360px viewport');
+  assert(gameBar360.pillWidth>=40&&gameBar360.pillHeight>=40,'Game voice pill target is at least 40x40px');
+  assert(gameBar360.badgeWidth>=14&&gameBar360.badgeHeight>=14,'Muted badge is visible and at least 14px');
+  await gamePage.screenshot({path:path.join(root,'voice-game-muted-360.png')});
+  // Unmute again before continuing to observer-tab checks.
+  await gamePage.locator('#voice-levels').click();
+  await gamePage.locator('#game-voice-mixer').getByRole('button',{name:'Unmute',exact:true}).click();
+  await gamePage.waitForFunction(()=>document.querySelector('#voice-levels')?.dataset.muted==='false');
+  await gamePage.close();
+  await river.page.setViewportSize({width:1280,height:800});
+  console.log('360px Library and Game Player split-pill checks passed.');
   // A second tab sees the connection but never opens another microphone.
   const tab=await river.context.newPage();await tab.goto(origin+'/library');
   await tab.waitForFunction(()=>document.querySelector('#voice-toggle')?.dataset.state==='elsewhere');
@@ -83,11 +275,12 @@ try{
   await river.page.waitForFunction(()=>window.connections.every(pc=>pc.connectionState==='closed'));
   for(const viewport of [{width:390,height:844},{width:1280,height:800}]){
     await river.page.setViewportSize(viewport);
-    const [voice,chat]=await Promise.all(['#voice-toggle','#chat-toggle'].map(s=>river.page.locator(s).boundingBox()));
+    const [voice,chat]=await Promise.all(['.voice-split','#chat-toggle'].map(s=>river.page.locator(s).boundingBox()));
     assert(Math.abs(voice.y-chat.y)<10,'voice stays beside text chat');assert(voice.x+voice.width<=chat.x+1,'controls do not overlap');
   }
   passed=true;console.log('Voice UI and real-media journey passed. Artifacts: '+root);
-}finally{
+}
+try{await run();}finally{
   await browser?.close();if(proxy){proxy.closeAllConnections();await new Promise(r=>proxy.close(r));}
   try{process.kill(-fixture.pid,'SIGKILL');}catch{}
   fs.closeSync(log);if(!passed)console.error('Voice failure artifacts: '+root);

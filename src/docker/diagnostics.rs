@@ -10,16 +10,18 @@ pub fn capabilities() -> Value {
     json!({"version":1,"retained_attempts":REPORTS,"log_bytes_per_stream":LOG_BYTES})
 }
 
-fn path(settings: &Settings, id: &str) -> Result<PathBuf> {
+fn path(state_dir: &std::path::Path, id: &str) -> Result<PathBuf> {
     ensure!(crate::config::slug(id), "invalid diagnostics app ID");
-    Ok(settings
-        .state_dir
+    Ok(state_dir
         .join("runtime-diagnostics")
         .join(format!("{id}.json")))
 }
 
 pub fn retained(settings: &Settings, id: &str) -> Result<Vec<Value>> {
-    let path = path(settings, id)?;
+    retained_at(&settings.state_dir, id)
+}
+pub(crate) fn retained_at(state_dir: &std::path::Path, id: &str) -> Result<Vec<Value>> {
+    let path = path(state_dir, id)?;
     match fs::File::open(path) {
         Ok(file) => {
             use std::io::Read;
@@ -37,7 +39,7 @@ pub fn retained(settings: &Settings, id: &str) -> Result<Vec<Value>> {
 }
 
 pub(super) fn retain(settings: &Settings, id: &str, report: Value) -> Result<()> {
-    let path = path(settings, id)?;
+    let path = path(&settings.state_dir, id)?;
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -165,7 +167,10 @@ mod tests {
         assert_eq!(reports[2]["attempt"], 2);
         assert!(retained(&settings, "another-game")?.is_empty());
         assert_eq!(
-            fs::metadata(path(&settings, "pond")?)?.permissions().mode() & 0o777,
+            fs::metadata(path(&settings.state_dir, "pond")?)?
+                .permissions()
+                .mode()
+                & 0o777,
             0o600
         );
         assert!(retained(&settings, "../pond").is_err());
