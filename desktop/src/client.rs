@@ -114,11 +114,15 @@ fn http() -> Result<Client> {
         .redirect(reqwest::redirect::Policy::none())
         .build()?)
 }
-fn response(response: reqwest::blocking::Response) -> Result<serde_json::Value> {
+const MAX_CLAIM_BYTES: usize = 512 * 1024;
+const MAX_DEVICE_RESPONSE_BYTES: usize = 256 * 1024;
+const ARCHIVE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(240);
+
+fn response(response: reqwest::blocking::Response, limit: usize) -> Result<serde_json::Value> {
     let status = response.status();
     let mut bytes = Vec::new();
-    response.take(256 * 1024 + 1).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= 256 * 1024, "Infuser response is too large");
+    response.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    ensure!(bytes.len() <= limit, "Infuser response is too large");
     let value: serde_json::Value = serde_json::from_slice(&bytes)?;
     let code = value["error"]["code"]
         .as_str()
@@ -152,6 +156,7 @@ fn pair(
         http.post(format!("{}/api/native/v1/device/start", request.server))
             .json(&json!({"challenge":install::hash(verifier.as_bytes())}))
             .send()?,
+        MAX_DEVICE_RESPONSE_BYTES,
     )?;
     let id = value["request_id"]
         .as_str()
@@ -172,6 +177,7 @@ fn pair(
             http.post(format!("{}/api/native/v1/device/token", request.server))
                 .json(&json!({"request_id":id,"verifier":verifier}))
                 .send()?,
+            MAX_DEVICE_RESPONSE_BYTES,
         )?;
         if value["status"] == "connected" {
             let token = value["token"]
@@ -212,6 +218,7 @@ pub fn forget(root: &Path, request: &Request) -> Result<()> {
                 .bearer_auth(&connection.token)
                 .timeout(Duration::from_secs(5))
                 .send()?,
+            MAX_DEVICE_RESPONSE_BYTES,
         )?;
         fs::remove_file(path)?;
     }
@@ -268,6 +275,7 @@ pub fn run_with_http(
             .header("X-Infuser-Play-Capabilities", "visits.v1")
             .json(&json!({"request_id":request.id,"platform":platform()}))
             .send()?,
+        MAX_CLAIM_BYTES,
     )?;
     let launch: Launch = serde_json::from_value(value)?;
     let deployment = launch.deployment_id.as_deref().unwrap_or(&launch.app_id);
@@ -339,6 +347,7 @@ pub fn run_with_http(
                     launch.game_origin, launch.artifact.archive
                 ))
                 .bearer_auth(&launch.token)
+                .timeout(ARCHIVE_DOWNLOAD_TIMEOUT)
                 .send()?
                 .error_for_status()?;
             let mut bytes = Vec::new();

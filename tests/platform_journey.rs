@@ -1088,3 +1088,80 @@ async fn only_authenticated_members_reach_the_ip_admission_helper() -> Result<()
     assert_eq!(me["game_ports_admitted"], true);
     Ok(())
 }
+
+#[tokio::test]
+async fn web_upload_accepts_exact_limits_and_rejects_one_over() -> Result<()> {
+    use axum::body::{Body, Bytes, to_bytes};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let temp = tempfile::tempdir()?;
+    let cfg: Config = toml::from_str(&format!(
+        "[controller]\nstate_dir={:?}\ndisk_reserve_mb=64\ncontent_budget_mb=1024",
+        temp.path().display().to_string()
+    ))?;
+    let p = portal::Platform::open(Arc::new(Controller::open(
+        cfg.clone(),
+        Arc::new(Docker {
+            settings: cfg.controller.clone(),
+        }),
+    )?))?;
+    let (_, token) =
+        p.db.edit(|d| platform::credential(d, "boundary", "publish", "test"))?;
+    let router = portal::router(p.clone());
+    let request = |method, path: &str, body| {
+        router.clone().oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("host", HOST)
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(body)
+                .unwrap(),
+        )
+    };
+    let caps = request("GET", "/api/publisher/capabilities", Body::empty()).await?;
+    let caps: Value = serde_json::from_slice(&to_bytes(caps.into_body(), 65536).await?)?;
+    let mib = 1024 * 1024;
+    assert_eq!(caps["max_file_bytes"], 128 * mib);
+    assert_eq!(caps["max_build_bytes"], 512 * mib);
+    let build = "/api/publisher/apps/boundary/builds/one";
+    let body = json!({"manifest":{"schema_version":1,"app_id":"boundary","title":"Boundary","play_modes":["solo"],"solo_runtime":"client_only"}});
+    assert_eq!(
+        request("PUT", build, Body::from(body.to_string()))
+            .await?
+            .status(),
+        200
+    );
+
+    let chunk = Bytes::from(vec![0; mib as usize]);
+    let payload = |extra| {
+        let chunks = std::iter::repeat_n(chunk.clone(), 128).chain(extra);
+        Body::from_stream(futures_util::stream::iter(
+            chunks.map(Ok::<_, std::io::Error>),
+        ))
+    };
+    let put = |name, body| request("PUT", &format!("{build}/files/{name}"), body);
+    assert_eq!(
+        put("last.bin", payload(Some(Bytes::from_static(b"x"))))
+            .await?
+            .status(),
+        413
+    );
+    // Seed only the inventory. The last real upload reaches all three limits together.
+    p.db.edit(|d| {
+        let files = Arc::make_mut(&mut d.builds.get_mut("boundary/one").unwrap().files);
+        for i in 0..8191 {
+            files.insert(format!("{i}.bin"), if i < 3 { 128 * mib } else { 0 });
+        }
+        Ok(())
+    })?;
+    assert_eq!(put("last.bin", payload(None)).await?.status(), 200);
+    assert_eq!(put("new.bin", Body::empty()).await?.status(), 413);
+    assert_eq!(put("3.bin", Body::from("x")).await?.status(), 413);
+    // Replacing an existing file at the count limit must still work.
+    assert_eq!(put("last.bin", Body::from("x")).await?.status(), 200);
+    assert_eq!(p.db.catalog()?.builds["boundary/one"].files.len(), 8192);
+    Ok(())
+}

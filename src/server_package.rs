@@ -10,8 +10,8 @@ pub mod worker;
 pub const RECIPE_VERSION: u32 = 1;
 pub const BUILD_MEMORY_MB: u64 = 768;
 pub const BUILD_CPU_MILLIS: u64 = 500;
-pub const SOURCE_BYTES: u64 = 64 * 1024 * 1024;
-pub const SOURCE_FILE_BYTES: usize = 8 * 1024 * 1024;
+pub const SOURCE_BYTES: u64 = 128 * crate::publish_limits::MIB;
+pub const SOURCE_FILE_BYTES: usize = 16 * crate::publish_limits::MIB as usize;
 pub const LOG_BYTES: usize = 32 * 1024;
 
 #[derive(Clone, Debug, Deserialize)]

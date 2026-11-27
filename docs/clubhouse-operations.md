@@ -96,7 +96,9 @@ still validate game tickets. A logout does not revoke another family's shared
 IP; grants expire in the kernel when they stop being refreshed.
 
 Use `MemoryMax=512M` for the main daemon with publishing enabled. Publisher work
-has two admission slots; game files stream to disk with a 64 MiB/file limit.
+has two admission slots; game files stream to disk with a 128 MiB/file limit. Staging requires
+256 MiB free above the disk reserve to allow for both slots. Publishing and
+background backfill skip precompression for files above 64 MiB.
 Keep `TasksMax=128`. Installing a new binary does not update an existing service
 unit: apply unit changes separately and run `systemctl daemon-reload`.
 Choose the game budget to leave

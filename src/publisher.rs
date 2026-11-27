@@ -1,5 +1,5 @@
 //! Agent-facing workflow: an existing web project plus a private connection file.
-use crate::store::secret;
+use crate::{publish_limits as limits, store::secret};
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -7,6 +7,9 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
 };
+
+const PACKAGING_WAIT_SECONDS: u64 = 1800;
+
 #[derive(Deserialize)]
 struct Connection {
     api_url: String,
@@ -163,7 +166,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         "invalid app ID in connection file"
     );
     let api = connection.api_url.trim_end_matches('/');
-    let http = http_client(args, 120)?;
+    let http = http_client(args, limits::UPLOAD_SECONDS)?;
     if args[0] == "unpublish" {
         response(
             http.delete(format!("{api}/api/publisher/apps/{}", connection.app_id))
@@ -526,7 +529,10 @@ pub async fn run(args: &[String]) -> Result<()> {
         files.retain(|(_, path)| !path.starts_with(source));
         walk(source, source, &mut server_files)?;
         server_files.retain(|(_, path)| !path.starts_with(&web));
-        ensure!(server_files.len() <= 4096, "too many server source files");
+        ensure!(
+            server_files.len() <= limits::FILE_COUNT,
+            "too many server source files"
+        );
         let mut server_bytes = 0;
         for (name, path) in &server_files {
             ensure!(
@@ -536,13 +542,15 @@ pub async fn run(args: &[String]) -> Result<()> {
             let size = path.metadata()?.len();
             ensure!(
                 size <= crate::server_package::SOURCE_FILE_BYTES as u64,
-                "server source file exceeds 8 MiB: {name}"
+                "server source file exceeds {} MiB: {name}",
+                crate::server_package::SOURCE_FILE_BYTES as u64 / limits::MIB
             );
             server_bytes += size;
         }
         ensure!(
             server_bytes <= crate::server_package::SOURCE_BYTES,
-            "server source exceeds 64 MiB"
+            "server source exceeds {} MiB",
+            crate::server_package::SOURCE_BYTES / limits::MIB
         );
         let recipe = recipe.as_ref().unwrap();
         ensure!(
@@ -586,18 +594,23 @@ pub async fn run(args: &[String]) -> Result<()> {
         );
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
-    ensure!(files.len() <= 4096, "too many exported files");
+    ensure!(files.len() <= limits::FILE_COUNT, "too many exported files");
     let mut total = 0;
     for (_, path) in &files {
         let size = path.metadata()?.len();
         ensure!(
-            size <= 64 * 1024 * 1024,
-            "{} exceeds the 64 MiB per-file limit",
-            path.display()
+            size <= limits::FILE_BYTES,
+            "{} exceeds the {} MiB per-file limit",
+            path.display(),
+            limits::FILE_BYTES / limits::MIB
         );
         total += size;
     }
-    ensure!(total <= 256 * 1024 * 1024, "export exceeds 256 MiB");
+    ensure!(
+        total <= limits::BUILD_BYTES,
+        "export exceeds {} MiB",
+        limits::BUILD_BYTES / limits::MIB
+    );
     let build = format!("b-{}-{}", crate::controller::now(), &secret()[..8]);
     let build_url = format!(
         "{api}/api/publisher/apps/{}/builds/{build}",
@@ -688,7 +701,8 @@ pub async fn run(args: &[String]) -> Result<()> {
         )
         .await?;
         println!("Server packaging queued. Build: {build}");
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(900);
+        let deadline =
+            tokio::time::Instant::now() + std::time::Duration::from_secs(PACKAGING_WAIT_SECONDS);
         let mut last_state = String::new();
         loop {
             let state = job["state"]

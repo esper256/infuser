@@ -47,5 +47,6 @@ pub mod precompress;
 pub mod private_file;
 pub mod probation;
 pub mod publish_capture;
+mod publish_limits;
 pub mod publisher;
 pub mod rollback;

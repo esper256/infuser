@@ -78,7 +78,13 @@ pass `--web-dir`, `--native-linux`, or `--native-windows`. Omit `web_dir` and
 its flag to have the publisher build the project's Web preset. The CLI packages the
 desktop exports, generates their file inventories and hashes, and publishes all
 formats as one build under one Library card. Each native ZIP supports up to
-64 MiB compressed, 512 MiB expanded, and 512 files.
+128 MiB compressed, 1 GiB expanded, and 1,024 files. The shared native manifest
+can occupy up to 256 KiB. Desktop downloads allow four minutes, and a freshly
+claimed launch has ten minutes for initial startup.
+
+Older Infuser Play clients keep their compiled-in limits. Existing builds within
+those limits still work. Update the client for larger archives or inventories
+that exceed its previous size or file-count limits.
 
 On both the compact and expanded game cards, **Play** opens the Web version.
 To play on desktop, open the dropdown beside **Play** and choose **Launch in
