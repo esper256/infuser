@@ -55,7 +55,7 @@ jobs:
         run: cargo clippy --locked --all-targets --features fixtures -- -D warnings
       - name: Vendored TURN suite
         if: matrix.check == 'turn-crate'
-        run: cargo test --manifest-path vendor/turn/Cargo.toml --locked -- --skip test_client_with_stun_send_binding_request --skip test_client_with_stun_send_binding_request_to_parallel && cargo test --manifest-path vendor/turn/Cargo.toml --locked test_client_with_stun_send_binding_request_to_timeout
+        run: cargo test --manifest-path vendor/turn/Cargo.toml -- --skip test_client_with_stun_send_binding_request --skip test_client_with_stun_send_binding_request_to_parallel && cargo test --manifest-path vendor/turn/Cargo.toml test_client_with_stun_send_binding_request_to_timeout
 
   gamepad-journey:
     name: Library controller journey

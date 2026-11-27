@@ -38,16 +38,16 @@ pub fn set_nonce_key(key: &[u8]) -> Result<()> {
     if key.is_empty() {
         return Err(Error::Other("TURN nonce key is empty".into()));
     }
-    if let Some(existing) = NONCE_KEY.get() {
-        return if existing.as_slice() == key {
-            Ok(())
-        } else {
-            Err(Error::Other("TURN nonce key is already set".into()))
-        };
+    match NONCE_KEY.set(key.to_vec()) {
+        Ok(()) => Ok(()),
+        Err(rejected) => {
+            if NONCE_KEY.get().map(Vec::as_slice) == Some(rejected.as_slice()) {
+                Ok(())
+            } else {
+                Err(Error::Other("TURN nonce key is already set".into()))
+            }
+        }
     }
-    NONCE_KEY
-        .set(key.to_vec())
-        .map_err(|_| Error::Other("TURN nonce key is already set".into()))
 }
 
 /// Keeps the process key if one is already installed.
