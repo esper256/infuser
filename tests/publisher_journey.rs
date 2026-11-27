@@ -405,5 +405,43 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
         active,
         "failed server check must preserve the old client/server pair"
     );
+    // One publish includes a playable web entry and both indexed native archives.
+    let godot = root.join("Godot game");
+    for dir in ["web", "linux", "windows"] {
+        std::fs::create_dir_all(godot.join(dir))?;
+    }
+    std::fs::write(godot.join("project.godot"), "config_version=5")?;
+    std::fs::write(
+        godot.join("web/index.html"),
+        "<html><head></head><body>Pond Web</body></html>",
+    )?;
+    std::fs::write(godot.join("web/pond.pck"), b"web export")?;
+    std::fs::write(godot.join("linux/pond"), b"\x7fELFfixture")?;
+    std::fs::write(godot.join("windows/pond.exe"), b"MZfixture")?;
+    let both = [
+        "publish",
+        connection,
+        "Godot game",
+        "--solo",
+        "--web-dir",
+        "web",
+        "--native-linux",
+        "linux",
+        "--native-windows",
+        "windows",
+        "--ca-cert",
+        "test-ca.pem",
+    ];
+    succeeded(cli(root, &both, None).await?)?;
+    let state = db.read()?;
+    assert_eq!(state.apps.len(), 1);
+    let build = content.join(&state.apps["existing-game"].build);
+    assert!(std::fs::read_to_string(build.join("index.html"))?.contains("Pond Web"));
+    assert_eq!(std::fs::read(build.join("pond.pck"))?, b"web export");
+    let bundle = infuser::native::read(&build)?.unwrap();
+    assert!(!bundle.native_only);
+    for platform in ["linux-x86_64", "windows-x86_64"] {
+        assert!(build.join(&bundle.platforms[platform].archive).is_file());
+    }
     Ok(())
 }

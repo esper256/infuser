@@ -809,6 +809,8 @@ button.feed-row:hover { border-color: var(--accent); }
 .detail-input-methods span { display: inline-flex; align-items: center; gap: .3em; white-space: nowrap; }
 .detail-input-methods svg { width: 1.2em; height: 1.2em; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .detail-info > .actions { width: fit-content; margin: 0 0 16px; }
+.detail-info > .actions:has(.desktop-play) { max-width: 100%; flex-wrap: wrap; row-gap: 6px; }
+.detail-info .actions > .desktop-play { margin-inline-start: 6px; border-radius: 10px; }
 .detail-star-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 18px; }
 .detail-star-btn {
   display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 6px 12px;

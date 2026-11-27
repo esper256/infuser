@@ -43,6 +43,7 @@ try {
   else if(path==='/api/admin/peer-health')data={sessions:[]};
   else if(path==='/api/profile'&&method==='GET')data={users:[]};
   else if(path==='/api/profile'){me.avatar=request.postDataJSON().avatar;author.avatar=me.avatar;data={avatar:me.avatar};}
+  else if(path==='/api/native/v1/play/firefly-drift')data={url:'infuser://play?request=fixture'};
   else if(path.endsWith('/launch')){launches.push(request.postDataJSON());data={state:'ready',url:'https://library.test/game-fixture'};}
   else if(path.endsWith('/visibility')){if(failVisibility){await new Promise(resolve=>{releaseVisibility=resolve;});return route.fulfill({status:504,body:'Gateway Timeout'});}const app=apps.find(g=>g.id===path.split('/')[4]);app.preview=!request.postDataJSON().listed;data={listed:!app.preview};}
   else if(/^\/api\/admin\/apps\/[^/]+\/reactions\//.test(path)){
@@ -102,6 +103,36 @@ try {
  assert(await dialog.locator('.detail-input-methods').evaluate(row=>row.scrollWidth<=row.clientWidth));
  await page.setViewportSize(previousViewport);
  delete game.input_methods;await page.evaluate(()=>refreshTestLibrary());await close();
+ // The two launch destinations share one card and resolve to different endpoints.
+ await page.evaluate(()=>Object.defineProperty(navigator,'userAgentData',{configurable:true,value:{platform:'Linux'}}));
+ game.native_platforms=['linux-x86_64'];await page.evaluate(()=>refreshTestLibrary());
+ await card().locator('.play-menu summary').click();
+ assert(await card().getByRole('button',{name:'Play online',exact:true}).isVisible());
+ assert(await card().getByRole('button',{name:'Launch in Infuser Play',exact:true}).isVisible());
+ await card().locator('.play-menu summary').click();
+ await open();
+ const online=dialog.getByRole('button',{name:'Play online',exact:true});
+ const desktop=dialog.getByRole('button',{name:'Launch in Infuser Play',exact:true});
+ await popup(()=>online.click());assert.deepEqual(launches.at(-1),{guest:false});
+ const webLaunchCount=launches.length;
+ // Exercise the real handoff link without invoking an OS protocol handler in CI.
+ await page.evaluate(()=>document.addEventListener('click',function handoff(event){
+   const link=event.target.closest('#desktop-launch a[href^="infuser://"]');
+   if(link){event.preventDefault();window.testDesktopHandoff=link.href;document.removeEventListener('click',handoff);}
+ }));
+ await desktop.click();const handoff=page.locator('#desktop-launch');
+ await handoff.waitFor();
+ assert.equal(await handoff.getByRole('link',{name:'Open Infuser Play'}).getAttribute('href'),'infuser://play?request=fixture');
+ assert.deepEqual(writes.filter(w=>w.path==='/api/native/v1/play/firefly-drift').at(-1).body,{platform:'linux-x86_64',guest:false});
+ assert.equal(await page.evaluate(()=>window.testDesktopHandoff),'infuser://play?request=fixture');
+ assert.equal(launches.length,webLaunchCount);
+ await handoff.getByRole('button',{name:'Done'}).click();
+ game.play_unavailable='Unavailable while visiting';await page.evaluate(()=>refreshTestLibrary());
+ assert(await online.isDisabled());assert(await desktop.isDisabled());
+ delete game.play_unavailable;
+ game.native_platforms=['windows-x86_64'];await page.evaluate(()=>refreshTestLibrary());
+ assert(await online.isEnabled());assert.equal(await desktop.count(),0);
+ delete game.native_platforms;await page.evaluate(()=>{delete navigator.userAgentData;return refreshTestLibrary();});await close();
  // Admin credits reorder without granting ownership; compact portraits keep the dock size.
  const originalCreator=await card().locator('.creator').boundingBox();
  // A JSON service error from launch keeps its actionable server message.

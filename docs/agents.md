@@ -86,7 +86,7 @@ it is complete rather than repeating the work.
 | Browser game with a Node HTTP/WebSocket server | [Managed Node hosting](engines/node-server.md) for packaging, then [dedicated sessions](dedicated-sessions.md) for identity, rooms, reconnects and Join Friend |
 | Godot web | [Web export and saves](engines/godot-web.md), then [multiplayer](engines/godot-multiplayer.md) if needed |
 | Unity Web | [Export, saves, and multiplayer bridge](engines/unity-web.md) (experimental; Unity compilation still needs verification) |
-| Godot native, single-player Windows/Linux | [Infuser Play preview](engines/godot-native.md); also follow the [web recipe](engines/godot-web.md) if publishing a web export |
+| Godot Web and Infuser Play, or desktop only (client-only single-player) | [Publish Web and Infuser Play together](engines/godot-native.md#publish-web-and-infuser-play-together) using one game ID and one publish command |
 
 Godot and PeerJS adapters are previews with the limitations in their recipes.
 Unity hosting and its JavaScript bridge have tests; the C# adapter is experimental
