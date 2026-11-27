@@ -115,13 +115,14 @@ impl Report {
                 }
             }
             "voice.stopped" => *self.stops.entry(reason(d)).or_default() += 1,
-            "voice.disconnected"
-                if !matches!(field(d, "stop_reason"), "user_toggle" | "pagehide")
-                    && !(d["stop_reason"].is_null()
+            "voice.disconnected" => {
+                let expected_stop = matches!(field(d, "stop_reason"), "user_toggle" | "pagehide")
+                    || (d["stop_reason"].is_null()
                         && matches!(field(d, "state"), "CLIENT_INITIATED" | "1")
-                        && e["level"] == "info") =>
-            {
-                *self.drops.entry(reason(d)).or_default() += 1;
+                        && e["level"] == "info");
+                if !expected_stop {
+                    *self.drops.entry(reason(d)).or_default() += 1;
+                }
             }
             _ => {}
         }
