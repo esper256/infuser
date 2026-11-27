@@ -123,7 +123,7 @@ try {
   }
   await page.locator('#invite-form input[name="name"]').fill('Unfinished invitation');
   await page.keyboard.press('Escape');await page.locator('#admin').waitFor({state:'hidden'});
-  assert(await page.locator('#account-trigger').evaluate(e=>e===document.activeElement));
+  await page.waitForFunction(() => document.activeElement?.id === 'account-trigger');
   await page.locator('#account-trigger').click();await page.locator('#open-admin').click();
   assert.equal(await page.locator('#invite-form input[name="name"]').inputValue(),'Unfinished invitation','closing preserves unfinished work');
   await page.locator('#close-admin').click();
