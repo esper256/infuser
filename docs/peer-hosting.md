@@ -122,8 +122,22 @@ starting another multiplayer session. Single-player saves are unchanged.
 
 ## Connection status and admin diagnostics
 
-Players see only a small connection symbol in the existing title bar. It does
-not overlay the game, open dialogs, or change fullscreen. A green connection
-means the peer links are connected; it does not claim that device rendering or
-the game's simulation is fast. Games should not add numeric network overlays to
-the normal player experience.
+Players see a small connection symbol in the existing title bar when the path
+word is hidden. While that word is showing, it takes the symbol's place, so the
+two are not drawn together. Neither overlays the game, opens a dialog, or
+changes fullscreen. A green connection means the peer links are connected; it
+does not claim that device rendering or the game's simulation is fast. Games
+should not add numeric network overlays to the normal player experience.
+
+The same bar shows one word for how this match is reaching the other players.
+It uses the same size and color as the Guest tag. Infuser chooses the word.
+The browser does not report the path, and the word is visible to everyone.
+
+- **Server** — this player is connected to a dedicated session through `sessions.connect()`.
+- **Relayed** — Infuser's relay is forwarding this player's game traffic.
+- **STUN** — Infuser has seen a STUN check for this player and is not forwarding the game.
+- **LAN** — Infuser is not on the path. Solo play shows this word, including while the installation still uses coturn.
+
+A host playing with several other people sees a count of those people, for example `1 relayed, 3 STUN`. Relayed is listed first so a narrow bar still shows it. A relay allocation that is open but not carrying game packets does not count as Relayed. STUN checks alone do not. While the installation still uses coturn, a peer room hides the word and the connection symbol shows instead. Dedicated sessions can still say Server.
+
+Two people on the same LAN still show STUN when their browsers complete a STUN check, which they do even for a direct game. A player who loaded the page over IPv6 can show LAN, because the relay's record of that check is the IPv4 address it saw.

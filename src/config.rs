@@ -56,6 +56,14 @@ pub struct Settings {
     pub node_packaging: Option<crate::server_package::Settings>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnEngine {
+    #[default]
+    Coturn,
+    Embedded,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Turn {
@@ -63,6 +71,18 @@ pub struct Turn {
     pub secret_file: PathBuf,
     pub relay_port_start: u16,
     pub relay_port_end: u16,
+    /// `coturn` keeps the container. `embedded` is `infuser turn`.
+    #[serde(default)]
+    pub engine: TurnEngine,
+    /// Private address the embedded relay binds. Required when engine = embedded.
+    #[serde(default)]
+    pub listen_ip: Option<Ipv4Addr>,
+    /// Address advertised to players. Coturn `external-ip`. Required when embedded.
+    #[serde(default)]
+    pub public_ip: Option<Ipv4Addr>,
+    /// Unix socket shared with the daemon. Defaults to `$state_dir/turn.sock`.
+    #[serde(default)]
+    pub socket: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -322,6 +342,16 @@ impl Config {
                 !(turn.relay_port_start..=turn.relay_port_end).contains(&s.api_port),
                 "TURN relay range overlaps API port"
             );
+            if turn.engine == TurnEngine::Embedded {
+                ensure!(
+                    turn.listen_ip.is_some() && turn.public_ip.is_some(),
+                    "embedded TURN requires listen_ip and public_ip"
+                );
+                ensure!(
+                    turn.socket.as_ref().is_none_or(|path| path.is_absolute()),
+                    "TURN socket must be absolute"
+                );
+            }
         }
         let auth = reqwest::Url::parse(&s.auth_url)?;
         ensure!(

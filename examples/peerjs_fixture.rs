@@ -19,11 +19,12 @@ async fn main() -> Result<()> {
     let secret = dir.path().join("turn.secret");
     std::fs::write(&secret, "fixture-only-turn-secret-0123456789")?;
     let cfg: Config = toml::from_str(&format!(
-        "[controller]\nstate_dir={:?}\ndisk_reserve_mb=64\npeerjs_port=7780\n[controller.turn]\nsecret_file={:?}\nurls=['turn:127.0.0.1:18700?transport=udp']\nrelay_port_start=18800\nrelay_port_end=18899",
+        "[controller]\nstate_dir={:?}\ndisk_reserve_mb=64\npeerjs_port=7780\n[controller.turn]\nengine='embedded'\nlisten_ip='127.0.0.1'\npublic_ip='127.0.0.1'\nsecret_file={:?}\nurls=['turn:127.0.0.1:18700?transport=udp','turn:127.0.0.1:18700?transport=tcp']\nrelay_port_start=18800\nrelay_port_end=18899",
         dir.path().display().to_string(),
         secret.display().to_string()
     ))?;
     platform::member(&cfg, "fixture@example.com", "Fixture", true, true)?;
+    let turn_socket = dir.path().join("turn.sock");
     let p = portal::Platform::open(Arc::new(Controller::open(
         cfg.clone(),
         Arc::new(Docker {
@@ -83,6 +84,22 @@ async fn main() -> Result<()> {
         }
         Ok(())
     })?;
+    p.listen_turn_bridge()?;
+    let _relay = infuser::turn::start(infuser::turn::Params {
+        secret: std::fs::read(&secret)?,
+        realm: cfg.controller.domain.clone(),
+        listen_ip: std::net::Ipv4Addr::LOCALHOST,
+        listen_port: 18700,
+        public_ip: std::net::Ipv4Addr::LOCALHOST,
+        relay_start: 18800,
+        relay_end: 18899,
+        udp: true,
+        tcp: true,
+        admit: infuser::turn::Admission::new(),
+        metrics_path: None,
+        socket: Some(turn_socket),
+    })
+    .await?;
     let page = include_str!("peerjs-fixture/index.html");
     let hosted = page.replace(
         "</head>",

@@ -131,6 +131,7 @@ async function enter(createRoom, {relayOnly = false, sessionId, playerId, joinab
       if (!ownsLease()) { end('Session expired. Join again.'); return; }
       if (next.epoch !== initial.epoch) { end('Shared session ended.'); return; }
       lastPoll = sent; lastPollWall = sentWall; state = next;
+      if (typeof next.network_path === 'string' && window.parent !== window) window.parent.postMessage({type:'infuser-path', label: next.network_path}, location.origin);
       for (const id of links.keys()) if (!state.peers.some(p => p.id === id)) drop(id);
       for (const message of next.signals) {
         try { await receive(message); } catch { /* A malformed or obsolete offer cannot stop the polling lease. */ }

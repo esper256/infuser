@@ -134,6 +134,12 @@ pub trait Service: Send + Sync {
     async fn check_rollback(&self, _binary: &Path) -> Result<()> {
         Ok(())
     }
+    /// Config and, when embedded, the relay fingerprint. State compatibility is
+    /// checked after the snapshot is restored, because the live state may be
+    /// newer than the binary being restored.
+    async fn check_before_rollback(&self, _binary: &Path) -> Result<()> {
+        Ok(())
+    }
     /// Consistent snapshot of the release still running, taken before its symlink moves.
     async fn preserve_state(&self, _release: &str) -> Result<()> {
         Ok(())
@@ -175,6 +181,11 @@ pub trait Service: Send + Sync {
     }
     async fn promote(&self, _release: &str) -> Result<()> {
         Ok(())
+    }
+    /// Restart the embedded relay only when its code changed. The default
+    /// leaves test doubles and coturn installations untouched.
+    async fn sync_turn(&self, _current: &Path) -> Result<bool> {
+        Ok(false)
     }
 }
 
@@ -271,24 +282,7 @@ impl Service for Systemd {
         )
     }
     async fn check(&self, binary: &Path) -> Result<()> {
-        let output = tokio::time::timeout(
-            Duration::from_secs(15),
-            tokio::process::Command::new(binary)
-                .arg("check")
-                .arg(&self.config.controller_config)
-                .stdin(Stdio::null())
-                .kill_on_drop(true)
-                .output(),
-        )
-        .await??;
-        ensure!(
-            output.status.success(),
-            "candidate does not accept the installed configuration: {}",
-            String::from_utf8_lossy(&output.stderr)
-                .chars()
-                .take(300)
-                .collect::<String>()
-        );
+        accept_config(binary, &self.config.controller_config).await?;
         let compatibility = tokio::time::timeout(
             Duration::from_secs(15),
             tokio::process::Command::new(binary)
@@ -305,8 +299,13 @@ impl Service for Systemd {
         );
         Ok(())
     }
+    async fn check_before_rollback(&self, binary: &Path) -> Result<()> {
+        accept_config(binary, &self.config.controller_config).await?;
+        turn_fingerprint_ok(binary, &self.config.controller_config).await
+    }
     async fn check_rollback(&self, binary: &Path) -> Result<()> {
-        self.check(binary).await
+        self.check(binary).await?;
+        turn_fingerprint_ok(binary, &self.config.controller_config).await
     }
     async fn preserve_state(&self, release: &str) -> Result<()> {
         let state_dir = platform_state_dir(&self.config.controller_config)?;
@@ -358,6 +357,44 @@ impl Service for Systemd {
             .promote(release)
             .await
     }
+    async fn sync_turn(&self, current: &Path) -> Result<bool> {
+        if !turn_embedded(&self.config.controller_config)? {
+            return Ok(false);
+        }
+        let next = turn_fingerprint(current).await;
+        let state = platform_state_dir(&self.config.controller_config)?;
+        let running = std::fs::read_to_string(state.join("turn.fingerprint"))
+            .ok()
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty());
+        if !crate::turn::restart_needed(running.as_deref(), next.as_deref(), true) {
+            return Ok(false);
+        }
+        let listed = tokio::time::timeout(
+            Duration::from_secs(8),
+            tokio::process::Command::new("systemctl")
+                .args(["show", "infuser-turn.service", "--property=LoadState"])
+                .stdin(Stdio::null())
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await??;
+        if !String::from_utf8_lossy(&listed.stdout).contains("LoadState=loaded") {
+            tracing::info!("embedded relay unit is not installed");
+            return Ok(false);
+        }
+        let status = tokio::time::timeout(
+            Duration::from_secs(45),
+            tokio::process::Command::new("systemctl")
+                .args(["restart", "infuser-turn.service"])
+                .stdin(Stdio::null())
+                .kill_on_drop(true)
+                .status(),
+        )
+        .await??;
+        ensure!(status.success(), "could not restart infuser-turn.service");
+        Ok(true)
+    }
 }
 
 impl Systemd {
@@ -404,6 +441,100 @@ fn platform_state_dir(path: &Path) -> Result<PathBuf> {
         "platform state_dir must be absolute"
     );
     Ok(file.controller.state_dir)
+}
+
+async fn turn_note(config: &Settings, service: &dyn Service) -> String {
+    let current = config.install_dir.join("current").join("infuser");
+    match service.sync_turn(&current).await {
+        Ok(true) => " The relay restarted because its code changed.".into(),
+        Ok(false) => String::new(),
+        Err(error) => format!(" The relay did not restart: {error}."),
+    }
+}
+
+async fn accept_config(binary: &Path, config: &Path) -> Result<()> {
+    let output = tokio::time::timeout(
+        Duration::from_secs(15),
+        tokio::process::Command::new(binary)
+            .arg("check")
+            .arg(config)
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await??;
+    ensure!(
+        output.status.success(),
+        "candidate does not accept the installed configuration: {}",
+        String::from_utf8_lossy(&output.stderr)
+            .chars()
+            .take(300)
+            .collect::<String>()
+    );
+    Ok(())
+}
+
+async fn turn_fingerprint_ok(binary: &Path, config: &Path) -> Result<()> {
+    if !turn_embedded(config)? {
+        return Ok(());
+    }
+    let listed = tokio::time::timeout(
+        Duration::from_secs(8),
+        tokio::process::Command::new(binary)
+            .arg("turn-fingerprint")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await??;
+    ensure!(
+        listed.status.success(),
+        "this binary cannot run the embedded relay"
+    );
+    Ok(())
+}
+
+fn turn_embedded(path: &Path) -> Result<bool> {
+    #[derive(Deserialize)]
+    struct File {
+        #[serde(default)]
+        controller: Controller,
+    }
+    #[derive(Default, Deserialize)]
+    struct Controller {
+        #[serde(default)]
+        turn: Option<Turn>,
+    }
+    #[derive(Default, Deserialize)]
+    struct Turn {
+        #[serde(default)]
+        engine: String,
+    }
+    let file: File = toml::from_str(&fs::read_to_string(path)?)?;
+    Ok(file
+        .controller
+        .turn
+        .is_some_and(|turn| turn.engine == "embedded"))
+}
+
+async fn turn_fingerprint(binary: &Path) -> Option<String> {
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new(binary)
+            .arg("turn-fingerprint")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let text = text.trim();
+    (text.len() == 16 && text.bytes().all(|byte| byte.is_ascii_hexdigit())).then(|| text.to_owned())
 }
 
 async fn systemctl(config: &Settings, action: &str) -> Result<()> {
@@ -475,12 +606,18 @@ fn finish_activation(
     release: &str,
     failed_file: &Path,
     pending_file: &Path,
+    reason: &str,
 ) -> Result<()> {
     if failed_file.exists() {
         fs::remove_file(failed_file)?;
     }
     fs::remove_file(pending_file)?;
-    note_outcome(config, release, crate::deploy_outcomes::Kind::Activated, "");
+    note_outcome(
+        config,
+        release,
+        crate::deploy_outcomes::Kind::Activated,
+        reason,
+    );
     Ok(())
 }
 
@@ -520,11 +657,12 @@ async fn roll_back(
         service.healthy(&build_id(previous_dir)?).await?,
         "candidate failed and rollback health verification also failed"
     );
+    let note = turn_note(config, service).await;
     note_outcome(
         config,
         candidate,
         crate::deploy_outcomes::Kind::RolledBack,
-        crate::probation::HEALTH_FAILURE,
+        &format!("{}{note}", crate::probation::HEALTH_FAILURE),
     );
     write_atomic(
         &config.state_dir.join("failed-release"),
@@ -558,13 +696,29 @@ async fn resume_held_current(config: &Settings, service: &dyn Service) -> Result
                 )));
             }
             clear_probation(service).await;
-            note_outcome(config, &name, crate::deploy_outcomes::Kind::Activated, "");
-            Ok(Some(format!("Recovered successful activation of {name}")))
+            let note = turn_note(config, service).await;
+            note_outcome(
+                config,
+                &name,
+                crate::deploy_outcomes::Kind::Activated,
+                note.trim(),
+            );
+            Ok(Some(format!(
+                "Recovered successful activation of {name}{note}"
+            )))
         }
         Trial::ServingWrites => {
             clear_probation(service).await;
-            note_outcome(config, &name, crate::deploy_outcomes::Kind::Activated, "");
-            Ok(Some(format!("Recovered successful activation of {name}")))
+            let note = turn_note(config, service).await;
+            note_outcome(
+                config,
+                &name,
+                crate::deploy_outcomes::Kind::Activated,
+                note.trim(),
+            );
+            Ok(Some(format!(
+                "Recovered successful activation of {name}{note}"
+            )))
         }
         Trial::Unreachable => {
             let previous = linked_release(&config.install_dir, "previous")?;
@@ -1081,6 +1235,10 @@ pub async fn rollback(config: &Settings, service: &dyn Service) -> Result<String
         (previous_name, current_name)
     };
     let target = release_by_name(&config.install_dir, &target_name)?;
+    service
+        .check_before_rollback(&target.join("infuser"))
+        .await
+        .context("refusing to roll back to a binary that cannot read the live config")?;
     let snapshot_dir = config.state_dir.join("rollback").join(&target_name);
     ensure!(
         snapshot_dir.join("snapshot.json").is_file(),
@@ -1114,16 +1272,17 @@ pub async fn rollback(config: &Settings, service: &dyn Service) -> Result<String
         service.healthy(&build_id(&target)?).await?,
         "restored {target_name} but its health check failed; inspect infuser.service"
     );
+    let note = turn_note(config, service).await;
     if hex(&abandon, 40) {
         note_outcome(
             config,
             &abandon,
             crate::deploy_outcomes::Kind::RolledBack,
-            crate::probation::OPERATOR_RESTORE,
+            &format!("{}{note}", crate::probation::OPERATOR_RESTORE),
         );
     }
     Ok(format!(
-        "Restored {target_name}; {abandon} will not be activated again"
+        "Restored {target_name}; {abandon} will not be activated again{note}"
     ))
 }
 
@@ -1172,17 +1331,31 @@ pub async fn update(
                         ));
                     }
                     clear_probation(service).await;
-                    finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
+                    let note = turn_note(config, service).await;
+                    finish_activation(
+                        config,
+                        &pending.commit,
+                        &failed_file,
+                        &pending_file,
+                        note.trim(),
+                    )?;
                     return Ok(format!(
-                        "Recovered successful activation of {}",
+                        "Recovered successful activation of {}{note}",
                         pending.commit
                     ));
                 }
                 Trial::ServingWrites => {
                     clear_probation(service).await;
-                    finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
+                    let note = turn_note(config, service).await;
+                    finish_activation(
+                        config,
+                        &pending.commit,
+                        &failed_file,
+                        &pending_file,
+                        note.trim(),
+                    )?;
                     return Ok(format!(
-                        "Recovered successful activation of {}",
+                        "Recovered successful activation of {}{note}",
                         pending.commit
                     ));
                 }
@@ -1494,7 +1667,14 @@ pub async fn update(
         }
         Ok(true) => clear_probation(service).await,
     }
-    finish_activation(config, &release.commit, &failed_file, &pending_file)?;
+    let note = turn_note(config, service).await;
+    finish_activation(
+        config,
+        &release.commit,
+        &failed_file,
+        &pending_file,
+        note.trim(),
+    )?;
     prune_releases(config, &release.commit)?;
     service
         .report(Report {
@@ -1504,7 +1684,7 @@ pub async fn update(
             maintenance_blocked: false,
         })
         .await;
-    Ok(format!("Activated {}", release.commit))
+    Ok(format!("Activated {}{note}", release.commit))
 }
 
 #[cfg(test)]

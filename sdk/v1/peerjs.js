@@ -91,6 +91,7 @@ async function enter(createRoom, {Peer, relayOnly = false, sessionId, playerId, 
       const next = await request('/' + initial.self_id,undefined,'GET');
       if (!active() || next.epoch !== initial.epoch) { end('Shared session ended.'); return; }
       lastPoll = sent; lastPollWall = sentWall; state = next;
+      if (typeof next.network_path === 'string' && window.parent !== window) window.parent.postMessage({type:'infuser-path', label: next.network_path}, location.origin);
       for (const id of links.keys()) if (!allowed(id)) drop(id);
       const expiry = Math.min(...iceServers.map(s => s.expires_at || Infinity));
       if (performance.now() - refreshed > 1200000 || Date.now()/1000 > expiry - 120) {

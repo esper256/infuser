@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [fast-tests, formatting, clippy]
+        check: [fast-tests, formatting, clippy, turn-crate]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,7 +52,10 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Clippy
         if: matrix.check == 'clippy'
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets --features fixtures -- -D warnings
+      - name: Vendored TURN suite
+        if: matrix.check == 'turn-crate'
+        run: cargo test --locked -p turn -- --skip test_client_with_stun_send_binding_request --skip test_client_with_stun_send_binding_request_to_parallel && cargo test --locked -p turn test_client_with_stun_send_binding_request_to_timeout
 
   gamepad-journey:
     name: Library controller journey

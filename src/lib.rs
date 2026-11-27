@@ -24,6 +24,7 @@ pub mod store;
 pub mod tags;
 pub mod timeline;
 pub mod timeline_cli;
+pub mod turn;
 pub mod update_admission;
 pub mod updater;
 pub mod voice;
