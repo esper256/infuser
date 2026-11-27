@@ -49,7 +49,9 @@ the host firewall. The daemon pushes the admitted-peer set over a Unix socket
 under the state directory. The relay checks that set locally and sends back a
 full snapshot of bindings and allocations when the socket connects, then again
 every few seconds. Nonces are stateless and last 600 seconds, the same window
-as coturn `stale-nonce`.
+as coturn `stale-nonce`. A nonce is not tied to the client address, so another
+client can replay it during those 600 seconds. The REST credential still has
+to match.
 
 `listen_ip` is this machine's private address, the one coturn bound. The
 example placeholder is `REPLACE_PRIVATE_IP`. Put the real address there. Do not

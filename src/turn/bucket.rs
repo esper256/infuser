@@ -41,7 +41,6 @@ impl Bucket {
         let mut state = self.state.lock().unwrap();
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(state.1);
-        // Sub-microsecond gaps add nothing; the next packet refills from this instant.
         let refill = duration_secs(elapsed) * self.rate;
         state.0 = (state.0 + refill).min(self.capacity);
         state.1 = now;
@@ -51,6 +50,22 @@ impl Bucket {
         }
         state.0 -= cost;
         true
+    }
+
+    /// True once this source has been idle long enough for the bucket to refill.
+    pub fn refilled(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(state.1);
+        let refill = duration_secs(elapsed) * self.rate;
+        state.0 = (state.0 + refill).min(self.capacity);
+        state.1 = now;
+        state.0 >= self.capacity
+    }
+
+    #[cfg(test)]
+    pub fn restore(&self) {
+        self.state.lock().unwrap().0 = self.capacity;
     }
 }
 
@@ -72,12 +87,15 @@ mod tests {
     #[test]
     fn an_allocation_bursts_one_second_and_the_server_bucket_is_eight_mib() {
         let game = Bucket::game();
-        assert!(game.allow(MAX_BYTES_PER_SECOND as usize));
-        assert!(!game.allow(1));
+        assert_eq!(game.rate, MAX_BYTES_PER_SECOND);
+        assert_eq!(game.capacity, MAX_BYTES_PER_SECOND);
         let global = Bucket::global();
-        assert!(global.allow(GLOBAL_BYTES_PER_SECOND as usize));
-        assert!(!global.allow(1));
-        global.refund(1);
-        assert!(global.allow(1));
+        assert_eq!(global.rate, GLOBAL_BYTES_PER_SECOND);
+        assert_eq!(global.capacity, GLOBAL_BYTES_PER_SECOND);
+        let stopped = Bucket::new(0.0, GLOBAL_BYTES_PER_SECOND);
+        assert!(stopped.allow(GLOBAL_BYTES_PER_SECOND as usize));
+        assert!(!stopped.allow(1));
+        stopped.refund(1);
+        assert!(stopped.allow(1));
     }
 }

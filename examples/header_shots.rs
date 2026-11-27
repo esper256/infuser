@@ -146,9 +146,11 @@ async fn main() -> Result<()> {
         rooms.note_address("header", &peer, launch, ip.into(), now());
         others.push((peer, ip));
     }
+    let mut generation = _relay.admission_generation.clone();
+    let before = *generation.borrow();
     platform.publish_admission();
-    for _ in 0..2_000 {
-        tokio::task::yield_now().await;
+    while *generation.borrow() == before {
+        generation.changed().await?;
     }
     bind_stun(Ipv4Addr::new(127, 0, 0, 2)).await?;
     for (_, ip) in others.iter().take(3) {

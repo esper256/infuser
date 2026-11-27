@@ -52,6 +52,7 @@ async fn create_turn_server_with_port_range(
     use turn::relay::relay_range::RelayAddressGeneratorRanges;
     use turn::server::config::{ConnConfig, ServerConfig};
     use util::vnet::net::Net;
+    turn::server::set_nonce_key(b"0123456789abcdef0123456789abcdef").expect("nonce key");
     turn::server::Server::new(ServerConfig {
         conn_configs: vec![ConnConfig {
             relay_addr_generator: Box::new(RelayAddressGeneratorRanges {
@@ -960,6 +961,7 @@ async fn even_port_reservation_is_server_wide_across_listeners() {
             net: Arc::new(Net::new(None)),
         })
     };
+    turn::server::set_nonce_key(b"0123456789abcdef0123456789abcdef").expect("nonce key");
     let server = turn::server::Server::new(ServerConfig {
         conn_configs: vec![
             ConnConfig {
@@ -1266,6 +1268,7 @@ async fn custom_dual_family_generator_reports_partial_capacity() {
     }
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
     let address = socket.local_addr().unwrap();
+    turn::server::set_nonce_key(b"0123456789abcdef0123456789abcdef").expect("nonce key");
     let inner = turn::server::Server::new(ServerConfig {
         conn_configs: vec![ConnConfig {
             relay_addr_generator: Box::new(DualFamily),

@@ -129,6 +129,7 @@ pub struct RelayMetrics {
     pub packets_in: AtomicU64,
     pub packets_out: AtomicU64,
     pub denied: AtomicU64,
+    pub fingerprint_errors: AtomicU64,
     pub active: AtomicU64,
     pub idle: AtomicU64,
     warned: AtomicBool,
@@ -153,6 +154,7 @@ impl RelayMetrics {
             packets_in: AtomicU64::new(0),
             packets_out: AtomicU64::new(0),
             denied: AtomicU64::new(0),
+            fingerprint_errors: AtomicU64::new(0),
             active: AtomicU64::new(0),
             idle: AtomicU64::new(0),
             warned: AtomicBool::new(false),
@@ -169,6 +171,9 @@ impl RelayMetrics {
         self.jitter.write(&mut out, "infuser_turn_jitter_ms", "");
         out.push_str("# TYPE infuser_turn_tcp_rtt_ms histogram\n");
         self.tcp_rtt.write(&mut out, "infuser_turn_tcp_rtt_ms", "");
+        out.push_str(
+            "# HELP infuser_turn_stalls_total Gaps longer than 200ms between application packets. Turn-based games produce these while players think.\n",
+        );
         out.push_str("# TYPE infuser_turn_stalls_total counter\n");
         out.push_str(&format!(
             "infuser_turn_stalls_total {}\n",
@@ -185,6 +190,11 @@ impl RelayMetrics {
             "infuser_turn_packets_total{{direction=\"in\"}} {}\ninfuser_turn_packets_total{{direction=\"out\"}} {}\n",
             self.packets_in.load(Ordering::Relaxed),
             self.packets_out.load(Ordering::Relaxed)
+        ));
+        out.push_str("# TYPE infuser_turn_fingerprint_write_errors_total counter\n");
+        out.push_str(&format!(
+            "infuser_turn_fingerprint_write_errors_total {}\n",
+            self.fingerprint_errors.load(Ordering::Relaxed)
         ));
         out.push_str("# TYPE infuser_turn_denied_total counter\n");
         out.push_str(&format!(

@@ -407,6 +407,14 @@ impl Allocation {
                 };
 
                 if let Some(number) = cb_number {
+                    if !crate::server::relay_account(
+                        relay_socket.as_ref(),
+                        &buffer[..n],
+                        src_addr,
+                        true,
+                    ) {
+                        continue;
+                    }
                     let mut channel_data = ChannelData {
                         data: buffer[..n].to_vec(),
                         number,
@@ -426,6 +434,21 @@ impl Allocation {
                         ps.get(&addr2ipfingerprint(&src_addr)).is_some()
                     };
 
+                    if !exist {
+                        crate::server::relay_account(
+                            relay_socket.as_ref(),
+                            &buffer[..n],
+                            src_addr,
+                            false,
+                        );
+                    } else if !crate::server::relay_account(
+                        relay_socket.as_ref(),
+                        &buffer[..n],
+                        src_addr,
+                        true,
+                    ) {
+                        continue;
+                    }
                     if exist {
                         let msg = {
                             let peer_address_attr = PeerAddress {

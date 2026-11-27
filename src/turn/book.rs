@@ -21,6 +21,10 @@ pub struct PeerTraffic {
     pub packets: u64,
     pub bytes_in: u64,
     pub bytes_out: u64,
+    #[serde(default)]
+    pub remotes: Vec<std::net::IpAddr>,
+    #[serde(default)]
+    pub reached: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -39,6 +43,8 @@ impl Snapshot {
                 .map(|peer| Allocation {
                     peer: peer.peer.clone(),
                     packets: peer.packets,
+                    remotes: peer.remotes.clone(),
+                    reached: peer.reached.clone(),
                 })
                 .collect(),
         }
@@ -49,9 +55,12 @@ pub struct Book {
     bindings: Mutex<BTreeSet<IpAddr>>,
     allowed: Mutex<BTreeSet<IpAddr>>,
     peers: Mutex<BTreeMap<u64, PeerTraffic>>,
+    ports: Mutex<BTreeMap<u16, u64>>,
+    public_ip: Mutex<Option<IpAddr>>,
     next: AtomicU64,
     metrics: SharedRelay,
     metrics_path: Option<PathBuf>,
+    latest: Mutex<Snapshot>,
 }
 
 impl Book {
@@ -60,10 +69,17 @@ impl Book {
             bindings: Mutex::new(BTreeSet::new()),
             allowed: Mutex::new(BTreeSet::new()),
             peers: Mutex::new(BTreeMap::new()),
+            ports: Mutex::new(BTreeMap::new()),
+            public_ip: Mutex::new(None),
             next: AtomicU64::new(1),
             metrics,
             metrics_path,
+            latest: Mutex::new(Snapshot::default()),
         }
+    }
+
+    pub fn set_public_ip(&self, ip: IpAddr) {
+        *self.public_ip.lock().unwrap() = Some(ip);
     }
 
     /// Bindings outside this set are ignored, and ones that leave it are dropped.
@@ -88,13 +104,43 @@ impl Book {
                 packets: 0,
                 bytes_in: 0,
                 bytes_out: 0,
+                remotes: Vec::new(),
+                reached: Vec::new(),
             },
         );
         id
     }
 
+    pub fn bind_port(&self, id: u64, port: u16) {
+        self.ports.lock().unwrap().insert(port, id);
+    }
+
     pub fn close(&self, id: u64) {
         self.peers.lock().unwrap().remove(&id);
+        self.ports.lock().unwrap().retain(|_, owner| *owner != id);
+    }
+
+    pub fn touch(&self, id: u64, remote: std::net::SocketAddr) {
+        let public = *self.public_ip.lock().unwrap();
+        let other = if Some(remote.ip()) == public {
+            self.ports.lock().unwrap().get(&remote.port()).copied()
+        } else {
+            None
+        };
+        let mut peers = self.peers.lock().unwrap();
+        let other_name = other.and_then(|other| peers.get(&other).map(|peer| peer.peer.clone()));
+        let Some(peer) = peers.get_mut(&id) else {
+            return;
+        };
+        if !peer.remotes.contains(&remote.ip()) {
+            peer.remotes.push(remote.ip());
+        }
+        if let Some(name) = other_name
+            && name != peer.peer
+            && !peer.reached.contains(&name)
+        {
+            peer.reached.push(name);
+        }
     }
 
     /// Application traffic only. The caller does not pass STUN.
@@ -135,15 +181,23 @@ impl Book {
             peer.packets = 0;
             peer.bytes_in = 0;
             peer.bytes_out = 0;
+            peer.remotes.clear();
+            peer.reached.clear();
         }
         drop(peers);
         if let Some(path) = &self.metrics_path {
             self.metrics.publish(path);
         }
-        Snapshot {
+        let snapshot = Snapshot {
             bindings,
             peers: listed,
-        }
+        };
+        *self.latest.lock().unwrap() = snapshot.clone();
+        snapshot
+    }
+
+    pub fn latest(&self) -> Snapshot {
+        self.latest.lock().unwrap().clone()
     }
 }
 

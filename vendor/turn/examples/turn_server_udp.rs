@@ -114,6 +114,7 @@ async fn main() -> Result<(), Error> {
     let conn = Arc::new(UdpSocket::bind(format!("0.0.0.0:{port}")).await?);
     println!("listening {}...", conn.local_addr()?);
 
+    set_nonce_key(b"0123456789abcdef0123456789abcdef").expect("nonce key");
     let server = Server::new(ServerConfig {
         conn_configs: vec![ConnConfig {
             conn,

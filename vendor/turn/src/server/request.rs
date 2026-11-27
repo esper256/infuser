@@ -987,16 +987,22 @@ pub(crate) fn rand_seq(n: usize) -> String {
     Alphabetic.sample_string(&mut rand::rng(), n)
 }
 
+/// RFC 8489 security-feature cookie. The expiry and MAC follow it.
+const NONCE_COOKIE: &str = "obMatJos2gAAA";
+
 pub(crate) fn build_nonce() -> Result<String> {
     let exp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)?
         .as_secs()
         .saturating_add(NONCE_LIFETIME.as_secs());
-    Ok(format!("{exp}.{}", nonce_mac(exp)))
+    Ok(format!("{NONCE_COOKIE}{exp}.{}", nonce_mac(exp)?))
 }
 
 fn nonce_is_fresh(text: &str) -> bool {
-    let Some((exp, mac)) = text.rsplit_once('.') else {
+    let Some(body) = text.strip_prefix(NONCE_COOKIE) else {
+        return false;
+    };
+    let Some((exp, mac)) = body.rsplit_once('.') else {
         return false;
     };
     let Ok(exp) = exp.parse::<u64>() else {
@@ -1009,15 +1015,17 @@ fn nonce_is_fresh(text: &str) -> bool {
     if exp <= now || exp > now.saturating_add(NONCE_LIFETIME.as_secs()) {
         return false;
     }
-    let expect = nonce_mac(exp);
+    let Ok(expect) = nonce_mac(exp) else {
+        return false;
+    };
     mac.as_bytes().ct_eq(expect.as_bytes()).into()
 }
 
-fn nonce_mac(exp: u64) -> String {
-    let key = crate::server::nonce_key();
+fn nonce_mac(exp: u64) -> Result<String> {
+    let key = crate::server::nonce_key()?;
     let mac = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key);
     let sig = ring::hmac::sign(&mac, exp.to_string().as_bytes());
-    sig.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+    Ok(sig.as_ref().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 pub(crate) async fn build_and_send(

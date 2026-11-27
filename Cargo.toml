@@ -49,6 +49,13 @@ flate2 = { version = "1.1.11", default-features = false, features = ["rust_backe
 rcgen = "0.14"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 
+[features]
+fixtures = []
+
+[[example]]
+name = "header_shots"
+required-features = ["fixtures"]
+
 [profile.release]
 lto = "thin"
 strip = true

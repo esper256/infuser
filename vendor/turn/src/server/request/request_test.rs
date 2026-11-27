@@ -75,10 +75,8 @@ async fn test_allocation_lifetime_deletion_zero_lifetime() -> Result<()> {
     let mut r = Request::new(l, socket, allocation_manager, Arc::new(TestAuthHandler {}));
     r.realm = STATIC_KEY.into();
 
-    {
-        let mut nonces = r.nonces.lock().await;
-        nonces.insert(STATIC_KEY.to_owned(), Instant::now());
-    }
+    crate::server::set_nonce_key(b"0123456789abcdef0123456789abcdef")?;
+    let nonce = super::build_nonce()?;
 
     let five_tuple = FiveTuple {
         src_addr: r.src_addr,
@@ -104,7 +102,7 @@ async fn test_allocation_lifetime_deletion_zero_lifetime() -> Result<()> {
 
     let mut m = Message::new();
     Lifetime::default().add_to(&mut m)?;
-    Nonce::new(ATTR_NONCE, STATIC_KEY.to_owned()).add_to(&mut m)?;
+    Nonce::new(ATTR_NONCE, nonce).add_to(&mut m)?;
     Realm::new(ATTR_REALM, STATIC_KEY.to_owned()).add_to(&mut m)?;
     Username::new(ATTR_USERNAME, "user".to_owned()).add_to(&mut m)?;
     MessageIntegrity(STATIC_KEY.as_bytes().to_vec()).add_to(&mut m)?;
@@ -138,11 +136,8 @@ async fn test_allocate_retransmission_replays_success() -> Result<()> {
         Arc::new(TestAuthHandler {}),
     );
     request.realm = "realm".into();
-    request
-        .nonces
-        .lock()
-        .await
-        .insert("nonce".to_owned(), Instant::now());
+    crate::server::set_nonce_key(b"0123456789abcdef0123456789abcdef")?;
+    let nonce = super::build_nonce()?;
 
     let transaction_id = TransactionId::new();
     let mut allocate = Message::new();
@@ -154,7 +149,7 @@ async fn test_allocate_retransmission_replays_success() -> Result<()> {
         }),
         Box::new(Username::new(ATTR_USERNAME, "user".to_owned())),
         Box::new(Realm::new(ATTR_REALM, "realm".to_owned())),
-        Box::new(Nonce::new(ATTR_NONCE, "nonce".to_owned())),
+        Box::new(Nonce::new(ATTR_NONCE, nonce)),
     ])?;
     MessageIntegrity(STATIC_KEY.as_bytes().to_vec()).add_to(&mut allocate)?;
 
@@ -182,24 +177,29 @@ async fn test_allocate_retransmission_replays_success() -> Result<()> {
 
 #[test]
 fn a_nonce_lives_ten_minutes_and_a_bad_mac_is_rejected() {
-    crate::server::set_nonce_key(b"0123456789abcdef0123456789abcdef");
+    crate::server::set_nonce_key(b"0123456789abcdef0123456789abcdef").unwrap();
     let nonce = super::build_nonce().unwrap();
+    assert!(nonce.starts_with("obMatJos2gAAA"));
     assert!(super::nonce_is_fresh(&nonce));
-    let (exp, _) = nonce.rsplit_once('.').unwrap();
-    let exp = exp.parse::<u64>().unwrap();
+    let body = nonce.strip_prefix("obMatJos2gAAA").unwrap();
+    let exp = body.rsplit_once('.').unwrap().0.parse::<u64>().unwrap();
     let past = exp.saturating_sub(601);
     assert!(!super::nonce_is_fresh(&format!(
-        "{past}.{}",
-        super::nonce_mac(past)
+        "obMatJos2gAAA{past}.{}",
+        super::nonce_mac(past).unwrap()
     )));
     let ahead = exp + 1;
     assert!(!super::nonce_is_fresh(&format!(
-        "{ahead}.{}",
-        super::nonce_mac(ahead)
+        "obMatJos2gAAA{ahead}.{}",
+        super::nonce_mac(ahead).unwrap()
     )));
-    let mut flipped = nonce.clone();
-    let bytes = unsafe { flipped.as_bytes_mut() };
-    let last = bytes.len() - 1;
-    bytes[last] = if bytes[last] == b'0' { b'1' } else { b'0' };
+    let mut flipped = nonce;
+    let last = flipped.len() - 1;
+    let replacement = if flipped.as_bytes()[last] == b'0' {
+        "1"
+    } else {
+        "0"
+    };
+    flipped.replace_range(last.., replacement);
     assert!(!super::nonce_is_fresh(&flipped));
 }

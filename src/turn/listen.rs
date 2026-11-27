@@ -19,8 +19,12 @@ use std::{
 };
 use tokio::net::UdpSocket;
 
-const UNAUTH_PER_SECOND: f64 = 20.0;
-const UNAUTH_SOURCES: usize = 4096;
+/// Integrity-bearing requests may use the full rate. A request without
+/// integrity costs five tokens, so those stay near 20 per second.
+const REQUESTS_PER_SECOND: f64 = 100.0;
+const UNAUTH_COST: usize = 5;
+const AUTH_COST: usize = 1;
+const SOURCE_CAP: usize = 4096;
 const INTEGRITY: u16 = 0x0008;
 
 pub struct UdpListener {
@@ -36,7 +40,7 @@ impl UdpListener {
             inner,
             pending,
             book,
-            sources: SourceLimit::new(UNAUTH_SOURCES),
+            sources: SourceLimit::new(SOURCE_CAP),
         }
     }
 
@@ -44,10 +48,10 @@ impl UdpListener {
         if stun::parse(packet).is_some_and(|message| message.class_type == BINDING_REQUEST) {
             self.book.note_binding(source.ip());
         }
-        if let Some(username) = stun::allocate_username(packet)
-            && let Some(peer) = peer_from_username(username, now())
-        {
-            *self.pending.lock().unwrap() = Some(peer.to_owned());
+        if stun::allocate_username(packet).is_some() {
+            *self.pending.lock().unwrap() = stun::allocate_username(packet)
+                .and_then(|username| peer_from_username(username, now()))
+                .map(str::to_owned);
         }
     }
 }
@@ -66,7 +70,9 @@ impl util::Conn for UdpListener {
     async fn recv_from(&self, buf: &mut [u8]) -> util::Result<(usize, SocketAddr)> {
         loop {
             let (size, addr) = self.inner.recv_from(buf).await?;
-            if unauthenticated(&buf[..size]) && !self.sources.allow(addr.ip()) {
+            if stun_request(&buf[..size])
+                && !self.sources.allow(addr.ip(), has_integrity(&buf[..size]))
+            {
                 continue;
             }
             self.observe(&buf[..size], addr);
@@ -99,8 +105,9 @@ impl util::Conn for UdpListener {
     }
 }
 
-fn unauthenticated(packet: &[u8]) -> bool {
-    stun::parse(packet).is_some() && !has_integrity(packet)
+/// STUN requests only. Indications, responses, and ChannelData are not limited.
+fn stun_request(packet: &[u8]) -> bool {
+    stun::parse(packet).is_some_and(|message| message.class_type & 0x0110 == 0)
 }
 
 fn has_integrity(packet: &[u8]) -> bool {
@@ -138,16 +145,31 @@ impl SourceLimit {
         }
     }
 
-    fn allow(&self, ip: IpAddr) -> bool {
+    fn allow(&self, ip: IpAddr, authenticated: bool) -> bool {
+        let cost = if authenticated {
+            AUTH_COST
+        } else {
+            UNAUTH_COST
+        };
         let mut buckets = self.buckets.lock().unwrap();
         if let Some(bucket) = buckets.get(&ip) {
-            return bucket.allow(1);
+            return bucket.allow(cost);
         }
         if buckets.len() >= self.cap {
-            return false;
+            let idle = buckets
+                .iter()
+                .find(|(_, bucket)| bucket.refilled())
+                .map(|(ip, _)| *ip);
+            match idle {
+                Some(idle) => {
+                    buckets.remove(&idle);
+                }
+                // A full table of active sources must not lock out a new player.
+                None => return true,
+            }
         }
-        let bucket = Bucket::new(UNAUTH_PER_SECOND, UNAUTH_PER_SECOND);
-        let allowed = bucket.allow(1);
+        let bucket = Bucket::new(REQUESTS_PER_SECOND, REQUESTS_PER_SECOND);
+        let allowed = bucket.allow(cost);
         buckets.insert(ip, bucket);
         allowed
     }
@@ -158,14 +180,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unauthenticated_sources_stop_at_the_cap() {
+    fn a_full_table_still_admits_a_new_source() {
+        let limit = SourceLimit::new(4096);
+        for n in 0..5000u32 {
+            let ip = IpAddr::V4(std::net::Ipv4Addr::from(n.wrapping_add(1)));
+            assert!(limit.allow(ip, false), "{ip}");
+        }
+        assert!(limit.buckets.lock().unwrap().len() <= 4096);
+        assert!(limit.allow(IpAddr::from([203, 0, 113, 50]), false));
+    }
+
+    #[test]
+    fn an_idle_source_is_evicted_for_a_new_one() {
         let limit = SourceLimit::new(2);
         let a = IpAddr::from([203, 0, 113, 1]);
         let b = IpAddr::from([203, 0, 113, 2]);
         let c = IpAddr::from([203, 0, 113, 3]);
-        assert!(limit.allow(a));
-        assert!(limit.allow(b));
-        assert!(!limit.allow(c));
-        assert_eq!(limit.buckets.lock().unwrap().len(), 2);
+        assert!(limit.allow(a, false));
+        assert!(limit.allow(b, false));
+        for bucket in limit.buckets.lock().unwrap().values() {
+            bucket.restore();
+        }
+        assert!(limit.allow(c, false));
+        let left: Vec<_> = limit.buckets.lock().unwrap().keys().copied().collect();
+        assert_eq!(left.len(), 2);
+        assert!(left.contains(&c));
     }
 }

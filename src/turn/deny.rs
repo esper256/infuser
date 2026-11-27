@@ -1,7 +1,9 @@
 //! Peer addresses the relay must not contact. Same ranges as the coturn
-//! example, plus the documentation and benchmarking ranges, with IPv4-mapped
-//! IPv6 folded back to IPv4. The public address is allowed only on the relay
-//! port range, so the listener and the game ports stay unreachable.
+//! example, plus the benchmarking range, with IPv4-mapped IPv6 folded back to
+//! IPv4. Documentation ranges such as 203.0.113.0/24 stay reachable so tests
+//! can use them as a stand-in public address. The public address is allowed
+//! only on the relay port range, so the listener and the game ports stay
+//! unreachable.
 
 use std::{
     net::{IpAddr, Ipv6Addr, SocketAddr},

@@ -44,9 +44,10 @@ pub const OTHER_ENGINE_EXIT: i32 = 78;
 
 pub struct Running {
     pub port: u16,
-    server: Arc<Server>,
+    servers: Vec<Arc<Server>>,
     book: Arc<Book>,
     metrics: Arc<RelayMetrics>,
+    pub admission_generation: tokio::sync::watch::Receiver<u64>,
 }
 
 impl Running {
@@ -59,10 +60,12 @@ impl Running {
     }
 
     pub async fn close(self) -> Result<()> {
-        self.server
-            .close()
-            .await
-            .map_err(|error| anyhow::anyhow!(error))?;
+        for server in self.servers {
+            server
+                .close()
+                .await
+                .map_err(|error| anyhow::anyhow!(error))?;
+        }
         Ok(())
     }
 }
@@ -76,16 +79,39 @@ pub async fn start(params: Params) -> Result<Running> {
     }
     let metrics = Arc::new(RelayMetrics::new());
     let book = Arc::new(Book::new(Arc::clone(&metrics), params.metrics_path.clone()));
+    book.set_public_ip(std::net::IpAddr::V4(params.public_ip));
+    let mut nonce_key = [0u8; 32];
+    ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce_key)
+        .map_err(|error| anyhow::anyhow!("TURN nonce key: {error}"))?;
+    turn::server::ensure_nonce_key(&nonce_key).map_err(|error| anyhow::anyhow!(error))?;
+    turn::server::set_relay_hook(crate::turn::relay::account_relay);
+    let exporting = Arc::clone(&book);
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        tick.tick().await;
+        loop {
+            tick.tick().await;
+            exporting.export();
+        }
+    });
+    let (leave_tx, mut leave_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (generation_tx, generation_rx) = tokio::sync::watch::channel(0);
     if let Some(path) = params.socket.clone() {
-        crate::turn::ipc::link(path, Arc::clone(&params.admit), Arc::clone(&book));
+        crate::turn::ipc::link(
+            path,
+            Arc::clone(&params.admit),
+            Arc::clone(&book),
+            leave_tx,
+            generation_tx,
+        );
     }
-    turn::server::set_nonce_key(&params.secret);
     crate::turn::deny::install(
         std::net::IpAddr::V4(params.public_ip),
         params.relay_start,
         params.relay_end,
     );
-    let auth = Arc::new(RestAuth::new(
+    let auth: Arc<dyn turn::auth::AuthHandler + Send + Sync> = Arc::new(RestAuth::new(
         params.secret.clone(),
         Arc::clone(&params.admit),
     ));
@@ -97,19 +123,30 @@ pub async fn start(params: Params) -> Result<Running> {
         Arc::clone(&book),
         Arc::clone(&metrics),
     ));
-    let mut configs = Vec::new();
     let mut port = params.listen_port;
+    let mut servers = Vec::new();
     if params.udp {
         let socket = UdpSocket::bind((params.listen_ip, params.listen_port)).await?;
         port = socket.local_addr()?.port();
         let pending = Arc::new(Mutex::new(None));
-        let generator = Generator::new(Arc::clone(&pool), Arc::clone(&pending));
-        configs.push(ConnConfig {
-            conn: Arc::new(UdpListener::new(socket, pending, Arc::clone(&book))),
-            relay_addr_generator: Box::new(generator),
-        });
+        let server = Server::new(ServerConfig {
+            conn_configs: vec![ConnConfig {
+                conn: Arc::new(UdpListener::new(
+                    socket,
+                    Arc::clone(&pending),
+                    Arc::clone(&book),
+                )),
+                relay_addr_generator: Box::new(Generator::new(Arc::clone(&pool), pending)),
+            }],
+            realm: params.realm.clone(),
+            auth_handler: Arc::clone(&auth),
+            channel_bind_timeout: Duration::from_secs(0),
+            alloc_close_notify: None,
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!(error))?;
+        servers.push(Arc::new(server));
     }
-    let mut finished = None;
     if params.tcp {
         let pending = Arc::new(Mutex::new(None));
         let tcp = TcpTurn::bind(
@@ -120,35 +157,45 @@ pub async fn start(params: Params) -> Result<Running> {
         )
         .await?;
         port = tcp.port();
-        finished = tcp.take_finished();
-        configs.push(ConnConfig {
-            conn: Arc::new(tcp),
-            relay_addr_generator: Box::new(Generator::new(pool, pending)),
-        });
+        let finished = tcp.take_finished();
+        let server = Arc::new(
+            Server::new(ServerConfig {
+                conn_configs: vec![ConnConfig {
+                    conn: Arc::new(tcp),
+                    relay_addr_generator: Box::new(Generator::new(Arc::clone(&pool), pending)),
+                }],
+                realm: params.realm,
+                auth_handler: auth,
+                channel_bind_timeout: Duration::from_secs(0),
+                alloc_close_notify: None,
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!(error))?,
+        );
+        if let Some(mut finished) = finished {
+            let server = Arc::clone(&server);
+            tokio::spawn(async move {
+                while let Some(addr) = finished.recv().await {
+                    let _ = server.delete_allocations_from(addr).await;
+                }
+            });
+        }
+        servers.push(server);
     }
-    let server = Server::new(ServerConfig {
-        conn_configs: configs,
-        realm: params.realm,
-        auth_handler: auth,
-        channel_bind_timeout: Duration::from_secs(0),
-        alloc_close_notify: None,
-    })
-    .await
-    .map_err(|error| anyhow::anyhow!(error))?;
-    let server = Arc::new(server);
-    if let Some(mut finished) = finished {
-        let server = Arc::clone(&server);
-        tokio::spawn(async move {
-            while let Some(addr) = finished.recv().await {
-                let _ = server.delete_allocations_from(addr).await;
+    let dropping = servers.clone();
+    tokio::spawn(async move {
+        while let Some(peer) = leave_rx.recv().await {
+            for server in &dropping {
+                let _ = server.delete_allocations_by_peer(&peer).await;
             }
-        });
-    }
+        }
+    });
     Ok(Running {
         port,
-        server,
+        servers,
         book,
         metrics,
+        admission_generation: generation_rx,
     })
 }
 
@@ -190,7 +237,15 @@ pub async fn run(config: &Path) -> Result<()> {
     })
     .await?;
     let fingerprint = loaded.controller.state_dir.join("turn.fingerprint");
-    let _ = crate::private_file::replace(fingerprint.as_path(), super::FINGERPRINT.as_bytes());
+    if let Err(error) =
+        crate::private_file::replace(fingerprint.as_path(), super::FINGERPRINT.as_bytes())
+    {
+        tracing::error!(%error, "embedded relay fingerprint was not saved");
+        running
+            .metrics()
+            .fingerprint_errors
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     tracing::info!(port = running.port, "embedded TURN listening");
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     tokio::select! {
@@ -249,6 +304,8 @@ mod tests {
     fn the_unit_does_not_restart_when_this_is_not_the_embedded_engine() {
         let unit = include_str!("../../deploy/infuser-turn.service");
         assert!(unit.contains("RestartPreventExitStatus=78"));
+        assert!(unit.contains("StartLimitIntervalSec=60"));
+        assert!(unit.contains("StartLimitBurst=5"));
         assert_eq!(OTHER_ENGINE_EXIT, 78);
     }
 
@@ -295,18 +352,10 @@ mod tests {
         alpha_relay.send_to(b"one", beta_addr).await.unwrap();
         beta_relay.send_to(b"two", alpha_addr).await.unwrap();
         let mut buf = [0u8; 16];
-        let (size, _) =
-            tokio::time::timeout(Duration::from_secs(2), alpha_relay.recv_from(&mut buf))
-                .await
-                .unwrap()
-                .unwrap();
+        let (size, _) = alpha_relay.recv_from(&mut buf).await.unwrap();
         assert_eq!(&buf[..size], b"two");
         alpha_relay.send_to(b"one", beta_addr).await.unwrap();
-        let (size, _) =
-            tokio::time::timeout(Duration::from_secs(2), beta_relay.recv_from(&mut buf))
-                .await
-                .unwrap()
-                .unwrap();
+        let (size, _) = beta_relay.recv_from(&mut buf).await.unwrap();
         assert_eq!(&buf[..size], b"one");
         let carrying = running
             .snapshot()

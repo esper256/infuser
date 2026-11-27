@@ -1,16 +1,12 @@
 //! Words in the player bar. The server decides them.
 //!
-//! Server is a connected, admitted dedicated-session WebSocket. Relayed is an
-//! embedded allocation that has forwarded packets, so a dormant backup
-//! allocation does not count. STUN is a binding this relay has seen and not
-//! forgotten. LAN is everything else, including solo play. Coturn cannot be
-//! read, so a peer room hides the label instead of guessing.
+//! Server is a connected, admitted dedicated-session WebSocket. Relayed means
+//! this pair's game packets went through an allocation since the last snapshot,
+//! including when only the other side's allocation carried them. STUN is a
+//! binding in that snapshot. LAN is everything else, including solo play.
+//! Coturn cannot be read, so a peer room hides the label instead of guessing.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    net::IpAddr,
-    sync::Mutex,
-};
+use std::net::IpAddr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -44,10 +40,13 @@ pub struct Seat {
     pub peers: Vec<Participant>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Allocation {
     pub peer: String,
     pub packets: u64,
+    pub remotes: Vec<IpAddr>,
+    /// Peer ids reached because the remote address was this relay's public IP.
+    pub reached: Vec<String>,
 }
 
 /// What the embedded relay last reported. `None` means it has not reported,
@@ -66,14 +65,7 @@ pub struct Query {
 }
 
 #[derive(Default)]
-struct Fact {
-    stun: bool,
-}
-
-#[derive(Default)]
-pub struct Memory {
-    peers: Mutex<BTreeMap<String, Fact>>,
-}
+pub struct Memory;
 
 impl Memory {
     pub fn label(&self, query: &Query) -> Option<String> {
@@ -89,24 +81,11 @@ impl Memory {
         let Some(view) = &query.view else {
             return None;
         };
-        Some(self.observe(seat, view))
-    }
-
-    fn observe(&self, seat: &Seat, view: &View) -> String {
-        let mut facts = self.peers.lock().unwrap();
-        let live: BTreeSet<_> = seat.peers.iter().map(|peer| peer.id.as_str()).collect();
-        facts.retain(|id, _| live.contains(id.as_str()));
-        for peer in &seat.peers {
-            let fact = facts.entry(peer.id.clone()).or_default();
-            if binding(peer, view) {
-                fact.stun = true;
-            }
-        }
         let kinds: Vec<_> = subjects(seat)
             .into_iter()
-            .map(|peer| classify(peer, facts.get(&peer.id), view))
+            .map(|peer| classify(peer, view))
             .collect();
-        format_kinds(&kinds)
+        Some(format_kinds(&kinds))
     }
 }
 
@@ -127,22 +106,45 @@ fn subjects(seat: &Seat) -> Vec<&Participant> {
         .collect()
 }
 
-fn carrying(peer: &str, view: &View) -> bool {
-    view.allocations
-        .iter()
-        .any(|allocation| allocation.peer == peer && allocation.packets > 0)
-}
-
 fn binding(peer: &Participant, view: &View) -> bool {
     peer.address
         .is_some_and(|address| view.bindings.contains(&address))
 }
 
-fn classify(peer: &Participant, fact: Option<&Fact>, view: &View) -> Kind {
-    if carrying(&peer.id, view) {
+/// A pair is relayed when either allocation forwarded game packets to the
+/// other person's address, or to that person's allocation on this relay.
+fn relayed(subject: &Participant, view: &View) -> bool {
+    for allocation in view
+        .allocations
+        .iter()
+        .filter(|allocation| allocation.peer == subject.id && allocation.packets > 0)
+    {
+        // Game packets left this allocation toward someone else, including the
+        // relay's own public address when the far side is also relayed here.
+        if !allocation.reached.is_empty()
+            || allocation
+                .remotes
+                .iter()
+                .any(|ip| subject.address != Some(*ip))
+        {
+            return true;
+        }
+    }
+    view.allocations.iter().any(|allocation| {
+        allocation.packets > 0
+            && allocation.peer != subject.id
+            && (allocation.reached.iter().any(|id| id == &subject.id)
+                || subject
+                    .address
+                    .is_some_and(|address| allocation.remotes.contains(&address)))
+    })
+}
+
+fn classify(peer: &Participant, view: &View) -> Kind {
+    if relayed(peer, view) {
         return Kind::Relayed;
     }
-    if fact.is_some_and(|fact| fact.stun) || binding(peer, view) {
+    if binding(peer, view) {
         return Kind::Stun;
     }
     Kind::Lan
@@ -199,7 +201,7 @@ mod tests {
 
     #[test]
     fn server_solo_and_coturn_peer_rooms() {
-        let memory = Memory::default();
+        let memory = Memory;
         assert_eq!(
             memory.label(&query(true, false, None, None)).as_deref(),
             Some("Server")
@@ -225,13 +227,21 @@ mod tests {
 
     #[test]
     fn carrying_traffic_is_relayed_and_a_dormant_allocation_is_not() {
-        let memory = Memory::default();
-        let room = seat("member", false, vec![peer("member", Some("203.0.113.8"))]);
+        let memory = Memory;
+        let room = seat(
+            "member",
+            false,
+            vec![
+                peer("member", Some("203.0.113.8")),
+                peer("host", Some("203.0.113.9")),
+            ],
+        );
         let dormant = View {
             bindings: vec!["203.0.113.8".parse().unwrap()],
             allocations: vec![Allocation {
                 peer: "member".into(),
                 packets: 0,
+                ..Default::default()
             }],
         };
         assert_eq!(
@@ -245,6 +255,8 @@ mod tests {
             allocations: vec![Allocation {
                 peer: "member".into(),
                 packets: 4,
+                remotes: vec!["203.0.113.9".parse().unwrap()],
+                ..Default::default()
             }],
         };
         assert_eq!(
@@ -256,8 +268,8 @@ mod tests {
     }
 
     #[test]
-    fn a_seen_binding_stays_stun_and_other_addresses_stay_lan() {
-        let memory = Memory::default();
+    fn a_binding_in_the_snapshot_is_stun_and_a_missing_one_is_lan() {
+        let memory = Memory;
         let room = seat("member", false, vec![peer("member", Some("203.0.113.4"))]);
         let other = View {
             bindings: vec!["198.51.100.20".parse().unwrap()],
@@ -279,13 +291,13 @@ mod tests {
             memory
                 .label(&query(false, true, Some(room), Some(gone)))
                 .as_deref(),
-            Some("STUN")
+            Some("LAN")
         );
     }
 
     #[test]
     fn a_host_with_several_peers_sees_the_breakdown() {
-        let memory = Memory::default();
+        let memory = Memory;
         let room = seat(
             "host",
             true,
@@ -306,6 +318,8 @@ mod tests {
             allocations: vec![Allocation {
                 peer: "d".into(),
                 packets: 8,
+                remotes: vec!["203.0.113.1".parse().unwrap()],
+                ..Default::default()
             }],
         };
         assert_eq!(
@@ -318,7 +332,7 @@ mod tests {
 
     #[test]
     fn players_behind_one_address_share_a_binding() {
-        let memory = Memory::default();
+        let memory = Memory;
         let room = seat(
             "host",
             true,
@@ -342,13 +356,21 @@ mod tests {
 
     #[test]
     fn a_dormant_allocation_is_not_relayed_and_a_quiet_snapshot_drops_it() {
-        let memory = Memory::default();
-        let room = seat("member", false, vec![peer("member", Some("203.0.113.4"))]);
+        let memory = Memory;
+        let room = seat(
+            "member",
+            false,
+            vec![
+                peer("member", Some("203.0.113.4")),
+                peer("host", Some("203.0.113.9")),
+            ],
+        );
         let stun_only = View {
             bindings: vec!["203.0.113.4".parse().unwrap()],
             allocations: vec![Allocation {
                 peer: "member".into(),
                 packets: 0,
+                ..Default::default()
             }],
         };
         assert_eq!(
@@ -362,6 +384,8 @@ mod tests {
             allocations: vec![Allocation {
                 peer: "member".into(),
                 packets: 3,
+                remotes: vec!["203.0.113.9".parse().unwrap()],
+                ..Default::default()
             }],
         };
         assert_eq!(
@@ -375,6 +399,7 @@ mod tests {
             allocations: vec![Allocation {
                 peer: "member".into(),
                 packets: 0,
+                ..Default::default()
             }],
         };
         assert_eq!(
@@ -382,6 +407,86 @@ mod tests {
                 .label(&query(false, true, Some(room), Some(quiet)))
                 .as_deref(),
             Some("STUN")
+        );
+    }
+
+    #[test]
+    fn the_host_allocation_relays_a_member_and_both_sides_say_so() {
+        let memory = Memory;
+        let peers = vec![
+            peer("host", Some("203.0.113.1")),
+            peer("member", Some("198.51.100.9")),
+        ];
+        let view = View {
+            bindings: vec!["198.51.100.9".parse().unwrap()],
+            allocations: vec![Allocation {
+                peer: "host".into(),
+                packets: 2,
+                remotes: vec!["198.51.100.9".parse().unwrap()],
+                ..Default::default()
+            }],
+        };
+        assert_eq!(
+            memory
+                .label(&query(
+                    false,
+                    true,
+                    Some(seat("host", true, peers.clone())),
+                    Some(view.clone())
+                ))
+                .as_deref(),
+            Some("Relayed")
+        );
+        assert_eq!(
+            memory
+                .label(&query(
+                    false,
+                    true,
+                    Some(seat("member", false, peers)),
+                    Some(view)
+                ))
+                .as_deref(),
+            Some("Relayed")
+        );
+    }
+
+    #[test]
+    fn a_member_allocation_relays_the_host_and_both_sides_say_so() {
+        let memory = Memory;
+        let peers = vec![
+            peer("host", Some("203.0.113.1")),
+            peer("member", Some("198.51.100.9")),
+        ];
+        let view = View {
+            bindings: vec!["203.0.113.1".parse().unwrap()],
+            allocations: vec![Allocation {
+                peer: "member".into(),
+                packets: 2,
+                remotes: vec!["203.0.113.1".parse().unwrap()],
+                reached: vec!["host".into()],
+            }],
+        };
+        assert_eq!(
+            memory
+                .label(&query(
+                    false,
+                    true,
+                    Some(seat("host", true, peers.clone())),
+                    Some(view.clone())
+                ))
+                .as_deref(),
+            Some("Relayed")
+        );
+        assert_eq!(
+            memory
+                .label(&query(
+                    false,
+                    true,
+                    Some(seat("member", false, peers)),
+                    Some(view)
+                ))
+                .as_deref(),
+            Some("Relayed")
         );
     }
 }

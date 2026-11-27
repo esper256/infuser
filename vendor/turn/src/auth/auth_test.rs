@@ -94,6 +94,7 @@ async fn test_new_long_term_auth_handler() -> Result<()> {
     let conn = Arc::new(UdpSocket::bind("0.0.0.0:0").await?);
     let server_port = conn.local_addr()?.port();
 
+    crate::server::set_nonce_key(b"0123456789abcdef0123456789abcdef").expect("nonce key");
     let server = Server::new(ServerConfig {
         conn_configs: vec![ConnConfig {
             conn,

@@ -47,6 +47,7 @@ impl Server {
         use util::vnet::net::Net;
         let conn = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let address = conn.local_addr().unwrap();
+        turn::server::set_nonce_key(b"0123456789abcdef0123456789abcdef").expect("nonce key");
         let inner = turn::server::Server::new(ServerConfig {
             conn_configs: vec![ConnConfig {
                 conn,

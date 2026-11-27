@@ -126,6 +126,8 @@ impl Direction {
         Some(sent.elapsed().as_millis() as u64)
     }
 
+    /// A gap over 200ms between application packets. Turn-based games produce
+    /// these while players think; the counter is a gap count, not a fault.
     fn arrive(&self, metrics: &SharedRelay, stalls: &AtomicU64) {
         let now = Instant::now();
         let mut last = self.last.lock().unwrap();
@@ -168,7 +170,7 @@ pub struct Meter {
 }
 
 impl Meter {
-    fn observe(&self, packet: &[u8], outbound: bool) {
+    fn observe(&self, packet: &[u8], outbound: bool, remote: Option<SocketAddr>) {
         let metrics = &self.metrics;
         if let Some(message) = stun::parse(packet) {
             if outbound && message.class_type == BINDING_REQUEST {
@@ -198,6 +200,9 @@ impl Meter {
         };
         direction.arrive(metrics, &self.stalls);
         self.book.packet(self.id, packet.len() as u64, !outbound);
+        if let Some(remote) = remote {
+            self.book.touch(self.id, remote);
+        }
     }
 
     fn allowed(&self, addr: SocketAddr) -> bool {
@@ -257,6 +262,8 @@ impl RelayAddressGenerator for Generator {
             }
         };
         let id = self.pool.book.open(user.clone());
+        self.pool.book.bind_port(id, port);
+        self.pool.book.set_public_ip(self.pool.public_ip);
         let relay_addr = SocketAddr::new(self.pool.public_ip, port);
         let meter = Meter {
             inner: socket,
@@ -334,10 +341,12 @@ impl util::Conn for Meter {
                 self.metrics.denied.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
-            if !self.budget(size) {
-                continue;
+            // Consent STUN is matched here. Application bytes are counted only
+            // after the TURN server accepts the peer, so a port scan cannot
+            // spend the bandwidth bucket or light Relayed.
+            if buf.first().is_some_and(|byte| *byte < 4) {
+                self.observe(&buf[..size], false, Some(addr));
             }
-            self.observe(&buf[..size], false);
             return Ok((size, addr));
         }
     }
@@ -353,11 +362,11 @@ impl util::Conn for Meter {
                 std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied peer").into(),
             );
         }
-        if !self.budget(buf.len()) {
+        if buf.first().is_some_and(|byte| *byte >= 4) && !self.budget(buf.len()) {
             return Ok(buf.len());
         }
         let sent = self.inner.send_to(buf, target).await?;
-        self.observe(&buf[..sent], true);
+        self.observe(&buf[..sent], true, Some(target));
         Ok(sent)
     }
 
@@ -376,6 +385,28 @@ impl util::Conn for Meter {
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
         self
     }
+}
+
+/// Called by the TURN server after it knows whether the peer is permitted.
+/// `forward` is false for an unpermitted packet, which only increments denied.
+pub fn account_relay(
+    conn: &(dyn util::Conn + Send + Sync),
+    packet: &[u8],
+    src: SocketAddr,
+    forward: bool,
+) -> bool {
+    let Some(meter) = conn.as_any().downcast_ref::<Meter>() else {
+        return forward;
+    };
+    if !forward {
+        meter.metrics.denied.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
+    if packet.first().is_some_and(|byte| *byte >= 4) && !meter.budget(packet.len()) {
+        return false;
+    }
+    meter.observe(packet, false, Some(src));
+    true
 }
 
 #[cfg(test)]
@@ -439,5 +470,35 @@ mod tests {
         drop(conn);
         assert_eq!(book.snapshot().peers.len(), 0);
         assert!(generator.allocate_conn(true, 0).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn unpermitted_inbound_does_not_spend_the_bucket_or_the_label() {
+        let metrics = Arc::new(RelayMetrics::new());
+        let book = Arc::new(Book::new(Arc::clone(&metrics), None));
+        let pool = Arc::new(Pool::new(
+            Ipv4Addr::LOCALHOST,
+            Ipv4Addr::LOCALHOST,
+            33_200,
+            33_208,
+            Arc::clone(&book),
+            Arc::clone(&metrics),
+        ));
+        let junk = UdpSocket::bind((Ipv4Addr::LOCALHOST, 33_208))
+            .await
+            .unwrap();
+        let generator = Generator::new(pool.clone(), Arc::new(Mutex::new(Some("peer-a".into()))));
+        let (conn, _) = generator.allocate_conn(true, 0).await.unwrap();
+        junk.send_to(b"scan", conn.local_addr().unwrap())
+            .await
+            .unwrap();
+        let mut buf = [0u8; 32];
+        let (size, from) = conn.recv_from(&mut buf).await.unwrap();
+        assert_eq!(&buf[..size], b"scan");
+        assert_eq!(book.snapshot().peers[0].packets, 0);
+        assert!(pool.global.refilled());
+        assert!(account_relay(conn.as_ref(), &[0x40; 1024], from, true));
+        assert_eq!(book.snapshot().peers[0].packets, 1);
+        assert!(!pool.global.allow(8_388_608));
     }
 }

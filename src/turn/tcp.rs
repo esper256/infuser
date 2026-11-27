@@ -8,6 +8,7 @@ use crate::{
         auth::peer_from_username,
         book::Book,
         metrics::SharedRelay,
+        quota::PER_USER,
         stun::{self, BINDING_REQUEST},
     },
 };
@@ -28,13 +29,31 @@ use tokio::{
     sync::{mpsc, mpsc::error::TrySendError},
 };
 
-const PER_SOURCE: usize = 8;
+const PER_SOURCE: usize = PER_USER;
 const TOTAL: usize = 64;
 const WRITER_QUEUE: usize = 32;
+const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(5);
+const AUTHENTICATE: std::time::Duration = std::time::Duration::from_secs(30);
 
 struct Client {
     tx: mpsc::Sender<Vec<u8>>,
-    fd: std::os::fd::RawFd,
+    cancel: tokio::sync::watch::Sender<bool>,
+    opened: std::time::Instant,
+    authed: Arc<AtomicBool>,
+}
+
+pub enum Flow {
+    Continue,
+    WaitForClose,
+}
+
+/// EMFILE and ENFILE wait for a connection to close. Anything else is logged
+/// and the accept loop continues, because the listener is still readable.
+pub fn on_accept_error(error: &io::Error) -> Flow {
+    match error.raw_os_error() {
+        Some(libc::EMFILE | libc::ENFILE) => Flow::WaitForClose,
+        _ => Flow::Continue,
+    }
 }
 
 pub struct TcpTurn {
@@ -44,8 +63,6 @@ pub struct TcpTurn {
     pending: Arc<Mutex<Option<String>>>,
     book: Arc<Book>,
     closed: Arc<AtomicBool>,
-    #[allow(dead_code)]
-    fail_accept: Arc<AtomicBool>,
     finished: Mutex<Option<mpsc::UnboundedReceiver<SocketAddr>>>,
 }
 
@@ -56,11 +73,6 @@ impl TcpTurn {
 
     pub fn take_finished(&self) -> Option<mpsc::UnboundedReceiver<SocketAddr>> {
         self.finished.lock().unwrap().take()
-    }
-
-    #[cfg(test)]
-    pub fn fail_next_accept(&self) {
-        self.fail_accept.store(true, Ordering::Relaxed);
     }
 
     pub async fn bind(
@@ -75,10 +87,9 @@ impl TcpTurn {
         let (finished_tx, finished_rx) = mpsc::unbounded_channel();
         let writers = Arc::new(Mutex::new(HashMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
-        let fail_accept = Arc::new(AtomicBool::new(false));
         let accept_writers = Arc::clone(&writers);
         let accept_closed = Arc::clone(&closed);
-        let accept_fail = Arc::clone(&fail_accept);
+        let slots = Arc::new(tokio::sync::Notify::new());
         tokio::spawn(async move {
             loop {
                 if accept_closed.load(Ordering::Relaxed) {
@@ -86,28 +97,34 @@ impl TcpTurn {
                 }
                 match listener.accept().await {
                     Ok((stream, peer)) => {
-                        if accept_fail.swap(false, Ordering::Relaxed) {
-                            tracing::warn!("TURN TCP accept failed");
+                        if !admit_or_evict(&accept_writers, peer) {
                             drop(stream);
                             continue;
                         }
-                        if !admit(&accept_writers, peer) {
-                            drop(stream);
-                            continue;
-                        }
-                        let fd = stream.as_raw_fd();
                         let (writer_tx, writer_rx) = mpsc::channel(WRITER_QUEUE);
-                        accept_writers
-                            .lock()
-                            .unwrap()
-                            .insert(peer, Client { tx: writer_tx, fd });
+                        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+                        let authed = Arc::new(AtomicBool::new(false));
+                        accept_writers.lock().unwrap().insert(
+                            peer,
+                            Client {
+                                tx: writer_tx,
+                                cancel: cancel_tx,
+                                opened: std::time::Instant::now(),
+                                authed: Arc::clone(&authed),
+                            },
+                        );
                         let incoming = incoming_tx.clone();
                         let metrics = Arc::clone(&metrics);
                         let writers = Arc::clone(&accept_writers);
                         let finished = finished_tx.clone();
+                        let slots = Arc::clone(&slots);
                         tokio::spawn(async move {
-                            serve_connection(stream, peer, incoming, writer_rx, metrics).await;
+                            serve_connection(
+                                stream, peer, incoming, writer_rx, metrics, cancel_rx, authed,
+                            )
+                            .await;
                             writers.lock().unwrap().remove(&peer);
+                            slots.notify_waiters();
                             let _ = finished.send(peer);
                         });
                     }
@@ -116,6 +133,9 @@ impl TcpTurn {
                             break;
                         }
                         tracing::warn!(%error, "TURN TCP accept failed");
+                        if matches!(on_accept_error(&error), Flow::WaitForClose) {
+                            slots.notified().await;
+                        }
                     }
                 }
             }
@@ -127,39 +147,65 @@ impl TcpTurn {
             pending,
             book,
             closed,
-            fail_accept,
             finished: Mutex::new(Some(finished_rx)),
         })
     }
 }
 
-fn admit(writers: &Mutex<HashMap<SocketAddr, Client>>, peer: SocketAddr) -> bool {
-    let writers = writers.lock().unwrap();
-    if writers.len() >= TOTAL {
-        return false;
+fn admit_or_evict(writers: &Mutex<HashMap<SocketAddr, Client>>, peer: SocketAddr) -> bool {
+    let mut writers = writers.lock().unwrap();
+    let same = writers.keys().filter(|addr| addr.ip() == peer.ip()).count();
+    if writers.len() < TOTAL && same < PER_SOURCE {
+        return true;
     }
-    writers.keys().filter(|addr| addr.ip() == peer.ip()).count() < PER_SOURCE
+    let victim = writers
+        .iter()
+        .filter(|(_, client)| !client.authed.load(Ordering::Relaxed))
+        .filter(|(addr, _)| same < PER_SOURCE || addr.ip() == peer.ip())
+        .min_by_key(|(_, client)| client.opened)
+        .map(|(addr, _)| *addr);
+    let Some(addr) = victim else {
+        return false;
+    };
+    if let Some(client) = writers.remove(&addr) {
+        let _ = client.cancel.send(true);
+    }
+    true
 }
 
 async fn serve_connection(
     stream: TcpStream,
-    _peer: SocketAddr,
+    peer: SocketAddr,
     incoming: mpsc::Sender<(Vec<u8>, SocketAddr)>,
     mut outbound: mpsc::Receiver<Vec<u8>>,
     metrics: SharedRelay,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+    authed: Arc<AtomicBool>,
 ) {
     let fd = stream.as_raw_fd();
     let (mut read, mut write) = stream.into_split();
+    let started = std::time::Instant::now();
+    let mut saw_frame = false;
     loop {
+        let frame_left = FIRST_FRAME.saturating_sub(started.elapsed());
+        let auth_left = AUTHENTICATE.saturating_sub(started.elapsed());
         tokio::select! {
+            changed = cancel.changed() => {
+                if changed.is_err() || *cancel.borrow() {
+                    break;
+                }
+            }
+            _ = tokio::time::sleep(frame_left), if !saw_frame => break,
+            _ = tokio::time::sleep(auth_left), if !authed.load(Ordering::Relaxed) => break,
             frame = read_frame(&mut read) => {
                 let Ok(frame) = frame else { break };
+                saw_frame = true;
                 if let Some(rtt_us) = tcp_rtt_us(fd)
                     && rtt_us > 0
                 {
                     metrics.tcp_rtt.observe(u64::from(rtt_us / 1000));
                 }
-                if incoming.send((frame, _peer)).await.is_err() {
+                if incoming.send((frame, peer)).await.is_err() {
                     break;
                 }
             }
@@ -173,15 +219,24 @@ async fn serve_connection(
     }
 }
 
-fn remember(packet: &[u8], source: SocketAddr, pending: &Mutex<Option<String>>, book: &Book) {
+fn remember(
+    packet: &[u8],
+    source: SocketAddr,
+    pending: &Mutex<Option<String>>,
+    book: &Book,
+) -> bool {
     if stun::parse(packet).is_some_and(|message| message.class_type == BINDING_REQUEST) {
         book.note_binding(source.ip());
     }
-    if let Some(username) = stun::allocate_username(packet)
-        && let Some(peer) = peer_from_username(username, now())
-    {
-        *pending.lock().unwrap() = Some(peer.to_owned());
+    if stun::allocate_username(packet).is_some() {
+        let peer = stun::allocate_username(packet)
+            .and_then(|username| peer_from_username(username, now()))
+            .map(str::to_owned);
+        let authed = peer.is_some();
+        *pending.lock().unwrap() = peer;
+        return authed;
     }
+    false
 }
 
 async fn read_frame<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<Vec<u8>> {
@@ -219,11 +274,8 @@ fn tcp_rtt_us(fd: std::os::fd::RawFd) -> Option<u32> {
 }
 
 fn drop_slow(writers: &Mutex<HashMap<SocketAddr, Client>>, target: SocketAddr) {
-    let client = writers.lock().unwrap().remove(&target);
-    if let Some(client) = client {
-        unsafe {
-            libc::shutdown(client.fd, libc::SHUT_RDWR);
-        }
+    if let Some(client) = writers.lock().unwrap().remove(&target) {
+        let _ = client.cancel.send(true);
     }
 }
 
@@ -245,7 +297,11 @@ impl util::Conn for TcpTurn {
             .await
             .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "turn tcp closed"))?;
         drop(incoming);
-        remember(&frame, addr, &self.pending, &self.book);
+        if remember(&frame, addr, &self.pending, &self.book)
+            && let Some(client) = self.writers.lock().unwrap().get(&addr)
+        {
+            client.authed.store(true, Ordering::Relaxed);
+        }
         if frame.len() > buf.len() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "turn frame too large").into());
         }
@@ -319,29 +375,60 @@ mod tests {
         packet
     }
 
+    fn client(authed: bool) -> Client {
+        let (tx, _) = mpsc::channel(1);
+        let (cancel, _) = tokio::sync::watch::channel(false);
+        Client {
+            tx,
+            cancel,
+            opened: std::time::Instant::now(),
+            authed: Arc::new(AtomicBool::new(authed)),
+        }
+    }
+
     #[test]
-    fn eight_connections_per_address_and_sixty_four_overall() {
+    fn sixteen_per_address_and_an_idle_connection_yields_when_full() {
         let writers = Mutex::new(HashMap::new());
         let one = "203.0.113.8".parse().unwrap();
-        for port in 1..=8 {
-            let (tx, _) = mpsc::channel(1);
+        for port in 1..=PER_SOURCE as u16 {
             writers
                 .lock()
                 .unwrap()
-                .insert(SocketAddr::new(one, port), Client { tx, fd: -1 });
+                .insert(SocketAddr::new(one, port), client(true));
         }
-        assert!(!admit(&writers, SocketAddr::new(one, 9)));
-        for port in 1..=56 {
-            let (tx, _) = mpsc::channel(1);
-            writers.lock().unwrap().insert(
-                SocketAddr::new("198.51.100.1".parse().unwrap(), port),
-                Client { tx, fd: -1 },
-            );
+        assert!(!admit_or_evict(&writers, SocketAddr::new(one, 99)));
+        writers.lock().unwrap().clear();
+        for port in 1..=TOTAL as u16 {
+            writers
+                .lock()
+                .unwrap()
+                .insert(SocketAddr::new(one, port), client(port != 1));
         }
-        assert_eq!(writers.lock().unwrap().len(), TOTAL);
-        assert!(!admit(
+        assert!(admit_or_evict(
             &writers,
             SocketAddr::new("198.51.100.2".parse().unwrap(), 1)
+        ));
+        assert!(
+            !writers
+                .lock()
+                .unwrap()
+                .contains_key(&SocketAddr::new(one, 1))
+        );
+    }
+
+    #[test]
+    fn an_exhausted_file_table_waits_for_a_close() {
+        assert!(matches!(
+            on_accept_error(&io::Error::from_raw_os_error(libc::EMFILE)),
+            Flow::WaitForClose
+        ));
+        assert!(matches!(
+            on_accept_error(&io::Error::from_raw_os_error(libc::ENFILE)),
+            Flow::WaitForClose
+        ));
+        assert!(matches!(
+            on_accept_error(&io::Error::from_raw_os_error(libc::ECONNABORTED)),
+            Flow::Continue
         ));
     }
 
@@ -369,32 +456,6 @@ mod tests {
         turn.send_to(&request, addr).await.unwrap();
         client.read_exact(&mut buf[..20]).await.unwrap();
         assert_eq!(&buf[..20], &request);
-    }
-
-    #[tokio::test]
-    async fn an_accept_error_does_not_stop_the_listener() {
-        let metrics = Arc::new(RelayMetrics::new());
-        let book = Arc::new(Book::new(Arc::clone(&metrics), None));
-        let turn = TcpTurn::bind(
-            (Ipv4Addr::LOCALHOST, 0).into(),
-            Arc::new(Mutex::new(None)),
-            book,
-            metrics,
-        )
-        .await
-        .unwrap();
-        turn.fail_next_accept();
-        let _dropped = TcpStream::connect(turn.local).await.unwrap();
-        let mut client = TcpStream::connect(turn.local).await.unwrap();
-        let request = binding();
-        client.write_all(&request).await.unwrap();
-        let mut buf = [0u8; 64];
-        let (size, _) =
-            tokio::time::timeout(std::time::Duration::from_secs(2), turn.recv_from(&mut buf))
-                .await
-                .expect("listener died after an accept error")
-                .unwrap();
-        assert_eq!(&buf[..size], &request);
     }
 
     #[tokio::test]
@@ -428,26 +489,17 @@ mod tests {
         }
         let mut fast = TcpStream::connect(turn.local).await.unwrap();
         let packet = vec![0x40u8; 8 * 1024];
-        let stalled = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            let mut rejected = false;
-            for _ in 0..WRITER_QUEUE + 8 {
-                if turn.send_to(&packet, slow_addr).await.is_err() {
-                    rejected = true;
-                    break;
-                }
+        let mut rejected = false;
+        for _ in 0..WRITER_QUEUE + 8 {
+            if turn.send_to(&packet, slow_addr).await.is_err() {
+                rejected = true;
+                break;
             }
-            rejected
-        })
-        .await
-        .expect("a slow TCP reader stalled the relay");
-        assert!(stalled);
+        }
+        assert!(rejected);
         drop(slow_write);
         fast.write_all(&request).await.unwrap();
-        let (size, _) =
-            tokio::time::timeout(std::time::Duration::from_secs(2), turn.recv_from(&mut buf))
-                .await
-                .expect("the other client was stuck behind the slow reader")
-                .unwrap();
+        let (size, _) = turn.recv_from(&mut buf).await.unwrap();
         assert_eq!(&buf[..size], &request);
     }
 

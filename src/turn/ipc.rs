@@ -69,7 +69,13 @@ fn line(message: &Message) -> String {
 
 /// Relay side. One attempt when the interval comes around; the read loop
 /// applies a pushed set as soon as it arrives.
-pub fn link(path: PathBuf, admitted: Arc<Admission>, book: Arc<Book>) {
+pub fn link(
+    path: PathBuf,
+    admitted: Arc<Admission>,
+    book: Arc<Book>,
+    leave: tokio::sync::mpsc::UnboundedSender<String>,
+    generation: watch::Sender<u64>,
+) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -77,7 +83,7 @@ pub fn link(path: PathBuf, admitted: Arc<Admission>, book: Arc<Book>) {
         loop {
             match UnixStream::connect(&path).await {
                 Ok(stream) => {
-                    if drive_relay(stream, &mut interval, &admitted, &book)
+                    if drive_relay(stream, &mut interval, &admitted, &book, &leave, &generation)
                         .await
                         .is_err()
                     {
@@ -98,6 +104,8 @@ async fn drive_relay(
     interval: &mut Interval,
     admitted: &Admission,
     book: &Book,
+    leave: &tokio::sync::mpsc::UnboundedSender<String>,
+    generation: &watch::Sender<u64>,
 ) -> Result<(), ()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
@@ -111,7 +119,7 @@ async fn drive_relay(
     )
     .await?;
     let hello = lines.next_line().await.map_err(|_| ())?.ok_or(())?;
-    if apply_peers(&hello, admitted, book).is_err() {
+    if apply_peers(&hello, admitted, book, leave, generation).is_err() {
         return Err(());
     }
     // A reconnect starts with the whole snapshot, not a delta.
@@ -121,7 +129,7 @@ async fn drive_relay(
             incoming = lines.next_line() => {
                 match incoming {
                     Ok(Some(incoming)) => {
-                        if apply_peers(&incoming, admitted, book).is_err() {
+                        if apply_peers(&incoming, admitted, book, leave, generation).is_err() {
                             return Err(());
                         }
                     }
@@ -133,32 +141,60 @@ async fn drive_relay(
     }
 }
 
-fn apply_peers(text: &str, admitted: &Admission, book: &Book) -> Result<(), ()> {
+fn apply_peers(
+    text: &str,
+    admitted: &Admission,
+    book: &Book,
+    leave: &tokio::sync::mpsc::UnboundedSender<String>,
+    generation: &watch::Sender<u64>,
+) -> Result<(), ()> {
     let message: Message = match serde_json::from_str(text) {
         Ok(message) => message,
         Err(error) => {
             tracing::error!(%error, "TURN IPC message was not understood");
-            admitted.replace(BTreeSet::new());
-            book.allow(BTreeSet::new());
+            drop_peers(admitted, book, leave);
             return Err(());
         }
     };
     if message.v != VERSION || message.op != "peers" {
         tracing::error!(v = message.v, op = %message.op, "TURN IPC version mismatch");
-        admitted.replace(BTreeSet::new());
-        book.allow(BTreeSet::new());
+        drop_peers(admitted, book, leave);
         return Err(());
     }
+    let removed: Vec<String> = admitted
+        .ids
+        .lock()
+        .unwrap()
+        .difference(&message.ids)
+        .cloned()
+        .collect();
     admitted.replace(message.ids);
     book.allow(message.ips);
+    for peer in removed {
+        let _ = leave.send(peer);
+    }
+    generation.send_modify(|value| *value = value.saturating_add(1));
     Ok(())
+}
+
+fn drop_peers(
+    admitted: &Admission,
+    book: &Book,
+    leave: &tokio::sync::mpsc::UnboundedSender<String>,
+) {
+    let gone: Vec<String> = admitted.ids.lock().unwrap().iter().cloned().collect();
+    admitted.replace(BTreeSet::new());
+    book.allow(BTreeSet::new());
+    for peer in gone {
+        let _ = leave.send(peer);
+    }
 }
 
 async fn write_snapshot(
     write: &mut tokio::net::unix::OwnedWriteHalf,
     book: &Book,
 ) -> Result<(), ()> {
-    let snapshot = book.export();
+    let snapshot = book.latest();
     send(
         write,
         &Message {
@@ -194,20 +230,34 @@ pub fn serve(
     }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
+        let _ = std::fs::set_permissions(dir, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     }
-    let listener = std::os::unix::net::UnixListener::bind(path)?;
+    let previous_mask = unsafe { libc::umask(0o077) };
+    let bound = std::os::unix::net::UnixListener::bind(path);
+    unsafe { libc::umask(previous_mask) };
+    let listener = bound?;
     listener.set_nonblocking(true)?;
     let listener = UnixListener::from_std(listener)?;
-    let _ = std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600));
+    let slots = Arc::new(tokio::sync::Notify::new());
     tokio::spawn(async move {
         loop {
-            let Ok((stream, _)) = listener.accept().await else {
-                break;
+            let stream = match listener.accept().await {
+                Ok((stream, _)) => stream,
+                Err(error) => {
+                    tracing::warn!(%error, "TURN IPC accept failed");
+                    if matches!(error.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) {
+                        slots.notified().await;
+                    }
+                    continue;
+                }
             };
             let roster = roster.clone();
             let view = Arc::clone(&view);
+            let slots = Arc::clone(&slots);
+            let ready = Arc::new(tokio::sync::Notify::new());
             tokio::spawn(async move {
-                let _ = drive_daemon(stream, roster, view).await;
+                let _ = drive_daemon(stream, roster, view, ready).await;
+                slots.notify_waiters();
             });
         }
     });
@@ -218,6 +268,7 @@ async fn drive_daemon(
     stream: UnixStream,
     mut roster: watch::Receiver<Admitted>,
     view: Arc<Mutex<Option<Snapshot>>>,
+    ready: Arc<tokio::sync::Notify>,
 ) -> Result<(), ()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
@@ -236,7 +287,7 @@ async fn drive_daemon(
             incoming = lines.next_line() => {
                 match incoming {
                     Ok(Some(incoming)) => {
-                        if store_view(&incoming, &view).is_err() {
+                        if store_view(&incoming, &view, &ready).is_err() {
                             return Err(());
                         }
                     }
@@ -276,7 +327,11 @@ async fn send(write: &mut tokio::net::unix::OwnedWriteHalf, message: &Message) -
     write.write_all(encoded.as_bytes()).await.map_err(|_| ())
 }
 
-fn store_view(text: &str, view: &Mutex<Option<Snapshot>>) -> Result<(), ()> {
+fn store_view(
+    text: &str,
+    view: &Mutex<Option<Snapshot>>,
+    ready: &tokio::sync::Notify,
+) -> Result<(), ()> {
     let message: Message = match serde_json::from_str(text) {
         Ok(message) => message,
         Err(error) => {
@@ -292,6 +347,7 @@ fn store_view(text: &str, view: &Mutex<Option<Snapshot>>) -> Result<(), ()> {
         bindings: message.bindings,
         peers: message.allocations,
     });
+    ready.notify_one();
     Ok(())
 }
 
@@ -308,7 +364,9 @@ mod tests {
         let book = Arc::new(Book::new(metrics, None));
         book.allow(["203.0.113.8".parse().unwrap()].into());
         let stale = r#"{"v":2,"op":"peers","ids":["alpha"],"ips":["203.0.113.8"]}"#;
-        assert!(apply_peers(stale, &admitted, &book).is_err());
+        let (leave, _) = tokio::sync::mpsc::unbounded_channel();
+        let (generation, _) = watch::channel(0);
+        assert!(apply_peers(stale, &admitted, &book, &leave, &generation).is_err());
         assert!(!admitted.allows("alpha"));
         assert!(book.snapshot().bindings.is_empty());
     }
@@ -322,6 +380,7 @@ mod tests {
         book.note_binding("203.0.113.8".parse().unwrap());
         let id = book.open("alpha".into());
         book.packet(id, 4, true);
+        book.export();
         let (daemon_stream, relay_stream) = UnixStream::pair().unwrap();
         let (tx, rx) = watch::channel(Admitted {
             ids: ["alpha".into()].into(),
@@ -329,16 +388,29 @@ mod tests {
         });
         let view = Arc::new(Mutex::new(None));
         let stored = Arc::clone(&view);
-        let daemon = tokio::spawn(drive_daemon(daemon_stream, rx, stored));
+        let ready = Arc::new(tokio::sync::Notify::new());
+        let daemon_ready = Arc::clone(&ready);
+        let daemon = tokio::spawn(drive_daemon(daemon_stream, rx, stored, daemon_ready));
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
         interval.tick().await;
         let admitted_relay = Arc::clone(&admitted);
         let book_relay = Arc::clone(&book);
+        let (leave, _) = tokio::sync::mpsc::unbounded_channel();
+        let (generation, _) = watch::channel(0);
         let relay = tokio::spawn(async move {
-            drive_relay(relay_stream, &mut interval, &admitted_relay, &book_relay).await
+            drive_relay(
+                relay_stream,
+                &mut interval,
+                &admitted_relay,
+                &book_relay,
+                &leave,
+                &generation,
+            )
+            .await
         });
-        let snapshot = wait_view(&view).await;
+        ready.notified().await;
+        let snapshot = view.lock().unwrap().clone().expect("snapshot");
         assert_eq!(
             snapshot.bindings,
             vec!["203.0.113.8".parse::<IpAddr>().unwrap()]
@@ -349,15 +421,5 @@ mod tests {
         drop(tx);
         relay.abort();
         daemon.abort();
-    }
-
-    async fn wait_view(view: &Mutex<Option<Snapshot>>) -> Snapshot {
-        for _ in 0..10_000 {
-            if let Some(snapshot) = view.lock().unwrap().clone() {
-                return snapshot;
-            }
-            tokio::task::yield_now().await;
-        }
-        panic!("relay snapshot was not delivered");
     }
 }

@@ -302,7 +302,8 @@ impl Platform {
         });
     }
     /// Records the same connection and report a dedicated session produces, so
-    /// the header can say Server without starting a game container.
+    /// a header screenshot can say Server without starting a game container.
+    #[cfg(any(test, feature = "fixtures"))]
     pub fn note_connected_session(&self, launch_id: &str, app_id: &str) {
         let time = now();
         let identity = crate::connections::Identity {
@@ -794,7 +795,6 @@ pub fn router(platform: Platform) -> Router {
         .route("/_infuser/session", post(exchange))
         .route("/_infuser/launch", get(|| async { ([("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),("Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")],Html(include_str!("../web/game-launch.html"))) }))
         .route("/_infuser/context", get(context))
-        .route("/_infuser/network-path", get(network_path))
         .route("/_infuser/presence/v1", get(presence::snapshot))
         .route("/_infuser/launch-intent/v1/consume", post(consume_intent))
         .route("/_infuser/runtime/v1", get(runtime::status).post(runtime::acquire))
@@ -1097,7 +1097,8 @@ async fn launch(
         .as_ref()
         .is_some_and(|m| matches!(m.mode, Mode::Dedicated | Mode::PersistentWorld));
     let needs_server = b.manifest.server_start.is_none()
-        && ((body.mode.is_none() || body.mode.as_deref() == Some("multiplayer")) && managed
+        && ((body.mode.as_deref() == Some("multiplayer") && managed)
+            || (body.mode.is_none() && managed)
             || matches!(b.manifest.solo_runtime, Some(SoloRuntime::SharedServer)));
     let id = secret()[..32].to_string();
     let token = secret();
@@ -1505,10 +1506,6 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         json!({"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"network_path":p.network_label(&id,&l),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
-async fn network_path(State(p): State<Platform>, h: HeaderMap) -> Answer {
-    let (id, launch) = p.game(&h)?;
-    Ok(reply(json!({"label": p.network_label(&id, &launch)})))
-}
 fn client_ip(h: &HeaderMap) -> Option<IpAddr> {
     h.get("x-infuser-client-ip")
         .and_then(|value| value.to_str().ok())
@@ -1758,8 +1755,11 @@ async fn peer_health(
 ) -> Answer {
     let (id, launch) = p.game(&h)?;
     p.origin(&h, host(&h))?;
+    remember_peer(&p, &h, launch.runtime_id(), &peer, &id);
+    p.peers
+        .health(launch.runtime_id(), &peer, &id, body.clone(), now())?;
     if let Some(connections) = body.get("connections").and_then(|value| value.as_array()) {
-        for connection in connections {
+        for connection in connections.iter().take(16) {
             if let Some(ms) = connection
                 .get("round_trip_ms")
                 .and_then(|value| value.as_u64())
@@ -1772,9 +1772,6 @@ async fn peer_health(
             }
         }
     }
-    remember_peer(&p, &h, launch.runtime_id(), &peer, &id);
-    p.peers
-        .health(launch.runtime_id(), &peer, &id, body, now())?;
     Ok(reply(json!({"ok":true})))
 }
 async fn peer_health_admin(State(p): State<Platform>, h: HeaderMap) -> Answer {

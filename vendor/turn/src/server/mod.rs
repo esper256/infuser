@@ -28,27 +28,67 @@ use crate::proto::lifetime::DEFAULT_LIFETIME;
 const INBOUND_MTU: usize = crate::proto::UDP_RECEIVE_BUFFER_SIZE;
 
 static NONCE_KEY: OnceLock<Vec<u8>> = OnceLock::new();
-static PEER_FILTER: std::sync::Mutex<Option<fn(SocketAddr) -> bool>> = std::sync::Mutex::new(None);
+static PEER_FILTER: OnceLock<fn(SocketAddr) -> bool> = OnceLock::new();
+static RELAY_HOOK: OnceLock<fn(&(dyn Conn + Send + Sync), &[u8], SocketAddr, bool) -> bool> =
+    OnceLock::new();
 
-/// HMAC key for stateless nonces. Set once, before the server accepts traffic.
-pub fn set_nonce_key(key: &[u8]) {
-    let _ = NONCE_KEY.set(key.to_vec());
+/// Sets the nonce key once. An empty key is rejected. Repeating the same key
+/// is fine; a different key is not.
+pub fn set_nonce_key(key: &[u8]) -> Result<()> {
+    if key.is_empty() {
+        return Err(Error::Other("TURN nonce key is empty".into()));
+    }
+    if let Some(existing) = NONCE_KEY.get() {
+        return if existing.as_slice() == key {
+            Ok(())
+        } else {
+            Err(Error::Other("TURN nonce key is already set".into()))
+        };
+    }
+    NONCE_KEY
+        .set(key.to_vec())
+        .map_err(|_| Error::Other("TURN nonce key is already set".into()))
 }
 
-pub(crate) fn nonce_key() -> &'static [u8] {
-    NONCE_KEY.get().map(Vec::as_slice).unwrap_or(b"")
+/// Keeps the process key if one is already installed.
+pub fn ensure_nonce_key(key: &[u8]) -> Result<()> {
+    if NONCE_KEY.get().is_some() {
+        return Ok(());
+    }
+    set_nonce_key(key)
+}
+
+pub(crate) fn nonce_key() -> Result<&'static [u8]> {
+    NONCE_KEY
+        .get()
+        .map(Vec::as_slice)
+        .ok_or_else(|| Error::Other("TURN nonce key was not set".into()))
+}
+
+/// `forward` is true after a permission or channel binding accepts the peer.
+pub fn set_relay_hook(hook: fn(&(dyn Conn + Send + Sync), &[u8], SocketAddr, bool) -> bool) {
+    let _ = RELAY_HOOK.set(hook);
+}
+
+pub(crate) fn relay_account(
+    conn: &(dyn Conn + Send + Sync),
+    packet: &[u8],
+    src: SocketAddr,
+    forward: bool,
+) -> bool {
+    match RELAY_HOOK.get() {
+        Some(hook) => hook(conn, packet, src, forward),
+        None => forward,
+    }
 }
 
 /// When this returns true, CreatePermission, ChannelBind and Send are forbidden.
 pub fn set_peer_filter(filter: fn(SocketAddr) -> bool) {
-    *PEER_FILTER.lock().expect("peer filter") = Some(filter);
+    let _ = PEER_FILTER.set(filter);
 }
 
 pub(crate) fn peer_is_denied(addr: SocketAddr) -> bool {
-    PEER_FILTER
-        .lock()
-        .expect("peer filter")
-        .is_some_and(|filter| filter(addr))
+    PEER_FILTER.get().is_some_and(|filter| filter(addr))
 }
 
 /// Server is an instance of the TURN Server
@@ -65,6 +105,7 @@ impl Server {
     /// creates a new TURN server
     pub async fn new(config: ServerConfig) -> Result<Self> {
         config.validate()?;
+        nonce_key()?;
 
         let (command_tx, _) = broadcast::channel(16);
         let mut s = Server {
@@ -201,6 +242,13 @@ impl Server {
                             drop(completion);
                             continue;
                         }
+                        Ok(Command::DeletePeer(peer, completion)) => {
+                            allocation_manager
+                                .delete_allocations_by_peer(peer.as_str())
+                                .await;
+                            drop(completion);
+                            continue;
+                        }
                         Ok(Command::GetAllocationsInfo(five_tuples, tx)) => {
                             let infos = allocation_manager.get_allocations_info(five_tuples).await;
                             let _ = tx.send(infos).await;
@@ -262,6 +310,19 @@ impl Server {
         let _ = command_task.await;
     }
 
+    /// Drops allocations whose REST username is `{expires}:{peer}`.
+    pub async fn delete_allocations_by_peer(&self, peer: &str) -> Result<()> {
+        let tx = {
+            let command_tx = self.command_tx.lock().await;
+            command_tx.clone().ok_or(Error::ErrClosed)?
+        };
+        let (closed_tx, closed_rx) = mpsc::channel(1);
+        tx.send(Command::DeletePeer(peer.to_owned(), Arc::new(closed_rx)))
+            .map_err(|_| Error::ErrClosed)?;
+        closed_tx.closed().await;
+        Ok(())
+    }
+
     /// Drops allocations whose client address is `src` (a closed TCP control connection).
     pub async fn delete_allocations_from(&self, src: SocketAddr) -> Result<()> {
         let tx = {
@@ -307,6 +368,7 @@ enum Command {
     /// [`Allocation`]: `crate::allocation::Allocation`
     DeleteAllocations(String, Arc<mpsc::Receiver<()>>),
     DeleteFrom(SocketAddr, Arc<mpsc::Receiver<()>>),
+    DeletePeer(String, Arc<mpsc::Receiver<()>>),
 
     /// Command to get information of [`Allocation`][`Allocation`]s by provided [`FiveTuple`]s.
     ///

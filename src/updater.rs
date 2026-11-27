@@ -178,7 +178,7 @@ pub trait Service: Send + Sync {
     }
     /// Restart the embedded relay only when its code changed. The default
     /// leaves test doubles and coturn installations untouched.
-    async fn sync_turn(&self, _previous: &Path, _current: &Path) -> Result<bool> {
+    async fn sync_turn(&self, _current: &Path) -> Result<bool> {
         Ok(false)
     }
 }
@@ -311,7 +311,24 @@ impl Service for Systemd {
         Ok(())
     }
     async fn check_rollback(&self, binary: &Path) -> Result<()> {
-        self.check(binary).await
+        self.check(binary).await?;
+        if !turn_embedded(&self.config.controller_config)? {
+            return Ok(());
+        }
+        let listed = tokio::time::timeout(
+            Duration::from_secs(8),
+            tokio::process::Command::new(binary)
+                .arg("turn-fingerprint")
+                .stdin(Stdio::null())
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await??;
+        ensure!(
+            listed.status.success(),
+            "this binary cannot run the embedded relay"
+        );
+        Ok(())
     }
     async fn preserve_state(&self, release: &str) -> Result<()> {
         let state_dir = platform_state_dir(&self.config.controller_config)?;
@@ -363,7 +380,7 @@ impl Service for Systemd {
             .promote(release)
             .await
     }
-    async fn sync_turn(&self, previous: &Path, current: &Path) -> Result<bool> {
+    async fn sync_turn(&self, current: &Path) -> Result<bool> {
         if !turn_embedded(&self.config.controller_config)? {
             return Ok(false);
         }
@@ -373,7 +390,6 @@ impl Service for Systemd {
             .ok()
             .map(|text| text.trim().to_owned())
             .filter(|text| !text.is_empty());
-        let _ = previous;
         if !crate::turn::restart_needed(running.as_deref(), next.as_deref(), true) {
             return Ok(false);
         }
@@ -451,9 +467,8 @@ fn platform_state_dir(path: &Path) -> Result<PathBuf> {
 }
 
 async fn turn_note(config: &Settings, service: &dyn Service) -> String {
-    let previous = config.install_dir.join("previous").join("infuser");
     let current = config.install_dir.join("current").join("infuser");
-    match service.sync_turn(&previous, &current).await {
+    match service.sync_turn(&current).await {
         Ok(true) => " The relay restarted because its code changed.".into(),
         Ok(false) => String::new(),
         Err(error) => format!(" The relay did not restart: {error}."),
@@ -572,12 +587,18 @@ fn finish_activation(
     release: &str,
     failed_file: &Path,
     pending_file: &Path,
+    reason: &str,
 ) -> Result<()> {
     if failed_file.exists() {
         fs::remove_file(failed_file)?;
     }
     fs::remove_file(pending_file)?;
-    note_outcome(config, release, crate::deploy_outcomes::Kind::Activated, "");
+    note_outcome(
+        config,
+        release,
+        crate::deploy_outcomes::Kind::Activated,
+        reason,
+    );
     Ok(())
 }
 
@@ -617,11 +638,12 @@ async fn roll_back(
         service.healthy(&build_id(previous_dir)?).await?,
         "candidate failed and rollback health verification also failed"
     );
+    let note = turn_note(config, service).await;
     note_outcome(
         config,
         candidate,
         crate::deploy_outcomes::Kind::RolledBack,
-        crate::probation::HEALTH_FAILURE,
+        &format!("{}{note}", crate::probation::HEALTH_FAILURE),
     );
     write_atomic(
         &config.state_dir.join("failed-release"),
@@ -655,16 +677,26 @@ async fn resume_held_current(config: &Settings, service: &dyn Service) -> Result
                 )));
             }
             clear_probation(service).await;
-            note_outcome(config, &name, crate::deploy_outcomes::Kind::Activated, "");
             let note = turn_note(config, service).await;
+            note_outcome(
+                config,
+                &name,
+                crate::deploy_outcomes::Kind::Activated,
+                note.trim(),
+            );
             Ok(Some(format!(
                 "Recovered successful activation of {name}{note}"
             )))
         }
         Trial::ServingWrites => {
             clear_probation(service).await;
-            note_outcome(config, &name, crate::deploy_outcomes::Kind::Activated, "");
             let note = turn_note(config, service).await;
+            note_outcome(
+                config,
+                &name,
+                crate::deploy_outcomes::Kind::Activated,
+                note.trim(),
+            );
             Ok(Some(format!(
                 "Recovered successful activation of {name}{note}"
             )))
@@ -1184,6 +1216,10 @@ pub async fn rollback(config: &Settings, service: &dyn Service) -> Result<String
         (previous_name, current_name)
     };
     let target = release_by_name(&config.install_dir, &target_name)?;
+    service
+        .check_rollback(&target.join("infuser"))
+        .await
+        .context("refusing to roll back to a binary that cannot read the live config")?;
     let snapshot_dir = config.state_dir.join("rollback").join(&target_name);
     ensure!(
         snapshot_dir.join("snapshot.json").is_file(),
@@ -1217,16 +1253,17 @@ pub async fn rollback(config: &Settings, service: &dyn Service) -> Result<String
         service.healthy(&build_id(&target)?).await?,
         "restored {target_name} but its health check failed; inspect infuser.service"
     );
+    let note = turn_note(config, service).await;
     if hex(&abandon, 40) {
         note_outcome(
             config,
             &abandon,
             crate::deploy_outcomes::Kind::RolledBack,
-            crate::probation::OPERATOR_RESTORE,
+            &format!("{}{note}", crate::probation::OPERATOR_RESTORE),
         );
     }
     Ok(format!(
-        "Restored {target_name}; {abandon} will not be activated again"
+        "Restored {target_name}; {abandon} will not be activated again{note}"
     ))
 }
 
@@ -1275,8 +1312,14 @@ pub async fn update(
                         ));
                     }
                     clear_probation(service).await;
-                    finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
                     let note = turn_note(config, service).await;
+                    finish_activation(
+                        config,
+                        &pending.commit,
+                        &failed_file,
+                        &pending_file,
+                        note.trim(),
+                    )?;
                     return Ok(format!(
                         "Recovered successful activation of {}{note}",
                         pending.commit
@@ -1284,8 +1327,14 @@ pub async fn update(
                 }
                 Trial::ServingWrites => {
                     clear_probation(service).await;
-                    finish_activation(config, &pending.commit, &failed_file, &pending_file)?;
                     let note = turn_note(config, service).await;
+                    finish_activation(
+                        config,
+                        &pending.commit,
+                        &failed_file,
+                        &pending_file,
+                        note.trim(),
+                    )?;
                     return Ok(format!(
                         "Recovered successful activation of {}{note}",
                         pending.commit
@@ -1599,7 +1648,14 @@ pub async fn update(
         }
         Ok(true) => clear_probation(service).await,
     }
-    finish_activation(config, &release.commit, &failed_file, &pending_file)?;
+    let note = turn_note(config, service).await;
+    finish_activation(
+        config,
+        &release.commit,
+        &failed_file,
+        &pending_file,
+        note.trim(),
+    )?;
     prune_releases(config, &release.commit)?;
     service
         .report(Report {
@@ -1609,7 +1665,6 @@ pub async fn update(
             maintenance_blocked: false,
         })
         .await;
-    let note = turn_note(config, service).await;
     Ok(format!("Activated {}{note}", release.commit))
 }
 

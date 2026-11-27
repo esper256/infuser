@@ -250,6 +250,31 @@ impl Manager {
         }
     }
 
+    /// Drops every allocation whose username ends in `:{peer}`.
+    pub async fn delete_allocations_by_peer(&self, peer: &str) {
+        let to_delete = {
+            let mut allocations = self.allocations.lock().await;
+            let mut to_delete = Vec::new();
+            allocations.retain(|_, allocation| {
+                let matches = allocation
+                    .username
+                    .text
+                    .rsplit_once(':')
+                    .is_some_and(|(_, id)| id == peer);
+                if matches {
+                    to_delete.push(std::sync::Arc::clone(allocation));
+                }
+                !matches
+            });
+            to_delete
+        };
+        for allocation in to_delete {
+            if let Err(err) = allocation.close().await {
+                log::error!("Failed to close allocation: {err}");
+            }
+        }
+    }
+
     /// Deletes the [`Allocation`]s according to the specified username `name`.
     pub async fn delete_allocations_by_username(&self, name: &str) {
         let to_delete = {
