@@ -294,6 +294,7 @@ not require keeping the user waiting; explain its status.
 ## Later updates
 
 “Update it on Infuser” means build and publish with the same connection and app ID.
+For games that ship to Infuser Play, re-export every desktop platform listed in `infuser.game.json` before publishing an update.
 “Publish every update” is an instruction to the developing agent, not an Infuser
 watcher. Games do not need a GitHub repository. Failed uploads leave the active
 build intact. `infuser unpublish CREDENTIALS` hides a game and expires sessions,

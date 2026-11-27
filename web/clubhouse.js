@@ -395,7 +395,7 @@ function gameActions(game,card){
     if(!game.native_only && game.native_platforms?.includes(desktopPlatform())){
       const desktop=el('button','Launch in Infuser Play');
       desktop.disabled=unavailable;
-      desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card);};
+      desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card,{menuButton:desktop});};
       items.append(desktop);
     }
     const guest=el('button','Play in guest mode');bindLaunch(guest,viaPad=>{menu.open=false;start(game,play,card,{guest:true,viaPad});});items.append(guest);
@@ -937,15 +937,16 @@ async function start(game,button,card,{guest=false,intent,viaPad=false}={}) {
 function desktopPlatform(){
   const platform=navigator.userAgentData?.platform||navigator.platform;
   if(/Win/i.test(platform))return 'windows-x86_64';
-  if(/Linux/i.test(platform)&&!/Android/i.test(navigator.userAgent))return 'linux-x86_64';
+  if(/Linux/i.test(platform)&&!/Android/i.test(navigator.userAgent)&&!/aarch64|arm/i.test(navigator.platform))return 'linux-x86_64';
   return null;
 }
-async function startDesktop(game,button,card,{guest=false}={}){
+async function startDesktop(game,button,card,{guest=false,menuButton}={}){
   if(me.inspecting || game.play_unavailable || card.dataset.launching || sameTabLaunchPending)return;
   const platform=desktopPlatform();
   if(!game.native_platforms?.includes(platform)){notice('This desktop game needs a supported Windows or Linux computer.');return;}
   const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
+  if(menuButton)menuButton.disabled=true;
   try{
     const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest})});
     document.querySelector('#desktop-launch')?.remove();
@@ -958,7 +959,7 @@ async function startDesktop(game,button,card,{guest=false}={}){
     const actions=el('div',undefined,'desktop-actions');actions.append(open,install,close);dialog.append(heading,text,actions);document.body.append(dialog);dialog.showModal();
     // Keep a real link available if the browser requires a fresh user gesture.
     open.click();
-  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
+  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;if(menuButton)menuButton.disabled=false;}
 }
 document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]'))if(!menu.contains(event.target))menu.open=false;});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});

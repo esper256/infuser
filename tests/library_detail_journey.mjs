@@ -104,7 +104,9 @@ try {
  await page.setViewportSize(previousViewport);
  delete game.input_methods;await page.evaluate(()=>refreshTestLibrary());await close();
  // The two launch destinations share one card and resolve to different endpoints.
- await page.evaluate(()=>Object.defineProperty(navigator,'userAgentData',{configurable:true,value:{platform:'Linux'}}));
+ await page.evaluate(()=>Object.defineProperties(navigator,{
+   userAgentData:{configurable:true,value:{platform:'Linux'}},platform:{configurable:true,value:'Linux x86_64'}
+ }));
  game.native_platforms=['linux-x86_64'];await page.evaluate(()=>refreshTestLibrary());
  await popup(()=>card().getByRole('button',{name:'Play',exact:true}).click());
  await card().locator('.play-menu summary').click();
@@ -122,19 +124,31 @@ try {
    const link=event.target.closest('#desktop-launch a[href^="infuser://"]');
    if(link){event.preventDefault();window.testDesktopHandoff=link.href;document.removeEventListener('click',handoff);}
  }));
- await options.click();await desktop.click();const handoff=page.locator('#desktop-launch');
+ const pendingDesktop=Promise.withResolvers(),nativePlay='**/api/native/v1/play/firefly-drift';
+ await page.route(nativePlay,async route=>{await pendingDesktop.promise;await route.fallback();});
+ await options.click();await desktop.click();await options.click();
+ assert(await desktop.isDisabled(),'the desktop action is disabled while its request is pending');
+ pendingDesktop.resolve();
+ const handoff=page.locator('#desktop-launch');
  await handoff.waitFor();
  assert.equal(await handoff.getByRole('link',{name:'Open Infuser Play'}).getAttribute('href'),'infuser://play?request=fixture');
  assert.deepEqual(writes.filter(w=>w.path==='/api/native/v1/play/firefly-drift').at(-1).body,{platform:'linux-x86_64',guest:false});
  assert.equal(await page.evaluate(()=>window.testDesktopHandoff),'infuser://play?request=fixture');
  assert.equal(launches.length,webLaunchCount);
  await handoff.getByRole('button',{name:'Done'}).click();
+ await page.unroute(nativePlay);
+ await options.click();assert(await desktop.isEnabled());await options.click();
+ // Defensive check: the server only sets play_unavailable for server games; native builds are client-only.
  game.play_unavailable='Unavailable while visiting';await page.evaluate(()=>refreshTestLibrary());
  assert(await online.isDisabled());await options.click();assert(await desktop.isDisabled());await options.click();
  delete game.play_unavailable;
  game.native_platforms=['windows-x86_64'];await page.evaluate(()=>refreshTestLibrary());
  assert(await online.isEnabled());await options.click();assert.equal(await desktop.count(),0);await options.click();
- delete game.native_platforms;await page.evaluate(()=>{delete navigator.userAgentData;return refreshTestLibrary();});await close();
+ game.native_platforms=['linux-x86_64'];
+ await page.evaluate(()=>{Object.defineProperty(navigator,'platform',{configurable:true,value:'Linux aarch64'});return refreshTestLibrary();});
+ await options.click();assert.equal(await desktop.count(),0,'ARM Linux offers only the Web launch');await options.click();
+ delete game.native_platforms;
+ await page.evaluate(()=>{delete navigator.userAgentData;delete navigator.platform;return refreshTestLibrary();});await close();
  // Admin credits reorder without granting ownership; compact portraits keep the dock size.
  const originalCreator=await card().locator('.creator').boundingBox();
  // A JSON service error from launch keeps its actionable server message.

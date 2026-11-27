@@ -443,5 +443,55 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
     for platform in ["linux-x86_64", "windows-x86_64"] {
         assert!(build.join(&bundle.platforms[platform].archive).is_file());
     }
+    let config = godot.join("infuser.game.json");
+    let mut settings =
+        json!({"play_modes":["solo"], "native_linux":"linux", "native_windows":"windows"});
+    std::fs::write(&config, serde_json::to_vec(&settings)?)?;
+    let update = [
+        "publish",
+        connection,
+        "Godot game",
+        "--web-dir",
+        "web",
+        "--ca-cert",
+        "test-ca.pem",
+    ];
+    succeeded(cli(root, &update, None).await?)?;
+    let updated = db.read()?.apps["existing-game"].build.clone();
+    assert_ne!(updated, state.apps["existing-game"].build);
+    let published = content.join(&updated);
+    let bundle = infuser::native::read(&published)?.unwrap();
+    assert!(!bundle.native_only);
+    for platform in ["linux-x86_64", "windows-x86_64"] {
+        assert!(
+            published
+                .join(&bundle.platforms[platform].archive)
+                .is_file()
+        );
+    }
+    // A missing or empty configured export cannot silently remove that platform.
+    settings["native_linux"] = json!("unfinished");
+    std::fs::write(&config, serde_json::to_vec(&settings)?)?;
+    for empty in [false, true] {
+        if empty {
+            std::fs::create_dir(godot.join("unfinished"))?;
+        }
+        let output = cli(root, &update, None).await?;
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("native_linux"));
+        assert_eq!(db.read()?.apps["existing-game"].build, updated);
+    }
+    // A native-only project can override its configured Linux export on the command line.
+    settings["native_only"] = json!(true);
+    std::fs::write(&config, serde_json::to_vec(&settings)?)?;
+    let mut override_linux = update.to_vec();
+    override_linux.extend(["--native-linux", "linux"]);
+    succeeded(cli(root, &override_linux, None).await?)?;
+    let native_only_build = content.join(&db.read()?.apps["existing-game"].build);
+    assert!(
+        infuser::native::read(&native_only_build)?
+            .unwrap()
+            .native_only
+    );
     Ok(())
 }
