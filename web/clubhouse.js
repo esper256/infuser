@@ -385,24 +385,18 @@ function bindLaunch(button, launch) {
   button.onclick = () => launch(false);
   controllerLaunches.set(button, () => launch(true));
 }
-function gameActions(game,card,{expanded=false}={}){
-    const dualFormat=!game.native_only && game.native_platforms?.length>0;
+function gameActions(game,card){
     const unavailable=!!me.inspecting||!!game.play_unavailable;
-    const actions=el('div',undefined,'actions'), play=el('button',expanded&&dualFormat?'Play online':'Play'), menu=el('details',undefined,'play-menu');
+    const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
     const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
     const items=el('div',undefined,'play-menu-items');
     items.append(el('p',game.title,'menu-game-title'));
     actions.append(play,menu);
-    if(dualFormat && game.native_platforms.includes(desktopPlatform())){
-      const desktop=el('button','Launch in Infuser Play','desktop-play');
+    if(!game.native_only && game.native_platforms?.includes(desktopPlatform())){
+      const desktop=el('button','Launch in Infuser Play');
       desktop.disabled=unavailable;
-      desktop.onclick=()=>{menu.open=false;startDesktop(game,expanded?desktop:play,card);};
-      if(expanded)actions.append(desktop);
-      else {
-        const online=el('button','Play online');online.disabled=unavailable;
-        bindLaunch(online,viaPad=>{menu.open=false;start(game,play,card,{viaPad});});
-        items.append(online,desktop);
-      }
+      desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card);};
+      items.append(desktop);
     }
     const guest=el('button','Play in guest mode');bindLaunch(guest,viaPad=>{menu.open=false;start(game,play,card,{guest:true,viaPad});});items.append(guest);
     for(const target of game.join_targets||[]){
@@ -513,7 +507,7 @@ function renderGameDetail(){
     }
     info.append(row);
   }
-  info.append(gameActions(game,info,{expanded:true}));
+  info.append(gameActions(game,info));
   if(!me.inspecting){
     const starRow=el('div',undefined,'detail-star-row');
     const starred=!!game.starred;

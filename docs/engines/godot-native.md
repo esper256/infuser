@@ -68,10 +68,10 @@ desktop exports, generates their file inventories and hashes, and publishes all
 formats as one build under one Library card. Each native ZIP supports up to
 64 MiB compressed, 512 MiB expanded, and 512 files.
 
-On a computer with a matching desktop export, open the expanded game card and
-try **Play online** and **Launch in Infuser Play**. The compact card's **Play**
-opens the browser version directly, and its dropdown also offers both choices.
-On other platforms, players can still play the Web export.
+On both the compact and expanded game cards, **Play** opens the Web version.
+To play on desktop, open the dropdown beside **Play** and choose **Launch in
+Infuser Play**. That option appears when the build includes an export for the
+player's platform. For a desktop-only game, **Play** opens Infuser Play directly.
 
 For each update, repeat the combined command with fresh exports. Each published
 build contains exactly the formats you include in that publish. To deliberately
