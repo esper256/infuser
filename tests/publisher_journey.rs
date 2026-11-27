@@ -405,5 +405,93 @@ async fn connect_publish_update_existing_web_project() -> Result<()> {
         active,
         "failed server check must preserve the old client/server pair"
     );
+    // One publish includes a playable web entry and both indexed native archives.
+    let godot = root.join("Godot game");
+    for dir in ["web", "linux", "windows"] {
+        std::fs::create_dir_all(godot.join(dir))?;
+    }
+    std::fs::write(godot.join("project.godot"), "config_version=5")?;
+    std::fs::write(
+        godot.join("web/index.html"),
+        "<html><head></head><body>Pond Web</body></html>",
+    )?;
+    std::fs::write(godot.join("web/pond.pck"), b"web export")?;
+    std::fs::write(godot.join("linux/pond"), b"\x7fELFfixture")?;
+    std::fs::write(godot.join("windows/pond.exe"), b"MZfixture")?;
+    let both = [
+        "publish",
+        connection,
+        "Godot game",
+        "--solo",
+        "--web-dir",
+        "web",
+        "--native-linux",
+        "linux",
+        "--native-windows",
+        "windows",
+        "--ca-cert",
+        "test-ca.pem",
+    ];
+    succeeded(cli(root, &both, None).await?)?;
+    let state = db.read()?;
+    assert_eq!(state.apps.len(), 1);
+    let build = content.join(&state.apps["existing-game"].build);
+    assert!(std::fs::read_to_string(build.join("index.html"))?.contains("Pond Web"));
+    assert_eq!(std::fs::read(build.join("pond.pck"))?, b"web export");
+    let bundle = infuser::native::read(&build)?.unwrap();
+    assert!(!bundle.native_only);
+    for platform in ["linux-x86_64", "windows-x86_64"] {
+        assert!(build.join(&bundle.platforms[platform].archive).is_file());
+    }
+    let config = godot.join("infuser.game.json");
+    let mut settings =
+        json!({"play_modes":["solo"], "native_linux":"linux", "native_windows":"windows"});
+    std::fs::write(&config, serde_json::to_vec(&settings)?)?;
+    let update = [
+        "publish",
+        connection,
+        "Godot game",
+        "--web-dir",
+        "web",
+        "--ca-cert",
+        "test-ca.pem",
+    ];
+    succeeded(cli(root, &update, None).await?)?;
+    let updated = db.read()?.apps["existing-game"].build.clone();
+    assert_ne!(updated, state.apps["existing-game"].build);
+    let published = content.join(&updated);
+    let bundle = infuser::native::read(&published)?.unwrap();
+    assert!(!bundle.native_only);
+    for platform in ["linux-x86_64", "windows-x86_64"] {
+        assert!(
+            published
+                .join(&bundle.platforms[platform].archive)
+                .is_file()
+        );
+    }
+    // A missing or empty configured export cannot silently remove that platform.
+    settings["native_linux"] = json!("unfinished");
+    std::fs::write(&config, serde_json::to_vec(&settings)?)?;
+    for empty in [false, true] {
+        if empty {
+            std::fs::create_dir(godot.join("unfinished"))?;
+        }
+        let output = cli(root, &update, None).await?;
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("native_linux"));
+        assert_eq!(db.read()?.apps["existing-game"].build, updated);
+    }
+    // A native-only project can override its configured Linux export on the command line.
+    settings["native_only"] = json!(true);
+    std::fs::write(&config, serde_json::to_vec(&settings)?)?;
+    let mut override_linux = update.to_vec();
+    override_linux.extend(["--native-linux", "linux"]);
+    succeeded(cli(root, &override_linux, None).await?)?;
+    let native_only_build = content.join(&db.read()?.apps["existing-game"].build);
+    assert!(
+        infuser::native::read(&native_only_build)?
+            .unwrap()
+            .native_only
+    );
     Ok(())
 }

@@ -102,4 +102,4 @@ and `Infuser.decode_binary` for bytes; see [binary saves](../cloud-save-design.m
 It does not scan or automatically sync `user://`.
 
 If the game requires unsupported web features, report the limitation explicitly.
-Native delivery has a separate [desktop preview recipe](godot-native.md).
+For a client-only single-player game, you can ship this Web export alongside Windows and Linux exports on one Library card. [Publish Web and Infuser Play together](godot-native.md#publish-web-and-infuser-play-together).

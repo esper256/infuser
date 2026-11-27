@@ -147,7 +147,7 @@ fn plain_web_export_keeps_art_sources_local() -> Result<()> {
 }
 
 pub async fn run(args: &[String]) -> Result<()> {
-    let connection_path=args.get(1).context("usage: infuser publish CONNECTION.credentials.json PROJECT [--solo] [--preview] [--allow-duplicate-title] [--title TITLE] [--web-dir EXPORT]")?;
+    let connection_path=args.get(1).context("usage: infuser publish CONNECTION.credentials.json PROJECT [--solo] [--preview] [--allow-duplicate-title] [--title TITLE] [--web-dir EXPORT] [--native-linux EXPORT] [--native-windows EXPORT] [--native-only]")?;
     let connection: Connection = serde_json::from_slice(&std::fs::read(connection_path)?)?;
     let url = reqwest::Url::parse(&connection.api_url)?;
     ensure!(
@@ -360,19 +360,45 @@ pub async fn run(args: &[String]) -> Result<()> {
     println!("Detected {engine}. Preparing {title}…");
     let override_dir =
         option(args, "--web-dir").or_else(|| settings["web_dir"].as_str().map(str::to_owned));
-    let native_only = has(args, "--native-only");
-    let native_dirs: Vec<_> = [
-        ("linux-x86_64", "--native-linux"),
-        ("windows-x86_64", "--native-windows"),
-    ]
-    .into_iter()
-    .filter_map(|(platform, flag)| {
-        option(args, flag).map(|path| (platform.to_owned(), project.join(path)))
-    })
-    .collect();
+    let native_only = has(args, "--native-only")
+        || settings
+            .get("native_only")
+            .map(|v| v.as_bool().context("native_only must be a boolean"))
+            .transpose()?
+            .unwrap_or(false);
+    let mut native_dirs = Vec::new();
+    for (platform, flag, setting) in [
+        ("linux-x86_64", "--native-linux", "native_linux"),
+        ("windows-x86_64", "--native-windows", "native_windows"),
+    ] {
+        let path = if has(args, flag) {
+            option(args, flag).with_context(|| format!("{flag} requires an export directory"))?
+        } else if let Some(value) = settings.get(setting) {
+            value
+                .as_str()
+                .with_context(|| format!("{setting} must be an export directory path"))?
+                .to_owned()
+        } else {
+            continue;
+        };
+        ensure!(
+            !path.trim().is_empty(),
+            "{setting} requires an export directory path"
+        );
+        let dir = project.join(path);
+        let mut entries = std::fs::read_dir(&dir).with_context(|| {
+            format!("Cannot open {setting} export directory '{}'", dir.display())
+        })?;
+        ensure!(
+            entries.next().transpose()?.is_some(),
+            "{setting} export directory '{}' is empty",
+            dir.display()
+        );
+        native_dirs.push((platform.to_owned(), dir));
+    }
     ensure!(
         !native_only || !native_dirs.is_empty(),
-        "--native-only requires a native export directory"
+        "native_only / --native-only requires a native export directory"
     );
     if !native_dirs.is_empty() {
         ensure!(

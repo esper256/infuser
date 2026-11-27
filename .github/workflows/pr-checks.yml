@@ -71,6 +71,9 @@ jobs:
       - run: node tests/gamepad_layout_journey.mjs
         env:
           INFUSER_PLAYWRIGHT: ${{ github.workspace }}/services/peerjs/node_modules/playwright/index.mjs
+      - run: node tests/library_detail_journey.mjs
+        env:
+          INFUSER_PLAYWRIGHT: ${{ github.workspace }}/services/peerjs/node_modules/playwright/index.mjs
 
   action-compatibility:
     name: Action compatibility

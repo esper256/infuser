@@ -386,21 +386,28 @@ function bindLaunch(button, launch) {
   controllerLaunches.set(button, () => launch(true));
 }
 function gameActions(game,card){
+    const unavailable=!!me.inspecting||!!game.play_unavailable;
     const actions=el('div',undefined,'actions'), play=el('button','Play'), menu=el('details',undefined,'play-menu');
     const arrow=el('summary','▾');arrow.setAttribute('aria-label','Play options for '+game.title);arrow.title='Play options';
     const items=el('div',undefined,'play-menu-items');
     items.append(el('p',game.title,'menu-game-title'));
+    actions.append(play,menu);
+    if(!game.native_only && game.native_platforms?.includes(desktopPlatform())){
+      const desktop=el('button','Launch in Infuser Play');
+      desktop.disabled=unavailable;
+      desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card,{menuButton:desktop});};
+      items.append(desktop);
+    }
     const guest=el('button','Play in guest mode');bindLaunch(guest,viaPad=>{menu.open=false;start(game,play,card,{guest:true,viaPad});});items.append(guest);
-    if(!game.native_only && game.native_platforms?.length){const desktop=el('button','Open in Infuser Play');desktop.onclick=()=>{menu.open=false;startDesktop(game,play,card);};items.append(desktop);}
     for(const target of game.join_targets||[]){
       const join=el('button','Join '+target.name);bindLaunch(join,viaPad=>{menu.open=false;start(game,play,card,{viaPad,intent:{kind:'join_friend',session_id:target.session_id,player_id:target.player_id}});});items.append(join);
     }
     if(game.url){const copy=el('button','Copy game link');copy.onclick=async()=>{try{await navigator.clipboard.writeText(game.url);menu.open=false;notice('Game link copied.');}catch{notice('Open '+game.url+' to share this game.');}};items.append(copy);}
     menu.append(arrow,items);menu.ontoggle=()=>card.classList.toggle('menu-open',menu.open);
-    play.disabled=!!me.inspecting||!!game.play_unavailable;guest.disabled=play.disabled;
-    if(game.play_unavailable){play.title=game.play_unavailable;items.prepend(el('p',game.play_unavailable));for(const b of items.querySelectorAll('button'))if(b.textContent.startsWith('Join ')||b.textContent==='Open in Infuser Play')b.disabled=true;}
+    play.disabled=guest.disabled=unavailable;
+    if(game.play_unavailable){play.title=game.play_unavailable;items.prepend(el('p',game.play_unavailable));for(const b of items.querySelectorAll('button'))if(b.textContent.startsWith('Join '))b.disabled=true;}
     if(me.inspecting)for(const button of items.querySelectorAll('button')){if(button.textContent!=='Copy game link')button.disabled=true;}
-    bindLaunch(play,viaPad=>start(game,play,card,{viaPad}));actions.append(play,menu);
+    bindLaunch(play,viaPad=>start(game,play,card,{viaPad}));
   if(game.can_edit_tags&&!me.inspecting){const edit=el('button','Edit tags');edit.onclick=()=>{menu.open=false;arrow.focus();openTags(game);};items.append(edit);}
   return actions;
 }
@@ -930,15 +937,16 @@ async function start(game,button,card,{guest=false,intent,viaPad=false}={}) {
 function desktopPlatform(){
   const platform=navigator.userAgentData?.platform||navigator.platform;
   if(/Win/i.test(platform))return 'windows-x86_64';
-  if(/Linux/i.test(platform)&&!/Android/i.test(navigator.userAgent))return 'linux-x86_64';
+  if(/Linux/i.test(platform)&&!/Android/i.test(navigator.userAgent)&&!/aarch64|arm/i.test(navigator.platform))return 'linux-x86_64';
   return null;
 }
-async function startDesktop(game,button,card,{guest=false}={}){
-  if(me.inspecting)return;
+async function startDesktop(game,button,card,{guest=false,menuButton}={}){
+  if(me.inspecting || game.play_unavailable || card.dataset.launching || sameTabLaunchPending)return;
   const platform=desktopPlatform();
   if(!game.native_platforms?.includes(platform)){notice('This desktop game needs a supported Windows or Linux computer.');return;}
   const originalLabel=button.textContent;
   card.dataset.launching='true';button.disabled=true;button.textContent='Starting…';
+  if(menuButton)menuButton.disabled=true;
   try{
     const launch=await api(`/api/native/v1/play/${game.id}`,{method:'POST',body:JSON.stringify({platform,guest})});
     document.querySelector('#desktop-launch')?.remove();
@@ -951,7 +959,7 @@ async function startDesktop(game,button,card,{guest=false}={}){
     const actions=el('div',undefined,'desktop-actions');actions.append(open,install,close);dialog.append(heading,text,actions);document.body.append(dialog);dialog.showModal();
     // Keep a real link available if the browser requires a fresh user gesture.
     open.click();
-  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;}
+  }catch(error){showError(error);}finally{delete card.dataset.launching;button.disabled=false;button.textContent=originalLabel;if(menuButton)menuButton.disabled=false;}
 }
 document.addEventListener('click',event=>{for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]'))if(!menu.contains(event.target))menu.open=false;});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.play-menu[open],.game-admin-menu[open],.game-live[open]')){event.preventDefault();menu.open=false;menu.querySelector('summary').focus();}});
