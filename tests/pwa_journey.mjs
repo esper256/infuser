@@ -60,6 +60,18 @@ try {
   assert.equal(await page.evaluate(()=>window.permissionRequests),0,'enabled devices do not ask again');
   await page.getByRole('button',{name:'Sound: quiet'}).waitFor();
   const worker=context.serviceWorkers()[0];assert(worker);
+  if(await worker.evaluate(()=>typeof InstallEvent.prototype.addRoutes==='function')){
+    const probe=origin+'/api/me?static-route-check';
+    await cdp.send('Network.enable');
+    let matched;
+    cdp.on('Network.responseReceived',({response})=>{
+      if(response.url===probe)matched=response.serviceWorkerRouterInfo?.matchedSourceType;
+    });
+    assert.equal(await page.evaluate(url=>fetch(url).then(r=>r.status),probe),200);
+    await cdp.send('Network.disable');
+    assert.equal(matched,'network','API requests bypass the worker fetch handler');
+    console.log('Browser: API request matched the network route.');
+  }
   await worker.evaluate(()=>{
     self.testNotifications=[];
     const show=self.registration.showNotification.bind(self.registration);

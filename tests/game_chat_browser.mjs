@@ -26,9 +26,23 @@ try {
   const preview=r=>new URL(r.url()).pathname.startsWith('/api/game-chat/')&&r.status()===200;
   async function open(){
     const page=await context.newPage();
+    let checkedGameBoot=false, checkedMuteHidden=false;
+    await page.route('https://'+game+'/',async route=>{
+      assert.equal(await page.locator('#chat-overlay').count(),0,'overlay waits for the game document to load');
+      assert(await page.locator('#chat-mute').isHidden());
+      checkedGameBoot=true;
+      await route.fallback();
+    });
+    await page.route(url=>url.origin==='https://'+library && url.pathname==='/game-chat',async route=>{
+      assert(await page.locator('#chat-mute').isHidden(),'mute is hidden until the overlay is ready');
+      checkedMuteHidden=true;
+      await route.fallback();
+    });
     const baseline=page.waitForResponse(preview);
     await page.goto('https://'+game+'/_infuser/play');
     await baseline;
+    assert(checkedGameBoot && checkedMuteHidden);
+    assert.equal(await page.locator('#chat-overlay').count(),1);
     const mute=page.getByRole('button',{name:'Mute group chat popups'});
     assert.equal(await mute.getAttribute('aria-pressed'),'false');
     const log=page.frameLocator('#chat-overlay').getByRole('log');
@@ -44,6 +58,13 @@ try {
   await frame.evaluate(f=>{f.hidden=true;});
   assert(idle.equals(await page.screenshot({clip})),'idle overlay leaves game pixels untouched');
   await frame.evaluate(f=>{f.hidden=false;});
+  let idleResponses=0;
+  const countIdle=response=>{if(preview(response))idleResponses++;};
+  page.on('response',countIdle);
+  await new Promise(resolve=>setTimeout(resolve,25000));
+  page.off('response',countIdle);
+  assert(idleResponses>0 && idleResponses<=4,`received ${idleResponses} idle polls in 25 seconds`);
+  console.log(`Browser: ${idleResponses} idle chat polls in 25 seconds.`);
   await send('Hello <b>players</b>!');
   await log.getByText('Hello <b>players</b>!',{exact:true}).waitFor();
   assert.equal(await log.locator('strong').innerText(),'Admin');
@@ -52,7 +73,7 @@ try {
   await log.locator('article').waitFor({state:'detached',timeout:10000});
   await page.locator('#fullscreen').click();
   await send('Fullscreen arrival');
-  await log.getByText('Fullscreen arrival').waitFor();
+  await log.getByText('Fullscreen arrival').waitFor({timeout:8000});
   await page.evaluate(()=>document.exitFullscreen());
   await mute.click();
   assert.equal(await mute.getAttribute('aria-pressed'),'true');
@@ -77,7 +98,7 @@ try {
   await mute.click();
   await resume;
   await send('After mute');
-  await log.getByText('After mute').waitFor();
+  await log.getByText('After mute').waitFor({timeout:8000});
   assert(!((await log.innerText()).includes('During mute')));
   console.log('Browser: silent group chat previews, fullscreen, expiry, per-window mute and origin isolation passed.');
 } finally {await browser.close();}

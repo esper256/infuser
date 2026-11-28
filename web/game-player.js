@@ -250,7 +250,8 @@ try{
 
   const muteChat=document.getElementById('chat-mute');
   let chatFrame;
-  if(session.chat_launch && !session.guest){
+  function startChatOverlay(){
+    if(!session.chat_launch || session.guest)return;
     const url=new URL('/game-chat',session.library_url);
     url.hash=new URLSearchParams({launch:session.chat_launch,profile:session.player_id});
     chatFrame=document.createElement('iframe');
@@ -405,7 +406,15 @@ try{
     if(event.data?.type!=='infuser-session-error')return;
     endSession(event.data);
   });
-  game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
+  game.addEventListener('load',()=>{
+    clearInterval(hookTimer);
+    if(sessionEnded)return;
+    diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();
+    tuneGraphics(game.contentWindow);fitViewport();
+    document.getElementById('screenshot').disabled=false;
+    game.contentWindow.focus();
+    startChatOverlay();
+  },{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
   if(session.visit){
     let checking=false;

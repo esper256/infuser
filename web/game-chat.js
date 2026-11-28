@@ -3,7 +3,8 @@ const params=new URLSearchParams(location.hash.slice(1));
 const launch=params.get('launch'), profile=params.get('profile');
 const toasts=document.getElementById('toasts');
 const lifetimes=new Map();
-let muted=true, denied=false, cursor=null, pollTimer, request;
+let muted=null, denied=false, cursor=null, pollTimer, request;
+let fastPollUntil=0;
 
 function dismiss(toast){
   clearTimeout(lifetimes.get(toast));
@@ -24,7 +25,7 @@ function pause(){
   for(const toast of lifetimes.keys())dismiss(toast);
 }
 async function poll(){
-  if(muted||document.hidden||denied||request)return;
+  if(muted!==false||document.hidden||denied||request)return;
   clearTimeout(pollTimer);
   const active=new AbortController();
   request=active;
@@ -39,18 +40,23 @@ async function poll(){
     if(!response.ok)throw Error();
     const data=await response.json();
     if(request!==active)return;
-    if(cursor!==null)for(const message of data.messages)show(message);
+    if(cursor!==null && data.messages.length){
+      fastPollUntil=performance.now()+30000;
+      for(const message of data.messages)show(message);
+    }
     cursor=data.cursor;
   }catch{
     // Reconnect with a fresh baseline instead of replaying missed conversation.
     if(request===active)cursor=null;
   }finally{
-    if(request===active){request=null;pollTimer=setTimeout(poll,3000);}
+    if(request===active){request=null;pollTimer=setTimeout(poll,performance.now()<fastPollUntil?3000:10000);}
   }
 }
 if(parent!==window && launch && profile){
   window.addEventListener('message',event=>{
     if(event.source!==parent||event.data?.type!=='infuser-chat-mute'||typeof event.data.muted!=='boolean')return;
+    // Initial unmuted setup starts idle. Only an explicit unmute speeds up polling.
+    if(muted===true && !event.data.muted)fastPollUntil=performance.now()+30000;
     muted=event.data.muted;
     if(muted)pause();else void poll();
   });

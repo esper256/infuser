@@ -1,6 +1,11 @@
 // Keep authenticated pages, chat, API responses and game assets on the network.
 // A worker update never reloads a running game or changes fullscreen state.
-self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));
+self.addEventListener('install',event=>event.waitUntil((async()=>{
+  try{
+    await event.addRoutes?.({condition:{urlPattern:new URLPattern('/api/*',self.location.origin)},source:'network'});
+  }catch{/* Browsers without static routing use the existing fetch handler. */}
+  await self.skipWaiting();
+})()));
 self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
 self.addEventListener('fetch',event=>{
   if(event.request.mode!=='navigate'||new URL(event.request.url).origin!==self.location.origin)return;
