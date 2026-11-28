@@ -15,6 +15,11 @@ used in another group creates a separate profile in the new group (see
 [profiles](profiles.md)); temporary visits can still share selected games
 between groups without creating permanent membership.
 
+In a web game, new messages from other players in the current group appear briefly
+over the game. Use the chat bubble in the game header to mute these silent previews
+for that window. Each new game window starts unmuted. Guest play and profiles with
+limited communication do not receive previews.
+
 ## Operator setup
 
 Deploy a version with private-group support first. In the private host config:

@@ -30,7 +30,15 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
     let auth = Router::new().route(
         "/oauth2/auth",
         get(|h: HeaderMap| async move {
-            let email = match h.get("cookie").and_then(|v| v.to_str().ok()) {
+            let email = match h
+                .get("cookie")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|cookies| {
+                    cookies
+                        .split(';')
+                        .map(str::trim)
+                        .find(|cookie| cookie.starts_with("member="))
+                }) {
                 Some("member=admin") => "admin@example.com",
                 Some("member=user") => "user@example.com",
                 Some("member=outsider") => "outsider@example.com",
@@ -526,6 +534,74 @@ async fn publish_play_save_guest_react_update_and_revoke() -> Result<()> {
         .error_for_status()?
         .json()
         .await?;
+    let previews = format!("/api/game-chat/{}", ctx["chat_launch"].as_str().unwrap());
+    let baseline: Value = user(reqwest::Method::GET, &previews)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(baseline["messages"], json!([]));
+    db.chat_send(
+        "admin@example.com",
+        "game-chat-preview-1",
+        "Hello from the Library",
+    )?;
+    db.chat_send("user@example.com", "game-chat-preview-2", "My own message")?;
+    let since = format!("{previews}?after={}", baseline["cursor"]);
+    let arrivals: Value = user(reqwest::Method::GET, &since)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        arrivals["messages"],
+        json!([{"author":"Admin","text":"Hello from the Library"}])
+    );
+    assert_eq!(
+        admin(reqwest::Method::GET, &since).send().await?.status(),
+        403
+    );
+    assert!(
+        !game(0, reqwest::Method::GET, &since)
+            .send()
+            .await?
+            .status()
+            .is_success()
+    );
+    let guest: Value = game(1, reqwest::Method::GET, "/_infuser/context")
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(guest["chat_launch"].is_null());
+    db.edit(|d| {
+        d.members
+            .get_mut("user@example.com")
+            .unwrap()
+            .limited_communication = true;
+        Ok(())
+    })?;
+    assert_eq!(
+        user(reqwest::Method::GET, &since).send().await?.status(),
+        403
+    );
+    db.edit(|d| {
+        d.members
+            .get_mut("user@example.com")
+            .unwrap()
+            .limited_communication = false;
+        Ok(())
+    })?;
+    if let Ok(node) = std::env::var("INFUSER_GAME_CHAT_BROWSER_NODE") {
+        let outcome = tokio::process::Command::new(node)
+            .arg("tests/game_chat_browser.mjs")
+            .args([&url, HOST, &sessions[0].0, &sessions[0].1])
+            .status()
+            .await?;
+        anyhow::ensure!(outcome.success(), "game chat browser journey failed");
+    }
     let at = infuser::timeline::ms();
     let mut diagnostic = json!({"scope":ctx["diagnostic_launch"],"events":[
         {"page":"deadbeef0001","seq":1,"at":at,"src":"game","kind":"js.error","data":{"class":"TypeError","message":"fixture failed at https://example.com/?token=private-fixture","file":"fixture.js","frames":["fixture.js:17:3","/game/private.js?key=value:2:9"],"fingerprint":"deadbea7","line":17}},

@@ -65,3 +65,42 @@ pub(super) async fn remove(State(p): State<Platform>, Path(id): Path<u64>, h: He
     p.db.chat_remove_group(&email, &group, id)?;
     Ok(reply(json!({"ok":true})))
 }
+
+/// Chat stays in a Library-origin frame, outside the uploaded game's DOM.
+pub(super) async fn overlay(State(p): State<Platform>, h: HeaderMap) -> Answer {
+    p.main_host(&h)?;
+    let policy = format!(
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors https://*.{}; base-uri 'none'",
+        p.domain()
+    );
+    Ok((
+        [
+            ("Content-Security-Policy", policy.as_str()),
+            ("Cross-Origin-Embedder-Policy", "require-corp"),
+            ("Cross-Origin-Resource-Policy", "same-site"),
+            ("Referrer-Policy", "no-referrer"),
+            ("Cache-Control", "no-store"),
+        ],
+        Html(include_str!("../../web/game-chat.html")),
+    )
+        .into_response())
+}
+
+#[derive(Deserialize)]
+pub(super) struct Cursor {
+    after: Option<u64>,
+}
+
+pub(super) async fn previews(
+    State(p): State<Platform>,
+    Path(launch): Path<String>,
+    Query(cursor): Query<Cursor>,
+    h: HeaderMap,
+) -> Answer {
+    let email = p.member(&h, false).await?;
+    Ok(reply(p.db.game_chat_previews(
+        &launch,
+        &email,
+        cursor.after,
+    )?))
+}

@@ -248,6 +248,35 @@ try{
   diagnostics?.link('launch').set('up');
   currentAppId=session.app_id||null;
 
+  const muteChat=document.getElementById('chat-mute');
+  let chatFrame;
+  function startChatOverlay(){
+    if(!session.chat_launch || session.guest)return;
+    const url=new URL('/game-chat',session.library_url);
+    url.hash=new URLSearchParams({launch:session.chat_launch,profile:session.player_id});
+    chatFrame=document.createElement('iframe');
+    chatFrame.id='chat-overlay';chatFrame.title='Group chat previews';chatFrame.tabIndex=-1;
+    chatFrame.src=url.href;
+    const syncMute=()=>chatFrame.contentWindow?.postMessage({
+      type:'infuser-chat-mute',muted:muteChat.getAttribute('aria-pressed')==='true'
+    },url.origin);
+    window.addEventListener('message',event=>{
+      if(event.source!==chatFrame.contentWindow||event.origin!==url.origin||event.data!=='infuser-chat-ready'||sessionEnded)return;
+      chatFrame.dataset.ready='';
+      muteChat.hidden=false;
+      syncMute();
+    });
+    muteChat.onclick=()=>{
+      const muted=muteChat.getAttribute('aria-pressed')!=='true';
+      muteChat.setAttribute('aria-pressed',String(muted));
+      muteChat.title=muted?'Show group chat popups':'Mute group chat popups';
+      chatFrame.hidden=muted;
+      syncMute();
+      game.contentWindow?.focus();
+    };
+    viewport.append(chatFrame);
+  }
+
   let savedHd=null;
   if(currentAppId){try{savedHd=localStorage.getItem('infuser.hd.'+currentAppId);}catch{}}
   hdCap=savedHd==='1'?true:savedHd==='0'?false:session.manifest.resolution!=='native';
@@ -331,6 +360,7 @@ try{
     const linkReason=reason?denialLinkReasons.get(reason):heartbeatEndReasons.get(httpStatus);
     if(sessionEnded)return;
     sessionEnded=true;tabNotice.hidden=true;
+    chatFrame?.remove();muteChat.hidden=true;
     diagnostics?.link('launch').set('ended',linkReason,{status:httpStatus});
     clearInterval(hookTimer);clearInterval(checkTimer);
     gameOrientation=null;releaseOrientation();game.inert=true;
@@ -376,7 +406,15 @@ try{
     if(event.data?.type!=='infuser-session-error')return;
     endSession(event.data);
   });
-  game.addEventListener('load',()=>{clearInterval(hookTimer);if(sessionEnded)return;diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();tuneGraphics(game.contentWindow);fitViewport();document.getElementById('screenshot').disabled=false;game.contentWindow.focus();},{once:true});
+  game.addEventListener('load',()=>{
+    clearInterval(hookTimer);
+    if(sessionEnded)return;
+    diagnostics?.hook(game.contentWindow,'game');diagnostics?.loaded();
+    tuneGraphics(game.contentWindow);fitViewport();
+    document.getElementById('screenshot').disabled=false;
+    game.contentWindow.focus();
+    startChatOverlay();
+  },{once:true});
   game.hidden=false;fitViewport();game.src='/'+location.search;
   if(session.visit){
     let checking=false;

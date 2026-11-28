@@ -446,6 +446,14 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         moderated.reactions[&brought]["visitor@example.com"].text,
         "Source group"
     );
+    let previews = format!(
+        "/api/game-chat/{}?after=0",
+        context["chat_launch"].as_str().unwrap()
+    );
+    assert_eq!(
+        ok(w.member("visitor", Method::GET, &previews)).await?["messages"],
+        json!([])
+    );
     let chat = ok(w
         .member("visitor", Method::GET, "/api/chat")
         .header("x-infuser-visit", &visit))
@@ -472,6 +480,10 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
         1,
         "active visitors receive host chat notifications"
     );
+    assert_eq!(
+        ok(w.member("visitor", Method::GET, &previews)).await?["messages"][0]["text"],
+        "Good game"
+    );
     // Publishing stays home-owned even while the author is visiting.
     let new_game = w.publish("visitor").await?;
     p.reconcile_publications()?;
@@ -491,6 +503,7 @@ async fn visits_resume_one_isolated_deployment_and_preserve_only_resident_chat_h
     .await?;
     denied(visit_game.call(Method::GET, "/_infuser/context")).await?;
     denied(host_game.call(Method::GET, "/_infuser/context")).await?;
+    denied(w.member("visitor", Method::GET, &previews)).await?;
     denied(
         w.member("visitor", Method::GET, "/api/chat")
             .header("x-infuser-visit", &visit),
