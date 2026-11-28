@@ -33,6 +33,14 @@ before every response, including 304. Mutations use `no-store`.
   Missing messages return 404. Unknown JSON fields and invalid text return 422;
   request bodies over 4 KiB return 413.
 
+The web player embeds a read-only preview on the Library origin. Its
+`GET /api/game-chat/{launch}` requires the signed-in profile that owns the
+active non-guest launch and access to its group chat. A request without
+`after` returns the current cursor and no messages. Subsequent requests use
+`?after=CURSOR` to receive up to three new previews in order as
+`{cursor,messages:[{author,text}]}`. Responses use `no-store`. Viewing a
+preview does not advance the Library’s chat read receipts.
+
 ## House calls
 
 `GET /api/house-calls` returns only `{images:[{id,label}]}` for shipped images

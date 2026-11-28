@@ -652,6 +652,10 @@ pub fn router(platform: Platform) -> Router {
         .route("/api/admin/house-calls", get(house_calls::settings).put(house_calls::save).layer(DefaultBodyLimit::max(65536)))
         .route("/assets/house-calls/{file}", get(house_calls::image))
         .route("/api/chat", get(chat::list).post(chat::send).layer(DefaultBodyLimit::max(4096)))
+        .route("/game-chat", get(chat::overlay))
+        .route("/assets/game-chat.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/game-chat.js")) }))
+        .route("/assets/game-chat.css", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/css", include_bytes!("../web/game-chat.css")) }))
+        .route("/api/game-chat/{launch}", get(chat::previews))
         .route("/api/chat/read", post(chat::advance).layer(DefaultBodyLimit::max(256)))
         .route("/api/chat/{id}", delete(chat::remove))
         .route("/assets/chat-emoji.js", get(|h: HeaderMap| async move { conditional::static_asset(&h, "text/javascript", include_bytes!("../web/chat-emoji.js")) }))
@@ -1492,7 +1496,7 @@ async fn context(State(p): State<Platform>, h: HeaderMap) -> Answer {
         d.player_id(&l.email)
     };
     Ok(reply(
-        json!({"diagnostic_launch":telemetry::launch_ref(&id),"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
+        json!({"chat_launch":(!l.guest && !d.members[&l.email].limited_communication).then_some(&id),"diagnostic_launch":telemetry::launch_ref(&id),"app_id":l.app,"deployment_id":l.runtime_id(),"visit":l.visit.as_ref().and_then(|id|d.visits.get(id)).map(|v|json!({"expires_at":v.expires,"authorization_seconds":30})),"build_id":l.build,"library_url":format!("https://{}/library",p.domain()),"guest":l.guest,"player_id":player,"name":if l.guest {"Guest"}else{&d.members[&l.email].name},"player_ticket":game_token(&h),"manifest":b.manifest,"capabilities":{"sessions":crate::dedicated::capabilities(),"sdk":crate::sdk_contract::with_peerjs(p.relay.is_some(), p.config().controller.peerjs_port.is_some()),"runtime_sessions":runtime::capabilities(),"presence":presence::capabilities(),"launch_intents":crate::launch_intent::capabilities(),"cloud_checkpoints":crate::cloud::capabilities(p.config().controller.cloud_save_budget_mb)},"runtime":p.refresh(&id)?}),
     ))
 }
 async fn consume_intent(State(p): State<Platform>, h: HeaderMap) -> Answer {
@@ -1523,7 +1527,7 @@ async fn player(State(p): State<Platform>, h: HeaderMap) -> Answer {
         [
             ("Cache-Control", "no-store"),
             ("Referrer-Policy", "no-referrer"),
-            ("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src blob:; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
+            ("Content-Security-Policy", &format!("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src blob:; frame-src 'self' https://{}/game-chat; frame-ancestors 'none'; base-uri 'none'", p.domain())),
         ],
         Html(html),
     ).into_response();

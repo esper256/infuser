@@ -59,6 +59,10 @@ and WebP encoding, then real Chromium tab capture/cropping of a WebGL iframe.
 The test browser auto-approves its own fixture tab. Cancellation and unsupported
 capture use mocks. Manually choose the game tab to check the OS sharing picker.
 
+Run the in-game chat preview journey against the local Rust fixture with
+`INFUSER_GAME_CHAT_BROWSER_NODE=node cargo test --locked --test platform_journey -- --nocapture`.
+It uses the same Playwright and Chromium setup as the Groups journey.
+
 For the real private-group browser flow:
 
 ```sh

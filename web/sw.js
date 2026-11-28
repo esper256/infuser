@@ -27,7 +27,8 @@ async function chatNotification(){
     if(preference?.sound&&preference.owner){
       const key='/chat-alert/last/'+encodeURIComponent(preference.owner);
       const windows=await self.clients.matchAll({type:'window'});
-      const focused=windows.filter(client=>client.focused&&client.visibilityState==='visible');
+      // Keyboard focus belongs to the game, outside its Library-origin preview frame.
+      const focused=windows.filter(client=>client.visibilityState==='visible'&&(client.focused||new URL(client.url).pathname==='/game-chat'));
       const reading=(await Promise.all(focused.map(client=>readingChat(client,preference.owner)))).some(Boolean);
       if(reading){
         await cache.delete(key);

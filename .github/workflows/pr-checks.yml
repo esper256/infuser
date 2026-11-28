@@ -43,6 +43,7 @@ jobs:
         if: matrix.check == 'fast-tests'
         env:
           INFUSER_GROUP_BROWSER_NODE: node
+          INFUSER_GAME_CHAT_BROWSER_NODE: node
         run: cargo test --locked
       - name: Fast SDK and theme journeys
         if: ${{ !cancelled() && matrix.check == 'fast-tests' }}

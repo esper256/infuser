@@ -106,6 +106,14 @@ try {
   assert.equal((await lastNotice()).silent,true,'follow-ups stay quiet with the Library closed');
   // Advance the previous arrival, including across a worker lifetime with no open page.
   await worker.evaluate(async()=>{const c=await caches.open('infuser-chat-alerts-v1');const p=await(await c.match('/chat-alert/preference')).json();await c.put('/chat-alert/last/'+p.owner,new Response(String(Date.now()-300001)));});
+  // A focused game owns keyboard input. Its visible Library-origin frame can still silence this push.
+  await worker.evaluate(()=>{
+    self.clients.matchAll=async()=>[{url:self.location.origin+'/game-chat',visibilityState:'visible',focused:false,
+      postMessage(message,ports){ports[0].postMessage(message.type==='infuser-reading-chat');}}];
+  });
+  await push();
+  assert.equal((await lastNotice()).silent,true,'visible game previews keep a fresh push quiet');
+  await worker.evaluate(()=>{delete self.clients.matchAll;});
   await Promise.all([push(),push()]);
   const pair=await worker.evaluate(()=>self.testNotifications.slice(-2));assert.equal(pair[0].silent,undefined);assert.equal(pair[0].renotify,true);assert.equal(pair[1].silent,true);
   page=await context.newPage();await page.goto(new URL(destination,origin).href);

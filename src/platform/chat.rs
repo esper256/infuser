@@ -79,6 +79,74 @@ impl Database {
         Ok(json!({"messages":messages,"reads":reads}))
     }
 
+    /// A new or resumed overlay starts at the current message, without reading history.
+    pub fn game_chat_previews(&self, id: &str, email: &str, after: Option<u64>) -> Result<Value> {
+        let mut c = self.connection.lock().unwrap();
+        let tx = c.transaction()?;
+        let data = members(self, &tx, email)?;
+        let raw: String = tx
+            .query_row(
+                "SELECT data FROM runtime_launches WHERE id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| fault(404, "Game session not found."))?;
+        let launch: Launch = serde_json::from_str(&raw)?;
+        ensure!(
+            !launch.guest && launch.email == email,
+            fault(403, "Group access denied.")
+        );
+        let time = now();
+        data.authorize_launch(id, &launch, time)?;
+        let group = data.deployment_group(launch.runtime_id());
+        let channel_id = channels::default_channel(&tx, group)?;
+        let access = channels::Channel::load(&tx, &channel_id)?
+            .access(&data, email, false, time)
+            .ok_or_else(|| fault(403, "Group access denied."))?;
+        let latest: u64 = tx.query_row(
+            "SELECT COALESCE(MAX(id),0) FROM library_chat WHERE channel_id=?1",
+            [&channel_id],
+            |row| row.get(0),
+        )?;
+        let mut cursor = latest;
+        let mut messages = Vec::new();
+        if let Some(after) = after.filter(|after| *after < latest) {
+            let mut rows = tx.prepare("SELECT author,text,screenshot,house_call,id FROM library_chat
+                WHERE channel_id=?1 AND id>?2 AND author!=?3 AND text IS NOT NULL AND created>?4 ORDER BY id LIMIT 3")?;
+            for row in rows.query_map(
+                params![
+                    channel_id,
+                    after.max(access.after_message),
+                    email,
+                    time.saturating_sub(RETENTION)
+                ],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, u64>(4)?,
+                    ))
+                },
+            )? {
+                let (author, mut text, screenshot, call, message_id) = row?;
+                cursor = message_id;
+                if let Some(member) = data.members.get(&author).filter(|m| m.enabled) {
+                    if let Some(call) = call {
+                        text = house_calls::label(&tx, group, &call)?
+                            .unwrap_or_else(|| "House call".into());
+                    } else if text.is_empty() && screenshot.is_some() {
+                        text = "Screenshot".into();
+                    }
+                    messages.push(json!({"author":member.name, "text":text}));
+                }
+            }
+        }
+        Ok(json!({"cursor":cursor,"messages":messages}))
+    }
+
     pub fn chat_advance_read(&self, email: &str, group: &str, message: u64) -> Result<Value> {
         let channel_id = self.default_chat_channel(group)?;
         let mut c = self.connection.lock().unwrap();

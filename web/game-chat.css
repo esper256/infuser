@@ -1,0 +1,7 @@
+:root { color-scheme:dark; background:transparent; }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.35 system-ui,sans-serif; color:#edf5f3; }
+#toasts { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:flex-end; align-items:flex-end; gap:6px; overflow:hidden; }
+article { max-width:100%; padding:8px 12px; background:#15232bf5; border:1px solid #536b75; border-radius:12px 12px 3px 12px; overflow-wrap:anywhere; }
+strong { display:block; color:#aff5cb; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+p { margin:2px 0 0; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }

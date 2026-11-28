@@ -115,3 +115,11 @@ header:has(#path:not([hidden])) #connection { display:none; }
 #other-tabs button { padding:4px 8px; }
 /* Fullscreen reserves the entire surface for the game. */
 :root:fullscreen #other-tabs { display:none; }
+
+#chat-mute svg { display:block; width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+#chat-mute .mute-slash { display:none; }
+#chat-mute[aria-pressed=true] { color:#ffbcad; background:#39262a; }
+#chat-mute[aria-pressed=true] .mute-slash { display:block; }
+#chat-overlay { position:absolute; bottom:max(10px,env(safe-area-inset-bottom)); right:max(10px,env(safe-area-inset-right)); width:min(320px,calc(100% - 20px)); height:min(285px,90%); background:transparent; pointer-events:none; visibility:hidden; }
+#chat-overlay[data-ready] { visibility:visible; }
+body:has(#screenshot[aria-busy]) #chat-overlay { visibility:hidden; }
